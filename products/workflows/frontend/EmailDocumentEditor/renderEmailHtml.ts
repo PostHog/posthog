@@ -13,6 +13,7 @@ import {
     resolvePageStyle,
 } from './emailDocument'
 import { changesLiquidValue, htmlToEmailText } from './htmlToEmailText'
+import { encodeLiquidQuotes } from './liquidQuotes'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
@@ -759,7 +760,7 @@ function htmlBlockFragment(html: string): string {
     if (!FULL_HTML_DOCUMENT.test(html)) {
         return html
     }
-    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const doc = new DOMParser().parseFromString(encodeLiquidQuotes(html), 'text/html')
     const styles = Array.from(doc.querySelectorAll('style'))
         .map((style) => style.outerHTML)
         .join('')

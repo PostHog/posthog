@@ -36,6 +36,8 @@ from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import CodeBasedVerificationTokenGenerator
 from posthog.models import Team, User
+from posthog.models.id_jag_identity import IdJagIdentity
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
@@ -1504,6 +1506,21 @@ class TestUserAPI(APIBaseTest):
         other_user_social_auth_id = UserSocialAuth.objects.create(
             user=other_user, provider="google-oauth2", uid="other-google-sub"
         ).id
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at="2024-01-01T00:00:00Z"
+        )
+        other_organization = Organization.objects.create(name="Other")
+        id_jag_bindings = {
+            organization.pk: IdJagIdentity.objects.create(
+                identity_provider_config=IdentityProviderConfig.objects.create(
+                    organization=organization, id_jag_issuer_url="https://idp.example.com"
+                ),
+                issuer="https://idp.example.com",
+                subject="alpha",
+                user=self.user,
+            )
+            for organization in (self.organization, other_organization)
+        }
 
         with (
             patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
@@ -1534,6 +1551,8 @@ class TestUserAPI(APIBaseTest):
             for social_auth_id in social_auth_ids:
                 assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
             assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
+            assert not IdJagIdentity.objects.filter(pk=id_jag_bindings[self.organization.pk].pk).exists()
+            assert IdJagIdentity.objects.filter(pk=id_jag_bindings[other_organization.pk].pk).exists()
             mock_send_email_change_emails.assert_called_once_with(
                 ANY,
                 self.user.first_name,
@@ -2454,9 +2473,21 @@ class TestUserAPI(APIBaseTest):
             self.assertTrue(f"{url}#__posthog=" in location)
 
         def assert_forbidden_url(url):
-            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
+            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}", follow=True)
+            self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(response.headers.get("location"), None)
+            self.assertEqual(
+                response.context["posthog_app_context"]["toolbar_oauth_error"],
+                {
+                    "title": "Domain not authorized",
+                    "message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+                    "detail": (
+                        f"The hostname {urlparse(url).hostname} needs to be added to your project's "
+                        "authorized URLs before the toolbar can be used on this site."
+                    ),
+                    "links_to_authorized_urls": True,
+                },
+            )
 
         # hostnames
         assert_allowed_url("https://www.example.com")
@@ -2485,25 +2516,27 @@ class TestUserAPI(APIBaseTest):
         self.team.save()
 
         app_url = f"https://www.example.com{terminator}@evil.example.net/"
-        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}", follow=True)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.headers.get("location") is None
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
 
     @parameterized.expand(
         [
             ("unterminated_ipv6_literal", "https://[::1"),
             ("nfkc_unstable_host", "https://exa℀mple.com/"),
+            ("free_text", "Your session expired. Sign in again at signin.example.net"),
         ]
     )
     def test_redirect_to_site_rejects_an_unparseable_app_url(self, _name: str, app_url: str) -> None:
         self.team.app_urls = ["https://www.example.com"]
         self.team.save()
 
-        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}", follow=True)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.headers.get("location") is None
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"]["detail"] is None
 
     @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
     def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:

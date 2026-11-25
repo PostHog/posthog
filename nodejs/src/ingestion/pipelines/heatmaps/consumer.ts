@@ -15,9 +15,12 @@ import { RedisPool } from '~/types'
 import { createOutputsRegistry } from './outputs/registry'
 import { createHeatmapsPipeline } from './pipeline'
 
+export type HeatmapsScopeConfig = IngestionOutputsConfig &
+    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
+
 export type HeatmapsConsumerConfig = CommonIngestionConsumerConfig &
-    IngestionOutputsConfig &
-    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID' | 'TEAMS_PREFETCH_ENABLED'>
+    HeatmapsScopeConfig &
+    Pick<IngestionConsumerConfig, 'TEAMS_PREFETCH_ENABLED'>
 
 export type HeatmapsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -27,9 +30,9 @@ export type HeatmapsSharedScope = Scope<{
     producerRegistry: KafkaProducerRegistry<ProducerName>
 }>
 
-export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedScope: HeatmapsSharedScope) {
+export function createHeatmapsScope(config: HeatmapsScopeConfig, sharedScope: HeatmapsSharedScope) {
     const staticDropEventTokens = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-    const scope = extend(sharedScope, 'heatmaps', (container, builder) =>
+    return extend(sharedScope, 'heatmaps', (container, builder) =>
         builder
             .add('promiseScheduler', new PromiseSchedulerComponent())
             .add(
@@ -45,8 +48,16 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
                 new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))
             )
     )
+}
+
+export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedScope: HeatmapsSharedScope) {
+    const scope = createHeatmapsScope(config, sharedScope)
 
     return new CommonIngestionConsumerScope('heatmaps', config, scope, ({ container }) =>
-        createHeatmapsPipeline({ ...container, teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED })
+        createHeatmapsPipeline({
+            ...container,
+            teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
+            concurrentBatches: 1,
+        })
     )
 }

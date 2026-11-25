@@ -32,6 +32,10 @@ jest.mock('expo-router', () => ({
 jest.mock('@/features/views/useViewsContext', () => ({
     useViewsContext: () => ({ access: { state: 'ok' }, scope: null, identity: 'demo' }),
 }))
+jest.mock('@/demo/demoMode', () => ({
+    ...jest.requireActual<typeof import('@/demo/demoMode')>('@/demo/demoMode'),
+    useDataMode: () => 'demo',
+}))
 jest.mock('@/features/views/pointSheet/ChartSheetsProvider', () => ({
     ChartSheetsProvider: ({ children }: { children: ReactNode }): ReactNode => children,
 }))
@@ -187,6 +191,34 @@ describe('LiveScreen', () => {
         fireEvent.press(view.getByTestId('live-filters-clear'))
         fireEvent.press(view.getByTestId('live-filters-apply'))
         view.unmount()
+    })
+
+    test('hides the banner independently of active filters and restores it from the filter sheet', () => {
+        mockFeed = feed()
+        const view = render(screen())
+        const open = (): void => act(() => useTabHeaderStore.getState().slots.live?.filter?.onPress())
+        open()
+        fireEvent.press(view.getByTestId('live-filter-mobile'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+
+        fireEvent.press(view.getByLabelText('Hide filter banner'))
+        expect(view.queryByTestId('live-filter-summary')).toBeNull()
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(1)
+
+        open()
+        expect(view.getByLabelText('Mobile')).toBeSelected()
+        expect(view.getByLabelText('Show filter banner')).toHaveProp('value', false)
+        fireEvent(view.getByLabelText('Show filter banner'), 'valueChange', true)
+        fireEvent.press(view.getByText('Cancel'))
+        expect(view.queryByTestId('live-filter-summary')).toBeNull()
+
+        open()
+        fireEvent(view.getByLabelText('Show filter banner'), 'valueChange', true)
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(view.getByLabelText('Edit Live filters. Mobile')).toBeTruthy()
+        open()
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
     })
 
     test.each(['web', 'mobile', 'mixed'] as const)(

@@ -23,6 +23,7 @@ export function NotebookAppBlock({
     canInteract,
     onInput,
     onCellOutput,
+    renderOutput,
 }: {
     block: NotebookAppBlockApi
     cell?: NotebookBlockNode
@@ -31,7 +32,8 @@ export function NotebookAppBlock({
     variables: NotebookVariable[]
     canInteract: boolean
     onInput: (name: string, value: NotebookVariableValue) => void
-    onCellOutput: (nodeId: string, markdown: string) => void
+    onCellOutput?: (nodeId: string, markdown: string) => void
+    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
@@ -102,24 +104,27 @@ export function NotebookAppBlock({
                     <code>{source}</code>
                 </pre>
             ) : null}
-            {block.display !== 'source' && (
-                <ComponentPanelContext.Provider
-                    value={{
-                        componentPanels: { filters: false, results: true },
-                        showEditPanel: false,
-                        showViewPanel: true,
-                        outputOnly: true,
-                    }}
-                >
-                    <MarkdownNotebook
-                        value={appCellMarkdown(cell)}
-                        onChange={canInteract ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
-                        registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                        mode="view"
-                        className="NotebookAppBuilder__cell"
-                    />
-                </ComponentPanelContext.Provider>
-            )}
+            {block.display !== 'source' &&
+                (renderOutput?.(cell) ?? (
+                    <ComponentPanelContext.Provider
+                        value={{
+                            componentPanels: { filters: false, results: true },
+                            showEditPanel: false,
+                            showViewPanel: true,
+                            outputOnly: true,
+                        }}
+                    >
+                        <MarkdownNotebook
+                            value={appCellMarkdown(cell)}
+                            onChange={
+                                canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined
+                            }
+                            registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                            mode="view"
+                            className="NotebookAppBuilder__cell"
+                        />
+                    </ComponentPanelContext.Provider>
+                ))}
         </div>
     )
 }

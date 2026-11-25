@@ -101,6 +101,10 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Prints HTML unescaped, so it's only valid in page text.
+    raw: bool = False
+    # Prints the tag itself when the app passes no value.
+    stays_when_missing: bool = False
 
 
 TextSplitter = Callable[[str], Iterator["str | TextValue"]]
@@ -194,20 +198,31 @@ class HandlebarsToLiquid:
                 self._feed(piece)
                 yield _literal_text(piece)
                 continue
-            whole = piece.in_attribute and self._is_whole_unquoted_value(
-                following if isinstance(following, str) else ""
+            whole = (
+                piece.in_attribute
+                and not piece.raw
+                and self._is_whole_unquoted_value(following if isinstance(following, str) else "")
             )
             if (piece.liquid or piece.value_path) and (
-                whole or self._value_fits(raw=False, in_attribute=piece.in_attribute)
+                whole or self._value_fits(raw=piece.raw, in_attribute=piece.in_attribute)
             ):
-                self._feed('"x"' if whole else "x")
-                self.converted.append(piece.source)
-                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
+                liquid = self._text_value(piece)
                 yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
+                self._feed('"x"' if whole else "x")
+                self._after_raw_html = self._after_raw_html or (piece.raw and self.is_html)
+                self.converted.append(piece.source)
             else:
                 self.unsupported.append(piece.source)
                 self._feed(piece.source)
                 yield _literal_text(piece.source)
+
+    def _text_value(self, piece: TextValue) -> str:
+        if piece.value_path is None:
+            return piece.liquid or ""
+        value = self._print(piece.value_path, piece.raw, may_be_a_list=not piece.raw)
+        if not piece.stays_when_missing:
+            return value
+        return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
 
     def _output(self, node: _Output, frames: tuple[_Frame, ...], following: str = "") -> str:
         if self.is_html and _ENTITY.search(node.source):

@@ -38,6 +38,7 @@ describe('marketing settings project changes', () => {
             conversion_goal_id: 'purchases',
             conversion_goal_name: 'Purchases',
             schema_map: {},
+            use_in_recommendations: true,
         }
 
         logic.actions.setSetupEntryPoint('dashboard_goal_suggestions')
@@ -45,6 +46,7 @@ describe('marketing settings project changes', () => {
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics settings updated', {
             field: 'conversion_goals',
             entry_point: 'project_settings',
+            recommendation_goal_count: 1,
         })
 
         await expectLogic(router, () => router.actions.push(urls.marketingAnalyticsApp())).toFinishAllListeners()
@@ -59,6 +61,7 @@ describe('marketing settings project changes', () => {
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics settings updated', {
             field: 'conversion_goals',
             entry_point: 'dashboard_goal_suggestions',
+            recommendation_goal_count: 0,
         })
         logic.unmount()
     })

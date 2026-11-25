@@ -97,6 +97,8 @@ The API serializer sets `cohort_type = 'realtime'` when all of the following hol
 - no behavioral leaf looks back more than `REALTIME_COHORT_MAX_HISTORY_DAYS` (400 by default), because the seeder backfills no further than its own lookback cap,
 - on edits, the last known person count is under a size cap.
 
+The cohort API reports which of these kept a `daily` cohort off realtime, as its `realtime.reason` ([what readiness unlocks](completion-and-readiness.md#in-django)).
+
 A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
 An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
 The history limit is not rechecked as time passes.
@@ -132,6 +134,8 @@ The cohort API refuses the same for a criteria edit of a cohort that is on, when
 A cohort that is on keeps its switch while it is daily, static or deleted, so the API judges an edit that brings it back, such as a restore, like a turn-on.
 It judges an edit in the transaction that saves it, under the same team lock as a turn-on.
 A cohort that is on keeps running when the plan changes or its start date ages past the limit, and a rename that resends the same criteria is not judged again.
+Such a save of a realtime cohort is not recompiled either, so the history limit and the size cap that the recompile applies are not checked again.
+Its stamps and its realtime type stay as they were, and the lock on cohorts that active flags use lets it through.
 The refusal is a `400` with code `realtime_limit_reached`, and it is captured as the `cohort realtime limit reached` event.
 
 Other writers can take `realtime` away after a save.

@@ -646,6 +646,7 @@ class TestExternalDataSource(APIBaseTest):
                 "status",
                 "sync_type",
                 "last_synced_at",
+                "last_checked_at",
                 "sync_frequency",
                 "latest_error",
                 "table",
@@ -817,6 +818,7 @@ class TestExternalDataSource(APIBaseTest):
                 "should_sync": True,
                 "status": ExternalDataSchema.Status.FAILED,
                 "last_synced_at": None,
+                "last_checked_at": None,
                 "latest_error": "boom",
             }
         else:
@@ -3996,6 +3998,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
+                    "last_checked_at": None,
                     "name": schema.name,
                     "label": schema.label,
                     "latest_error": schema.latest_error,
@@ -4153,14 +4156,24 @@ class TestExternalDataSource(APIBaseTest):
     )
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
+        failing, healthy = (
+            ExternalDataSchema.objects.create(
+                name=name, team=self.team, source=source, should_sync=True, sync_type_config=config
+            )
+            for name, config in (("Charge", {"failure_streak": {"runs": 8}}), ("Customer", {}))
+        )
 
         response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
         source.refresh_from_db()
+        failing.refresh_from_db()
+        healthy.refresh_from_db()
 
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+        assert failing.manual_run_requested is True
+        assert healthy.sync_type_config == {}
 
     @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:
@@ -7140,13 +7153,17 @@ class TestExternalDataSource(APIBaseTest):
             pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
-        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.Database.create_for"
+        ) as database:
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
 
         data = response.json()
 
         assert response.status_code == status.HTTP_200_OK
+        database.assert_not_called()
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
@@ -16226,6 +16243,31 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/",
             headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
         )
+
+        if should_have_access:
+            assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("read_get", "destinations", "external_data_source:read", "GET", True),
+            ("read_patch", "destinations", "external_data_source:read", "PATCH", False),
+            ("write_patch", "destinations", "external_data_source:write", "PATCH", True),
+            ("access_controls_read", "access_controls", "access_control:read", "GET", True),
+            ("access_controls_source_read", "access_controls", "external_data_source:read", "GET", False),
+        ]
+    )
+    def test_action_scopes(self, _name: str, action: str, scope: str, method: str, should_have_access: bool) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        self.client.force_authenticate(None)
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/{action}/"
+        headers = {"authorization": f"Bearer {self._make_api_key([scope])}"}
+
+        if method == "GET":
+            response = self.client.get(url, headers=headers)
+        else:
+            response = self.client.patch(url, {"destination_ids": []}, format="json", headers=headers)
 
         if should_have_access:
             assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
