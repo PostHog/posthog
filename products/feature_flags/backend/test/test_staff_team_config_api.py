@@ -104,7 +104,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
-            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keep_writing_flag_calls_to_events=True
         )
 
         missing_id = other_team.id + 9999
@@ -119,6 +119,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
                 row["flag_evaluations_mode"],
+                row["keep_writing_flag_calls_to_events"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -130,8 +131,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, False, None, 2000, 1, 0),
-                other_team.id: (True, 2, True, 5000, 5000, 1, 2),
+                self.team.id: (False, 1, False, None, 2000, 2, True, 0),
+                other_team.id: (True, 2, True, 5000, 5000, 2, True, 2),
             },
         )
 
@@ -155,6 +156,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
                     "flag_evaluations_mode": 0,
+                    "keep_writing_flag_calls_to_events": False,
                     "feature_flag_count": 0,
                 }
             ],
@@ -201,6 +203,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
                 "flag_evaluations_mode": 1,
+                "keep_writing_flag_calls_to_events": False,
                 "feature_flag_count": 0,
                 setting: new_value,
             },

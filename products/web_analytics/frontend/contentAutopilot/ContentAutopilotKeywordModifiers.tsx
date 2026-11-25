@@ -18,14 +18,14 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
 
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="What the engines add to your searches" />
+            <PagePerformanceCardHeader
+                title="What the engines add to your searches"
+                description={
+                    'Words the engines put in their web searches that your prompts don\'t contain, such as a year, "pricing" or "vs". Each points at content the engines look for. Words whose answers cite you much less than usual are marked as gaps.'
+                }
+            />
             <div className="flex flex-col gap-3 p-3" data-attr="content-autopilot-keywords-modifiers">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="m-0 text-xs text-muted max-w-2xl">
-                        Words the engines put in their web searches that your prompts don't contain, such as a year,
-                        "pricing" or "vs". Each points at content the engines look for. Words whose answers cite you
-                        much less than usual are marked as gaps.
-                    </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
                     <LemonSelect<string | null>
                         size="small"
                         aria-label="Keyword filter"

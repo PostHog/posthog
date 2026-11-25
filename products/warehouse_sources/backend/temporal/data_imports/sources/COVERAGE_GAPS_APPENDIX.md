@@ -12695,7 +12695,7 @@ Note: The connector authenticates with a Rollbar project access token, while pro
 
 ## Rootly — gaps
 
-Today (19): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
+Today (22): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_roles`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedule_rotation_users`, `schedule_rotations`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
@@ -12703,10 +12703,10 @@ Diffed against: <https://docs.rootly.com/api-reference>
 - [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
 - [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
 - [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
-- [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
-- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
-- [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
-- [ ] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium)
+- [x] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high) → `incident_roles` (full refresh)
+- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium) Skipped: `GET /v1/oncalls` computes who is on call at a `since`/`until` time (default now), unpaginated and with no timestamps to sync on.
+- [x] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium) → `schedule_rotations` (full refresh, fan-out over `schedules`)
+- [x] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium) → `schedule_rotation_users` (full refresh, two-level fan-out over `schedules` and their rotations)
 - [ ] `workflow_runs (list-workflow-runs)` — execution history for the workflows we already sync (medium)
 - [ ] `sub_statuses (list-sub-statuses)` — lookup resolving incident sub-status IDs (medium)
 - [ ] `incident_feedbacks (list-incident-feedbacks)` — post-incident satisfaction scoring (medium)
@@ -12918,10 +12918,10 @@ Diffed against: <https://developers.salesloft.com/docs/api/opportunities-index/>
 - [x] `tags` — lookup resolving tag ids attached to people, accounts and cadences (medium)
 - [ ] `account_types` — lookup resolving the account_type id already carried on accounts (medium); skipped: `GET /v2/account_types` returns only the distinct account type names for filter pickers, with no id, no pagination and results limited to the caller's readable accounts. Accounts carry the type as a plain string (`company_type`), so there is no id to resolve and the values are derivable from the `accounts` table
 - [x] `opportunity_people` — join table linking people to opportunities (medium)
-- [ ] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
-- [ ] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium)
-- [ ] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
-- [ ] `custom_roles` — lookup resolving the role assigned to each user (low)
+- [x] `calendar_events` — booked meetings and their outcomes beyond the meetings table (medium)
+- [x] `conversations / conversations_calls` — conversation intelligence records for call analysis (medium); built `conversations`. `conversations_calls` is not a table: `POST /v2/conversations/calls` only creates a dialer call and has no list endpoint
+- [x] `transcriptions` — call transcripts, the input for talk-track analysis (medium)
+- [x] `custom_roles` — lookup resolving the role assigned to each user (low)
 
 Note: Salesloft publishes no OpenAPI file (api.salesloft.com/v2.json is auth-gated); the complete v2.0 resource list is rendered into the Docusaurus sidebar on every /docs/api/\*-index page. Excluded plumbing: webhook subscriptions, bulk jobs, external id configuration/mapping, redaction and right-to-be-forgotten, saved list views, recording settings.
 
