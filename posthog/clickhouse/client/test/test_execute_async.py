@@ -485,7 +485,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
-    def test_enqueued_query_tags_leave_out_traceparent_for_older_workers(self):
+    def test_enqueued_query_tags_carry_the_traceparent(self):
         from posthog.clickhouse.query_tagging import tags_context
 
         with (
@@ -498,10 +498,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         ):
             client.enqueue_process_query_task(self.team, self.user.id, build_query("SELECT 1"))
 
-        # A worker on the previous release has no traceparent field and would reject the task.
         sent_tags = signature.call_args.args[4]
         self.assertEqual(sent_tags["client_query_id"], "dashboard-v2-batch-1")
-        self.assertNotIn("traceparent", sent_tags)
+        self.assertEqual(sent_tags["traceparent"], "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
 
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")
