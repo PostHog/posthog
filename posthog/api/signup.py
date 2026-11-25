@@ -928,7 +928,8 @@ class InviteSignupViewset(generics.CreateAPIView):
             "first_name": invite.first_name,
             "organization_name": invite.organization.name,
         }
-        if radar_client_id := radar_client_id_for_signup():
+        # A signed-in user joins without a signup, and Radar checks only a signup
+        if user is None and (radar_client_id := radar_client_id_for_signup()):
             body["radar_client_id"] = radar_client_id
         return response.Response(body)
 

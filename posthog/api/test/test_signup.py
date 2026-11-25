@@ -2147,6 +2147,16 @@ class TestInviteSignupChallengeAPI(APIBaseTest):
         assert precheck.get("radar_client_id") == expected
         assert invite_page.get("radar_client_id") == expected
 
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123")
+    def test_the_invite_page_names_no_radar_client_to_a_signed_in_invitee(self):
+        invite = OrganizationInvite.objects.create(target_email="invitee@posthog.com", organization=self.organization)
+        self.client.force_login(User.objects.create_user("invitee@posthog.com", VALID_TEST_PASSWORD, "Invitee"))
+
+        response = self.client.get(f"/api/signup/{invite.id}/")
+
+        assert response.status_code == 200
+        assert "radar_client_id" not in response.json()
+
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
     def test_invite_signup_sends_the_browser_signals_token_to_radar(self, mock_call_api):
