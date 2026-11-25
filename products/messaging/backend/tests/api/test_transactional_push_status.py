@@ -194,11 +194,19 @@ class TestTransactionalPushStatus(ClickhouseTestMixin, APIBaseTest):
         }
         assert capture.call_args.kwargs["properties"]["authorized_by"] == "transactional_push"
 
-    @parameterized.expand([("just_finished", 10, "sending"), ("finished_a_while_ago", 120, "not_sent")])
+    @parameterized.expand(
+        [
+            ("just_finished", "succeeded", 10, "sending"),
+            ("finished_a_while_ago", "succeeded", 120, "not_sent"),
+            ("just_failed", "failed", 10, "sending"),
+            ("failed_a_while_ago", "failed", 120, "failed"),
+            ("just_canceled", "canceled", 10, "failed"),
+        ]
+    )
     def test_a_finished_send_whose_outcome_is_not_recorded_yet_is_still_sending(
-        self, _flag, _name, seconds_ago, expected_status
+        self, _flag, _name, run_status, seconds_ago, expected_status
     ):
-        run_id = self._run("succeeded", at=NOW - timedelta(seconds=seconds_ago))
+        run_id = self._run(run_status, at=NOW - timedelta(seconds=seconds_ago))
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging/pushes/{run_id}/")
 

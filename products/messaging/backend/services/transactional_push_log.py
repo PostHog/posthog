@@ -274,7 +274,7 @@ def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | Non
     status = PushSendStatus(send_status)
     step_messages = _step_messages(team_id, workflow_ids, [str(run_id)], period.start).get(str(run_id), [])
     if (
-        status == PushSendStatus.NOT_SENT
+        (status == PushSendStatus.NOT_SENT or (status == PushSendStatus.FAILED and run_status != "canceled"))
         and not step_messages
         and finished_at is not None
         and finished_at.replace(tzinfo=UTC) > now - _OUTCOME_LAG
