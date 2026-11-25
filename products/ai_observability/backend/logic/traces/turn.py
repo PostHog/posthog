@@ -101,13 +101,14 @@ class TurnSides:
         """The input and output a turn shows: what its trace added, not the history every generation or state input
         carries."""
         output_source = latest_generation or first_generation
+        state_input = _added_input(state.input, None) if state else None
         return cls(
             input=_conversation_or(
-                _added_input(state.input, None) if state else None,
+                state_input,
                 lambda: _added_input(first_generation.input if first_generation else None, latest_generation_input),
             ),
             output=_conversation_or(
-                state.output if state else None,
+                _added_output(state.output, state_input) if state and state_input else None,
                 lambda: output_source.output if output_source else _NOTHING_READ,
             ),
         )
@@ -159,7 +160,10 @@ def _conversation_or(state_side: StepSide | None, fallback: Callable[[], StepSid
         and state_side.value.messages
     ):
         return state_side
-    return fallback()
+    read = fallback()
+    if state_side is not None and shown(read) is None and read.unread is None:
+        return state_side
+    return read
 
 
 def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
@@ -180,7 +184,19 @@ def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
                 value=_messages([*anchor, *after]),
                 unread=_cut_into_turn(latest_start, latest.unread) or cut_in_first,
             )
-    return Side(value=_messages(anchor), unread=cut_in_first)
+    return Side(value=_messages(anchor), unread=cut_in_first or (latest.unread if latest else None))
+
+
+def _added_output(output: StepSide, added_input: StepSide) -> StepSide:
+    """A state output that repeats the conversation is cut to what follows the turn's own input."""
+    if not isinstance(output.value, contracts.TraceMessagesSide) or not isinstance(
+        added_input.value, contracts.TraceMessagesSide
+    ):
+        return output
+    asked = added_input.value.messages
+    start = _last_run_start(output.value.messages, asked) if asked else None
+    answer = output.value.messages[start + len(asked) :] if start is not None else []
+    return Side(value=_messages(answer), unread=output.unread) if answer else output
 
 
 def _cut_into_turn(start: int, unread: Unreadable | None) -> Unreadable | None:
@@ -207,14 +223,34 @@ def _anchor_start(messages: list[contracts.TraceMessage]) -> int | None:
 
 def _last_run_start(messages: list[contracts.TraceMessage], run: list[contracts.TraceMessage]) -> int | None:
     """Where `run` last appears in `messages`, comparing role and parts, since ids differ between generations."""
-    return next(
-        (
-            start
-            for start in reversed(range(len(messages) - len(run) + 1))
-            if all(_same_message(messages[start + offset], message) for offset, message in enumerate(run))
-        ),
-        None,
-    )
+    if not run:
+        return len(messages)
+    # Each message is compared a bounded number of times, so repetitive input cannot outlast the page's deadline.
+    restarts = _restarts(run)
+    last_start: int | None = None
+    matched = 0
+    for index, message in enumerate(messages):
+        while matched and not _same_message(message, run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(message, run[matched]):
+            matched += 1
+        if matched == len(run):
+            last_start = index - len(run) + 1
+            matched = restarts[matched - 1]
+    return last_start
+
+
+def _restarts(run: list[contracts.TraceMessage]) -> list[int]:
+    """For each prefix of `run`, how many of its last messages repeat its first ones, where a failed match resumes."""
+    restarts = [0] * len(run)
+    matched = 0
+    for index in range(1, len(run)):
+        while matched and not _same_message(run[index], run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(run[index], run[matched]):
+            matched += 1
+        restarts[index] = matched
+    return restarts
 
 
 def _same_message(a: contracts.TraceMessage, b: contracts.TraceMessage) -> bool:

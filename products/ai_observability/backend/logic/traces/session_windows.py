@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Final
 
 from .events_fallback import FALLBACK_AFTER_HINT, FALLBACK_BEFORE_HINT, FallbackWindow
@@ -11,16 +11,19 @@ SHARED_FACTS_MAX_TRACES: Final = 1000
 
 
 def ai_events_read_start(now: datetime, retention_days: int) -> datetime:
-    """The oldest moment `posthog.ai_events` may still hold a row of the team."""
-    return now - timedelta(days=retention_days)
+    """The oldest moment from which `posthog.ai_events` still holds the team's rows: the start of the first day whose
+    rows have not expired. A row expires at the start of the UTC day `retention_days` after its own."""
+    first_day_held = now.astimezone(UTC).date() - timedelta(days=retention_days - 1)
+    return datetime.combine(first_day_held, time.min, tzinfo=UTC)
 
 
 def session_window(now: datetime, read_start: datetime, timestamp_hint: datetime | None) -> TraceWindow:
     """The window one session is read in, for its turns and its facts alike: the team's AI events retention up to now,
-    reaching back to just before a timestamp hint older than that retention."""
+    reaching back to just before a timestamp hint older than that retention, and no further than the lookback of an
+    all-time list."""
     if timestamp_hint is None or timestamp_hint >= read_start:
         return TraceWindow(start=read_start, end=now)
-    return TraceWindow(start=timestamp_hint - FALLBACK_BEFORE_HINT, end=now)
+    return TraceWindow(start=max(timestamp_hint - FALLBACK_BEFORE_HINT, now - ALL_TIME_LOOKBACK), end=now)
 
 
 def is_past_retention(window: TraceWindow, read_start: datetime) -> bool:

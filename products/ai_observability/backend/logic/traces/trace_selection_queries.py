@@ -345,6 +345,7 @@ def _rows_around_query(team: Team, selection: TraceSelection, trace_id: str, tak
             )
         )
         WHERE if(before_anchor, nearest_before <= {before}, nearest_from <= {from_anchor})
+        LIMIT {both_sides}
         """,
         placeholders={
             "sort_key_ms": _sort_key_ms(selection),
@@ -353,6 +354,7 @@ def _rows_around_query(team: Team, selection: TraceSelection, trace_id: str, tak
             "quick_filter": _all(_quick_filter_fact(selection)),
             "before": ast.Constant(value=takes.before),
             "from_anchor": ast.Constant(value=takes.from_anchor),
+            "both_sides": ast.Constant(value=takes.before + takes.from_anchor),
         },
     )
     assert isinstance(query, ast.SelectQuery)
