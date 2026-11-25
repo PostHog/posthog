@@ -11,7 +11,6 @@ type ValueStream = {
     nextValueEnd: IndexFinder
     nextTagEnd: IndexFinder
     nextAnchorClose: IndexFinder
-    nextCloseEnd: IndexFinder
 }
 
 const memoizedFinder = (html: string, pattern: RegExp): IndexFinder => {
@@ -31,8 +30,7 @@ const memoizedFinder = (html: string, pattern: RegExp): IndexFinder => {
 const valueStream = (html: string, valueEnd: RegExp): ValueStream => ({
     nextValueEnd: memoizedFinder(html, valueEnd),
     nextTagEnd: memoizedFinder(html, />/g),
-    nextAnchorClose: memoizedFinder(html, /<\/a[\t\n\f\r />]/gi),
-    nextCloseEnd: memoizedFinder(html, />/g),
+    nextAnchorClose: memoizedFinder(html, /<\/a>/gi),
 })
 
 const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) => {
@@ -78,8 +76,7 @@ const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) =>
         }
         const tagEnd = stream.nextTagEnd(value.end)
         const anchorClose = tagEnd === -1 ? -1 : stream.nextAnchorClose(tagEnd + 1)
-        const closeEnd = anchorClose === -1 ? -1 : stream.nextCloseEnd(anchorClose + '</a'.length)
-        return closeEnd === -1 ? null : { href: value.href, end: closeEnd + 1 }
+        return anchorClose === -1 ? null : { href: value.href, end: anchorClose + '</a>'.length }
     }
 }
 

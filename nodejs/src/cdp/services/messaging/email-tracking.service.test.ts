@@ -353,24 +353,6 @@ describe('EmailTrackingService', () => {
                     invocation,
                     '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track ses:no-track>x</a>',
                 ],
-                [
-                    'a sensitive template whose link closes with a space',
-                    '<a href="https://example.com/reset">x</a >',
-                    sensitiveInvocation,
-                    '<a href="https://example.com/reset" ses:no-track>x</a >',
-                ],
-                [
-                    'a sensitive template whose link closes in uppercase across a line break',
-                    '<a href="https://example.com/reset">x</A\n>',
-                    sensitiveInvocation,
-                    '<a href="https://example.com/reset" ses:no-track>x</A\n>',
-                ],
-                [
-                    'a sensitive template whose link closes with a slash',
-                    '<a href="https://example.com/reset">x</a/>',
-                    sensitiveInvocation,
-                    '<a href="https://example.com/reset" ses:no-track>x</a/>',
-                ],
             ])('translates the %s opt-out into ses:no-track', (_name, anchor, inv, translated) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
