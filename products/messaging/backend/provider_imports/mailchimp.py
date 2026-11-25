@@ -111,10 +111,7 @@ TOO_MANY_AUDIENCES_MESSAGE = (
     "as CSV files instead."
 )
 ACCOUNT_NAME_LENGTH = 200
-NO_AUDIENCES_NOTE = (
-    "Mailchimp returned no audiences, so every cohort stays as it is. If you deleted your audiences, empty or delete "
-    "their cohorts yourself."
-)
+NO_AUDIENCES_NOTE = "Mailchimp returned no audiences, so no cohort changed."
 DELETED_AUDIENCE_NOTE = "This audience was deleted in Mailchimp, so this import takes everyone out of its cohort. The people stay in PostHog."
 NOT_EMPTIED_NOTE = (
     "This audience was deleted in Mailchimp, but PostHog couldn't empty its cohort. Import again as someone who can edit "
@@ -836,8 +833,9 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
     if not account_id:
         raise MailchimpAPIError("Mailchimp sent an unexpected response.")
     account_name = _clean(account.get("account_name")).strip() or account_id
-    if not audiences:
-        # Nothing tells an account whose audiences were all deleted from one that hides them.
+    emptied = _cohorts_of_deleted_audiences(client, context, account_id, _clean(account.get("role")), audiences)
+    if not audiences and not emptied:
+        # With no audience listed and none confirmed deleted, the account's own cohort would lose everyone unproven.
         item = ImportItem(
             label=f"Mailchimp contacts, {account_name}"[:MAX_SOURCE_NAME_LENGTH],
             status="skipped",
@@ -845,7 +843,6 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         )
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, items=(item,)))
         return
-    emptied = _cohorts_of_deleted_audiences(client, context, account_id, _clean(account.get("role")), audiences)
     # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
     # them again.
     run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
