@@ -182,6 +182,9 @@ def preview_stats(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
     except Exception as error:
         messages.error(request, f"Could not preview stats: {error}")
         return HttpResponse(status=502)
+    if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        messages.info(request, f"The query selects {stats['count']:,} events. Not saved to the request.")
+        return None
     messages.info(
         request,
         f"{stats['count']:,} matching events, from {_when(stats['min_timestamp'])} to {_when(stats['max_timestamp'])}. "
@@ -219,7 +222,7 @@ class DeletionRequestStatsPanel(Panel):
             *facts,
             Fact(label="Matching events", value=_number(obj.count)),
             Fact(label="Parts", value=_number(obj.part_count)),
-            Fact(label="Parts size", value=filesizeformat(obj.parts_size or 0)),
+            Fact(label="Parts size", value="-" if obj.parts_size is None else filesizeformat(obj.parts_size)),
             Fact(label="Rows in those parts", value=_number(obj.parts_row_count)),
             Fact(label="Earliest event", value=_when(obj.min_timestamp)),
             Fact(label="Latest event", value=_when(obj.max_timestamp)),

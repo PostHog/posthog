@@ -821,6 +821,8 @@ def build_deletion_count_query(obj: "DataDeletionRequest") -> tuple[str, dict]:
 
 
 _STATS_MAX_EXECUTION_TIME = 300
+# A stored query is one ClickHouse query, so it gets the time of both criteria-backed stats queries.
+_QUERY_BACKED_STATS_MAX_EXECUTION_TIME = 600
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int | None = None) -> dict:
@@ -922,10 +924,38 @@ def fetch_property_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | 
     return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
+def fetch_query_backed_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
+    """Count the events a query-backed request selects.
+
+    The stored query returns only event UUIDs, so there are no timestamps or parts to report.
+    """
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+    from posthog.data_deletion import count_query_backed_deletion
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=obj.team_id,
+        user_id=user_id,
+        workload=Workload.OFFLINE,
+        query_type="delete_event_count",
+    ):
+        count = count_query_backed_deletion(obj, max_execution_time=_QUERY_BACKED_STATS_MAX_EXECUTION_TIME)
+    return {
+        "count": count,
+        "min_timestamp": None,
+        "max_timestamp": None,
+        "part_count": None,
+        "parts_size": None,
+        "parts_row_count": None,
+    }
+
+
 def fetch_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
-        raise ValueError("Stats are not available for query-backed deletion requests yet.")
+        return fetch_query_backed_deletion_stats(obj, user_id=user_id)
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj, user_id=user_id)
     return fetch_event_deletion_stats(obj, user_id=user_id)

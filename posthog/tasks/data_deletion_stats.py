@@ -13,7 +13,8 @@ from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-# The stats run two ClickHouse queries of up to 300 seconds each, so the hard limit is past both.
+# The stats run up to 600 seconds of ClickHouse queries: two of up to 300 seconds each, or one stored query of up
+# to 600 seconds. Both limits are past that.
 REFRESH_SOFT_TIME_LIMIT_SECONDS = 660
 REFRESH_TIME_LIMIT_SECONDS = 720
 # A task that waited longer than this in the queue is dropped, so the lease never outlives a queued task.
