@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ParsingError
+from posthog.hogql.errors import ExposedHogQLError, ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -77,7 +77,7 @@ from products.data_modeling.backend.facade.api import (
     set_incremental_state,
     wrap_with_incremental_guard,
 )
-from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import ResolutionTimeoutError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.temporal.activities.incremental_write import (
@@ -296,6 +296,20 @@ class DuplicateOutputColumnError(NonReportableError):
         self.duplicates = duplicates
 
 
+class HogQLModelQueryError(NonReportableError):
+    pass
+
+
+@contextlib.contextmanager
+def _hogql_errors_as_customer_errors() -> Iterator[None]:
+    try:
+        yield
+    except ResolutionTimeoutError:
+        raise
+    except ExposedHogQLError as error:
+        raise HogQLModelQueryError(str(error)) from error
+
+
 def _is_s3_permission_denied(error: BaseException) -> bool:
     """True for an S3 access-denied error on our own bucket, from either client this pipeline uses.
 
@@ -491,6 +505,19 @@ def _span_kept_out_of_context(name: str) -> Iterator[trace.Span]:
 
 
 async def hogql_table(
+    query: str,
+    team: Team,
+    logger: FilteringBoundLogger,
+    view_name: str | None = None,
+    window: "IncrementalWindow | None" = None,
+    progress: "_AttemptProgress | None" = None,
+):
+    with _hogql_errors_as_customer_errors():
+        async for batch_with_types in _hogql_table_batches(query, team, logger, view_name, window, progress):
+            yield batch_with_types
+
+
+async def _hogql_table_batches(
     query: str,
     team: Team,
     logger: FilteringBoundLogger,
