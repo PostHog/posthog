@@ -121,6 +121,7 @@ from products.messaging.backend.facade.transactional_email import (
     sync_transactional_workflow,
     transactional_email_stage,
 )
+from products.messaging.backend.presentation.views.batch_outcome import batch_outcome
 from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     MESSAGE_LIMIT,
@@ -139,7 +140,6 @@ from products.messaging.backend.presentation.views.push_batch import (
     PUSH_BATCH_BODY_MAX_BYTES,
     PUSH_BATCH_RESPONSES,
     SendPushBatchSerializer,
-    push_batch_outcome,
     push_batch_recipients,
     push_batch_response,
     push_batch_too_large,
@@ -2081,7 +2081,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._report_transactional_push_send(request, template.id, {**batch, "outcome": "unavailable"})
             raise unconfirmed_push_batch() from None
         for result in results:
-            self._report_transactional_push_send(request, template.id, {**batch, **push_batch_outcome(result)})
+            self._report_transactional_push_send(request, template.id, {**batch, **batch_outcome(result)})
         return Response(push_batch_response(results), status=status.HTTP_200_OK)
 
     def _report_transactional_push_send(self, request: Any, template_id: Any, properties: dict[str, Any]) -> None:

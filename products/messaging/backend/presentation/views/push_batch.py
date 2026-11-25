@@ -211,14 +211,6 @@ def push_batch_response(results: tuple[QueuedEmail | EmailNotQueued, ...]) -> di
     return SendPushBatchResponseSerializer({"results": [_result(result) for result in results]}).data
 
 
-def push_batch_outcome(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:
-    if isinstance(result, QueuedEmail):
-        return {"outcome": "replayed" if result.replayed else "queued"}
-    if isinstance(result.error, DeliveryUnavailable):
-        return {"outcome": "unavailable"}
-    return {"outcome": "rejected", "error_code": result.error.code}
-
-
 def _result(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:
     if isinstance(result, QueuedEmail):
         return {"message_id": result.message_id, "status": PushBatchResultStatus.QUEUED, "replayed": result.replayed}
