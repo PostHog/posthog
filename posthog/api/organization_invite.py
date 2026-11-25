@@ -34,7 +34,7 @@ from posthog.models.onboarding_delegation import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.permissions import (
     APIScopePermission,
     OrganizationMemberPermissions,
@@ -248,6 +248,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ).exists():
             raise exceptions.ValidationError(
                 "A user with this email address already belongs to the organization.", code="existing_member"
+            )
+        # A service account never signs in, so an invite to its address could never be accepted.
+        if User.objects.filter(email__iexact=email).exclude(type=UserType.HUMAN).exists():
+            raise exceptions.ValidationError(
+                "This email address belongs to a service account, which can't be invited.", code="service_account"
             )
         return email
 

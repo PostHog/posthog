@@ -25,6 +25,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.products import Products
 from posthog.schema_enums import ProductItemCategory
@@ -1598,6 +1599,16 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "existing_member")
         self.assertEqual(response.json()["attr"], "target_email")
+        self.assertEqual(OrganizationInvite.objects.count(), 0)
+
+    def test_cannot_invite_a_service_account_address(self):
+        other_organization = Organization.objects.create(name="Other")
+        User.objects.create_and_join(other_organization, "Deploys@Example.com", None, type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.post("/api/organizations/@current/invites/", {"target_email": "deploys@example.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "service_account")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):
