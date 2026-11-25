@@ -750,6 +750,8 @@ class QueryBatch:
         self._result_format = result_format
         self._shapes: dict[int, _LineShape] = {}
         self._user = user
+        # Set by `_read_cache`, which runs before any job: a bucketed run plans with the same access as the read.
+        self._access_control: Optional[UserAccessControl] = None
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
         self._traceparent = traceparent
@@ -815,6 +817,7 @@ class QueryBatch:
                 continue
             self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
+        self._access_control = user_access_control
         if logql:
             try:
                 assert_can_read_logs(self._team, self._user, user_access_control)
@@ -1195,7 +1198,7 @@ class QueryBatch:
             variables_override_json=query.variables,
             limit_context=_limit_context(query.query),
             user=self._user,
-            user_access_control=UserAccessControl(user=self._user, team=team),
+            user_access_control=self._access_control,
             allow_raw_results=False,
         )
         if planned is None:
