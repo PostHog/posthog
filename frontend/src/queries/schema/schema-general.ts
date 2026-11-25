@@ -8453,6 +8453,14 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /**
+     * Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every
+     * matching event. Leave unset to return every event.
+     * @asType integer
+     * @minimum 1
+     * @maximum 10000
+     */
+    eventsLimit?: number
 }
 
 export interface SessionQueryResponse extends AnalyticsQueryResponseBase {

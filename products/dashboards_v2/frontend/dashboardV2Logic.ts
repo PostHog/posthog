@@ -62,6 +62,11 @@ export interface dashboardV2LogicActions {
                                     type: 'section'
                                 }
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                          }
+                                        | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
@@ -137,6 +142,11 @@ export interface dashboardV2LogicMeta {
                                     type: 'section'
                                 }
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                          }
+                                        | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
@@ -192,6 +202,11 @@ export interface dashboardV2LogicMeta {
                                         type: 'section'
                                     }
                                   | {
+                                        appearance?:
+                                            | {
+                                                  background?: boolean | undefined
+                                              }
+                                            | undefined
                                         config: unknown
                                         description?: string | undefined
                                         parts?:
