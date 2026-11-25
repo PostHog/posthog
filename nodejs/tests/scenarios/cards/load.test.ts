@@ -305,13 +305,19 @@ describe('load', () => {
                 valves: [{ ...emailWorkerKill, when: undefined, at: '5s' }],
             },
             { ...profile, settings: sesSettings, load: emailLoad },
-            'valves.0.at: the valve can fire 5s into the drive, inside the 30s fault-free baseline that load and host admission measure; set at to 30s or later',
+            'valves.0.at: the valve can fire 5s into the drive, before load and host admission measure a 30s fault-free baseline and the scrape that closes it; set at to 35s or later',
         ],
         [
             'a when valve with no arming delay on a profile with host admission',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [emailWorkerKill] },
             { ...profile, host: { cpuCeiling: 0.5 } },
-            'valves.0.at: the valve can fire 0s into the drive, inside the 30s fault-free baseline that load and host admission measure; set at to 30s or later',
+            'valves.0.at: the valve can fire 0s into the drive, before load and host admission measure a 30s fault-free baseline and the scrape that closes it; set at to 35s or later',
+        ],
+        [
+            'a when valve armed at the end of the baseline, before the scrape that closes it',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 30s into the drive, before load and host admission measure a 30s fault-free baseline and the scrape that closes it; set at to 35s or later',
         ],
         [
             'a when predicate the runner does not know',
@@ -741,8 +747,8 @@ describe('load', () => {
         ],
         ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
         [
-            'a when valve armed at the end of the baseline on a profile with admission',
-            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
+            'a when valve armed once the scrape that closes the baseline is in',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '35s' }] },
             { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
         ],
         [

@@ -60,7 +60,7 @@ export type MeasurementDefinition = Definition & {
     measure(evidence: MeasureEvidence): Measured[]
 }
 
-const SAMPLE_INTERVAL_MS = 5000
+export const SAMPLE_INTERVAL_MS = 5000
 const SCRAPE_TIMEOUT_MS = 2000
 const BASELINE_WITHIN_MS = 10_000
 const BASELINE_RETRY_MS = 500

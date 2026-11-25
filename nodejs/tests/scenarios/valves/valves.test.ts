@@ -370,16 +370,13 @@ describe('valves', () => {
         ])
     })
 
-    it.each<[string, string | undefined]>([
-        ['', undefined],
-        [', once its arming delay passed', '20ms'],
-    ])('waits until enough jobs of its teams run on the queue before it kills%s', async (_story, at) => {
+    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         stack.run(1)
         stack.run(3, 'hogflow')
 
-        await valves.start([kill({ at, when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
         await stack.nextRead()
         await stack.nextRead()
         expect(stack.gone()).toEqual([])
@@ -389,6 +386,19 @@ describe('valves', () => {
         await valves.releaseAll()
 
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    it('kills only once its arming delay passed, though enough jobs ran from the start', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ runningJobs: 2 })
+        const startedAt = Date.now()
+
+        await valves.start([kill({ at: '100ms', when: RUNNING_ON_EMAIL })], stack.context)
+        await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
+        const killedAfterMs = Date.now() - startedAt
+        await valves.releaseAll()
+
+        expect(killedAfterMs).toBeGreaterThanOrEqual(90)
     })
 
     const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }

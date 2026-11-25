@@ -9,7 +9,7 @@ import { getDefaultConfig } from '~/common/config/config'
 
 import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
-import { MIN_BASELINE_SECONDS } from '../judge/measurements'
+import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS } from '../judge/measurements'
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
@@ -235,15 +235,17 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
+const FIRST_FAULT_SECONDS = MIN_BASELINE_SECONDS + SAMPLE_INTERVAL_MS / 1000
+
 function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
     if (profile.load === undefined && profile.host === undefined) {
         return []
     }
     return card.valves.flatMap((entry, i) => {
         const seconds = durationMs(entry.at ?? '0s') / 1000
-        return seconds < MIN_BASELINE_SECONDS
+        return seconds < FIRST_FAULT_SECONDS
             ? [
-                  `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure; set at to ${MIN_BASELINE_SECONDS}s or later`,
+                  `valves.${i}.at: the valve can fire ${seconds}s into the drive, before load and host admission measure a ${MIN_BASELINE_SECONDS}s fault-free baseline and the scrape that closes it; set at to ${FIRST_FAULT_SECONDS}s or later`,
               ]
             : []
     })

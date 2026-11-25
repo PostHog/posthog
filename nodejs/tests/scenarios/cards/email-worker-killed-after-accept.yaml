@@ -14,7 +14,7 @@ valves:
     - valve: role.kill
       target: cdp-cyclotron-worker-email
       dose: {}
-      at: 30s
+      at: 35s
       when:
           name: edge_accepted
           params:
