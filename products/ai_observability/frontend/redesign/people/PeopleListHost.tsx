@@ -30,6 +30,7 @@ import { PeopleSetupCard } from './components/PeopleSetupCard'
 import { peopleTableColumns } from './components/PeopleTableColumns'
 import { PEOPLE_LIST_FILTERS, peopleListLogic } from './peopleListLogic'
 import { personCellsLogic } from './personCellsLogic'
+import { PersonDrawerHost } from './PersonDrawerHost'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
 const DATA_ATTR = 'ai-observability-people-list'
@@ -194,6 +195,7 @@ export function PeopleListHost(): JSX.Element {
                     data-attr={DATA_ATTR}
                 />
             )}
+            {openPersonId ? <PersonDrawerHost personId={openPersonId} /> : null}
         </div>
     )
 }

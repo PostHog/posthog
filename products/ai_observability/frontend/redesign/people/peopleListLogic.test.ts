@@ -388,8 +388,8 @@ describe('peopleListLogic', () => {
         expect(toastError).toHaveBeenCalledTimes(1)
     })
 
-    it('keeps the open person from the url across a reload, and opens another on click', async () => {
-        await mountAt(`${LIST_PATH}?person=person-b`)
+    it("keeps the open person from the url across a reload, and opens another on click without the first one's trace", async () => {
+        await mountAt(`${LIST_PATH}?person=person-b&trace=trace-1&ts=2026-11-24T16:40:00Z`)
         expect(logic.values.openPersonId).toEqual('person-b')
 
         logic.actions.reload()
@@ -398,6 +398,7 @@ describe('peopleListLogic', () => {
 
         logic.actions.openPerson('person-a')
         expect(urlParam('person')).toEqual('person-a')
+        expect([urlParam('trace'), urlParam('ts')]).toEqual([null, null])
         expect(logic.values.openPersonId).toEqual('person-a')
         expect(requests).toHaveLength(2)
 

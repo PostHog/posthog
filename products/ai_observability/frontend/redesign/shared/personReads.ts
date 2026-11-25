@@ -7,6 +7,7 @@ export interface PersonRange {
     date_from: string
     date_to?: string
     filter_test_accounts: boolean
+    properties?: string
 }
 
 export function personRange(dateFrom: string, dateTo: string | null, filterTestAccounts: boolean): PersonRange {

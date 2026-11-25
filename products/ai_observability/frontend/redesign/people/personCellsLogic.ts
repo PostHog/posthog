@@ -14,10 +14,10 @@ import { noEntries } from '../shared/readOrFailure'
 import { peopleListLogic } from './peopleListLogic'
 import type { PersonFirstSeen } from './types'
 
-type FirstSeenRange = Omit<PeopleFirstSeenRequestApi, 'person_ids'>
+export type FirstSeenRange = Omit<PeopleFirstSeenRequestApi, 'person_ids'>
 
 // First seen depends on the range and the test account switch only, so the list's other params never ask again.
-function firstSeenRange(params: AiObservabilityPeopleListParams | undefined): FirstSeenRange {
+function firstSeenRange(params: FirstSeenRange | undefined): FirstSeenRange {
     return {
         date_from: params?.date_from,
         date_to: params?.date_to,
@@ -61,11 +61,18 @@ export interface personCellsLogicActions {
     firstSeenRequested: (keys: string[]) => {
         keys: string[]
     }
+    readFirstSeen: (
+        personIds: string[],
+        range: FirstSeenRange
+    ) => {
+        personIds: string[]
+        range: FirstSeenRange
+    }
 }
 
 export type personCellsLogicType = MakeLogicType<personCellsLogicValues, personCellsLogicActions>
 
-/** When each person on the people list was first seen, keyed by person id. */
+/** When each person on the people list, or opened from it, was first seen, keyed by person id. */
 export const personCellsLogic = kea<personCellsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'redesign', 'people', 'personCellsLogic']),
     connect(() => ({
@@ -76,6 +83,7 @@ export const personCellsLogic = kea<personCellsLogicType>([
         firstSeenRequested: (keys: string[]) => ({ keys }),
         firstSeenFailed: (keys: string[]) => ({ keys }),
         firstSeenLoaded: (entries: CellEntry<PersonFirstSeen>[]) => ({ entries }),
+        readFirstSeen: (personIds: string[], range: FirstSeenRange) => ({ personIds, range }),
     }),
     reducers({
         firstSeen: [
@@ -113,6 +121,10 @@ export const personCellsLogic = kea<personCellsLogicType>([
                     page.results.map((person) => person.id),
                     firstSeenRange(payload)
                 )
+            },
+            // For a person off the page, such as one opened from a link.
+            readFirstSeen: async ({ personIds, range }) => {
+                await reader.read(personIds, firstSeenRange(range))
             },
         }
     }),

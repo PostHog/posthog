@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import type { AiObservabilityPeopleListOrder } from '../../generated/api.schemas'
 
 /**
- * Usage tracking for the people list. Clicks have no event here: autocapture records them, and the elements carry
+ * Usage tracking for the people list and its person drawer. Clicks have no event here: autocapture records them, and the elements carry
  * `data-attr` values that name them.
  */
 
@@ -11,7 +11,10 @@ import type { AiObservabilityPeopleListOrder } from '../../generated/api.schemas
 const EVENTS = {
     listLoaded: 'llma people list loaded',
     listFailed: 'llma people list failed',
+    drawerSectionFailed: 'llma person drawer section failed',
 } as const
+
+export type PersonDrawerSection = 'person' | 'recent_traces' | 'recent_sessions'
 
 export interface PeopleListRead {
     order: AiObservabilityPeopleListOrder
@@ -35,5 +38,9 @@ export const peopleTracking = {
     /** Sent each time a page fails to load, with the order and anonymous switch it was read with. */
     listFailed: ({ order, includeAnonymous }: PeopleListRead): void => {
         posthog.capture(EVENTS.listFailed, { order, include_anonymous: includeAnonymous })
+    },
+    /** Sent each time a read of the person drawer fails: the person, their recent traces or their recent sessions. */
+    drawerSectionFailed: (section: PersonDrawerSection): void => {
+        posthog.capture(EVENTS.drawerSectionFailed, { section })
     },
 }

@@ -5,3 +5,5 @@ export interface PersonFirstSeen {
     /** No AI activity in the lookback before the range. */
     isNew: boolean
 }
+
+export type PersonDrawerStatus = 'loading' | 'ready' | 'not_found' | 'error'

@@ -31,6 +31,7 @@ import {
 } from '../lists/listParams'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { currentUrlWith, rawSearchParam } from '../trace/rawSearchParam'
+import { TRACE_DRAWER_PARAMS } from '../trace/traceDrawerRows'
 import { peopleTracking } from './peopleTracking'
 
 export const PEOPLE_PAGE_SIZE = 50
@@ -580,10 +581,14 @@ export const peopleListLogic = kea<peopleListLogicType>([
                     lemonToast.error("Couldn't load people. Try again.")
                 }
             },
-            // Pushed, so Back closes the person opened last.
+            // Pushed, so Back closes the person opened last. A trace opened from the drawer belongs to the previous person,
+            // so opening another person closes it.
             openPerson: ({ personId }) => {
                 if (isPeoplePath(router.values.location.pathname)) {
-                    router.actions.push(...currentUrlWith(router.values, { [PERSON_PARAM]: personId ?? undefined }))
+                    const closedTrace = Object.fromEntries(TRACE_DRAWER_PARAMS.map((name) => [name, undefined]))
+                    router.actions.push(
+                        ...currentUrlWith(router.values, { ...closedTrace, [PERSON_PARAM]: personId ?? undefined })
+                    )
                 }
             },
         }

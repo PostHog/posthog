@@ -8,6 +8,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { PersonListApi } from '../../generated/api.schemas'
+import { makeSessionListPage } from '../sessions/testFixtures'
+import { makeTraceListPage } from '../traces/testFixtures'
 import { PeopleListHost } from './PeopleListHost'
 import { peopleListLogic } from './peopleListLogic'
 import {
@@ -52,6 +54,9 @@ describe('PeopleListHost', () => {
             get: {
                 [PEOPLE_URL]: () => [200, answer],
                 [PEOPLE_NEW_COUNT_URL]: () => [200, { count: 1 }],
+                // An opened row mounts the person's drawer, which reads their recent traces and sessions.
+                '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])],
+                '/api/projects/:team_id/ai_observability/sessions/': () => [200, makeSessionListPage([])],
             },
             post: {
                 [PEOPLE_FIRST_SEEN_URL]: async ({ request }: { request: Request }) => [
