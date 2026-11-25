@@ -14,7 +14,11 @@ from posthog.hogql.parser import parse_expr
 from posthog.schema_enums import InlineCohortCalculation
 
 if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
     from posthog.models import Team
+
+    from products.cohorts.backend.models.cohort import Cohort
 
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
@@ -78,8 +82,6 @@ def inline_cohort_query(
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    from products.cohorts.backend.models.cohort import Cohort
-
     if is_static:
         return None
 
@@ -93,7 +95,7 @@ def inline_cohort_query(
         if not _is_cohort_fast_enough_to_inline(cohort_id):
             return None
 
-    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
+    cohort = _get_cohort(cohort_id, context.project_id)
 
     if not context.team:
         from posthog.models import Team
@@ -109,21 +111,32 @@ def inline_cohort_query(
     return read_flag_calls_in_inline_cohort(query, context)
 
 
-def inline_cohort_names_flag_called_event(cohort_id: int, team: "Team") -> bool:
-    """Whether the subquery that `inline_cohort_query` builds for the cohort names `$feature_flag_called`.
+def inline_cohort_may_read_flag_call_union(
+    cohort_id: int, team: "Team", modifiers: "HogQLQueryModifiers | None" = None
+) -> bool:
+    """Whether the subquery that `inline_cohort_query` builds for the cohort can read flag calls through the flag-call
+    union: HogQL reads the team's flag calls from flag_evaluations, and the subquery names `$feature_flag_called`.
 
-    A nested cohort compiles to a read of its stored members, so only this cohort's own conditions count.
+    The team check also passes on mode 1, where an inline cohort never reads the union. It reads `modifiers`, which can
+    move the team to the native events table. A nested cohort compiles to a read of its stored members, so only this
+    cohort's own conditions count.
     """
     from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
 
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
+    from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
+
+    if not reads_flag_calls_from_flag_evaluations(team, modifiers):
+        return False
+    cohort = _get_cohort(cohort_id, team.project_id)
+    return not cohort.is_static and names_flag_called_event(HogQLCohortQuery(cohort=cohort, team=team).get_query())
+
+
+def _get_cohort(cohort_id: int, project_id: int) -> "Cohort":
     from products.cohorts.backend.models.cohort import Cohort
 
-    cohort = Cohort.objects.get(id=cohort_id, team__project_id=team.project_id, deleted=False)
-    if cohort.is_static:
-        return False
-    return names_flag_called_event(HogQLCohortQuery(cohort=cohort, team=team).get_query())
+    return Cohort.objects.select_related("team").get(id=cohort_id, team__project_id=project_id)
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:

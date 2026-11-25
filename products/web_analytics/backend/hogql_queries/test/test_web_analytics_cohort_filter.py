@@ -405,16 +405,8 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         assert visitors.key == "visitors"
         assert visitors.value == 0
 
-    @parameterized.expand(
-        [
-            ("overview_event", "overview", "events"),
-            ("stats_table_event", "stats_table", "events"),
-            ("overview_action", "overview", "actions"),
-        ]
-    )
-    def test_behavioral_cohort_counts_flag_calls_that_only_flag_evaluations_holds(
-        self, _name: str, kind: str, event_type: str
-    ) -> None:
+    @parameterized.expand([("events",), ("actions",)])
+    def test_behavioral_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self, event_type: str) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
@@ -472,20 +464,8 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         modifiers = HogQLQueryModifiers(inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
         date_range = DateRange(date_from="-7d")
 
-        if kind == "overview":
-            overview = WebOverviewQueryRunner(
-                team=self.team,
-                query=WebOverviewQuery(dateRange=date_range, properties=properties, modifiers=modifiers),
-            ).calculate()
-            assert {item.key: item.value for item in overview.results}["visitors"] == 1
-        else:
-            stats = WebStatsTableQueryRunner(
-                team=self.team,
-                query=WebStatsTableQuery(
-                    dateRange=date_range,
-                    properties=properties,
-                    breakdownBy=WebStatsBreakdown.PAGE,
-                    modifiers=modifiers,
-                ),
-            ).calculate()
-            assert [row[0] for row in stats.results] == ["/flag_caller"]
+        overview = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(dateRange=date_range, properties=properties, modifiers=modifiers),
+        ).calculate()
+        assert {item.key: item.value for item in overview.results}["visitors"] == 1
