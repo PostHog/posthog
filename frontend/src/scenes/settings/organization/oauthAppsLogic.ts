@@ -43,6 +43,9 @@ export interface oauthAppsLogicActions {
         oauthApps: OrganizationOAuthApplicationApi[]
         payload?: any
     }
+    replaceOAuthApp: (app: OrganizationOAuthApplicationApi) => {
+        app: OrganizationOAuthApplicationApi
+    }
 }
 
 export type oauthAppsLogicType = MakeLogicType<oauthAppsLogicValues, oauthAppsLogicActions>
@@ -52,6 +55,7 @@ export const oauthAppsLogic = kea<oauthAppsLogicType>([
 
     actions({
         contactSupport: (app: OrganizationOAuthApplicationApi, request: OAuthAppSupportRequest) => ({ app, request }),
+        replaceOAuthApp: (app: OrganizationOAuthApplicationApi) => ({ app }),
     }),
 
     loaders(() => ({
@@ -67,6 +71,10 @@ export const oauthAppsLogic = kea<oauthAppsLogicType>([
     })),
 
     reducers({
+        oauthApps: {
+            replaceOAuthApp: (state, { app }) =>
+                state?.map((existing) => (existing.id === app.id ? app : existing)) ?? null,
+        },
         oauthAppsLoadFailed: [
             false,
             {

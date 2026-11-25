@@ -1,24 +1,24 @@
 import { useActions } from 'kea'
 
-import { Button, Item, ItemContent, ItemTitle, Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
-import { PROVISIONING_STATUSES_NEEDING_SUPPORT, PROVISIONING_STATUS_NEXT_STEPS } from './oauthAppProvisioningStatus'
+import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from './oauthAppProvisioningStatus'
 import { oauthAppsLogic } from './oauthAppsLogic'
 import { QuillCopyableCode } from './QuillCopyableCode'
+import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
+import { QuillOAuthAppReviewProgress } from './QuillOAuthAppReviewProgress'
+import { QuillOAuthAppReviewTimeline } from './QuillOAuthAppReviewTimeline'
 import { QuillProvisioningStatusBadge } from './QuillProvisioningStatusBadge'
 
 export function QuillOAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
     const { contactSupport } = useActions(oauthAppsLogic)
 
     const review = app.provisioning_review
-    const canRequestVerification = app.is_cimd_client && !app.is_verified
-    const needsSupport = PROVISIONING_STATUSES_NEEDING_SUPPORT.has(app.provisioning_status)
-    const showsProvisioning = app.is_cimd_client || app.provisioning_status !== 'not_a_partner'
+    const { showsProvisioning, takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
     const redirectUris = app.redirect_uris_list ?? []
 
     return (
@@ -57,31 +57,11 @@ export function QuillOAuthAppDetails({ app }: { app: OrganizationOAuthApplicatio
                 </div>
             )}
 
-            {review && (
-                <div className="flex flex-wrap gap-x-6 gap-y-1">
-                    <Text size="xs" render={<span />}>
-                        <span className="text-muted-foreground">Registered </span>
-                        <TZLabel time={review.opened_at} />
-                    </Text>
-                    {review.decided_at && (
-                        <Text size="xs" render={<span />}>
-                            <span className="text-muted-foreground">Decided </span>
-                            <TZLabel time={review.decided_at} />
-                        </Text>
-                    )}
-                </div>
-            )}
+            {review && <QuillOAuthAppReviewProgress review={review} />}
 
-            {review?.partner_message && (
-                <Item variant="muted" size="sm">
-                    <ItemContent>
-                        <ItemTitle>Message from PostHog</ItemTitle>
-                        <Text size="xs" render={<p className="m-0 whitespace-pre-wrap" />}>
-                            {review.partner_message}
-                        </Text>
-                    </ItemContent>
-                </Item>
-            )}
+            {review && <QuillOAuthAppReviewTimeline events={review.timeline} />}
+
+            {takesANote && <QuillOAuthAppReviewNoteForm app={app} />}
 
             {(needsSupport || canRequestVerification) && (
                 <div className="flex flex-wrap gap-2">

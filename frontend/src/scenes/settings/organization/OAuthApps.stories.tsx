@@ -44,6 +44,10 @@ const PARTNER_WAITING_FOR_STAFF = {
         opened_at: '2025-12-15T14:00:00Z',
         decided_at: '2025-12-15T14:04:00Z',
         partner_message: "We couldn't find a homepage for this application. Add client_uri to your metadata document.",
+        timeline: [
+            { at: '2025-12-15T14:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-15T14:04:00Z', kind: 'automated_review', status: 'needs_human', message: '', author: '' },
+        ],
     },
     created: '2025-12-15T14:00:00Z',
     updated: '2025-12-15T14:04:00Z',
@@ -62,9 +66,44 @@ const PARTNER_ON = {
         opened_at: '2025-12-01T09:00:00Z',
         decided_at: '2025-12-01T09:02:00Z',
         partner_message: '',
+        timeline: [
+            { at: '2025-12-01T09:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-01T09:02:00Z', kind: 'automated_review', status: 'accepted', message: '', author: '' },
+        ],
     },
     created: '2025-12-01T09:00:00Z',
     updated: '2025-12-01T09:02:00Z',
+}
+
+const PARTNER_DECLINED = {
+    id: '4',
+    name: 'Example Workspace',
+    client_id: 'https://workspace.example.com/.well-known/posthog-client.json',
+    redirect_uris_list: ['https://workspace.example.com/callback'],
+    is_verified: false,
+    is_cimd_client: true,
+    provisioning_status: 'declined',
+    provisioning_review: {
+        status: 'declined',
+        opened_at: '2025-12-10T11:00:00Z',
+        decided_at: '2025-12-11T16:20:00Z',
+        partner_message:
+            "We couldn't tell what the application does with the accounts it creates. Add a homepage that describes it, then ask for another review.",
+        timeline: [
+            { at: '2025-12-10T11:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-10T11:03:00Z', kind: 'automated_review', status: 'needs_human', message: '', author: '' },
+            {
+                at: '2025-12-11T16:20:00Z',
+                kind: 'staff_decision',
+                status: 'declined',
+                message:
+                    "We couldn't tell what the application does with the accounts it creates. Add a homepage that describes it, then ask for another review.",
+                author: '',
+            },
+        ],
+    },
+    created: '2025-12-10T11:00:00Z',
+    updated: '2025-12-11T16:20:00Z',
 }
 
 function mockApps(results: object[]): void {
@@ -118,5 +157,27 @@ export const PartnerWaitingForStaff: Story = {
         })
         await userEvent.click(expand)
         await canvas.findByText('Request verification')
+    },
+}
+
+export const PartnerDeclined: Story = {
+    parameters: {
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => {
+        mockApps([PARTNER_DECLINED])
+        return <OAuthApps />
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const expand = await waitFor(() => {
+            const toggle = canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')
+            if (!toggle) {
+                throw new Error('Waiting for the applications to load')
+            }
+            return toggle
+        })
+        await userEvent.click(expand)
+        await canvas.findByText('Ask for another review')
     },
 }
