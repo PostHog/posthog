@@ -35,23 +35,15 @@ function legacyProduct(product: GatewayProduct): GatewayProduct {
   return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
 }
 
-function getGatewayBaseUrl(posthogHost: string): string {
-  return getCloudTaskGatewayUrl(posthogHost).replace(/\/posthog_code$/, "");
-}
-
-export function getLlmGatewayUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/${legacyProduct(product)}`;
+export function getAiGatewayUrl(posthogHost: string): string {
+  return getCloudTaskGatewayUrl(posthogHost);
 }
 
 /**
- * Resolve the gateway URL for a request, preferring an explicit
- * `LLM_GATEWAY_URL` override over the region-aware default. The override is
- * treated as a *base* URL — the product slug is always appended so the gateway
- * can route to the correct product config. Without this, a bare-host override
- * (e.g. `https://gateway.dev.posthog.dev`) lost the product suffix and every
+ * Resolve the gateway URL for a request. The Python gateway is reachable only
+ * through an explicit `LLM_GATEWAY_URL`, treated as a *base* URL — the product
+ * slug is always appended so the gateway can route to the correct product
+ * config. Without this, a bare-host override lost the product suffix and every
  * request fell into the catch-all `llm_gateway` product which OAuth tokens
  * cannot use (403).
  */
@@ -66,13 +58,15 @@ export function resolveLlmGatewayUrl(
     // slug would 404. A trailing `/v1` is stripped because callers re-append
     // it: the Anthropic SDK adds `/v1/messages`, and the OpenAI base URL is
     // derived by appending `/v1`.
-    const base = (envUrl ?? getGatewayBaseUrl(posthogHost)).replace(/\/+$/, "");
+    const base = (envUrl ?? getAiGatewayUrl(posthogHost)).replace(/\/+$/, "");
     return base.replace(/\/v1$/, "");
   }
   if (envUrl) {
     return `${envUrl.replace(/\/$/, "")}/${legacyProduct(product)}`;
   }
-  return getLlmGatewayUrl(posthogHost, product);
+  throw new Error(
+    `No gateway for ${product}: it is not routed to the AI gateway and LLM_GATEWAY_URL is unset`,
+  );
 }
 
 /** Products routed to the Go gateway, from a comma-separated env value. */

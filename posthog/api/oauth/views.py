@@ -90,6 +90,7 @@ from posthog.api.oauth.metadata import (
 )
 from posthog.api.oauth.oauthlib_core import translate_scope_param
 from posthog.api.oauth.step_up import resolve_step_up_grant
+from posthog.api.oauth.toolbar_service import sync_toolbar_scope_ceiling_on_refresh
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -111,7 +112,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import TimeSensitiveActionPermission, request_allows_sensitive_action
 from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.ceilings import (
     clamp_scopes_to_ceiling,
@@ -938,6 +939,12 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
+        # The toolbar app's ceiling is synced here rather than only on a toolbar launch, because a
+        # toolbar that keeps a stored token never launches, and the token also refreshes at this
+        # endpoint without the toolbar. The sync updates `application.scopes` before the narrowing below.
+        if isinstance(application, OAuthApplication) and sync_toolbar_scope_ceiling_on_refresh(application):
+            raise InvalidGrantError(description="Application sessions were revoked; re-authorize.", request=request)
+
         if isinstance(application, OAuthApplication) and application.is_self_registered and "*" in original_list:
             original_list = clamp_scopes_to_ceiling(original_list, application.ceiling_scopes)
 
@@ -1043,10 +1050,24 @@ class OAuthValidator(OAuth2Validator):
                 user_id=presented_refresh_token.user_id,
                 application_id=presented_refresh_token.application_id,
             )
-            # DOT validated this token in autocommit, so a revoke may have deleted the row while
-            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
-            # would surface as a 500; reject the grant instead so the client re-authorizes.
-            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+            # DOT validated this token in autocommit, so while this request waited for the lock a
+            # revoke may have deleted the row, or a resource removal may have narrowed its teams.
+            # Re-read it so the new tokens copy the committed scope. DOT's own re-read is an
+            # unguarded `.get()`, which would surface as a 500 for a deleted row; reject the grant
+            # instead so the client re-authorizes.
+            was_restricted = bool(presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations)
+            try:
+                presented_refresh_token.refresh_from_db(fields=["scoped_teams", "scoped_organizations"])
+            except OAuthRefreshToken.DoesNotExist:
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            # An empty list means unrestricted, so a token whose last team was removed meanwhile
+            # must end here rather than mint tokens that reach every team.
+            if was_restricted and not (
+                presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations
+            ):
                 raise InvalidGrantError(
                     description="This application's access was revoked; re-authorize.",
                     request=request,
@@ -1809,6 +1830,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     request, credentials["scoped_organizations"], credentials["scoped_teams"]
                 )
                 enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
+                if not request_allows_sensitive_action(request):
+                    return self._reauthentication_required(request, application, "first_party")
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1858,6 +1881,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                             return block
                         if block := _gateway_blocklist_block(request, scope_str.split()):
                             return block
+                        if not request_allows_sensitive_action(request):
+                            return self._reauthentication_required(request, application, "auto_approval")
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
@@ -1873,22 +1898,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
 
         template_context: dict[str, object] = {
-            "oauth_application": {
-                "name": application.name,
-                "client_id": application.client_id,
-                "is_verified": application.is_verified,
-                "logo_uri": application.logo_uri,
-                "required_scopes": application.required_scopes,
-                # The read-only form of a `*` grant, computed from the same ceiling
-                # resolution `validate_scopes` enforces — the frontend's scope list
-                # drifts from the server's (both over- and under-granting otherwise).
-                "wildcard_read_scopes": sorted(
-                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                ),
-                # The same resolution `validate_scopes` clamps against, so the consent screen
-                # can drop requested scopes the grant will not include instead of promising them.
-                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
-            },
+            "oauth_application": self._application_page_context(application),
             # What `validate_scopes` resolved this request to, which is the set the grant
             # will carry. The consent screen renders this rather than re-parsing `scope`
             # from the URL, so a request the server defaulted or repaired cannot show the
@@ -1925,6 +1935,49 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
         return render_template("index.html", request, context=template_context)
+
+    @staticmethod
+    def _application_page_context(application: OAuthApplication) -> dict[str, object]:
+        return {
+            "name": application.name,
+            "client_id": application.client_id,
+            "is_verified": application.is_verified,
+            "logo_uri": application.logo_uri,
+            "required_scopes": application.required_scopes,
+            # The read-only form of a `*` grant, computed from the same ceiling
+            # resolution `validate_scopes` enforces — the frontend's scope list
+            # drifts from the server's (both over- and under-granting otherwise).
+            "wildcard_read_scopes": sorted(
+                scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+            ),
+            # The same resolution `validate_scopes` clamps against, so the consent screen
+            # can drop requested scopes the grant will not include instead of promising them.
+            "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
+        }
+
+    def _reauthentication_required(self, request, application: OAuthApplication, grant_path: str) -> HttpResponse:
+        """Render the authorize page in its sign-in-again state instead of issuing a code without consent.
+
+        The page reloads this same URL after the re-auth, so the request needs no server-side state to survive it.
+        """
+        # pinned: analytics event name
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_reauthentication_required",
+            properties={
+                **_oauth_app_event_properties(application),
+                "grant_path": grant_path,
+                **(get_region_info() or {}),
+            },
+        )
+        return render_template(
+            "index.html",
+            request,
+            context={
+                "oauth_application": self._application_page_context(application),
+                "oauth_reauthentication_required": True,
+            },
+        )
 
     def _ema_issuer_consent(
         self, request, application: OAuthApplication, impersonator_id: int | None
@@ -1994,11 +2047,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
+        # The grant outlives this session, so it needs a recent sign-in. Declining stays open.
+        if serializer.validated_data["allow"] and not request_allows_sensitive_action(request):
+            raise PermissionDenied(
+                detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
+            )
+
         if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
-            if not TimeSensitiveActionPermission().has_permission(request, self):
-                raise PermissionDenied(
-                    detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
-                )
             try:
                 ema_organization = validate_ema_grant(
                     request.user,
@@ -2391,7 +2446,7 @@ class OAuthTokenView(TokenView):
 
         try:
             issued_access_token = id_jag.issue_access_token(
-                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+                assertion, request.POST.get("scope"), client, request.POST.get("resource")
             )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)

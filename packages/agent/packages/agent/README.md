@@ -201,7 +201,7 @@ import { Agent } from "@posthog/agent/agent"
 const agent = new Agent({
   posthog: {
     apiUrl: "https://app.posthog.com",
-    getApiKey: () => process.env.POSTHOG_PERSONAL_API_KEY!,
+    getApiKey: () => process.env.POSTHOG_OAUTH_ACCESS_TOKEN!,
     projectId: 12345,
   },
 })

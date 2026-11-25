@@ -30,6 +30,7 @@ class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
 
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
@@ -87,6 +88,7 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
@@ -120,6 +122,7 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
     client_item_id = models.CharField(db_column="external_id", max_length=255, null=True, blank=True)
@@ -160,6 +163,7 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="item_versions")
     dataset_item = models.ForeignKey(DatasetItem, on_delete=models.CASCADE, related_name="versions")

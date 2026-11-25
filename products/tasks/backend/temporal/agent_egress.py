@@ -5,7 +5,12 @@ from typing import Literal
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, is_cancelled_exception
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    is_cancelled_exception,
+)
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -14,6 +19,7 @@ from products.tasks.backend.temporal.process_task.activities.agent_egress import
     AgentEgressExecutionInput,
     AgentEgressProbeInput,
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     prepare_agent_egress,
     probe_agent_egress,
     renew_agent_egress,
@@ -82,9 +88,35 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
             )
             sandbox_id = prepared.sandbox_id
             renewal = asyncio.create_task(self._renew(execution, prepared.enrollment_expires_at))
+            tasks = [renewal]
+            if prepared.publish_git_read_grant:
+                publication = workflow.start_activity(
+                    initialize_agent_egress_git_grant,
+                    execution,
+                    start_to_close_timeout=timedelta(seconds=60),
+                    schedule_to_close_timeout=timedelta(minutes=3),
+                    retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["ValueError"]),
+                )
+                tasks.append(publication)
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                if renewal in done:
+                    await renewal
+                    reason = "completed"
+                    return dict(self._counts)
+                try:
+                    await publication
+                except ActivityError as error:
+                    if not isinstance(error.cause, TemporalTimeoutError) and not (
+                        isinstance(error.cause, ApplicationError)
+                        and error.cause.type in ("GitGrantUnavailable", "GitGrantConflict")
+                    ):
+                        raise
+                    workflow.logger.warning(
+                        "agent_egress_git_initial_publication_failed", extra={"run_id": input.run_id}
+                    )
             probing = asyncio.create_task(self._probe(execution, prepared.duration_seconds))
-            tasks = [renewal, probing]
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            tasks.append(probing)
+            done, _ = await asyncio.wait((renewal, probing), return_when=asyncio.FIRST_COMPLETED)
             if prepared.enrollment_expires_at is not None:
                 if probing in done:
                     try:
@@ -114,7 +146,10 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 and error.cause.details[0] in ("completed", "cancelled", "failed")
             ):
                 reason = error.cause.details[0]
-                if reason == "cancelled":
+                if reason == "cancelled" and (
+                    not workflow.patched("agent-egress-observed-stop-completes")
+                    or workflow.cancellation_reason() is not None
+                ):
                     raise asyncio.CancelledError from error
                 return dict(self._counts)
             if is_cancelled_exception(error):

@@ -1,3 +1,4 @@
+import json
 import time
 import datetime
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from django.db.models import Model
 from django.utils import timezone
 
 import requests
+import posthoganalytics
 from celery import Task, shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
@@ -24,7 +26,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
@@ -37,7 +39,7 @@ from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
-from posthog.utils import safe_cache_delete
+from posthog.utils import get_instance_region, safe_cache_delete
 
 logger = get_logger(__name__)
 
@@ -514,7 +516,9 @@ def process_query_task(
     from posthog.clickhouse.client import execute_process_query
 
     existing_query_tags = get_query_tags()
-    all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
+    # A web pod on a newer release can send tags this worker's QueryTags doesn't know yet; drop them.
+    known_query_tags = {key: value for key, value in query_tags.items() if key in QueryTags.model_fields}
+    all_query_tags = {**known_query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
     tag_queries(**all_query_tags)
 
     if is_query_service:
@@ -1244,10 +1248,47 @@ def clickhouse_materialize_columns() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
-def send_org_usage_reports() -> None:
+def send_org_usage_reports(organization_ids: list[str] | None = None) -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
-    send_all_org_usage_reports.delay()
+    send_all_org_usage_reports.delay(organization_ids=organization_ids)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
+def send_delayed_org_usage_reports() -> None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
+        return
+
+    payload = posthoganalytics.get_feature_flag_payload(
+        "delayed-usage-report-orgs",
+        "internal_billing_events",
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    if payload is None:
+        return
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.warning("Invalid delayed usage report flag payload", region=region)
+            return
+    if not isinstance(payload, dict):
+        logger.warning("Invalid delayed usage report flag payload", region=region)
+        return
+
+    organization_ids = payload.get(region, [])
+    if not isinstance(organization_ids, list) or any(
+        not isinstance(organization_id, str) or not organization_id.strip() for organization_id in organization_ids
+    ):
+        logger.warning("Invalid delayed usage report organization list", region=region)
+        return
+    # An empty filter makes the reporting worker process every organization.
+    if not organization_ids:
+        return
+
+    send_org_usage_reports(organization_ids=organization_ids)
 
 
 def ensure_not_persons_db_model(model: type[Model]) -> None:

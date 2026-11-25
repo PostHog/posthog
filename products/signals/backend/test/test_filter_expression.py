@@ -25,6 +25,9 @@ class TestFilterExpression(SimpleTestCase):
             "project_name = 'Core' AND NOT has(label_names, 'internal')",
             "isNull(label_names)",
             "HAS(label_names, 'internal')",
+            "empty(label_names)",
+            "NOT notEmpty(label_names)",
+            "EMPTY(label_names) OR priority = 1",
         ]
     )
     def test_boolean_contract(self, expression: str) -> None:
@@ -63,8 +66,10 @@ class TestFilterExpression(SimpleTestCase):
             "startsWith(project_name, 'co')",
             "endsWith(project_name, 're')",
             "length(label_names) > 0",
-            "empty(label_names)",
             "notEmpty(project_name)",
+            "empty(priority)",
+            "empty(['x'])",
+            "empty(label_names, label_names)",
             "has(priority, 1)",
             "label_names = ['x']",
             "priority IN (project_name, priority)",
@@ -104,10 +109,58 @@ class TestFilterExpression(SimpleTestCase):
             FilterExpression("", {"future_field": field_type})
         self.assertEqual(raised.exception.code, "unsupported_field_type")
 
-    def test_blank_and_structured_errors(self) -> None:
+    def test_blank_expression_has_no_predicate(self) -> None:
         self.assertIsNone(FilterExpression(" \n ", self.fields).predicate())
+
+    @parameterized.expand(
+        [
+            ("unknown_field", "project_name = 'Core' AND unknown = 1", "unknown_field", 26, 33),
+            ("unknown_field_after_non_ascii", "project_name = 'Cœur' AND unknown = 1", "unknown_field", 26, 33),
+            ("type", "priority = 'high'", "type", 0, 17),
+            ("boolean_required", "project_name", "boolean_required", 0, 12),
+            ("syntax_trailing_token", "project_name = 'Core' )", "syntax", 22, 23),
+            ("syntax_ends_early", "project_name = ", "syntax", 15, 15),
+            ("syntax_after_non_ascii", "project_name = 'Cœur' )", "syntax", None, None),
+            ("expression_limit", " " * 4097, "expression_limit", None, None),
+        ]
+    )
+    def test_error_position(self, _name: str, expression: str, code: str, start: int | None, end: int | None) -> None:
         with self.assertRaises(FilterValidationError) as raised:
-            FilterExpression("unknown = 1", self.fields)
-        self.assertEqual(raised.exception.code, "unknown_field")
-        self.assertIsNotNone(raised.exception.start)
-        self.assertIsNotNone(raised.exception.end)
+            FilterExpression(expression, self.fields)
+        self.assertEqual((raised.exception.code, raised.exception.start, raised.exception.end), (code, start, end))
+
+    @parameterized.expand(
+        [
+            ("one_condition", "project_name = 'Core'", ("project_name = 'Core'",)),
+            (
+                "and",
+                "project_name = 'Core' AND priority IN (1, 2) AND has(label_names, 'bug')",
+                ("project_name = 'Core'", "priority IN (1, 2)", "has(label_names, 'bug')"),
+            ),
+            (
+                "parenthesized_operands",
+                "(project_name = 'Core' OR priority = 1) AND ( NOT has(label_names, 'internal') )",
+                ("project_name = 'Core' OR priority = 1", "NOT has(label_names, 'internal')"),
+            ),
+            (
+                "nested_and",
+                "priority = 1 AND (project_name IS NULL AND priority = 2)",
+                ("priority = 1", "project_name IS NULL", "priority = 2"),
+            ),
+            ("or", "project_name = 'Core' OR priority = 1", None),
+            ("not", "NOT has(label_names, 'internal')", ("NOT has(label_names, 'internal')",)),
+            (
+                "not_of_and",
+                "NOT (project_name = 'Core' AND priority = 1)",
+                ("NOT (project_name = 'Core' AND priority = 1)",),
+            ),
+            ("blank", "  ", None),
+            ("leading_bom", "\ufeffproject_name = 'Core' AND priority = 1", None),
+        ]
+    )
+    def test_conditions(self, _name: str, expression: str, expected: tuple[str, ...] | None) -> None:
+        conditions = FilterExpression(expression, self.fields).conditions()
+
+        self.assertEqual(conditions, expected)
+        for condition in conditions or ():
+            self.assertIsNotNone(FilterExpression(condition, self.fields).predicate())

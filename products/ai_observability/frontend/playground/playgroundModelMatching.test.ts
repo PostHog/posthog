@@ -35,6 +35,7 @@ describe('playgroundModelMatching', () => {
             model('gpt-4.1-mini'),
             model('gpt-5'),
             model('gpt-5-mini'),
+            model('gpt-6-luna'),
             model('claude-3-opus'),
         ]
 
@@ -45,14 +46,14 @@ describe('playgroundModelMatching', () => {
             { target: 'GPT-5', expected: 'gpt-5' },
             { target: 'gpt-5-2025-08-07', expected: 'gpt-5' },
             { target: 'gpt-5-mini-turbo-2025', expected: 'gpt-5-mini' },
-            { target: 'llama-3-70b', expected: 'gpt-5-mini' },
-            { target: '', expected: 'gpt-5-mini' },
+            { target: 'llama-3-70b', expected: 'gpt-6-luna' },
+            { target: '', expected: 'gpt-6-luna' },
         ])('$target => $expected', ({ target, expected }) => {
             expect(matchClosestModel(target, models)).toBe(expected)
         })
 
         it('returns default when no models available', () => {
-            expect(matchClosestModel('gpt-5', [])).toBe('gpt-5-mini')
+            expect(matchClosestModel('gpt-5', [])).toBe('gpt-6-luna')
         })
     })
 

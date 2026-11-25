@@ -38,6 +38,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         passkey2FALoading,
         passkeysAvailable,
         totpAvailable,
+        reauthenticationPrompt,
     } = useValues(timeSensitiveAuthenticationLogic)
     const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
         useActions(timeSensitiveAuthenticationLogic)
@@ -69,7 +70,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     return (
         <LemonModal
             zIndex="1169" // The re-authentication modal should be above the all popovers, including the AI consent popover
-            title="Re-authenticate for security"
+            title={reauthenticationPrompt?.title ?? 'Re-authenticate for security'}
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
             maxWidth="30rem"
@@ -97,8 +98,12 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             }
         >
             <p>
-                Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to ensure you
-                are you!
+                {reauthenticationPrompt?.description ?? (
+                    <>
+                        Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to
+                        ensure you are you!
+                    </>
+                )}
             </p>
 
             {showPassword ? (

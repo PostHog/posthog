@@ -4,7 +4,6 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.elevenlabs._config import ElevenLabsSourceConfig
@@ -17,6 +16,11 @@ from products.warehouse_sources.sources.elevenlabs.elevenlabs import (
 from products.warehouse_sources.sources.elevenlabs.settings import ELEVENLABS_ENDPOINTS
 from products.warehouse_sources.sources.elevenlabs.source import ElevenLabsSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+
+_INVALID_KEY_BODY = {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}}
+_MISSING_PERMISSION_BODY = {
+    "detail": {"status": "missing_permissions", "message": "The API key you used is missing the permission user_read."}
+}
 
 
 def _driver() -> SourceDriver:
@@ -122,11 +126,41 @@ class TestPagination:
         # The resumed run starts at the saved cursor, sent under the conversations cursor param.
         assert result.params("cursor") == ["C1"]
 
-    def test_credential_error_fails_loud(self) -> None:
+    @parameterized.expand(
+        [
+            ("invalid_key", "history", [], _INVALID_KEY_BODY, "is invalid or has been revoked"),
+            ("empty_body", "history", [], {}, "is invalid or has been revoked"),
+            # ElevenLabs answers a valid key that lacks a scope with a 401; rotating the key can't fix it.
+            ("missing_permission", "history", [], _MISSING_PERMISSION_BODY, "missing the read permissions"),
+            (
+                "missing_permission_fanout_parent",
+                "tool_executions",
+                [],
+                _MISSING_PERMISSION_BODY,
+                "missing the read permissions",
+            ),
+            (
+                "missing_permission_fanout_child",
+                "tool_executions",
+                [ScriptedResponse(json={"tools": [{"id": "t1"}], "has_more": False, "next_cursor": None})],
+                _MISSING_PERMISSION_BODY,
+                "missing the read permissions",
+            ),
+        ]
+    )
+    def test_credential_error_fails_loud_with_the_matching_message(
+        self, _name: str, endpoint: str, before: list[ScriptedResponse], body: Any, expected: str
+    ) -> None:
         # A 401 is a doomed credential problem; it must raise (feeding get_non_retryable_errors), not retry.
-        result = _driver().run("history", [ScriptedResponse(status=401, json={})])
-        assert isinstance(result.raised, requests.HTTPError)
-        assert len(result.requests) == 1
+        result = _driver().run(endpoint, [*before, ScriptedResponse(status=401, json=body)])
+        assert result.raised is not None
+        assert len(result.requests) == len(before) + 1
+        messages = [
+            message
+            for pattern, message in ElevenLabsSource().get_non_retryable_errors().items()
+            if message and pattern in str(result.raised)
+        ]
+        assert messages and expected in messages[0]
 
 
 class TestFanOut:
@@ -334,12 +368,6 @@ class TestUnpaginatedEndpoints:
         assert [row[id_key] for row in result.rows] == expected_ids
         assert len(result.requests) == 1
         assert result.params("page_size") == [None]
-
-
-_INVALID_KEY_BODY = {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}}
-_MISSING_PERMISSION_BODY = {
-    "detail": {"status": "missing_permissions", "message": "The API key you used is missing the permission user_read."}
-}
 
 
 class TestValidateCredentials:

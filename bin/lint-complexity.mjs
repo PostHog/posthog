@@ -24,10 +24,11 @@ import { createRequire } from 'module'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
-// typescript is a dependency of @posthog/frontend, not the workspace root, so
-// pnpm's isolated layout only links it under frontend/node_modules.
+// The root and @posthog/frontend both take typescript from the compiler-api catalog
+// entry. Resolve it from the root, because the Frontend formatting CI job installs
+// the root package only.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const require = createRequire(resolve(repoRoot, 'frontend', 'package.json'))
+const require = createRequire(resolve(repoRoot, 'package.json'))
 const ts = require('typescript')
 
 const LIMITS = JSON.parse(readFileSync(resolve(repoRoot, 'bin', 'lint-complexity.limits.json'), 'utf8'))

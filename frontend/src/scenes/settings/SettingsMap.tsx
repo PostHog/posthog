@@ -92,6 +92,8 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
+import { SlackAppChannelSettings } from 'products/slack_app/frontend/settings/SlackAppChannelSettings'
+import { SlackAppPersonalSettings } from 'products/slack_app/frontend/settings/SlackAppPersonalSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -229,6 +231,7 @@ import { Reminders } from './user/Reminders'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
+import { UiSoundsSetting } from './user/UiSoundsSetting'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
@@ -2226,6 +2229,36 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-slack-app',
+        title: 'Slack app',
+        flag: 'SLACK_APP_WEB_SETTINGS',
+        keywords: ['slack', 'reactions', 'channel', 'thread', 'mention'],
+        settings: [
+            {
+                id: 'slack-app-personal',
+                title: (
+                    <>
+                        My Slack settings
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'My Slack settings',
+                description: 'How PostHog works for you when you use it in Slack.',
+                component: <SlackAppPersonalSettings />,
+                keywords: ['slack', 'project', 'thread', 'model', 'tips', 'personal'],
+            },
+            {
+                id: 'slack-app-channels',
+                title: 'Channel settings',
+                description:
+                    "Set a default project, repository and question mode for a Slack channel. The project and repository win over each person's own, and the question mode can only make things stricter. Each organization keeps its own channel settings.",
+                component: <SlackAppChannelSettings />,
+                keywords: ['slack', 'channel', 'repository', 'project', 'questions'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-integrations',
         title: 'Integrations',
         settings: [
@@ -2663,7 +2696,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
                 description:
-                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
+                    'OAuth applications linked to your organization. Open one to see its provisioning review, what PostHog read from it, or to request verification.',
                 component: <OAuthApps />,
                 keywords: [
                     'oauth',
@@ -2893,6 +2926,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsAchievementsSetting />,
                 flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
                 keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
+            },
+            {
+                id: 'ui-sounds',
+                title: 'Button sounds',
+                description:
+                    'Play a quiet click when you press a button, switch, checkbox, tab, or menu item. This setting applies to this browser only.',
+                component: <UiSoundsSetting />,
+                keywords: ['sound', 'audio', 'click', 'feedback', 'tactile'],
             },
             {
                 id: 'hedgehog-mode',

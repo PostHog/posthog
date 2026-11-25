@@ -1,4 +1,6 @@
 import 'react-grid-layout/css/styles.css'
+// After the grid library's styles, which these override.
+import './TileGrid.css'
 
 import clsx from 'clsx'
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -20,7 +22,7 @@ import {
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
 import { createGridCompactor } from './gridCompactor'
 import { useGridDrag } from './gridDrag'
-import { contentRows, dropIntoGrid, toPlacedItems, withSectionRows } from './gridTiles'
+import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './gridTiles'
 import { type Gesture, type PlacedItem, bottomOf } from './placeTiles'
 import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './resizeFeedback'
 import { scrollParentOf } from './scrollParent'
@@ -29,8 +31,10 @@ const GHOST_ID = '__drop-preview'
 const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's', 'sw', 'se']
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
-// A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
-const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
+// A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
+// `TileGrid__text` selects instead, and the space around it still drags.
+const DRAG_CANCEL =
+    '.SectionTile__body, .dash-WidgetCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
 
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void
@@ -94,6 +98,7 @@ export function TileGrid({
     const dropZones = useRef<DropZones | null>(null)
     const lastRows = useRef<number | null>(null)
     const [liveSectionRows, setLiveSectionRows] = useState<Record<string, number>>({})
+    const [liveSectionWidth, setLiveSectionWidth] = useState<{ id: string; w: number } | null>(null)
     const setSectionRows = useCallback((id: string, rows: number | null): void => {
         setLiveSectionRows((previous) => {
             if (rows === null) {
@@ -189,7 +194,7 @@ export function TileGrid({
                 return
             }
             lastTarget.current = target
-            rootRef.current?.classList.toggle('DashboardV2__grid--tile-away', target !== null)
+            rootRef.current?.classList.toggle('TileGrid--tile-away', target !== null)
             setDropTarget(target)
         },
         [setDropTarget]
@@ -205,6 +210,18 @@ export function TileGrid({
         },
         [onPlaceTiles]
     )
+
+    // A cell that mounts after the grid did is a tile just added, which can land below the scrolled view.
+    const gridMounted = useRef(false)
+    useEffect(() => {
+        gridMounted.current = true
+    }, [])
+    const scrollToAdded = useCallback((marker: HTMLSpanElement | null): void => {
+        if (marker && gridMounted.current) {
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            marker.parentElement?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+        }
+    }, [])
 
     // A grid can leave the page while a tile from it is still carried: undo, or its section closing.
     useEffect(
@@ -227,16 +244,20 @@ export function TileGrid({
 
     const children = useMemo(
         () =>
-            shownTiles.map((tile) =>
-                tile.id === GHOST_ID ? (
-                    <div key={GHOST_ID} className="DashboardV2__drop-preview" />
+            shownTiles.map((shown) => {
+                const tile =
+                    liveSectionWidth?.id === shown.id ? resizeSection(shown, liveSectionWidth.w, sizeOf) : shown
+                return tile.id === GHOST_ID ? (
+                    <div key={GHOST_ID} className="TileGrid__drop-preview" />
                 ) : (
-                    <div key={tile.id} data-dv2-tile={tile.id} className="DashboardV2__tile">
+                    <div key={tile.id} data-dv2-tile={tile.id} className="TileGrid__tile">
+                        {/* The grid library replaces a cell's own ref with its own, so a marker inside reports the mount. */}
+                        <span ref={scrollToAdded} hidden />
                         {renderTile(tile, columnWidthPx(width, cols), setSectionRows)}
                     </div>
                 )
-            ),
-        [shownTiles, width, cols, renderTile, setSectionRows]
+            }),
+        [shownTiles, liveSectionWidth, sizeOf, width, cols, renderTile, setSectionRows, scrollToAdded]
     )
 
     return (
@@ -244,7 +265,7 @@ export function TileGrid({
             ref={rootRef}
             data-dv2-grid={gridId}
             data-dv2-cols={cols}
-            className={clsx('DashboardV2__grid', editable && 'DashboardV2__grid--editable')}
+            className={clsx('TileGrid', editable && 'TileGrid--editable')}
             // The width is worked out in pixels from the grid around this one, so no class can carry it.
             // oxlint-disable-next-line react/forbid-dom-props
             style={{ width }}
@@ -253,7 +274,7 @@ export function TileGrid({
                 width={width}
                 layout={layout}
                 gridConfig={{ cols, rowHeight: GRID.rowPx, margin: MARGIN, containerPadding: NO_PADDING }}
-                dragConfig={{ enabled: editable, handle: '.DashboardV2__handle', cancel: DRAG_CANCEL }}
+                dragConfig={{ enabled: editable, handle: '.TileGrid__handle', cancel: DRAG_CANCEL }}
                 resizeConfig={{ enabled: editable }}
                 compactor={compactor}
                 onDragStart={(current, _old, item, _placeholder, _event, node) => {
@@ -307,8 +328,14 @@ export function TileGrid({
                     if (item && resizeFeedback.current) {
                         resizeFeedback.current.item = item
                     }
+                    if (item) {
+                        setLiveSectionWidth((previous) =>
+                            previous?.id === item.i && previous.w === item.w ? previous : { id: item.i, w: item.w }
+                        )
+                    }
                 }}
                 onResizeStop={(finalLayout, _old, item) => {
+                    setLiveSectionWidth(null)
                     resizeFeedback.current?.stop()
                     endResizeFeedback(resizeFeedback.current?.tile ?? null)
                     resizeFeedback.current = null
