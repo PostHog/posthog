@@ -5,7 +5,7 @@ import { getDefaultCdpConfig } from '~/cdp/config'
 import { PluginServerMode } from '~/common/config'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
-import { CdpRole, Profile } from '../cards'
+import { CdpRole, PROCESS_ENV_SETTINGS, Profile } from '../cards'
 import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
@@ -65,16 +65,20 @@ export type RoleId = ReplicaOf<Role>
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN/
+const URL_CREDENTIALS = /\/\/[^/@\s]*@/g
 
-// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config.
+// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config,
+// and a run cluster's generated password does not split runs on it.
 export function configHashOf(specs: RoleSpec[]): string {
-    const settings = new Set(Object.keys(getDefaultConfig()).filter((key) => !SECRET_SETTING.test(key)))
+    const read = [...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS]
+    const settings = new Set(read.filter((key) => !SECRET_SETTING.test(key)))
     const configs = specs.map(({ role, replica, env }) => [
         role,
         replica,
         Object.entries(env)
             .filter(([key]) => settings.has(key))
-            .sort(([a], [b]) => a.localeCompare(b)),
+            .map(([key, value]) => [key, value?.replace(URL_CREDENTIALS, '//')])
+            .sort(([a], [b]) => a!.localeCompare(b!)),
     ])
     return createHash('sha256').update(JSON.stringify(configs)).digest('hex')
 }

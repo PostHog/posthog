@@ -195,7 +195,7 @@ function countSentAgainst(throttles: ActiveFault[], now: number): void {
 export class FaultList {
     private faults: ActiveFault[] = []
     private firstApplied = new Map<string, number>()
-    private hits = new Map<string, string[]>()
+    private hits = new Map<string, Set<string>>()
 
     add(rule: FaultRule): string {
         const id = randomUUID()
@@ -221,7 +221,7 @@ export class FaultList {
     }
 
     hitsOf(id: string): string[] {
-        return [...new Set(this.hits.get(id))]
+        return [...(this.hits.get(id) ?? [])]
     }
 
     takeSes(recipients: string[], hit: Hit): { id: string; name: string; answer: SesAnswer } | undefined {
@@ -247,7 +247,7 @@ export class FaultList {
         })
         if (answering) {
             answering.applied += 1
-            this.hits.set(answering.id, [...(this.hits.get(answering.id) ?? []), hit.hit])
+            this.hits.set(answering.id, (this.hits.get(answering.id) ?? new Set()).add(hit.hit))
             if (!this.firstApplied.has(answering.id)) {
                 this.firstApplied.set(answering.id, now)
             }

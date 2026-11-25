@@ -659,8 +659,19 @@ describe('scenario environment', () => {
                     { PATH: '/usr/bin', HOME: '/home/a', CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' },
                     STATE_DIR
                 ),
+                processEnv: hashOf(
+                    { PATH: '/usr/bin', HOME: '/home/a', HOG_BYTECODE_CACHE_REWRITE: 'true' },
+                    STATE_DIR
+                ),
+                password: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
+                    DATABASE_URL: 'postgres://posthog:one@db:5432/posthog',
+                }),
             }).toEqual({
                 elsewhere: here,
+                processEnv: expect.not.stringMatching(here),
+                password: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
+                    DATABASE_URL: 'postgres://posthog:two@db:5432/posthog',
+                }),
                 settings: expect.not.stringMatching(here),
                 inherited: expect.not.stringMatching(here),
             })

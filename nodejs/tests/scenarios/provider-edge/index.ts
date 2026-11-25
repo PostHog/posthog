@@ -291,7 +291,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
-        const fault = faults.takeWebhook(host, hitOf(unitId, `${host}${target}`))
+        const fault = faults.takeWebhook(host, hitOf(unitId, `${host}${target.split('?')[0]}`))
         if (fault?.answer.kind === 'webhook-ambiguous' && !fault.answer.accepted) {
             req.socket.destroy()
             return

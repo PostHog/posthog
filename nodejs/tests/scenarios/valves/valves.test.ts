@@ -626,12 +626,19 @@ describe('valves', () => {
                     { ...onEdge(), seed }
                 )
                 await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
-                for (const ordinal of arriving) {
-                    await send(undefined, `${runId}-${ordinal}@www.example.com`)
+                const outcomes = new Map<number, string[]>()
+                for (const ordinal of [...arriving, ...arriving]) {
+                    const outcome = await send(undefined, `${runId}-${ordinal}@www.example.com`)
+                    outcomes.set(ordinal, [...(outcomes.get(ordinal) ?? []), outcome])
                 }
                 await valves.releaseAll()
                 const [fired] = valves.fired()
-                return { fired, hit: fired.unitIds?.map((unitId) => unitId.slice(runId.length + 1)).sort() }
+                return {
+                    fired,
+                    outcomes: ordinals.map((ordinal) => outcomes.get(ordinal)!),
+                    rejected: ordinals.filter((ordinal) => outcomes.get(ordinal)!.includes('MessageRejected')),
+                    hit: fired.unitIds?.map((unitId) => Number(unitId.slice(runId.length + 1))).sort((a, b) => a - b),
+                }
             }
 
             const first = await firedIn(6, ordinals)
@@ -649,10 +656,12 @@ describe('valves', () => {
                 releasedAt: expect.any(String),
                 unitIds: expect.any(Array),
             })
-            expect(first.hit!.length).toBeGreaterThan(0)
-            expect(first.hit!.length).toBeLessThan(ordinals.length)
-            expect(reordered.hit).toEqual(first.hit)
-            expect(otherSeed.hit).not.toEqual(first.hit)
+            expect(first.hit).toEqual(first.rejected)
+            expect(first.rejected.length).toBeGreaterThan(0)
+            expect(first.rejected.length).toBeLessThan(ordinals.length)
+            expect(first.outcomes.some(([once, again]) => once !== again)).toBe(true)
+            expect(reordered.outcomes).toEqual(first.outcomes)
+            expect(otherSeed.outcomes).not.toEqual(first.outcomes)
         })
 
         it.each([

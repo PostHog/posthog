@@ -338,7 +338,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             for (const [index, entry] of valveEntries.entries()) {
                 const record: ValveTimelineEntry = { valve: entry.valve, target: entry.target, requestedAt: now() }
                 entries.push(record)
-                doses.set(record, entry.dose)
+                const definition = VALVES.find(({ name }) => name === entry.valve)
+                doses.set(record, definition?.params.safeParse(entry.dose).data ?? entry.dose)
                 const pick = context.seed === undefined ? undefined : `${context.seed}:${index}`
                 running.push(run(entry, { ...context, pick }, record))
             }

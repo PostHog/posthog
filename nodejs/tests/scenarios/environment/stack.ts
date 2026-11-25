@@ -367,7 +367,6 @@ export async function terminateRoleConnections(
 
 const DOCKER_READ_WITHIN_MS = 10_000
 
-// Each line names a compose service, its image reference and the image id the container runs.
 export async function serviceImagesOf(docker: string): Promise<string[]> {
     const run = (args: string[]): Promise<string> =>
         promisify(execFile)(docker, args, { timeout: DOCKER_READ_WITHIN_MS }).then(({ stdout }) => stdout)
