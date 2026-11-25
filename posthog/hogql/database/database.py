@@ -2164,7 +2164,11 @@ class Database(BaseModel):
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
-            **dataclasses.asdict(flag_calls),
+            include_flag_evaluations_table=flag_calls.include_flag_evaluations_table,
+            read_flag_calls_from_flag_evaluations=flag_calls.read_flag_calls_from_flag_evaluations,
+            flag_calls_only_in_flag_evaluations=flag_calls.flag_calls_only_in_flag_evaluations,
+            flag_calls_union_enabled=flag_calls.flag_calls_union_enabled,
+            flag_calls_union_opted_in=flag_calls.flag_calls_union_opted_in,
             group_types=list(group_types),
             mcp_custom_harness_rules=tuple(mcp_custom_harness_rules),
             saved_queries=[],
@@ -2537,7 +2541,11 @@ class Database(BaseModel):
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
-            **dataclasses.asdict(flag_calls),
+            include_flag_evaluations_table=flag_calls.include_flag_evaluations_table,
+            read_flag_calls_from_flag_evaluations=flag_calls.read_flag_calls_from_flag_evaluations,
+            flag_calls_only_in_flag_evaluations=flag_calls.flag_calls_only_in_flag_evaluations,
+            flag_calls_union_enabled=flag_calls.flag_calls_union_enabled,
+            flag_calls_union_opted_in=flag_calls.flag_calls_union_opted_in,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
