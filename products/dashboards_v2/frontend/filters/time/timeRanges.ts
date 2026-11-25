@@ -2,11 +2,11 @@ import { type DateTimeRange, type DateTimeValue, CUSTOM_RANGE } from '@posthog/q
 
 import { type Dayjs, dayjs } from 'lib/dayjs'
 
-import { RELATIVE_TIME } from '../../dashboard/dashboardSchema'
-import type { TimeRange } from '../../dashboard/dashboardTypes'
+import { RELATIVE_TIME } from '../../dashboard/document/dashboardSchema'
+import type { TimeRange } from '../../dashboard/document/dashboardTypes'
 
 /** A preset the picker offers, which runs from `from` to now, such as `{ label: 'Last hour', from: 'now-1h' }`. */
-export interface QuickRange {
+export type QuickRange = {
     label: string
     from: string
 }

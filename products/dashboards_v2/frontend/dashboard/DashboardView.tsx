@@ -8,35 +8,36 @@ import { useContainerWidth } from 'react-grid-layout'
 // oxlint-disable-next-line no-restricted-imports
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { FilterBar } from '../filters/FilterBar'
-import { type ActiveFilters, DEFAULT_TIME_RANGE, FiltersContext, appliedFilters } from '../filters/filtersContext'
+import { FilterBar } from '../filters/bar/FilterBar'
+import { type ActiveFilters, FiltersContext, appliedFilters } from '../filters/filtersContext'
 import { TimeRangePicker } from '../filters/time/TimeRangePicker'
-import type { DropTarget } from '../grid/dropTargets'
-import { GridDragContext, type GridDragState } from '../grid/gridDrag'
-import { stackTiles } from '../grid/gridTiles'
+import type { DropTarget } from '../grid/drag/dropTargets'
+import { GridDragContext, type GridDragState } from '../grid/drag/gridDrag'
+import { stackTiles } from '../grid/layout/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
-import { PresentedTile } from '../tiles/PresentedTile'
+import { TileSlideshow } from '../tiles/TileSlideshow'
 import { RefreshContext } from '../widgets/refreshContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
+import { type ImageFormat, downloadDashboardImage } from './actions/dashboardImage'
+import { useDashboardRefresh } from './actions/useDashboardRefresh'
 import {
     type DashboardAction,
     type DashboardController,
     type DashboardState,
     DashboardStateContext,
 } from './dashboardContext'
-import { withFolds } from './dashboardEdits'
-import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
+import { DashboardErrorBoundary } from './DashboardErrorBoundary'
 import { DashboardTabs } from './DashboardTabs'
-import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
-import { findTile } from './tileTree'
-import { useDashboardRefresh } from './useDashboardRefresh'
+import { type Dashboard, GRID, activeGridTab, gridTabs } from './document/dashboardTypes'
+import { findTile } from './document/tileTree'
+import { withFolds } from './edits/dashboardEdits'
+import { useStableController } from './useStableController'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
 const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
 
-export interface DashboardViewProps {
-    controller: DashboardController
+export type DashboardViewProps = DashboardController & {
     /** Rendered above the tabs, inside the dashboard, so it can use the dashboard's own controls. */
     header?: ReactNode
 }
@@ -82,7 +83,16 @@ function imageWords(
 }
 
 /** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
-export function DashboardView({ controller, header }: DashboardViewProps): JSX.Element {
+export function DashboardView(props: DashboardViewProps): JSX.Element {
+    return (
+        <DashboardErrorBoundary dashboard={props.dashboard}>
+            <DashboardViewContent {...props} />
+        </DashboardErrorBoundary>
+    )
+}
+
+function DashboardViewContent({ header, ...props }: DashboardViewProps): JSX.Element {
+    const controller = useStableController(props)
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
     const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
@@ -94,7 +104,7 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
         []
     )
     const rootRef = useRef<HTMLDivElement>(null)
-    const [presentedTileId, presentTile] = useState<string | null>(null)
+    const [slideshowTileId, showSlideshow] = useState<string | null>(null)
     const refresh = useDashboardRefresh(controller.refresh)
     // A capture mounts what it shows, so the image has no placeholders: the whole tab, or with `tileId` that tile only.
     const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
@@ -140,8 +150,8 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
             onSectionFoldedChange,
             downloadImage: (format, tileId) => void downloadImage(format, tileId),
             downloadingImage,
-            presentedTileId,
-            presentTile,
+            slideshowTileId,
+            showSlideshow,
             refresh: refresh.button,
         }
     }, [
@@ -152,7 +162,7 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
         onSectionFoldedChange,
         downloadImage,
         downloadingImage,
-        presentedTileId,
+        slideshowTileId,
         refresh.button,
     ])
     const drag = useMemo<GridDragState>(() => ({ dropTarget, setDropTarget }), [dropTarget])
@@ -163,12 +173,11 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
     const savedFilters = controller.dashboard.filters
     const filterValues = controller.filters?.values
     const filtersOn = !!controller.filters && !!controller.dashboard.allowFilters
-    const FilterBarComponent = controller.filters?.Bar ?? FilterBar
     const applied = useMemo(
         () => (filtersOn && filterValues ? appliedFilters(savedFilters ?? [], filterValues) : []),
         [filtersOn, savedFilters, filterValues]
     )
-    const time = controller.timeRange?.value ?? controller.dashboard.time ?? DEFAULT_TIME_RANGE
+    const time = controller.timeRange?.value ?? controller.dashboard.time
     const activeFilters = useMemo<ActiveFilters>(() => ({ time, filters: applied }), [time, applied])
     const tiles = useMemo(
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns, sizeOf) : activeTab.tiles),
@@ -226,7 +235,7 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
                                             )}
                                             <div className="min-w-0 flex-1">
                                                 {filtersOn && controller.filters && (
-                                                    <FilterBarComponent
+                                                    <FilterBar
                                                         filters={savedFilters ?? []}
                                                         types={controller.filters.types}
                                                         values={controller.filters.values}
@@ -265,7 +274,7 @@ export function DashboardView({ controller, header }: DashboardViewProps): JSX.E
                                         )}
                                     </div>
                                 </div>
-                                <PresentedTile />
+                                <TileSlideshow />
                             </CapturingTileContext.Provider>
                         </TileMountContext.Provider>
                     </RefreshContext.Provider>

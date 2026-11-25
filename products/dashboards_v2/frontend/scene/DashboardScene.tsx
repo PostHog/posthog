@@ -8,8 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardActions } from '../dashboard/DashboardActions'
-import type { DashboardController } from '../dashboard/dashboardContext'
+import { DashboardActions } from '../dashboard/actions/DashboardActions'
 import { DashboardView } from '../dashboard/DashboardView'
 import { createQueryBatchRunner } from '../data/queryBatchRunner'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
@@ -69,38 +68,18 @@ function DashboardV2(): JSX.Element {
         types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
         time: { timezone },
     })
-    const controller = useMemo<DashboardController>(
-        () => ({
-            dashboard,
-            activeTabId,
-            widgets,
-            disabledReasonFor,
-            onEdit: applyDashboardEdit,
-            onActiveTabChange: setActiveTab,
-            history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
-            refresh: {},
-            filters,
-            timeRange,
-        }),
-        [
-            dashboard,
-            activeTabId,
-            widgets,
-            disabledReasonFor,
-            applyDashboardEdit,
-            setActiveTab,
-            canUndo,
-            canRedo,
-            undo,
-            redo,
-            filters,
-            timeRange,
-        ]
-    )
-
     return (
         <DashboardView
-            controller={controller}
+            dashboard={dashboard}
+            activeTabId={activeTabId}
+            widgets={widgets}
+            disabledReasonFor={disabledReasonFor}
+            onEdit={applyDashboardEdit}
+            onActiveTabChange={setActiveTab}
+            history={{ canUndo, canRedo, onUndo: undo, onRedo: redo }}
+            refresh={{}}
+            filters={filters}
+            timeRange={timeRange}
             header={
                 <header className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-col gap-1 min-w-0">

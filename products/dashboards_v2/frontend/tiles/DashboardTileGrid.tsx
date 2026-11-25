@@ -1,22 +1,50 @@
 import './DashboardTileGrid.css'
 
 import clsx from 'clsx'
-import { type ComponentProps, memo, useCallback, useContext, useRef } from 'react'
+import { memo, useCallback, useContext, useRef } from 'react'
 
 import { useDashboard } from '../dashboard/dashboardContext'
-import { type Tile, type TilePlace, isSectionWidget } from '../dashboard/dashboardTypes'
-import { findTile } from '../dashboard/tileTree'
-import type { DropTarget } from '../grid/dropTargets'
+import { type SavedWidget, type Tile, type TilePlace, isSectionWidget } from '../dashboard/document/dashboardTypes'
+import { findTile } from '../dashboard/document/tileTree'
+import type { DropTarget } from '../grid/drag/dropTargets'
 import { type OnSectionRows, TileGrid } from '../grid/TileGrid'
 import { CapturingTileContext, TileMountContext, useTileMounted } from '../grid/tileMounting'
-import { ContentTile } from './ContentTile'
+import { WidgetCard } from './card/WidgetCard'
+import { useContentTileActions } from './menu/TileContextMenu'
 import { type SectionGridProps, SectionTile } from './SectionTile'
+
+type ContentTileProps = {
+    id: string
+    widget: SavedWidget
+    editable: boolean
+}
+
+// Kept apart from `WindowedContentTile`, so a tile reads the dashboard state only once its card mounts.
+function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
+    const { widgets, disabledReasonFor, onEdit } = useDashboard()
+    const actions = useContentTileActions(id, widget)
+    const canSetConfig = !disabledReasonFor('setWidgetConfig')
+    // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `WidgetView`'s memo, so moving tiles
+    // doesn't re-render every widget.
+    const onEditRef = useRef(onEdit)
+    onEditRef.current = onEdit
+    const setConfig = useCallback((config: unknown) => onEditRef.current({ edit: 'setWidgetConfig', id, config }), [id])
+    return (
+        <WidgetCard
+            widget={widget}
+            widgets={widgets}
+            actions={actions}
+            editable={editable}
+            setConfig={canSetConfig ? setConfig : undefined}
+        />
+    )
+}
 
 /**
  * A content tile whose card mounts only near the scrolled view. The sentinel fills the cell, so the cell is observed
  * whether the card or the placeholder is showing.
  */
-function WindowedContentTile({ id, widget, editable }: ComponentProps<typeof ContentTile>): JSX.Element {
+function WindowedContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
     const sentinel = useRef<HTMLSpanElement>(null)
     const mounted = useTileMounted(sentinel)
     return (
@@ -31,7 +59,7 @@ function WindowedContentTile({ id, widget, editable }: ComponentProps<typeof Con
     )
 }
 
-interface TileFrameProps {
+type TileFrameProps = {
     tile: Tile
     columnPx: number
     editable: boolean
@@ -46,8 +74,7 @@ const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionR
         <SectionTile
             id={id}
             widget={widget}
-            columns={tile.place.w}
-            columnPx={columnPx}
+            layout={{ columns: tile.place.w, columnPx }}
             editable={editable}
             onSectionRows={onSectionRows}
             renderGrid={renderSectionGrid}

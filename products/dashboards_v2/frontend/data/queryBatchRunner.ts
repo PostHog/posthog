@@ -3,6 +3,7 @@ import { getCookie } from 'lib/api'
 import { getDashboardV2QueryBatchCreateUrl } from 'products/dashboards/frontend/generated/api'
 import type { QueryBatchRequestApi } from 'products/dashboards/frontend/generated/api.schemas'
 
+import type { TimeRange } from '../dashboard/document/dashboardTypes'
 import type { DataFrame, QueryRequest, QueryResult, RunQuery } from '../widgets/chart/vizTypes'
 import { type Frame, type QueryBatchLine, readNdjson } from './queryBatchLines'
 import { QueryBatchTimer, startBoardLoad } from './queryBatchTiming'
@@ -18,7 +19,7 @@ const COALESCE_MS = 30
 // `_BUSY` in `products/dashboards/backend/v2/query_batch.py`.
 export const BUSY_ERROR = 'Too many dashboards are loading at once. Try again shortly.'
 
-interface Pending {
+type Pending = {
     request: QueryRequest
     resolve: (result: QueryResult) => void
     reject: (error: Error) => void
@@ -32,8 +33,12 @@ export interface QueryBatchRunnerOptions {
     context?: () => Record<string, unknown>
 }
 
+// TODO(2026-11-25): Send no time when the request has none, once the query batch endpoint accepts that.
+// The endpoint requires a time range on every query, so a query with no range of its own here gets this one.
+const UNTIL_BATCH_ACCEPTS_NO_TIME: TimeRange = { from: 'now-7d', to: 'now' }
+
 function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi['queries'][number] {
-    const { query, time, legend } = request
+    const { query, time = UNTIL_BATCH_ACCEPTS_NO_TIME, legend } = request
     const refId = String(index)
     const target: QueryBatchRequestApi['queries'][number]['target'] =
         query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'

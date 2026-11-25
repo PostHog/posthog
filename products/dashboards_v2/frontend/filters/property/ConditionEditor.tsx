@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
-import type { OptionsLoader } from '../useSearchedOptions'
-import { type ValueOption, ValueList } from '../ValueList'
+import type { OptionsLoader } from '../pickers/useSearchedOptions'
+import { type ValueOption, ValueList } from '../pickers/ValueList'
 import type { OperatorOption } from './propertyOperators'
 import { TypedValue } from './TypedValue'
 import type { Draft } from './useConditionDrafts'

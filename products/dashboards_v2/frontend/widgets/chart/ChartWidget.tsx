@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useContext, useMemo } from 'react'
 
-import type { ContentWidget } from '../../dashboard/dashboardTypes'
+import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
 import { FiltersContext } from '../../filters/filtersContext'
-import { WidgetLoading } from '../WidgetLoading'
+import { WidgetLoading } from '../WidgetView'
 import { type ChartConfig, chartTargets } from './chartSpec'
-import { type TargetFailure, combineTargetResults } from './targetResults'
-import { useQueryFrames } from './useQueryFrames'
+import { type TargetFailure, combineTargetResults } from './data/targetResults'
+import { useQueryFrames } from './data/useQueryFrames'
 import type { ChartStates, DataFrame, RunQuery, VizDefinition } from './vizTypes'
 
 function Message({ children }: { children: string }): JSX.Element {

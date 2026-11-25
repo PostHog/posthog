@@ -1,6 +1,6 @@
 import { type RefObject, createContext, useContext, useEffect, useState } from 'react'
 
-import { scrollParentOf } from './scrollParent'
+import { scrollParentOf } from './drag/scrollParent'
 
 /** How far past the scrolled view a tile still counts as in range, so a scroll finds it already drawn. */
 const OVERSCAN_PX = 800
@@ -14,7 +14,7 @@ const PER_FRAME_WHILE_SCROLLING = 2
  * leaves. New tiles mount a few at a time, nearest the middle of the view first: every frame while the page scrolls, and
  * when the browser is idle otherwise.
  */
-export interface TileMountScheduler {
+export type TileMountScheduler = {
     /** Calls `onMountedChange` when `element` should mount or unmount its content. Returns the stop function. */
     observe: (element: Element, onMountedChange: (mounted: boolean) => void) => () => void
     dispose: () => void

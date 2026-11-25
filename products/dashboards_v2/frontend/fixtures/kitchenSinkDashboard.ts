@@ -1,8 +1,8 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/dashboardSchema'
-import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
+import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
+import { type ContentWidget, type SavedWidget, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../widgets/chart/chartSpec'
 import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
 
@@ -31,7 +31,7 @@ const stat = (title: string, sql: string, format?: StatOptions['format']): Conte
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
 const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
 const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
+const text = (markdown: string): SavedWidget => ({ type: 'markdown', config: { text: markdown } })
 
 const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
     id,

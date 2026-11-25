@@ -7,8 +7,8 @@ import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger } from '@p
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType } from '~/types'
 
+import { FilterPillContent } from '../bar/FilterPillContent'
 import { type FilterControlProps, INCOMPLETE_LABEL } from '../filterDefinition'
-import { FilterPillContent } from '../FilterPillContent'
 import { ConditionEditor } from './ConditionEditor'
 import type { PropertyFilterConfig, PropertyFilterValue, PropertyValues } from './propertyFilterSpec'
 import { type PropertyCondition, describeCondition, isCompleteCondition, operatorsFor } from './propertyOperators'

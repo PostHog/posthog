@@ -27,14 +27,14 @@ import {
     isSection,
     spanPx,
     widgetSize,
-} from '../dashboard/dashboardTypes'
-import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
-import { createGridCompactor } from './gridCompactor'
-import { useGridDrag } from './gridDrag'
-import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './gridTiles'
-import { type Gesture, type PlacedItem, bottomOf } from './placeTiles'
-import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './resizeFeedback'
-import { scrollParentOf } from './scrollParent'
+} from '../dashboard/document/dashboardTypes'
+import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
+import { useGridDrag } from './drag/gridDrag'
+import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './drag/resizeFeedback'
+import { scrollParentOf } from './drag/scrollParent'
+import { createGridCompactor } from './layout/gridCompactor'
+import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './layout/gridTiles'
+import { type Gesture, type PlacedItem, bottomOf } from './layout/placeTiles'
 
 const GHOST_ID = '__drop-preview'
 const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's', 'sw', 'se']
@@ -78,7 +78,7 @@ function passContextMenuThroughHandle(event: ReactMouseEvent): void {
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void
 
-export interface TileGridProps {
+export type TileGridProps = {
     gridId: string
     tiles: Tile[]
     cols: number

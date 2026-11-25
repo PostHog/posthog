@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
+import * as errorHoggie from '@posthog/brand/hoggies/png/error'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as stampDenied from '@posthog/brand/hoggies/png/stamp-denied'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
@@ -9,10 +10,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 
 const HedgehogSearching = pngHoggie(magnifyingGlass)
 const HedgehogDenied = pngHoggie(stampDenied)
+const HedgehogError = pngHoggie(errorHoggie)
 
-export type UnavailableReason = 'notFound' | 'noAccess'
+export type UnavailableReason = 'notFound' | 'noAccess' | 'error'
 
-interface ProblemView {
+type ProblemView = {
     illustration: ReactNode
     title: ReactNode
     description: ReactNode
@@ -29,9 +31,14 @@ const DEFAULT_VIEWS: Record<UnavailableReason, ProblemView> = {
         title: "You don't have access to this dashboard",
         description: 'Ask the dashboard owner or a project admin to give you access.',
     },
+    error: {
+        illustration: <HedgehogError />,
+        title: "This dashboard couldn't be shown",
+        description: 'Refresh the page, and if it keeps happening contact support.',
+    },
 }
 
-export interface DashboardUnavailableProps extends Partial<ProblemView> {
+export type DashboardUnavailableProps = Partial<ProblemView> & {
     problem: UnavailableReason
     /** Buttons or links for the next step, such as going back to a list. The default view has none. */
     actions?: ReactNode

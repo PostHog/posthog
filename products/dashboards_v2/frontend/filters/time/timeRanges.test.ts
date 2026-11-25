@@ -1,6 +1,6 @@
 import { CUSTOM_RANGE } from '@posthog/quill'
 
-import type { TimeRange } from '../../dashboard/dashboardTypes'
+import type { TimeRange } from '../../dashboard/document/dashboardTypes'
 import { type QuickRange, fromPickerValue, toPickerValue } from './timeRanges'
 
 const RANGES: QuickRange[] = [

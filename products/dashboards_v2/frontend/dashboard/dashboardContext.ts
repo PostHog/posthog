@@ -2,12 +2,12 @@ import { createContext, useContext } from 'react'
 
 import type { TimeRangeController } from '../filters/time/useTimeRangeController'
 import type { FiltersController } from '../filters/useFiltersController'
-import type { WidgetDefinition } from '../widgets/widgetDefinition'
-import type { AutoRefreshProps } from './AutoRefreshButton'
-import type { DashboardEdit, View } from './dashboardEdits'
-import type { ImageFormat } from './dashboardImage'
-import type { Dashboard, GridTab, SizeOf, Widget } from './dashboardTypes'
-import type { MenuAction } from './menuAction'
+import type { MenuAction } from '../menu/menuAction'
+import type { WidgetType } from '../widgets/widgetDefinition'
+import type { AutoRefreshProps } from './actions/AutoRefreshButton'
+import type { ImageFormat } from './actions/dashboardImage'
+import type { Dashboard, GridTab, SizeOf, Widget } from './document/dashboardTypes'
+import type { DashboardEdit, View } from './edits/dashboardEdits'
 
 /** Everything a person can do to a dashboard. A host's `disabledReasonFor` can give each one its own answer. */
 export type DashboardAction = DashboardEdit['edit'] | 'undo' | 'redo'
@@ -16,13 +16,13 @@ export type DashboardAction = DashboardEdit['edit'] | 'undo' | 'redo'
  * What a host passes to `DashboardView`. The host owns the state and the rules behind it (history, access, saving,
  * the URL), so the components render the same on any page that embeds them.
  */
-export interface DashboardController {
+export type DashboardController = {
     /** The saved dashboard. The view folds closed sections itself. */
     dashboard: Dashboard
     /** Unknown or unset shows the first tab. */
     activeTabId: string | null
     /** The widget types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
-    widgets: WidgetDefinition[]
+    widgets: WidgetType[]
     disabledReasonFor: (action: DashboardAction) => string | null
     /**
      * Called with each edit, and with how the person saw the dashboard when they made it. Pass `view` to `applyEdit`,
@@ -57,7 +57,7 @@ export interface DashboardController {
     history?: { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void }
 }
 
-export interface RefreshController {
+export type RefreshController = {
     /** The interval choices besides off, in seconds. */
     intervals?: number[]
     /** In seconds. Left out, auto refresh starts off. */
@@ -67,7 +67,7 @@ export interface RefreshController {
 }
 
 /** What the components read: the controller, plus what the view works out from it. */
-export interface DashboardState extends Omit<DashboardController, 'activeTabId' | 'onEdit' | 'refresh'> {
+export type DashboardState = Omit<DashboardController, 'activeTabId' | 'onEdit' | 'refresh'> & {
     refresh?: AutoRefreshProps
     /** The dashboard as this person sees it, with the sections they closed folded. */
     dashboard: Dashboard
@@ -81,8 +81,8 @@ export interface DashboardState extends Omit<DashboardController, 'activeTabId' 
     downloadImage: (format: ImageFormat, tileId?: string) => void
     downloadingImage: boolean
     /** The tile shown on its own over the dashboard, or null. Only the screen keeps it. */
-    presentedTileId: string | null
-    presentTile: (id: string | null) => void
+    slideshowTileId: string | null
+    showSlideshow: (id: string | null) => void
 }
 
 export const DashboardStateContext = createContext<DashboardState | null>(null)

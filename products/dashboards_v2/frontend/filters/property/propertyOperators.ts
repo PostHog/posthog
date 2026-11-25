@@ -6,7 +6,7 @@ import { summarizeValues } from '../filterDefinition'
 
 export type OperatorInput = 'list' | 'text' | 'number' | 'none'
 
-export interface OperatorOption {
+export type OperatorOption = {
     operator: PropertyOperator
     label: string
     input: OperatorInput
@@ -66,7 +66,7 @@ export function operatorsFor(type: PropertyType | null | undefined): OperatorOpt
     }
 }
 
-export interface PropertyCondition {
+export type PropertyCondition = {
     operator: PropertyOperator
     value?: string[] | string | number
 }

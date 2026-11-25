@@ -18,16 +18,16 @@ import {
 
 import { hasDangerousScheme } from 'lib/utils/url'
 
-import { useGridDrag } from '../grid/gridDrag'
+import { useGridDrag } from '../grid/drag/gridDrag'
 import { useDashboard } from './dashboardContext'
-import { type DashboardTab, isGridTab } from './dashboardTypes'
+import { type DashboardTab, isGridTab } from './document/dashboardTypes'
 
-interface TabDraft {
+type TabDraft = {
     id: string
     title: string
 }
 
-interface TabInsert {
+type TabInsert = {
     id: string
     side: 'before' | 'after'
 }
