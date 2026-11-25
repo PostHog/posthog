@@ -41,20 +41,23 @@ API keys, webhooks, send history and stats stay with the old provider. The `cont
 
 SendGrid differs from the Resend steps above in these ways.
 
-- **Key.** SendGrid has read-only scopes, so ask for a restricted key with read access to the chosen steps. Each step's description in `provider-imports-providers` names its scopes. A key without them is refused before the run starts, with the missing scopes named. `marketing.read` is the exception: SendGrid says it also grants write access, so `single_sends` and `lists` are the steps to skip for a user who minds. Keys are created at https://app.sendgrid.com/settings/api_keys.
+- **Key.** SendGrid has read-only scopes, so ask for a restricted key with read access to the chosen steps. Each step's description in `provider-imports-providers` names its scopes. A key without them is refused before the run starts, with the missing scopes named. `marketing.read` is the exception: SendGrid says it also grants write access, so `single_sends`, `lists` and `contacts` are the steps to skip for a user who minds. A key with no marketing scope at all skips those three with a warning, because SendGrid gives none to an account without Marketing Campaigns. Keys are created at https://app.sendgrid.com/settings/api_keys.
 - **Subusers.** A key sees one account. To move subusers, run one import per subuser with its own key, one after another. PostHog finds out by itself whether a key belongs to SendGrid's EU host.
 
-| Data                                      | In PostHog                                       | What the team does                                  |
-| ----------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
-| Bounces and invalid addresses             | Suppression list, blocks all email               | Reads the summary                                   |
-| Spam reports                              | Suppression list, blocks marketing email only    | Reads the summary. SendGrid blocks all email.       |
-| Global unsubscribes                       | Opted out of all marketing email                 | Reads the summary. SendGrid blocks all email.       |
-| Unsubscribe groups and group unsubscribes | Marketing categories and opt-outs                | Passes the category when sending                    |
-| Dynamic and legacy templates              | Library templates, keyed by SendGrid template ID | Fixes what the notes mention, then sends a test     |
-| Design Library, Single Sends              | Library templates                                | Fixes the notes, cancels what's still scheduled     |
-| Lists, verified senders, domains          | A list only                                      | Rebuilds lists as cohorts, adds senders and domains |
+| Data                                      | In PostHog                                       | What the team does                              |
+| ----------------------------------------- | ------------------------------------------------ | ----------------------------------------------- |
+| Bounces and invalid addresses             | Suppression list, blocks all email               | Reads the summary                               |
+| Spam reports                              | Suppression list, blocks marketing email only    | Reads the summary. SendGrid blocks all email.   |
+| Global unsubscribes                       | Opted out of all marketing email                 | Reads the summary. SendGrid blocks all email.   |
+| Unsubscribe groups and group unsubscribes | Marketing categories and opt-outs                | Passes the category when sending                |
+| Dynamic and legacy templates              | Library templates, keyed by SendGrid template ID | Fixes what the notes mention, then sends a test |
+| Design Library, Single Sends              | Library templates                                | Fixes the notes, cancels what's still scheduled |
+| Contacts and lists                        | People, matched by email, and a cohort per list  | Checks the people and cohorts                   |
+| Verified senders, domains                 | A list only                                      | Adds senders and domains                        |
 
-**Stays behind:** automations, because SendGrid's API only shares their stats, so they're rebuilt by hand as workflows. Blocks, because SendGrid doesn't keep suppressing those addresses either. Also inactive template versions, contacts as people, webhooks, API keys, stats and send history.
+**Stays behind:** automations, because SendGrid's API only shares their stats, so they're rebuilt by hand as workflows. Blocks, because SendGrid doesn't keep suppressing those addresses either. Also inactive template versions, segments, webhooks, API keys, stats and send history.
+
+**Contacts.** `contacts` and `new_people` are in `provider-imports-providers` only when they're turned on for the project. Without them, `lists` only lists the lists, and the team rebuilds them as cohorts or uploads a CSV file. `contacts` needs `suppressions`, `global_unsubscribes` and `group_unsubscribes` in the same run. SendGrid prepares an export of each list, so this step can wait a long time without counts. Contact fields and custom fields become person properties under SendGrid's names. People who unsubscribed from everything stay out of every cohort. People who left one unsubscribe group stay in, and a send in that group's category skips them. Contacts without an email are skipped. As with Resend, each person written counts as one billable event, and a PostHog key with limited scopes needs `cohort:write` and `person:write`. One import takes up to 500 lists and 250,000 contacts and list memberships. The cohort of all contacts holds the account imported last, so with several subusers, use the cohort of each list.
 
 **Templates.** Only each template's active version comes across. Handlebars becomes Liquid and app data goes in `variables`, so `{{order.id}}` is sent the same way as before. The team has to choose a sender on each template, because SendGrid sets it per send. Say plainly how many global unsubscribes and spam reports imported, because PostHog still sends them transactional email while SendGrid doesn't.
 
