@@ -82,7 +82,7 @@ class AEOSetupContextSerializer(DataclassSerializer):
             "max_active_prompts": {
                 "help_text": "How many unarchived prompts the project can keep turned on at once. A request that "
                 "would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more "
-                "can be turned on. PostHog support can raise it."
+                "can be turned on."
             },
             "paused_prompts": {"help_text": "Unarchived prompts that are turned off. No run checks them."},
             "keywords": {"help_text": "Keywords in the project's keyword list."},

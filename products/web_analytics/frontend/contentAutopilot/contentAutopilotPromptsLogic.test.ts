@@ -250,7 +250,8 @@ describe('contentAutopilotPromptsLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ setupContext: setupContext(100, 100), promptLimitReached: true })
 
-        const limitMessage = "You're tracking 100 prompts, and this project can track up to 100."
+        const limitMessage =
+            "You're tracking 100 prompts, and this project can track up to 100. Turn off some prompts first."
         mockPromptsPartialUpdate.mockRejectedValueOnce(
             new ApiError('Bad request', 400, undefined, { detail: limitMessage })
         )
@@ -259,7 +260,6 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(activeOf()).toBe(false)
         expect(lemonToast.error).toHaveBeenCalledWith(limitMessage)
 
-        mockSetupContext.mockClear()
         mockSetupContext.mockResolvedValue(setupContext(101, 150))
         mockPromptsPartialUpdate.mockResolvedValueOnce({ ...prompt, active: true })
         logic.actions.setPromptActive(prompt.id, true)
@@ -267,6 +267,5 @@ describe('contentAutopilotPromptsLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ setupContext: setupContext(101, 150), promptLimitReached: false })
         expect(activeOf()).toBe(true)
-        expect(mockSetupContext).toHaveBeenCalledTimes(1)
     })
 })

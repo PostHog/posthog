@@ -23,7 +23,7 @@ export const ContentAutopilotPromptActiveSwitch = ({
             loading={!!promptActiveUpdating[promptId]}
             disabledReason={
                 !active && promptLimitReached && setupContext
-                    ? `You're tracking ${setupContext.active_prompts} prompts, and this project can track up to ${setupContext.max_active_prompts}. Turn one off first, or contact support to raise the limit.`
+                    ? `You're tracking ${setupContext.active_prompts} prompts, and this project can track up to ${setupContext.max_active_prompts}. Turn off some prompts first.`
                     : undefined
             }
             label={label}

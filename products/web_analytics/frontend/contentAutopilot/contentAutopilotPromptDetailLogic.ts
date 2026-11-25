@@ -136,6 +136,7 @@ export interface contentAutopilotPromptDetailLogicActions {
     setPromptActiveSuccess: (prompt: AEOPromptApi) => {
         prompt: AEOPromptApi
     } // contentAutopilotPromptsLogic
+    loadSetupContext: () => any // contentAutopilotSetupLogic
     closePromptDetail: () => {
         value: true
     }
@@ -341,6 +342,8 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             ['setPromptActive', 'setPromptActiveSuccess', 'setPromptActiveFailure', 'loadAeoPrompts'],
             contentAutopilotLogic,
             ['setWorkspaceTab'],
+            contentAutopilotSetupLogic,
+            ['loadSetupContext'],
         ],
     })),
     actions({
@@ -760,7 +763,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                         : 'web analytics content autopilot prompt restored'
                 )
                 actions.loadAeoPrompts()
-                contentAutopilotSetupLogic.findMounted()?.actions.loadSetupContext()
+                actions.loadSetupContext()
                 contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.setPromptArchivedFailure()

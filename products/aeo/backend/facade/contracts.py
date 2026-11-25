@@ -437,13 +437,12 @@ class PromptLimitError(Exception):
         if limit.remaining == 0:
             message = (
                 f"You're tracking {limit.active_prompts} prompts, and this project can track up to "
-                f"{limit.max_active_prompts}. Turn off some prompts first, or contact support to raise the limit."
+                f"{limit.max_active_prompts}. Turn off some prompts first."
             )
         else:
             message = (
                 f"This would turn on {adding} prompts, but only {limit.remaining} more fit in this project's limit "
-                f"of {limit.max_active_prompts} tracked prompts. Turn off some prompts first, or contact support to "
-                "raise the limit."
+                f"of {limit.max_active_prompts} tracked prompts. Turn off some prompts first."
             )
         super().__init__(message)
 

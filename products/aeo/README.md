@@ -89,7 +89,6 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
 - New prompts are saved turned on. An import that would take the project past its limit on active prompts is refused whole, and nothing is saved.
-- `bulk_import` is throttled per project, at 10 requests a minute and 100 an hour.
 - A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get`, `aeo-prompts-overview-get` and `aeo-prompts-citations-list`.

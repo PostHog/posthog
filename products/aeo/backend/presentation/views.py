@@ -23,12 +23,7 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
 )
-from posthog.rate_limit import (
-    AEOPromptImportBurstRateThrottle,
-    AEOPromptImportSustainedRateThrottle,
-    AEOPromptSuggestionsBurstRateThrottle,
-    AEOPromptSuggestionsSustainedRateThrottle,
-)
+from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -1714,11 +1709,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         },
         tags=["web_analytics"],
     )
-    @action(
-        detail=False,
-        methods=["post"],
-        throttle_classes=[AEOPromptImportBurstRateThrottle, AEOPromptImportSustainedRateThrottle],
-    )
+    @action(detail=False, methods=["post"])
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
             result = import_prompts(self.team_id, request.validated_data["prompts"])

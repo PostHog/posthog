@@ -1555,7 +1555,7 @@ export interface AEOSetupContextApi {
     own_domains: string[]
     /** Active, unarchived prompts the project tracks. */
     active_prompts: number
-    /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. PostHog support can raise it. */
+    /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
     max_active_prompts: number
     /** Unarchived prompts that are turned off. No run checks them. */
     paused_prompts: number

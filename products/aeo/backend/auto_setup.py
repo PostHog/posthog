@@ -349,12 +349,13 @@ def _add_prompts(team: Team, request: SetupRequest) -> SetupStepState:
         ],
         fit_to_limit=True,
     )
-    return SetupStepState(
-        step=SetupStep.PROMPTS,
-        status=SetupStepStatus.DONE,
-        added=result["created"],
-        detail="paused" if not active else ("prompt_limit" if result["held_back"] else ""),
-    )
+    if not active:
+        detail = "paused"
+    elif result["held_back"]:
+        detail = "prompt_limit"
+    else:
+        detail = ""
+    return SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.DONE, added=result["created"], detail=detail)
 
 
 def _add_keywords(team_id: int, request: SetupRequest) -> SetupStepState:
