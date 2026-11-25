@@ -540,6 +540,36 @@ class TraceListItem(TraceOverview):
     )
 
 
+class SessionListItem(Contract):
+    """A session and its facts. The facts cover every trace of the session that the AI events retention still holds,
+    whatever a list's date range, and at most its 1,000 most recent traces. A session the AI events retention does not
+    hold whole is read from the shared events table instead, over fewer of its most recent traces the more such
+    sessions a list page holds: from a week before a list's date range to its end, or for a single session from 10
+    minutes before its timestamp hint to now."""
+
+    id: str = Field(description="The session id, as sent in `$ai_session_id`.")
+    first_seen: datetime = Field(
+        description="When the session's first turn started. Send it as the timestamp hint of links into the session."
+    )
+    last_seen: datetime = Field(description="When the session's last activity ended.")
+    duration_ms: float | None = Field(description="Milliseconds from the first turn's start to the last answer.")
+    turn_count: int = Field(description="How many traces the session holds, one per turn.")
+    totals: TraceNodeStats = Field(
+        description="The sum of the session's trace totals. Latency is the total time the user waited, summed over the "
+        "turns."
+    )
+    errored_turns: int = Field(description="How many of the session's turns have an error.")
+    totals_partial: bool = Field(
+        description="Whether the session holds more traces than were read, so that the first seen time, duration, "
+        "turn count, totals and errored turns were computed from only its most recent traces."
+    )
+
+
+class SessionList(Contract):
+    items: list[SessionListItem] = Field(description="A page of sessions, by latest activity in range, newest first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
 class TraceListCounts(Contract):
     total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
     errors: int = Field(description="How many of them have an error.")
@@ -586,8 +616,7 @@ class TracePreviewList(Contract):
     )
 
 
-class TraceTurn(Contract):
-    trace_id: str = Field(description="The trace the turn belongs to.")
+class TraceTurnSides(Contract):
     input: TraceSideContent | None = Field(
         description="What the trace added to the conversation: the user's message and what followed it, without the "
         "history earlier turns carry. Null when it could not be read or there is nothing to show."
@@ -604,6 +633,10 @@ class TraceTurn(Contract):
         description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
         "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
     )
+
+
+class TraceTurn(TraceTurnSides):
+    trace_id: str = Field(description="The trace the turn belongs to.")
 
 
 class TraceTurnList(Contract):

@@ -36,6 +36,7 @@ from products.surveys.backend.facade.api import (
 )
 
 from ..dashboard_templates import get_ai_observability_default_template
+from ..logic.ai_events_retention import ai_events_retention_days
 from ..logic.eval_suggestions import (
     config as eval_suggestions_config,
     eligibility as eval_suggestions_eligibility,
@@ -70,7 +71,7 @@ from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
-from ..logic.traces.events_fallback import fallback_window, page_window
+from ..logic.traces.events_fallback import FallbackWindow, fallback_window, page_window
 from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
@@ -82,6 +83,20 @@ from ..logic.traces.previews import page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
+from ..logic.traces.session_queries import SessionFacts, load_session_facts, load_shared_session_facts
+from ..logic.traces.session_selection_queries import (
+    SESSION_ID_MAX_LENGTH as SESSION_ID_MAX_LENGTH,
+    decode_session_cursor,
+    encode_session_cursor,
+    load_session_page,
+)
+from ..logic.traces.session_windows import (
+    ai_events_read_start,
+    is_past_retention,
+    listed_sessions_fallback,
+    session_window,
+    shared_facts_traces_per_session,
+)
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
@@ -189,6 +204,8 @@ TRACE_LIST_MAX_LIMIT: Final = 100
 TRACE_TURNS_MAX_IDS: Final = 20
 # Traces missing from ai_events are read from the shared events table across the page's span, so the span is bounded.
 TRACE_TURNS_MAX_SPAN: Final = timedelta(days=30)
+SESSION_LIST_DEFAULT_LIMIT: Final = 50
+SESSION_LIST_MAX_LIMIT: Final = 100
 
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
@@ -252,6 +269,100 @@ def load_trace_list(
         items=_list_items(team, user, selection.window, page.positions, loaded),
         counts=_to_list_counts(read.counts) if cursor is None and read.counts is not None else None,
         next_cursor=next_cursor(page),
+    )
+
+
+def load_session_list(
+    team: Team, user: User | None, selection: TraceSelection, *, cursor: str | None, limit: int
+) -> Callable[[], contracts.SessionList]:
+    """Loads a page of the selection's sessions, newest activity first, each with its facts, and returns the step that
+    builds the list. Raises `InvalidTraceCursorError` for a cursor this read did not hand out. A session with no
+    events found is left out. The step runs no query.
+
+    The facts cover every trace of the session that the AI events retention still holds, whatever the selection's
+    window. A session no longer there is read from the shared events table from a week before the window to its end,
+    over fewer of its most recent traces the more such sessions the page holds.
+    """
+    page = load_session_page(
+        team, user, selection, after=decode_session_cursor(cursor) if cursor is not None else None, limit=limit
+    )
+    facts = load_session_facts(
+        team,
+        user,
+        page.session_ids,
+        since=_ai_events_read_start(team),
+        include_support_traces=selection.include_support_traces,
+    )
+    missing = [session_id for session_id in page.session_ids if session_id not in facts]
+    if missing:
+        facts |= load_shared_session_facts(
+            team,
+            user,
+            missing,
+            window=listed_sessions_fallback(selection.window),
+            max_traces=shared_facts_traces_per_session(len(missing)),
+            include_support_traces=selection.include_support_traces,
+        )
+    following = encode_session_cursor(page.last_position) if page.has_more and page.last_position else None
+    return lambda: contracts.SessionList(
+        items=[_to_session_item(facts[session_id]) for session_id in page.session_ids if session_id in facts],
+        next_cursor=following,
+    )
+
+
+def get_session(
+    team: Team,
+    user: User | None,
+    session_id: str,
+    *,
+    timestamp_hint: datetime | None,
+    include_support_traces: bool = False,
+) -> contracts.SessionListItem | None:
+    """One session with its facts, over the window its turns are read in, so the two count the same
+    turns. A session the AI events retention does not hold whole is read from the shared events table, and is not
+    found there without a `timestamp_hint`."""
+    read_start = _ai_events_read_start(team)
+    window = session_window(now(), read_start, timestamp_hint)
+    facts = (
+        {}
+        if is_past_retention(window, read_start)
+        else load_session_facts(
+            team, user, [session_id], since=read_start, include_support_traces=include_support_traces
+        )
+    )
+    if session_id not in facts and timestamp_hint is not None:
+        facts = load_shared_session_facts(
+            team,
+            user,
+            [session_id],
+            window=FallbackWindow(start=window.start, end=window.end),
+            max_traces=shared_facts_traces_per_session(1),
+            include_support_traces=include_support_traces,
+        )
+    return _to_session_item(facts[session_id]) if session_id in facts else None
+
+
+def _ai_events_read_start(team: Team) -> datetime:
+    return ai_events_read_start(now(), ai_events_retention_days(team.pk))
+
+
+def _to_session_item(facts: SessionFacts) -> contracts.SessionListItem:
+    return contracts.SessionListItem(
+        id=facts.session_id,
+        first_seen=facts.first_seen,
+        last_seen=facts.last_seen,
+        duration_ms=facts.duration_ms,
+        turn_count=facts.turn_count,
+        totals=contracts.TraceNodeStats(
+            cost_usd=facts.cost_usd,
+            input_tokens=facts.input_tokens,
+            output_tokens=facts.output_tokens,
+            cache_read_tokens=facts.cache_read_tokens,
+            cache_write_tokens=facts.cache_write_tokens,
+            latency_ms=facts.wait_ms,
+        ),
+        errored_turns=facts.errored_turns,
+        totals_partial=facts.totals_partial,
     )
 
 
