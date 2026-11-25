@@ -93,7 +93,6 @@ class ZohoDeskTokenUnavailableError(Exception):
 @frozen
 class ZohoDeskResumeConfig:
     next_index: int
-    # Last record ID of the page before `next_index`, for the endpoints that drop a repeated record.
     last_id: Optional[str] = None
 
 
@@ -162,7 +161,6 @@ class ZohoDeskAuth(AuthConfigBase):
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token
-        # A digest, so that the cache does not hold the refresh token as a dictionary key.
         self._cache_key = hashlib.sha256("\0".join((self._token_url, client_id, refresh_token)).encode()).hexdigest()
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
