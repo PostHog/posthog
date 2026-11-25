@@ -700,15 +700,15 @@ export interface inboxSceneLogicMeta {
             scoutConfigs: SignalScoutConfig[] | null
         ) => SignalScoutConfig | null
         todayHomePane: (featureFlags: FeatureFlagsSet) => boolean
-        settingsInInbox: (todayHomePane: any, activeTab: InboxTabKey, selectedReportId: string | null) => boolean
-        titleName: (scoutsInAutomate: boolean, settingsInInbox: any) => string
+        settingsInInbox: (todayHomePane: boolean, activeTab: InboxTabKey, selectedReportId: string | null) => boolean
+        titleName: (scoutsInAutomate: boolean, settingsInInbox: boolean) => string
         breadcrumbs: (
             selectedReport: SignalReport | null,
             selectedReportId: string | null,
             scoutsInAutomate: boolean,
             selectedScoutConfig: SignalScoutConfig | null,
             featureFlags: FeatureFlagsSet,
-            settingsInInbox: any
+            settingsInInbox: boolean
         ) => Breadcrumb[]
         todayRecent: (selectedScoutConfig: SignalScoutConfig | null) => TodayAutomateRecent | null
         isStaff: (user: UserType | null) => boolean
