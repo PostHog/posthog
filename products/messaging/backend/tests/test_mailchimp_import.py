@@ -904,8 +904,35 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         assert self._emptied(run) == {NOVEDADES: ("failed", NOT_EMPTIED_NOTE)}
 
-    def test_an_account_without_audiences_changes_no_cohort(self) -> None:
+    def test_an_account_whose_audiences_were_all_deleted_empties_every_cohort(self) -> None:
         self._close(self._import_contacts("new_people"))
+        self.mailchimp.data["lists"] = []
+
+        run = self._import_contacts("new_people")
+
+        assert self._staged(run) == {
+            "Mailchimp contacts, Example Co": {},
+            "Weekly newsletter (from Mailchimp)": {},
+            NOVEDADES: {},
+        }
+
+    def test_an_account_that_hides_every_audience_changes_no_cohort(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        for audience in self.mailchimp.data["lists"]:
+            audience["hidden"] = True
+
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
+
+    def test_an_account_without_audiences_or_audience_cohorts_changes_no_cohort(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        Cohort.objects.filter(team_id=self.team.id, description__contains=", audience ").update(description="Mine now")
         self.mailchimp.data["lists"] = []
 
         run = self._import_contacts("new_people")
