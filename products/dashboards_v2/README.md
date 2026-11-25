@@ -95,6 +95,7 @@ The components hold no business logic and never import a kea logic, so any page 
 - The view owns only what the screen and a drag decide: the stacked layout on narrow screens, the drop target, and the undo shortcut.
 - The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
 - `dashboardV2Logic` is the host for the `/dashboard-v2` scene. Another product supplies its own host, and its own header through the `header` slot.
+- When a dashboard can't load, the host can render `DashboardV2Unavailable` (`frontend/dashboard/DashboardV2Unavailable.tsx`) in place of the view. Each problem has a default hedgehog, title and description, and the host can replace any of them or add `actions`, such as a link back to its own list.
 
 ## Narrow screens
 
