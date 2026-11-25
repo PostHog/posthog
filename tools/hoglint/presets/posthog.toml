@@ -605,6 +605,12 @@ module    = "products/{product}/backend/facade/today_highlights.py"
 attribute = "HIGHLIGHT_SOURCES"
 lifecycle = "on-demand"
 
+[registries.data_catalog_digest]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/facade/data_catalog_digest.py"
+attribute = "DIGEST_SOURCES"
+lifecycle = "on-demand"
+
 # activity_log.py merges each product's activity-log tuning when Django sets up. The loader reads
 # four optional dicts, and a registry names one: a file that lacks it still matches the registry,
 # and the file glob alone puts it in the watched set.
