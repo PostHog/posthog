@@ -829,6 +829,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             ("plain", {"packed": False}),
             ("bom", {"packed": False, "bom": True}),
             ("several_files", {"files": 3}),
+            ("several_files_with_one_header", {"files": 3, "header_in_each_file": False}),
+            ("more_files_than_contacts", {"files": 9, "header_in_each_file": False}),
             ("lowercase_headers", {"header": "lower"}),
             ("spaced_headers", {"header": "spaced"}),
             ("custom_fields_by_id", {"header": "field_ids"}),
@@ -863,34 +865,60 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             "Plan": "pro",
         }
 
-    @parameterized.expand(
-        [
-            ("list_filter_ignored", {"export_shape": {"ignores_filter": True}}, {}, "but SendGrid counts"),
-            ("list_far_short", {}, {"contact_count": 40}, "but SendGrid counts"),
-            ("empty_and_uncounted", {"export_damage": "empty"}, {"contact_count": None}, "holds no"),
-        ]
-    )
-    def test_an_export_that_is_not_its_list_leaves_every_cohort_alone(
-        self, _name: str, state: dict[str, Any], newsletter: dict[str, Any], message: str
+    @parameterized.expand([("small_account", 5, 2), ("large_account", 30, 2), ("uncounted_list", 5, None)])
+    def test_a_list_export_that_holds_the_whole_account_leaves_every_cohort_alone(
+        self, _name: str, others: int, list_count: int | None
     ) -> None:
-        for number in range(30):
+        for number in range(others):
             self.state.account["contacts"].append(
                 {"id": f"x{number}", "email": f"x{number}@example.com", "list_ids": []}
             )
-        for name, value in state.items():
-            setattr(self.state, name, value)
-        self.state.account["contact_count"] = {"contact_count": 37}
-        if newsletter:
-            self.state.account["lists"][0].update(newsletter)
-        if newsletter.get("contact_count", 0) is None:
-            self.state.account["contact_count"] = {}
-            for row in self.state.account["lists"]:
-                row["contact_count"] = None
+        self.state.account["contact_count"] = {"contact_count": len(self.state.account["contacts"])}
+        for row in self.state.account["lists"]:
+            row["contact_count"] = list_count
+        self.state.export_shape = {"ignores_filter": True}
+        self._assert_fails_without_saving("SendGrid counts|SendGrid doesn't count")
+
+    @parameterized.expand([("with_a_count", "stated", 40), ("without_a_count", "missing", 9)])
+    def test_a_list_export_far_below_its_count_leaves_every_cohort_alone(
+        self, _name: str, stated: str, list_count: int
+    ) -> None:
+        self.state.account["lists"][0]["contact_count"] = list_count
+        self.state.account["contact_count"] = {}
+        self.state.export_shape = {"count": stated}
+        self._assert_fails_without_saving("but SendGrid counts")
+
+    def test_an_empty_export_of_an_account_without_counts_leaves_every_cohort_alone(self) -> None:
+        self.state.account["contact_count"] = {}
+        for row in self.state.account["lists"]:
+            row["contact_count"] = None
+        self.state.export_damage = "empty"
+        self._assert_fails_without_saving("holds no contacts")
+
+    def test_an_export_without_a_valid_email_leaves_every_cohort_alone(self) -> None:
+        for contact in self.state.account["contacts"]:
+            contact["email"] = "not an email"
+        self._assert_fails_without_saving("no valid email")
+
+    def _assert_fails_without_saving(self, message: str) -> None:
         run = self._start()
         with self.assertRaisesRegex(ImportStepError, message):
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
         assert not self.people.stored
         assert not Cohort.objects.filter(team_id=self.team.id).exists()
+
+    def test_a_list_without_emails_keeps_its_cohort_and_lets_the_rest_import(self) -> None:
+        first = self._start()
+        runs.run_step(self.team.id, first.id, "contacts", attempt=1)
+        runs.finish_run(self.team.id, first.id)
+        for contact in self.state.account["contacts"]:
+            contact["list_ids"] = [i for i in contact["list_ids"] if i != "11111111-0000-4000-8000-000000000002"]
+        self.state.account["contacts"][6]["list_ids"].append("11111111-0000-4000-8000-000000000002")
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert list(self._cohorts(run)) == ["SendGrid contacts", "Newsletter (from SendGrid)"]
+        assert "Bêta testeurs wasn't imported" in run.progress["contacts"]["warnings"][0]
 
     @parameterized.expand([("redirect", 302, "HTTP 302", 0), ("expired_link", 403, "expired", 1)])
     def test_a_refused_download_is_never_followed_and_an_expired_one_starts_a_new_export(

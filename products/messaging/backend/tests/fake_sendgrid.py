@@ -106,7 +106,7 @@ class FakeSendGridState:
         # "rows" leaves out the last contact, and "empty" holds no contacts and counts none.
         self.export_damage: str | None = None
         # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "bom", "header" ("upper", "lower",
-        # "spaced" or "field_ids"), "reversed", "count" ("stated", "null" or "missing"), "all_columns" and
+        # "spaced" or "field_ids"), "reversed", "header_in_each_file", "count" ("stated", "null" or "missing"), "all_columns" and
         # "ignores_filter".
         self.export_shape: dict[str, Any] = {}
         # How many checks an export stays pending for, and the status that follows.
@@ -163,6 +163,7 @@ class _Handler(BaseHTTPRequestHandler):
                 state.export_damage, state.export_pending_checks, state.export_status = None, 1, "ready"
                 state.export_shape = {}
             state.account.update(body.get("account", {}))
+            state.second_account.update(body.get("second_account", {}))
             for name in ("export_damage", "export_pending_checks", "export_status", "export_shape"):
                 if name in body:
                     setattr(state, name, body[name])
@@ -252,7 +253,8 @@ class _Handler(BaseHTTPRequestHandler):
         columns = _export_columns(state.exports[export_id]["contacts"], shape)
         rows = io.StringIO()
         writer = csv.writer(rows)
-        writer.writerow([header for header, _ in columns])
+        if not part or shape.get("header_in_each_file", True):
+            writer.writerow([header for header, _ in columns])
         writer.writerows([[value(contact) for _, value in columns] for contact in contacts])
         text = ("\ufeff" if shape.get("bom") else "") + rows.getvalue()
         payload = gzip.compress(text.encode()) if shape.get("packed", True) else text.encode()

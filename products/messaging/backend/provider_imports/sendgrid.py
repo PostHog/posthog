@@ -74,6 +74,7 @@ from products.messaging.backend.services.sendgrid_client import (
     TEMPLATE_PAGE_SIZE,
     SendGridAPIError,
     SendGridClient,
+    SendGridDownloadIncomplete,
     SendGridKeyRejected,
     SendGridRateLimited,
     SendGridResponseTooLarge,
@@ -1130,7 +1131,7 @@ def _fetch_contacts(
     exports: dict[str, str] = json.loads(str(resume["exports"])) if resume and "exports" in resume else {}
     contacts = ContactCollector()
     custom_fields = _read_custom_fields(client)
-    skipped: list[str] = []
+    skipped: dict[str, str] = {}
     list_members: dict[str, list[dict[str, str]]] = {}
     read = repeats_merged = invalid_skipped = 0
 
@@ -1160,16 +1161,21 @@ def _fetch_contacts(
                 exported += 1
                 if member := contacts.add(fields.get("email"), _contact_properties(fields, custom_fields)):
                     members.append(member)
-            _check_export_size(exported, contact_count, read if target != ALL_CONTACTS else None)
+            _check_export_size(export, exported, contact_count, read if target != ALL_CONTACTS else None)
+            if exported and not members:
+                raise _NoEmails("SendGrid's contact export holds no valid email address.")
         except _ExportGone as e:
-            # SendGrid doesn't say how it exports nothing, so what it counts as empty can't stop the import.
-            if isinstance(e, _ExportUnusable) and contact_count == 0:
-                if target == ALL_CONTACTS:
-                    yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(NO_CONTACTS_NOTE,)))
-                    return
-                skipped.append(str(lists.pop(target).get("name") or target))
+            # SendGrid doesn't say how it exports nothing, so what it counts as empty can't stop the import. Contacts
+            # can have a phone number only, so a list without an email address can't either.
+            may_be_empty = isinstance(e, _ExportUnusable) and contact_count == 0
+            if target == ALL_CONTACTS and may_be_empty:
+                yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(NO_CONTACTS_NOTE,)))
+                return
+            if not isinstance(e, _ExportPending) or may_be_empty:
+                exports.pop(target, None)
+            if target != ALL_CONTACTS and (may_be_empty or isinstance(e, _NoEmails)):
+                skipped[str(lists.pop(target).get("name") or target)] = str(e)
                 continue
-            exports.pop(target, None)
             yield progress_page()
             raise ImportProviderUnavailable(str(e)) from e
         if target == ALL_CONTACTS:
@@ -1221,8 +1227,8 @@ def _fetch_contacts(
             [*contacts.other_spellings, *unsubscribed],
             unsubscribed,
             tuple(
-                f"SendGrid sent no contacts PostHog can use for {name}, so its cohort stays as it was."
-                for name in skipped
+                f"{name} wasn't imported, so its cohort stays as it was, with anyone who left it since. {reason}"
+                for name, reason in skipped.items()
             ),
         ),
     )
@@ -1273,6 +1279,14 @@ class _ExportUnusable(_ExportGone):
     """SendGrid's answer for this export can't be what PostHog asked for."""
 
 
+class _NoEmails(_ExportGone):
+    """None of an export's contacts has an email address."""
+
+
+class _ExportPending(_ExportUnusable):
+    """SendGrid is still preparing this export."""
+
+
 def _start_export(client: SendGridClient, target: str) -> str:
     body: dict[str, Any] = {"file_type": "csv", "notifications": {"email": False}}
     if target != ALL_CONTACTS:
@@ -1289,19 +1303,26 @@ def _start_export(client: SendGridClient, target: str) -> str:
     return export_id
 
 
-def _check_export_size(exported: int, contact_count: int | None, everyone: int | None) -> None:
+def _check_export_size(
+    export: Mapping[str, Any], exported: int, contact_count: int | None, everyone: int | None
+) -> None:
     """Refuses an export that isn't the contacts SendGrid counts, because saving it would add or remove people wrongly."""
     if not exported:
         if contact_count == 0:
             return
         of = f"none of {contact_count:,} contacts" if contact_count else "no contacts"
         raise _ExportUnusable(f"SendGrid's contact export holds {of}.")
+    # An export of one list that holds the whole account can mean SendGrid ignored which list PostHog asked for.
+    is_everyone = everyone is not None and exported >= everyone and exported > 1.1 * (contact_count or 0) + 1
     if contact_count is None:
+        if is_everyone:
+            raise _ExportGone("SendGrid's export of a list holds every contact, and SendGrid doesn't count that list.")
         return
-    too_few = contact_count > 2 * exported + COUNT_SLACK
-    # An export of one list that holds the whole account means SendGrid ignored which list PostHog asked for.
-    is_everyone = everyone is not None and exported >= everyone and exported > 1.1 * contact_count
-    if too_few or (exported > contact_count + COUNT_SLACK and (is_everyone or exported > 2 * contact_count)):
+    # A count in the export itself already shows that no contact is missing.
+    is_complete = isinstance(export.get("contact_count"), int)
+    too_few = contact_count > (2 * exported + COUNT_SLACK if is_complete else 1.1 * exported + 1)
+    too_many = exported > 2 * contact_count + COUNT_SLACK
+    if too_few or too_many or is_everyone:
         raise _ExportGone(
             f"SendGrid's contact export holds {exported:,} contacts, but SendGrid counts {contact_count:,}."
         )
@@ -1314,17 +1335,22 @@ def _exported_contacts(client: SendGridClient, export: Mapping[str, Any]) -> Ite
     if not isinstance(urls, list) or (expected != 0 and not urls):
         raise _ExportUnusable("SendGrid sent a contact export without its contacts.")
     read = 0
+    names: list[str] = []
     for url in urls:
         try:
             with client.download(str(url)) as file:
-                for fields in _csv_rows(file):
+                for fields in _csv_rows(file, names):
                     read += 1
                     yield fields
+        except SendGridDownloadIncomplete as e:
+            raise _ExportGone(str(e)) from e
         except SendGridAPIError as e:
             # The link expires, and only a new export has a new one.
             if e.status_code in (400, 403, 404, 410):
                 raise _ExportGone("SendGrid's contact export expired. PostHog asks for a new one.") from e
             raise
+    if not names and urls:
+        raise _ExportUnusable("SendGrid's contact export is an empty file.")
     if isinstance(expected, int) and read < expected:
         raise _ExportGone(f"SendGrid's contact export holds {read:,} of {expected:,} contacts.")
 
@@ -1348,30 +1374,34 @@ def _ready_export(client: SendGridClient, export_id: str) -> dict[str, Any]:
                     f"SendGrid couldn't export your contacts: {str(export.get('message') or '')[:200]}"
                 )
         if time.monotonic() > deadline:
-            raise SendGridAPIError("SendGrid hasn't finished exporting your contacts yet. PostHog keeps checking.")
+            raise _ExportPending("SendGrid hasn't finished exporting your contacts yet. PostHog keeps checking.")
         time.sleep(EXPORT_POLL_SECONDS)
 
 
-def _csv_rows(file: IO[bytes]) -> Iterator[dict[str, str | None]]:
-    """A contact per row, with SendGrid's own fields lowercased and custom fields as the account named them."""
+def _csv_rows(file: IO[bytes], names: list[str]) -> Iterator[dict[str, str | None]]:
+    """A contact per row, with SendGrid's own fields lowercased and custom fields as the account named them. `names`
+    holds the columns of the files before this one, because SendGrid doesn't say whether each file repeats them."""
     try:
         reader = csv.reader(io.TextIOWrapper(file, encoding="utf-8-sig", newline=""), strict=True)
-        header = [column.strip() for column in next(reader, [])]
-        if not header:
-            raise _ExportUnusable("SendGrid's contact export is an empty file.")
+        first = next(reader, [])
+        if not first:
+            return
         known = CONTACT_FIELDS | _RECORD_FIELDS
-        names = [name if (name := column.lower().replace(" ", "_")) in known else column for column in header]
-        if "email" not in names:
-            raise SendGridAPIError(UNREADABLE_EXPORT_MESSAGE)
-        for row in reader:
+        header = [column.strip() for column in first]
+        header = [name if (name := column.lower().replace(" ", "_")) in known else column for column in header]
+        if "email" in header:
+            names[:] = header
+        elif not names:
+            raise _ExportGone(UNREADABLE_EXPORT_MESSAGE)
+        for row in reader if "email" in header else chain([first], reader):
             if not row:
                 continue
             if len(row) != len(names):
-                raise SendGridAPIError(UNREADABLE_EXPORT_MESSAGE)
+                raise _ExportGone(UNREADABLE_EXPORT_MESSAGE)
             # The first column with a name counts, so a custom field can't stand in for SendGrid's own.
             yield dict(zip(reversed(names), reversed(row)))
     except (csv.Error, UnicodeDecodeError) as e:
-        raise SendGridAPIError(UNREADABLE_EXPORT_MESSAGE) from e
+        raise _ExportGone(UNREADABLE_EXPORT_MESSAGE) from e
 
 
 def _fetch_senders(
