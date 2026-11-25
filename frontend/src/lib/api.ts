@@ -3344,7 +3344,10 @@ const api = {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+            return new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams(params))
+                .assembleFullUrl(true)
         },
         async listPaginated(
             params: {

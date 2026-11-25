@@ -20,7 +20,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
-import api from 'lib/api'
+import api, { ApiRequest } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -1244,11 +1244,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 kind: NodeKind.HogQLQuery,
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-                            cohort = await api.create('api/cohort', {
-                                is_static: true,
-                                name: `${values.cohort.name} (static copy)`,
-                                query,
+                            // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
+                            cohort = await new ApiRequest().cohorts().create({
+                                data: {
+                                    is_static: true,
+                                    name: `${values.cohort.name} (static copy)`,
+                                    query,
+                                },
                             })
                         } else {
                             const data = { ...values.cohort }

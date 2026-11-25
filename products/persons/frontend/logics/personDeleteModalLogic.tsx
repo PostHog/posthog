@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiRequest } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 
@@ -127,7 +127,9 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
 
                     // The persons delete endpoint has no generated function.
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    await api.delete(
+                        new ApiRequest().person(String(person.id)).withQueryString(toParams(params)).assembleFullUrl()
+                    )
                     posthog.capture('delete person', params)
 
                     lemonToast.success(

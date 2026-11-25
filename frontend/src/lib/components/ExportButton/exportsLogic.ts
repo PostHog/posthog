@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiRequest } from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -414,11 +414,13 @@ export const exportsLogic = kea<exportsLogicType>([
                         return null
                     }
                 )
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-                const cohort: CohortType = await api.create('api/cohort', {
-                    is_static: true,
-                    name: name || 'Query cohort',
-                    query: query,
+                // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
+                const cohort: CohortType = await new ApiRequest().cohorts().create({
+                    data: {
+                        is_static: true,
+                        name: name || 'Query cohort',
+                        query: query,
+                    },
                 })
                 cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast

@@ -14,7 +14,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { combineUrl, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiRequest } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
@@ -505,8 +505,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
+            const cohort = await new ApiRequest()
+                .cohorts()
+                .create({ data: { ...cohortParams, query: values.actorsQuery } })
             cohortsModel.actions.cohortCreated(cohort)
             cohortSavedToast(cohort, 'persons_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)

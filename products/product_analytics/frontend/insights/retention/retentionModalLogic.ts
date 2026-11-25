@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import { ApiRequest } from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -382,9 +382,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            // The generated `cohortsCreate` posts to the project-scoped route, which all four callers must move to.
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
+            const cohort = await new ApiRequest()
+                .cohorts()
+                .create({ data: { ...cohortParams, query: values.actorsQuery } })
             cohortsModel.actions.cohortCreated(cohort)
             cohortSavedToast(cohort, 'retention_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)
