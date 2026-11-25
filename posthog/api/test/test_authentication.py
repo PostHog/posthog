@@ -2829,6 +2829,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
     @parameterized.expand(
         [
             ("service_account_create", "post", "/api/organizations/@current/service_accounts/"),
+            (
+                "service_account_disable",
+                "post",
+                "/api/organizations/@current/service_accounts/00000000-0000-0000-0000-000000000001/disable/",
+            ),
+            (
+                "service_account_enable",
+                "post",
+                "/api/organizations/@current/service_accounts/00000000-0000-0000-0000-000000000001/enable/",
+            ),
             ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
             ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
             ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),

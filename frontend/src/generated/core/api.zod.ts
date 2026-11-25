@@ -718,6 +718,10 @@ export const ServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Display name of the service account.'),
 })
 
+export const ServiceAccountsDisableCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+export const ServiceAccountsEnableCreateBody = /* @__PURE__ */ zod.looseObject({})
+
 /**
  * Create a new password for the sharing configuration.
  */
