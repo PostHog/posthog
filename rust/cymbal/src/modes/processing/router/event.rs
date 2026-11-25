@@ -206,9 +206,16 @@ fn processing_errors_warning(event: &AnyEvent) -> Option<Warning> {
 async fn run_pipeline(
     ctx: Arc<AppContext>,
     headers: HeaderMap,
-    events: Vec<AnyEvent>,
+    mut events: Vec<AnyEvent>,
     item_results: bool,
 ) -> Result<Batch<ProcessOutcome>, ProcessEventsError> {
+    // `$cymbal_errors` reaches the team as a processing diagnostic, so it must only hold
+    // errors that processing attached, never text the sender put in the event.
+    for event in &mut events {
+        if let Some(properties) = event.properties.as_object_mut() {
+            properties.remove("$cymbal_errors");
+        }
+    }
     let item_results_label = if item_results { "true" } else { "false" };
     let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);

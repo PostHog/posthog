@@ -896,14 +896,19 @@ async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(d
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn item_results_carry_processing_errors_as_an_ingestion_warning(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event(vec![]);
+    let mut input = make_event(vec![]);
+    input.properties["$cymbal_errors"] = json!(["sent by the caller"]);
 
     let (status, response) = harness.post_body(true, json!([input]), |_| {}).await;
 
     assert!(status.is_success(), "Expected success, got {status:?}");
     let result = &response["results"][0];
     let errors = &result["value"]["properties"]["$cymbal_errors"];
-    assert!(errors.as_array().is_some_and(|errors| !errors.is_empty()));
+    assert!(
+        errors.as_array().is_some_and(
+            |errors| !errors.is_empty() && !errors.contains(&json!("sent by the caller"))
+        )
+    );
     assert_eq!(
         result["warnings"],
         json!([{
