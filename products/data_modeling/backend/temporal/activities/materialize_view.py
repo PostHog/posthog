@@ -484,6 +484,7 @@ async def hogql_table(
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
+    query_id: str | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -690,6 +691,8 @@ async def hogql_table(
     # The query goes in a field rather than the message: only the message is copied into the
     # log_entries row users can read, and the compiled query is the saved query's own SQL.
     await logger.adebug("Running clickhouse query", query=arrow_printed)
+    if query_id is not None:
+        await logger.ainfo(f"Running ClickHouse query, query_id={query_id}")
 
     async with (
         _clickhouse_query_semaphore,
@@ -711,6 +714,7 @@ async def hogql_table(
                 query_parameters=context.values,
                 on_schema=capture_arrow_schema,
                 external_tables=list(context.external_tables.values()),
+                query_id=query_id,
             ):
                 batches_size = batches_size + batch.nbytes
                 batches.append(batch)
@@ -898,6 +902,51 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
+@dataclasses.dataclass(slots=True)
+class _AttemptProgress:
+    """The attempt's current step, held in memory so that the line logged when the attempt ends
+    can say where it stopped. A timeout reaches the activity as a cancellation inside whatever
+    it was awaiting, so nothing else records the step."""
+
+    job_id: str
+    attempt: int
+    step: str = "preparing"
+    step_started_at: float = dataclasses.field(default_factory=time.monotonic)
+    batches: int = 0
+    rows: int = 0
+    queries: int = 0
+    query_id: str | None = None
+    batch_seconds: dict[str, float] = dataclasses.field(default_factory=dict)
+
+    def enter(self, step: str) -> None:
+        now = time.monotonic()
+        self.batch_seconds[self.step] = self.batch_seconds.get(self.step, 0.0) + now - self.step_started_at
+        self.step = step
+        self.step_started_at = now
+
+    def next_query_id(self) -> str:
+        self.queries += 1
+        self.query_id = f"{self.job_id}-a{self.attempt}-{self.queries}"
+        return self.query_id
+
+    def finish_batch(self, rows: int) -> str:
+        self.enter(self.step)
+        self.batches += 1
+        self.rows += rows
+        steps = ", ".join(f"{step} {seconds:.1f}s" for step, seconds in self.batch_seconds.items())
+        self.batch_seconds = {}
+        return f"Wrote batch {self.batches}: {rows:,} rows, {self.rows:,} in total ({steps})"
+
+    def where_it_stopped(self) -> str:
+        in_step = time.monotonic() - self.step_started_at
+        batch_word = "batch" if self.batches == 1 else "batches"
+        query = f", query_id={self.query_id}" if self.query_id else ""
+        return (
+            f"while {self.step} ({in_step:.0f}s in that step), "
+            f"after {self.batches} {batch_word} and {self.rows:,} rows{query}"
+        )
+
+
 def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextManager[trace.Span]:
     return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
 
@@ -915,6 +964,8 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    *,
+    progress: _AttemptProgress,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
@@ -953,8 +1004,10 @@ async def _materialize_fully(
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
     key_columns = _key_columns(plan)
+    progress.enter("reading from ClickHouse")
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, query_id=progress.next_query_id()):
+            progress.enter("converting the batch")
             batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
             batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
             batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
@@ -962,8 +1015,10 @@ async def _materialize_fully(
             batch = arrow_batch_transforms._force_nullable(batch)
             if tracker is not None:
                 await asyncio.to_thread(tracker.check, batch)
+            progress.enter("staging person properties")
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
             batch_index += 1
+            progress.enter("writing to Delta")
             with _batch_span("materialize_view.write_batch", batch):
                 if delta_table is None:
                     pa_schema = batch.schema
@@ -987,12 +1042,16 @@ async def _materialize_fully(
                     )
             # Staged only once the batch is committed: a run that announces rows it then fails to write
             # cannot take the announcement back.
+            progress.enter("staging CDP rows")
             await cdp_sink.stage(batch)
             if plan.config is not None and plan.config.incremental_key in batch.schema.names:
                 watermark = max_of(batch, plan.config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
+            progress.enter("saving the job")
             await database_sync_to_async_pool(objects.job.save)()
+            await logger.ainfo(progress.finish_batch(batch.num_rows))
+            progress.enter("reading from ClickHouse")
     finally:
         if tracker is not None:
             tracker.close()
@@ -1001,7 +1060,9 @@ async def _materialize_fully(
     file_uris: list[str] = []
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
+        progress.enter("compacting the Delta table")
         await _compact(delta_table)
+        progress.enter("vacuuming the Delta table")
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
         if not file_uris and row_count == 0 and pa_schema is not None:
@@ -1033,6 +1094,8 @@ async def _materialize_incrementally(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    *,
+    progress: _AttemptProgress,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
 
@@ -1059,8 +1122,12 @@ async def _materialize_incrementally(
     batch_index = 0
     key_columns = _key_columns(plan)
 
+    progress.enter("reading from ClickHouse")
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
+        async for batch, ch_types in hogql_table(
+            hogql_query, objects.team, logger, window=window, query_id=progress.next_query_id()
+        ):
+            progress.enter("converting the batch")
             batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
             batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
             batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
@@ -1069,15 +1136,18 @@ async def _materialize_incrementally(
 
             if batch.num_rows == 0:
                 # A quiet window is normal. Nothing to upsert, and no watermark to advance.
+                progress.enter("reading from ClickHouse")
                 continue
 
             assert_schema_matches(batch, target_schema)
             # Checked before the upsert so a duplicate split across batches fails the run instead
             # of the later batch silently replacing the earlier one.
             await asyncio.to_thread(tracker.check, batch)
+            progress.enter("staging person properties")
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
 
+            progress.enter("upserting into Delta")
             with _batch_span("materialize_view.upsert_batch", batch):
                 stats = await asyncio.to_thread(
                     upsert_batch,
@@ -1087,13 +1157,16 @@ async def _materialize_incrementally(
                     config.unique_key,
                     commit_metadata={"posthog_job_id": str(objects.job.id)},
                 )
-            await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
+            progress.enter("staging CDP rows")
             await cdp_sink.stage(batch)
 
             watermark = max_of(batch, config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
+            progress.enter("saving the job")
             await database_sync_to_async_pool(objects.job.save)()
+            await logger.ainfo(progress.finish_batch(batch.num_rows), **upsert_stats_fields(stats))
+            progress.enter("reading from ClickHouse")
     except DuplicateUniqueKeyError:
         # The watermark stays, because a rebuild would fail on the same repeat. The rows already
         # upserted from earlier batches are safe to keep: the next run re-reads them from the
@@ -1127,7 +1200,9 @@ async def _materialize_incrementally(
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
         await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
+        progress.enter("compacting the Delta table")
         await _compact(delta_table)
+    progress.enter("vacuuming the Delta table")
     await _vacuum(delta_table, logger)
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
@@ -1223,6 +1298,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     activity_span = trace.get_current_span()
     activity_span.set_attributes({"team_id": inputs.team_id, "saved_query_id": str(objects.saved_query.id)})
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
+    progress = _AttemptProgress(job_id=inputs.job_id, attempt=activity.info().attempt)
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
@@ -1296,6 +1372,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             logger,
                             cdp_sink,
                             person_property_sink,
+                            progress=progress,
                         )
                     else:
                         row_count, file_uris = await _materialize_fully(
@@ -1307,6 +1384,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             logger,
                             cdp_sink,
                             person_property_sink,
+                            progress=progress,
                         )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1349,7 +1427,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     except (ClickHouseError, aiohttp.ClientOSError, aiohttp.ServerDisconnectedError) as error:
         if not published:
             await cdp_sink.discard()
-        await _log_failed_attempt(logger, error)
+        await _log_failed_attempt(logger, error, progress)
         if DELTA_KERNEL_ERROR_MARKER in str(error):
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
@@ -1366,12 +1444,16 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     except (Exception, asyncio.CancelledError) as error:
         if not published:
             await cdp_sink.discard()
-        if not isinstance(error, asyncio.CancelledError):
-            await _log_failed_attempt(logger, error)
+        await _log_failed_attempt(logger, error, progress)
         raise
 
 
-async def _log_failed_attempt(logger: FilteringBoundLogger, error: BaseException) -> None:
+async def _log_failed_attempt(logger: FilteringBoundLogger, error: BaseException, progress: _AttemptProgress) -> None:
     """The run's log otherwise records only the final failure, so a retried attempt leaves no trace there."""
+    attempt = activity.info().attempt
+    where = progress.where_it_stopped()
+    if isinstance(error, asyncio.CancelledError):
+        await logger.awarning(f"Attempt {attempt} stopped {where}: cancelled by a timeout or by the workflow")
+        return
     reason = strip_hostname_from_error(str(error)) or type(error).__name__
-    await logger.aerror(f"Attempt {activity.info().attempt} failed: {reason}")
+    await logger.aerror(f"Attempt {attempt} failed {where}: {reason}")

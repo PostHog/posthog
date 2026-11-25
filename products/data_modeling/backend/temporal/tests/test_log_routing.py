@@ -12,6 +12,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pyarrow as pa
 import pytest_asyncio
 import temporalio.testing
 
@@ -246,3 +247,53 @@ async def test_each_failed_materialize_attempt_is_written_to_the_run_log(
     assert failed_attempts[0]["level"] == "error"
     assert "Memory limit exceeded" in failed_attempts[0]["message"]
     assert "svc.cluster.local" not in failed_attempts[0]["message"]
+
+
+@pytest.mark.usefixtures("minio_client")
+async def test_a_cancelled_attempt_says_where_it_stopped_in_the_run_log(
+    v2_activity_environment, queue, ateam, adag, anode, asaved_query, ajob, bucket_name
+):
+    # A StartToClose timeout reaches the activity as a cancellation.
+    def stream_that_stops_after_one_batch(*args, **kwargs):
+        async def generator():
+            yield pa.record_batch({"id": [1, 2, 3]}), [("id", "Int64")]
+            raise asyncio.CancelledError()
+
+        return generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        ),
+        unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
+            stream_that_stops_after_one_batch,
+        ),
+        unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.LOGGER",
+            get_logger("products.data_modeling.backend.temporal.activities.materialize_view"),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await v2_activity_environment.run(
+            materialize_view_activity,
+            MaterializeViewInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)),
+        )
+
+    def run_log(message: dict) -> bool:
+        return message.get("log_source") == "data_modeling_run"
+
+    def is_stopped_attempt(message: dict) -> bool:
+        return run_log(message) and "Attempt 1 stopped" in message["message"]
+
+    await _wait_for_queue_entries(queue, matches=is_stopped_attempt)
+
+    messages = [m for m in (json.loads(entry.decode("utf-8")) for entry in queue.entries) if run_log(m)]
+    assert any(m["message"].startswith("Wrote batch 1: 3 rows") for m in messages)
+    [stopped] = [m for m in messages if is_stopped_attempt(m)]
+    assert "while reading from ClickHouse" in stopped["message"]
+    assert "after 1 batch and 3 rows" in stopped["message"]
+    assert f"query_id={ajob.id}-a1-1" in stopped["message"]
