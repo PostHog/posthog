@@ -645,7 +645,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
   - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
   - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
-  - `edge.fault` holds a fault rule on the edge process with `EdgeProcess.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
+  - `edge.fault` holds a fault rule on the edge process with `EdgeProcess.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window and before the hold ended, and stops waiting when the hold ends. A hold that ended before the observation began is not observed.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
 - **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, asks the edge's `GET /_health` for a 200, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
@@ -675,7 +675,7 @@ export function startProviderEdge(options: {
 // nodejs/tests/scenarios/provider-edge/process.ts
 export function startEdgeProcess(
   options: EdgeProcessOptions, // port, trackingKeys, caDir and feedbackUrl
-  deadlines?: { startsWithinMs?: number; answersWithinMs?: number } // 60 and 30 seconds; past one, the edge process group is killed and every call rejects once it has exited
+  deadlines?: { startsWithinMs?: number; answersWithinMs?: number } // 60 and 30 seconds; past one, the edge process group is killed and every call rejects once it has exited, a reply read after its deadline included
 ): Promise<EdgeProcess>
 export type EdgeProcess = {
   url: string

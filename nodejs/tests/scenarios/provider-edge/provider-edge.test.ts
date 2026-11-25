@@ -386,14 +386,40 @@ describe('provider edge', () => {
     })
 
     it('does not observe a fault the edge first applied after the drive released its hold', async () => {
-        const stamp: { appliedAt?: number } = {}
-        const held = holdOf({ firstAppliedAt: () => Promise.resolve(stamp.appliedAt), remove: () => Promise.resolve() })
-        const released = new AbortController()
-        const observed = held.observed(released.signal)
-        released.abort()
-        stamp.appliedAt = Date.now() + 1
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            let readArrives = (): void => undefined
+            const answered = new Promise<void>((resolve) => (readArrives = resolve))
+            const held = holdOf({
+                firstAppliedAt: () => answered.then(() => edge.firstAppliedAt(faultId)),
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+            const released = new AbortController()
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + 5)
+            released.abort()
+            clock.mockReturnValue(start + 6)
+            const answer = await send(ALICE)
+            readArrives()
 
-        expect(await observed).toBe(false)
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: false })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it('does not observe a fault for a drive that ended before its observation began', async () => {
+        const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+        const answer = await send(ALICE)
+
+        expect({ answer, observed: await held.observed(AbortSignal.abort()) }).toEqual({
+            answer: 'MessageRejected',
+            observed: false,
+        })
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

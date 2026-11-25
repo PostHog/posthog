@@ -46,7 +46,7 @@ export function holdOf(fault: HeldFault): FaultHold {
                 windowEndsAt = Math.min(windowEndsAt, Date.now())
             }
             if (holdEnds?.aborted) {
-                holdEnded()
+                return false
             }
             holdEnds?.addEventListener('abort', holdEnded, { once: true })
             const answeredInWindow = async (): Promise<boolean> =>
