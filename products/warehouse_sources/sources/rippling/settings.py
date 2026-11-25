@@ -146,6 +146,30 @@ RIPPLING_ENDPOINTS: dict[str, RipplingEndpointConfig] = {
         incremental_fields=[],
         partition_key="created_at",
     ),
+    # Leave types filter only on name, job codes on job_dimension_id/group_id, job assignments on
+    # worker_id/job_code_id, and time cards on pay_period.start_date/worker_id, so full refresh only.
+    "leave_types": RipplingEndpointConfig(
+        name="leave_types",
+        path="/leave-types",
+        incremental_fields=[],
+    ),
+    "job_codes": RipplingEndpointConfig(
+        name="job_codes",
+        path="/job-codes",
+        incremental_fields=[],
+    ),
+    "job_assignments": RipplingEndpointConfig(
+        name="job_assignments",
+        path="/job-assignments",
+        incremental_fields=[],
+        partition_key="created_at",
+    ),
+    "time_cards": RipplingEndpointConfig(
+        name="time_cards",
+        path="/time-cards",
+        incremental_fields=[],
+        partition_key="created_at",
+    ),
     # Rippling documents applied_on (when the change was saved) as the polling filter. It
     # documents no sortable fields, so requests send no order_by and rows arrive unordered.
     "worker_changes": RipplingEndpointConfig(

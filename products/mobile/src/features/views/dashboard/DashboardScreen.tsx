@@ -35,10 +35,6 @@ interface DashboardScreenProps {
     displayMode: PinDisplayMode | null
 }
 
-/**
- * A dashboard in one column. It opens like the web: a cache-only dashboard read, then a `blocking` read for each
- * visible tile whose cached result is missing or past its `cache_target_age`.
- */
 export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardScreenProps): ReactElement {
     const screen = useDashboardScreen(dashboardRef, { from, displayMode })
     const scrollTitle = useScrollTitle(screen.dashboard.data?.name ?? '')

@@ -237,9 +237,27 @@ For a team inside the gate, that field also carries how many of the project's co
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 `off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
 An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
-A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` carries it too.
-Both carry the plan's limit in `history_limit_days`, because that is the limit a person can raise.
+A `daily` cohort carries the first check of the [realtime decision](definitions-and-eligibility.md#the-realtime-decision) that kept it off realtime, in the order the save applies them.
+The reason is read at request time from what the save stored, with no query and no second compile:
+
+- `unsupported_criteria`: a leaf has a `bytecode_error` and no bytecode, or a leaf is `person_metadata`.
+- `action_criteria`: such a leaf is behavioral and its `key` is an action id. It wins over another leaf with a `bytecode_error`, but not over a `person_metadata` leaf.
+- `includes_non_realtime_cohort`: every other leaf compiled, and a cohort reference has no bytecode, because the cohort it names was not realtime at that save.
+- `history_over_limit`: its criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS`.
+- `members_over_limit`: its current `count` is above `REALTIME_COHORT_MAX_PERSON_COUNT`.
+- `test_account_filter`: its filters set `filterTestAccounts`.
+
+A leaf that carries both bytecode and an error is one the save refuses, but what is stored can't say whether the bytecode or the error is stale.
+When no other leaf gives a criteria reason, that cohort gets no reason at all, and no later check is named, because fixing a later check would leave it `daily`.
+A leaf with neither that is not a cohort reference was never compiled, so what is stored can't say whether the criteria keep the cohort off realtime.
+Unless another leaf is `person_metadata` or carries both, that cohort gets no criteria reason, and the later checks still apply.
+The reason is as stale as `cohort_type`: a cohort that includes another one keeps `includes_non_realtime_cohort` after that cohort becomes realtime, until it is saved again.
+Every `history_over_limit` carries the plan's limit in `history_limit_days`, because that is the limit a person can raise.
 A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
+
+A cohort that needs two backfill kinds reads `building` or `rebuilding` while every kind that has not stamped is being prepared, and `needs_attention` when nothing is preparing one of those kinds.
+A kind that has stamped is finished for this cohort, so neither its runs nor its debounce key are consulted, including a team run of that kind that stays active while it holds for other cohorts.
+While `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is off, person runs wait in `reconciling` and never stamp, so a cohort that needs both kinds reads `building` or `rebuilding` in the `checking` phase from the moment its events kind stamps until the gate opens.
 
 ### In the feature flags service
 
@@ -252,6 +270,7 @@ It routes a cohort to the membership table when all of these hold:
 - its stamps satisfy the configured stamp policy.
 
 Otherwise the cohort is evaluated dynamically from person properties, where behavioral leaves can never match.
+A routed cohort that a dynamically evaluated cohort includes keeps its table answer.
 [Membership output and readers](membership-output-and-readers.md#feature-flags) describes the read path.
 
 The Django rule and the Rust rule are separate predicates.

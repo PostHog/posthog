@@ -278,7 +278,9 @@ MEASURE_CONTENT_WIDTH_JS = f"""
         """
 
 ScreenWidth = Literal[600, 800, 1122, 1920, 1400, 4000]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter", ".react-grid-item"]
+CSSSelector = Literal[
+    ".DashboardTileCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter", ".react-grid-item"
+]
 
 
 def _insight_query_wants_legend(query: dict) -> bool:
@@ -380,7 +382,9 @@ def _export_rendered_asset(
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
             wait_for_css_selector = (
-                ".react-grid-item" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else ".InsightCard"
+                ".react-grid-item"
+                if exported_asset.export_format == ExportedAsset.ExportFormat.PDF
+                else ".DashboardTileCard"
             )
             screenshot_width = (
                 PDF_PAGE_WIDTH if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
@@ -587,6 +591,7 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
 
 # Exports can set their own selector, so the metric label maps the known ones and buckets the rest.
 _RENDER_STAGE_CONTENT = {
+    ".DashboardTileCard": "dashboard",
     ".InsightCard": "dashboard",
     ".ExportedInsight": "insight",
     REPLAY_WRAPPER_SELECTOR: "replay",
@@ -846,12 +851,18 @@ def export_image(
                 if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
-                if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
+                is_pdf = exported_asset.export_format == ExportedAsset.ExportFormat.PDF
+                if is_pdf:
                     validate_dashboard_pdf(exported_asset.dashboard)
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
+                if not is_pdf and not dashboards_api.has_tiles_shown_in_image_export(exported_asset.dashboard.id):
+                    raise InvalidExportContext(
+                        "This dashboard has no insights or text cards to show in an image. "
+                        "Add an insight to the dashboard, then export it again."
+                    )
                 # Use variable overrides from export_context (user's current unsaved selection),
                 # falling back to saved dashboard variables
                 export_context = exported_asset.export_context or {}

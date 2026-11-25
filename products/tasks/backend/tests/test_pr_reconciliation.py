@@ -136,6 +136,7 @@ class TestPullRequestReconciliation(TestCase):
             state="closed" if state in {"closed", "merged"} else "open",
             draft=state == "draft",
             merged=state == "merged",
+            merged_by={"login": "octocat", "id": 583231} if state == "merged" else None,
         )
         self._reconcile()
         self.task_run.refresh_from_db()
@@ -148,6 +149,9 @@ class TestPullRequestReconciliation(TestCase):
             self.assertEqual(self.task_run.output["pr_merged"], state == "merged")
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(number=17)
         self.assertEqual(pr.state, state)
+        self.assertEqual(
+            (pr.merged_by_login, pr.merged_by_github_id), ("octocat", 583231) if state == "merged" else (None, None)
+        )
         self.task.refresh_from_db()
         self.assertEqual(
             (self.task.merged_pr_urls, self.task.closed_pr_urls),

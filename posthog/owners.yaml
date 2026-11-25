@@ -5,11 +5,14 @@ rules:
           - '/admin/console/member_email_migration.py'
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
+          - '/helpers/user_email_change.py'
       owners: team-platform-features
     - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
       owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
+    - match: ['/cli_notices.py', '/test/test_cli_notices.py']
+      owners: team-growth
     - match: '/clickhouse/hcl/'
       owners: clickhouse
     - match:

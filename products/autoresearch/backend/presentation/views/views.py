@@ -45,12 +45,14 @@ from products.autoresearch.backend.facade.contracts import (
     InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
+    TrainingBudgetReached,
     TrainingRunCapReached,
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
 
 from .serializers import (
+    START_TRAINING_REFUSED_SERIALIZER,
     AgentModelOptionsSerializer,
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
@@ -79,6 +81,7 @@ from .serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingBudgetReachedSerializer,
     TrainingRunCapReachedSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
@@ -345,7 +348,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         description=(
             "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
             "against the daily limit, with when the next run can start at the limit, the "
-            "most experiments per training run, and live pipelines against the live pipeline limit. "
+            "most experiments per training run, live pipelines against the live pipeline limit, and this UTC "
+            "calendar month's training spend against the monthly budget, with when it resets. "
             "Read-only; it runs no queries."
         ),
     )
@@ -461,8 +465,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
             429: OpenApiResponse(
-                response=TrainingRunCapReachedSerializer,
-                description="The project used its daily limit of training runs.",
+                response=START_TRAINING_REFUSED_SERIALIZER,
+                description=(
+                    "The project used its daily limit of training runs, or its monthly training budget "
+                    "(code 'training_budget_reached')."
+                ),
             ),
         },
         summary="Start a training run",
@@ -503,6 +510,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         except TrainingRunCapReached as exc:
             body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
             return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)
+        except TrainingBudgetReached as exc:
+            budget_body = {
+                "detail": str(exc),
+                "code": exc.code,
+                "spent_usd": exc.spent_usd,
+                "limit_usd": exc.limit_usd,
+                "resets_at": exc.resets_at,
+            }
+            return Response(TrainingBudgetReachedSerializer(instance=budget_body).data, status=429)
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(

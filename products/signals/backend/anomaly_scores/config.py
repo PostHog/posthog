@@ -47,6 +47,9 @@ class IntervalScoring:
 class ScoringProfile:
     name: str
     intervals: dict[IntervalType, IntervalScoring]
+    # The name its stored models are kept under. Profiles with the same local part share it, so a project that
+    # moves between them keeps its models. Events still carry `name`.
+    model_profile: str
 
     def for_interval(self, interval: IntervalType) -> IntervalScoring | None:
         return self.intervals.get(interval)
@@ -74,6 +77,7 @@ def _zscore_and_judge(window: int) -> dict[str, Any]:
 
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
+    model_profile="default-v1",
     intervals={
         IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
         IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
@@ -85,6 +89,7 @@ DEFAULT_PROFILE = ScoringProfile(
 # The local part is `default-v1`, so it flags the same buckets before the judge.
 AI_JUDGE_PROFILE = ScoringProfile(
     name="default-v2",
+    model_profile=DEFAULT_PROFILE.model_profile,
     intervals={
         IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore_and_judge(336)),
         IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore_and_judge(56)),
@@ -102,8 +107,14 @@ MAX_LIMITS = ScoringLimits(max_breakdown_values=25, max_series=50, max_backfill_
 class AIJudgeConfig:
     """Which projects score with `default-v2`, and the caps on its model calls. The `ai_judge` object of the payload."""
 
-    # Every other project scores with `default-v1`.
+    # A project scores with `default-v2` when it is in `team_ids`, or when its organization is inside
+    # `organization_percentage`. Every other project scores with `default-v1`.
     team_ids: tuple[int, ...] = ()
+    # Uses the rollout buckets of `self_driving_organization_percentage`, so a higher percentage keeps the
+    # organizations of a lower one. At or below the scoring percentage, it picks only organizations that are scored.
+    organization_percentage: float = 0.0
+    # These projects keep `default-v1`, even when `team_ids` or the percentage picks `default-v2`.
+    skip_team_ids: tuple[int, ...] = ()
     # A train step that backfills many buckets asks about its newest flagged buckets first.
     max_checks_per_insight_per_run: int = 3
     max_checks_per_project_per_day: int = 50
@@ -116,7 +127,18 @@ MAX_AI_CHECKS_PER_PROJECT_PER_DAY = 1000
 
 def resolve_profile(team: "Team", insight: "Insight", ai_judge: AIJudgeConfig = NO_AI_JUDGE) -> ScoringProfile:
     """The one place that picks scoring settings for an insight, so project and per-metric overrides only change this."""
-    return AI_JUDGE_PROFILE if team.id in ai_judge.team_ids else DEFAULT_PROFILE
+    return AI_JUDGE_PROFILE if judges_team(ai_judge, team) else DEFAULT_PROFILE
+
+
+def judges_team(ai_judge: AIJudgeConfig, team: "Team") -> bool:
+    """Whether the project scores with `default-v2`. The skip list wins over the list and the percentage."""
+    if team.id in ai_judge.skip_team_ids:
+        return False
+    if team.id in ai_judge.team_ids:
+        return True
+    return ai_judge.organization_percentage > 0 and _in_percentage(
+        ai_judge.organization_percentage, team.organization_id
+    )
 
 
 class ScoringRun(StrEnum):
@@ -126,6 +148,9 @@ class ScoringRun(StrEnum):
     TRAIN = "train"
     # Fetch only the new buckets and the context that preprocessing reads, and score them with the stored artifacts.
     SCORE = "score"
+
+
+JUDGE_HISTORY_QUERY_NAME = "anomaly_scoring_judge_history"
 
 
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
@@ -326,6 +351,10 @@ def parse_ai_judge(payload: Any) -> AIJudgeConfig:
         return NO_AI_JUDGE
     return AIJudgeConfig(
         team_ids=_team_ids(payload.get("team_ids")),
+        organization_percentage=_percentage(
+            payload.get("organization_percentage"), NO_AI_JUDGE.organization_percentage
+        ),
+        skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_checks_per_insight_per_run=min(
             _positive_int(payload.get("max_checks_per_insight_per_run"), NO_AI_JUDGE.max_checks_per_insight_per_run),
             MAX_AI_CHECKS_PER_INSIGHT_PER_RUN,
@@ -437,9 +466,12 @@ def organization_rollout_bucket(organization_id: "uuid.UUID | str") -> int:
     return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
 
 
+def _in_percentage(percentage: float, organization_id: "uuid.UUID | str") -> bool:
+    return organization_rollout_bucket(organization_id) < percentage * _ROLLOUT_BUCKETS / 100
+
+
 def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str") -> bool:
-    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
-    return organization_rollout_bucket(organization_id) < threshold
+    return _in_percentage(config.self_driving_organization_percentage, organization_id)
 
 
 def enrolls_team(config: AnomalyScoringConfig, team: "Team") -> bool:

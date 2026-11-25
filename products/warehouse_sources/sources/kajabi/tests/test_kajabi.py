@@ -79,42 +79,81 @@ def test_resume_starts_at_saved_page_without_a_timestamp_filter() -> None:
     assert result.rows == [{"id": "c3"}]
 
 
-@pytest.mark.parametrize(("schema", "sort"), [("products", "title"), ("transactions", None)])
-def test_full_refresh_uses_only_the_endpoint_sort_parameter(schema: str, sort: str | None) -> None:
+@pytest.mark.parametrize(
+    ("schema", "path", "sort", "page_size"),
+    [
+        ("products", "products", "title", "100"),
+        ("transactions", "transactions", None, "100"),
+        ("payouts", "kajabi_payments_payouts", None, None),
+    ],
+)
+def test_full_refresh_uses_only_the_endpoint_list_parameters(
+    schema: str, path: str, sort: str | None, page_size: str | None
+) -> None:
     result = driver().run(
         schema,
-        [token(), ScriptedResponse(json={"data": [{"id": "1"}], "meta": {"total_pages": 1}})],
+        [
+            token(),
+            ScriptedResponse(json={"data": [{"id": "1"}], "meta": {"total_pages": 1, "pagination": {"last": 1}}}),
+        ],
     )
     assert result.raised is None
-    assert result.requests[1].path == f"/v1/{schema}"
+    assert result.requests[1].path == f"/v1/{path}"
+    assert result.requests[1].param("filter[site_id]") == "123"
     assert result.requests[1].param("sort") == sort
+    assert result.requests[1].param("page[size]") == page_size
     assert result.requests[1].param("filter[updated_at_gte]") is None
     assert result.requests[1].param("filter[start_date]") is None
 
 
+def test_payouts_stop_at_the_last_page_from_pagination_meta() -> None:
+    def page(number: int) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "data": [
+                    {
+                        "id": f"payout_{number}",
+                        "type": "kajabi_payments_payouts",
+                        "attributes": {"amount": 1500.0, "initiated_date": "2026-01-10T10:00:00.000Z"},
+                    }
+                ],
+                "meta": {"total": 2, "pagination": {"current": number, "first": 1, "last": 2, "records": 1}},
+            }
+        )
+
+    result = driver().run("payouts", [token(), page(1), page(2)])
+    assert result.raised is None
+    assert result.paths == ["/v1/oauth/token", "/v1/kajabi_payments_payouts", "/v1/kajabi_payments_payouts"]
+    assert result.params("page[number]")[1:] == ["1", "2"]
+    assert [row["id"] for row in result.rows] == ["payout_1", "payout_2"]
+    assert result.rows[0]["initiated_date"] == "2026-01-10T10:00:00.000Z"
+
+
 @pytest.mark.parametrize(
-    ("schema", "relationship", "resource_type"),
+    ("schema", "parent", "parent_key", "parent_sort", "relationship", "resource_type"),
     [
-        ("contact_offers", "offers", "offers"),
-        ("contact_taggings", "tags", "contact_tags"),
+        ("contact_offers", "contacts", "contact_id", "created_at", "offers", "offers"),
+        ("contact_taggings", "contacts", "contact_id", "created_at", "tags", "contact_tags"),
+        ("offer_products", "offers", "offer_id", "title", "products", "products"),
     ],
 )
-def test_contact_relationships_keep_shared_ids_and_resume_completed_contacts(
-    schema: str, relationship: str, resource_type: str
+def test_relationships_keep_shared_ids_and_resume_completed_parents(
+    schema: str, parent: str, parent_key: str, parent_sort: str, relationship: str, resource_type: str
 ) -> None:
-    parents = ScriptedResponse(json={"data": [{"id": "c1"}, {"id": "c/2"}], "meta": {"total_pages": 1}})
+    parents = ScriptedResponse(json={"data": [{"id": "p1"}, {"id": "p/2"}], "meta": {"total_pages": 1}})
     child = ScriptedResponse(json={"data": [{"id": "shared", "type": resource_type}]})
     first = driver().run(schema, [token(), parents, child, RunStopped()])
     assert isinstance(first.raised, RunStopped)
-    assert first.rows == [{"contact_id": "c1", "id": "shared", "type": resource_type}]
+    assert first.rows == [{parent_key: "p1", "id": "shared", "type": resource_type}]
     state = first.committed_states[-1]
-    assert state.paginator_state["completed"] == [f"contacts/c1/relationships/{relationship}"]
+    assert state.paginator_state["completed"] == [f"{parent}/p1/relationships/{relationship}"]
 
     resumed = driver().run(schema, [token(), parents, child], resume_state=state)
     assert resumed.raised is None
-    assert resumed.paths == ["/v1/oauth/token", "/v1/contacts", f"/v1/contacts/c%2F2/relationships/{relationship}"]
-    assert resumed.rows == [{"contact_id": "c/2", "id": "shared", "type": resource_type}]
+    assert resumed.paths == ["/v1/oauth/token", f"/v1/{parent}", f"/v1/{parent}/p%2F2/relationships/{relationship}"]
+    assert resumed.rows == [{parent_key: "p/2", "id": "shared", "type": resource_type}]
     assert resumed.requests[1].param("filter[site_id]") == "123"
+    assert resumed.requests[1].param("sort") == parent_sort
     assert resumed.requests[2].query == {}
     assert resumed.response is not None
-    assert resumed.response.primary_keys == ["contact_id", "id"]
+    assert resumed.response.primary_keys == [parent_key, "id"]
