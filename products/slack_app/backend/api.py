@@ -64,6 +64,7 @@ from products.slack_app.backend.logic.daily_focus import (
     DAILY_FOCUS_OFF_ACTION_ID,
     daily_focus_off_blocks,
     turn_off_daily_focus,
+    turn_on_daily_focus_on_mention,
 )
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -5172,8 +5173,9 @@ def _report_slack_mention_dropped(
 
 
 def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_result: ResolutionResult) -> None:
-    """Someone who only tags PostHog in channels may never open its DM, so their mention starts the onboarding.
-    It runs after the mention is handled, so a slow onboarding start never delays the answer. A guest from
+    """Someone who only tags PostHog in channels may never open its DM or Home tab, so their mention starts the
+    onboarding and turns the daily work focus on by default. It runs after the mention is handled, so a slow start
+    never delays the answer. A guest from
     another workspace in a shared channel gets no onboarding, because it would come from this workspace's app."""
     slack_user_id = event.get("user")
     if event.get("type") != "app_mention" or event.get("user_team", slack_team_id) != slack_team_id:
@@ -5181,6 +5183,7 @@ def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_resu
     integration = workspace_result.resolved_or_first()
     if integration is not None and isinstance(slack_user_id, str) and slack_user_id:
         request_onboarding(integration, slack_user_id, may_start=True, start_only=True)
+        turn_on_daily_focus_on_mention(integration, slack_user_id)
 
 
 def _start_mention_workflow(
