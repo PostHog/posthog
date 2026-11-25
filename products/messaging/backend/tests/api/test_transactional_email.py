@@ -1048,6 +1048,19 @@ class TestTransactionalEmail(APIBaseTest):
                 "Unsubscribe\n\nUnsubscribe: {{ unsubscribe_url }}",
             ),
             (
+                "marketing_with_placeholder_in_unrelated_url",
+                {
+                    "category": NEWSLETTER,
+                    "html": (
+                        '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'
+                        '<p><a href="https://example.com/help?next={{ unsubscribe_url }}">'
+                        "https://example.com/help?next={{ unsubscribe_url }}</a></p>"
+                    ),
+                },
+                "marketing",
+                "Unsubscribe\n\nhttps://example.com/help?next={{ unsubscribe_url }}\n\nUnsubscribe: {{ unsubscribe_url }}",
+            ),
+            (
                 "marketing_with_explicit_text",
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "text": "Plain {{ unsubscribe_url }}"},
                 "marketing",
