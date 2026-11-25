@@ -613,7 +613,8 @@ class EnterpriseExperimentsViewSet(
         return service.filter_experiments_queryset(
             queryset,
             action=self.action,
-            query_params=getattr(request, "query_params", None),
+            # Only the list narrows by the query string, so a lookup of one experiment gets the same answer for any query.
+            query_params=getattr(request, "query_params", None) if self.action == "list" else None,
             request_data=getattr(request, "data", None),
         )
 

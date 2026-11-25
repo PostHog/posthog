@@ -386,8 +386,10 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
     SourceFilterCatalogListSerializer,
+    SourceFilterExpressionRequestSerializer,
     SourceFilterPreviewRequestSerializer,
     SourceFilterPreviewResponseSerializer,
+    SourceFilterValidateResponseSerializer,
     personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
@@ -402,7 +404,7 @@ from products.signals.backend.slack_notification_targets import (
     validate_slack_notification_target,
 )
 from products.signals.backend.source_filter_preview import preview_source_filter
-from products.signals.backend.source_filters import writable_sources
+from products.signals.backend.source_filters import validate_source_filter, writable_sources
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
@@ -443,6 +445,8 @@ from products.signals.backend.throttles import (
     ReportTaskActionRunSustainedThrottle,
     SourceFilterPreviewBurstThrottle,
     SourceFilterPreviewSustainedThrottle,
+    SourceFilterValidateBurstThrottle,
+    SourceFilterValidateSustainedThrottle,
     UserReportCreateBurstThrottle,
     report_task_run_throttled,
 )
@@ -800,6 +804,35 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except FilterValidationError as error:
             raise serializers.ValidationError({"source_type": str(error)})
         return Response(SourceFilterPreviewResponseSerializer(preview).data)
+
+    @validated_request(
+        request_serializer=SourceFilterExpressionRequestSerializer,
+        responses={200: OpenApiResponse(response=SourceFilterValidateResponseSerializer)},
+        summary="Validate a source filter",
+        description=(
+            "Check whether a filter expression can be saved as the source's filter, and where it is invalid when it "
+            "cannot. Checks the expression against the source's active catalog only: reads no warehouse records and "
+            "works before the source is connected or synced. An empty expression is valid. Saves nothing."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="filter_validate",
+        required_scopes=["inbox:read"],
+        throttle_classes=[SourceFilterValidateBurstThrottle, SourceFilterValidateSustainedThrottle],
+    )
+    def filter_validate(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        try:
+            validation = validate_source_filter(
+                organization_id=str(self.team.organization_id),
+                source_product=request.validated_data["source_product"],
+                source_type=request.validated_data["source_type"],
+                expression=request.validated_data["expression"],
+            )
+        except FilterValidationError as error:
+            raise serializers.ValidationError({"source_type": str(error)})
+        return Response(SourceFilterValidateResponseSerializer(validation).data)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
