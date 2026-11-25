@@ -49,6 +49,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.query_cache.results import prefetched_size
@@ -429,14 +430,24 @@ def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) ->
     return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
+def _line_shape(
+    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat, *, team: Team
+) -> _LineShape:
+    frames = result_format == ResultFormat.FRAMES
+    query = resolved.query if resolved is not None else {}
+    if frames and resolved is not None and resolved.filters:
+        # The runner applies the target's filters, an interval override among them, so frames read the query that ran.
+        try:
+            query = apply_dashboard_filters_to_dict(query, resolved.filters, team)
+        except Exception:
+            logger.warning("dashboard_v2_query_batch_frame_filters_failed", exc_info=True)
     return _LineShape(
         language=item.target.language,
-        query=resolved.query if resolved is not None else {},
+        query=query,
         canonical=canonical_query(item, resolved),
         legend=item.target.legend,
         target_format=item.target.format,
-        frames=result_format == ResultFormat.FRAMES,
+        frames=frames,
     )
 
 
@@ -739,7 +750,7 @@ class QueryBatch:
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
                 continue
-            self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
+            self._shapes[index] = _line_shape(item, resolved[index], self._result_format, team=self._team)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
         if logql:
             try:
@@ -800,7 +811,7 @@ class QueryBatch:
         for index, item in enumerate(inputs):
             if item.target.language != QueryBatchLanguage.LOGQL:
                 continue
-            self._shapes[index] = _line_shape(item, None, self._result_format)
+            self._shapes[index] = _line_shape(item, None, self._result_format, team=self._team)
             if item.cache_only:
                 self._add_ready(_miss_line(index, None, self._shapes[index]))
             else:
