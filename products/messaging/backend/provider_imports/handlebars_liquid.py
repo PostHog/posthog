@@ -170,14 +170,16 @@ class HandlebarsToLiquid:
 
     def _nodes(self, nodes: tuple[object, ...], frames: tuple[_Frame, ...]) -> str:
         out: list[str] = []
-        for node in nodes:
+        for index, node in enumerate(nodes):
+            following = nodes[index + 1] if index + 1 < len(nodes) else None
             if isinstance(node, _Text):
                 for piece in self._text(node.text):
                     _append(out, self._spend(piece, literal=True))
             elif isinstance(node, _Liquid):
                 _append(out, self._spend(self._kept(node.liquid, node.printed), literal=True))
             elif isinstance(node, _Output):
-                _append(out, self._spend(self._output(node, frames), literal=True))
+                after = following.text if isinstance(following, _Text) else ""
+                _append(out, self._spend(self._output(node, frames, after), literal=True))
             elif isinstance(node, _Block):
                 _append(out, self._block(node, frames))
         return "".join(out)
@@ -197,15 +199,24 @@ class HandlebarsToLiquid:
         return chunk
 
     def _text(self, text: str) -> Iterator[str]:
-        for piece in self._split_text(text) if self._split_text else (text,):
+        pieces = list(self._split_text(text)) if self._split_text else [text]
+        for index, piece in enumerate(pieces):
+            following = pieces[index + 1] if index + 1 < len(pieces) else ""
             if isinstance(piece, str):
                 self._feed(piece)
                 yield _literal_text(piece)
-            elif (piece.liquid or piece.value_path) and self._value_fits(
-                raw=piece.raw, in_attribute=piece.in_attribute
+                continue
+            whole = (
+                piece.in_attribute
+                and not piece.raw
+                and self._is_whole_unquoted_value(following if isinstance(following, str) else "")
+            )
+            if (piece.liquid or piece.value_path) and (
+                whole or self._value_fits(raw=piece.raw, in_attribute=piece.in_attribute)
             ):
-                yield self._attribute_safe(self._text_value(piece))
-                self._feed("x")
+                liquid = self._text_value(piece)
+                yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
+                self._feed('"x"' if whole else "x")
                 self._after_raw_html = self._after_raw_html or (piece.raw and self.is_html)
                 self.converted.append(piece.source)
             else:
@@ -221,7 +232,7 @@ class HandlebarsToLiquid:
             return value
         return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
 
-    def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
+    def _output(self, node: _Output, frames: tuple[_Frame, ...], following: str = "") -> str:
         if self.is_html and _ENTITY.search(node.source):
             return self._literal(node.source)
         body, raw = node.body, node.raw
@@ -233,13 +244,14 @@ class HandlebarsToLiquid:
             liquid, raw = self._output_liquid(body, raw, frames)
         except (_Unsupported, _Unconvertible):
             return self._literal(node.source)
-        if not self._value_fits(raw=raw, in_attribute=True):
+        whole = not raw and self._is_whole_unquoted_value(following)
+        if not whole and not self._value_fits(raw=raw, in_attribute=True):
             return self._literal(node.source)
-        self._feed("x")
+        self._feed('"x"' if whole else "x")
         self._after_raw_html = self._after_raw_html or (raw and self.is_html)
         if self._converted_root:
             self.converted.append(self._converted_root)
-        return self._attribute_safe(liquid)
+        return _in_quotes(liquid) if whole else self._attribute_safe(liquid)
 
     def _output_liquid(self, body: str, raw: bool, frames: tuple[_Frame, ...]) -> tuple[str, bool]:
         expression = _parse_expression(body)
@@ -250,6 +262,8 @@ class HandlebarsToLiquid:
             if len(frames) == 1 and (special := self._root_value(name)) is not None:
                 self._converted_root = name
                 return special, False
+            if (special := self._special(name, frames)) is not None:
+                return special, False
             return self._print(self._path(name, frames), raw), raw
         if self._dialect != "sendgrid":
             raise _Unsupported
@@ -258,6 +272,8 @@ class HandlebarsToLiquid:
             date = f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"'
             return self._print(date, False, may_be_a_list=False), False
         if name == "insert" and len(params) <= 2:
+            if isinstance(params[0], _Path) and (special := self._special(params[0].source, frames)) is not None:
+                return special, False
             value = self._value_path(params[0], frames)
             if len(params) == 1:
                 return self._print(value, raw), raw
@@ -399,7 +415,7 @@ class HandlebarsToLiquid:
         (collection,) = block.params
         if not isinstance(collection, _Path):
             raise _Unsupported
-        source = self._path(collection.source, frames)
+        source = self._value_path(collection, frames)
         names = block.block_params
         loop_name = names[0] if names and self._free_name(names[0]) else self._next_loop_name()
         frame = _Frame(
@@ -464,7 +480,7 @@ class HandlebarsToLiquid:
         (target,) = block.params
         if not isinstance(target, _Path):
             raise _Unsupported
-        this = self._path(target.source, frames)
+        this = self._value_path(target, frames)
         # Handlebars adds no level for a context that is already the current one, so `../` inside would point
         # one level further up than the frames say.
         if this == frames[-1].this:
@@ -564,8 +580,22 @@ class HandlebarsToLiquid:
                 return "forloop.index0"
         return None
 
+    def _special(self, source: str, frames: tuple[_Frame, ...]) -> str | None:
+        """What a name with a meaning of its own converts to, written in a way that still reads the top level."""
+        read_root = self.read_root
+        base, _, name = self._path(source, frames).rpartition(".")
+        special = self._root_value(name) if base == self._root_path else None
+        if special is not None:
+            self.read_root = read_root
+            self._converted_root = name
+        return special
+
     def _value_path(self, param: object, frames: tuple[_Frame, ...]) -> str:
         if not isinstance(param, _Path):
+            raise _Unsupported
+        # It isn't a value of the recipient's, so nothing can test, count or format it.
+        if self._special(param.source, frames) is not None:
+            self._converted_root = ""
             raise _Unsupported
         return self._path(param.source, frames)
 
@@ -685,6 +715,17 @@ class HandlebarsToLiquid:
             return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
 
+    def _is_whole_unquoted_value(self, following: str) -> bool:
+        """Whether the next value is all of an attribute written without quotes, as in `<a href={{x}}>`. Converting it
+        adds the quotes, so a space in the value can't start another attribute."""
+        return (
+            self._html is not None
+            and not self._html.untrusted
+            and self._html.state == "before_value"
+            and self._html.plain_attribute()
+            and following[:1] in ("\t", "\n", "\f", "\r", " ", ">")
+        )
+
     def _feed(self, text: str) -> None:
         if self._html is not None:
             self._html.feed(text)
@@ -773,6 +814,10 @@ def _date_format(param: object) -> str:
 def _literal_text(text: str) -> str:
     # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
     return text.replace("{%", '{{ "{%" }}')
+
+
+def _in_quotes(liquid: str) -> str:
+    return f'"{liquid.replace('"', "&quot;")}"'
 
 
 def _joined(chunks: list[str]) -> str:
