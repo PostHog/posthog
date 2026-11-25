@@ -724,41 +724,51 @@ def claim_report(
                 )
 
         after = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
-        if before == after:
-            return assignment
-
-        changes: list[Change] = []
-        if before["assignee"] != after["assignee"]:
-            changes.append(
-                Change(
-                    type="SignalReport",
-                    action="changed",
-                    field="assignee",
-                    before=before["assignee"],
-                    after=after["assignee"],
-                )
-            )
-        if before["implementation_pr"] != after["implementation_pr"]:
-            changes.append(
-                Change(
-                    type="SignalReport",
-                    action="changed",
-                    field="implementation_pr",
-                    before=before["implementation_pr"],
-                    after=after["implementation_pr"],
-                )
-            )
-        log_activity(
-            organization_id=None,
-            team_id=locked_report.team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=locked_report.id,
-            scope="SignalReport",
-            activity="assignment_changed",
-            detail=Detail(name=locked_report.title, changes=changes),
-        )
+        log_assignment_change(locked_report, before, after, user=user, was_impersonated=was_impersonated)
         return assignment
+
+
+def log_assignment_change(
+    report: SignalReport,
+    before: AssignmentSnapshot,
+    after: AssignmentSnapshot,
+    *,
+    user: User,
+    was_impersonated: bool,
+) -> None:
+    if before == after:
+        return
+    changes: list[Change] = []
+    if before["assignee"] != after["assignee"]:
+        changes.append(
+            Change(
+                type="SignalReport",
+                action="changed",
+                field="assignee",
+                before=before["assignee"],
+                after=after["assignee"],
+            )
+        )
+    if before["implementation_pr"] != after["implementation_pr"]:
+        changes.append(
+            Change(
+                type="SignalReport",
+                action="changed",
+                field="implementation_pr",
+                before=before["implementation_pr"],
+                after=after["implementation_pr"],
+            )
+        )
+    log_activity(
+        organization_id=None,
+        team_id=report.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=report.id,
+        scope="SignalReport",
+        activity="assignment_changed",
+        detail=Detail(name=report.title, changes=changes),
+    )
 
 
 def update_assignments_for_pull_request(

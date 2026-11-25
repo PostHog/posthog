@@ -29,6 +29,7 @@ INBOX_SORT_CACHE_FLAG = "inbox-sort-cache"
 INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
 INBOX_SLACK_SECTION_BLOCKS_FLAG = "signals-inbox-slack-section-blocks"
 INBOX_SLACK_STATE_BUTTONS_FLAG = "signals-inbox-slack-state-buttons"
+PR_DESCRIPTION_AUTO_LINK_FLAG = "signals-pr-description-auto-link"
 
 
 def _organization_flag_enabled(
@@ -97,6 +98,10 @@ def organization_report_monitoring_enabled(organization_id: UUID) -> bool:
 
 def team_report_monitoring_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_MONITORING_FLAG, team_id, enable_in_debug=False, only_evaluate_locally=True)
+
+
+def team_pr_description_auto_link_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(PR_DESCRIPTION_AUTO_LINK_FLAG, team_id, enable_in_debug=False, only_evaluate_locally=True)
 
 
 def organization_inbox_card_links_enabled(organization_id: UUID) -> bool:

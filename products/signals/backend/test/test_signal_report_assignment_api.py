@@ -13,12 +13,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
@@ -32,13 +35,16 @@ from products.signals.backend.models import (
     SignalScoutNote,
 )
 from products.signals.backend.report_assignments import (
+    create_claim,
     sync_task_pull_request_to_assignments,
     update_assignments_for_pull_request,
 )
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
+from products.signals.backend.report_content_gates import PR_DESCRIPTION_AUTO_LINK_FLAG
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.tasks import link_pull_request_description_reports
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -1484,6 +1490,109 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         pr_change = next(change for change in log.detail["changes"] if change["field"] == "implementation_pr")
         assert pr_change["before"] is None
         assert pr_change["after"]["url"] == pr_url
+
+    def _description_author(self) -> User:
+        author = User.objects.create_and_join(self.organization, "avery@example.com", None, first_name="Avery")
+        UserSocialAuth.objects.create(user=author, provider="github", uid="7001", extra_data={"login": "Avery-Dev"})
+        return author
+
+    def _link_from_description(
+        self, report: SignalReport, *, login: str = "avery-dev", github_id: int = 7001, flag_enabled: bool = True
+    ) -> None:
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: flag_enabled and key == PR_DESCRIPTION_AUTO_LINK_FLAG,
+            ),
+            patch(
+                "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",
+                return_value=None,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            link_pull_request_description_reports(
+                self.team.id, "https://github.com/example/app/pull/7", login, github_id, [str(report.id)]
+            )
+
+    @parameterized.expand([("unclaimed", None), ("their_agent", "agent"), ("teammate", "user"), ("task", "task")])
+    def test_a_pull_request_description_links_the_report_and_claims_only_a_free_one(
+        self, _name: str, holder: str | None
+    ) -> None:
+        report = self._create_report()
+        author = self._description_author()
+        if holder == "agent":
+            create_claim(report, ArtefactAttribution.from_agent(author.id, "codex"))
+        elif holder == "user":
+            create_claim(
+                report,
+                ArtefactAttribution.from_user(
+                    User.objects.create_and_join(self.organization, "d@example.com", None).id
+                ),
+            )
+        elif holder == "task":
+            Task = apps.get_model("tasks", "Task")
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Signal task",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            )
+            create_claim(report, ArtefactAttribution.from_task(str(task.id)))
+        before = get_active_claim(team_id=self.team.id, report_id=report.id)
+
+        with patch("products.signals.backend.report_claim_follow_up.posthoganalytics.capture") as capture:
+            self._link_from_description(report)
+            self._link_from_description(report)
+
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None
+        if before is None:
+            assert (claim.actor_kind, claim.actor_user_id) == (SignalActorKind.USER, author.id)
+        else:
+            assert claim.claim_id == before.claim_id
+        assert SignalReportArtefact.objects.filter(report=report, type="work_claim").count() == 1
+        link = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST)
+        assert link.created_by_id == author.id
+        assert link.claim_id == (claim.claim_id if holder in (None, "agent") else None)
+        assert (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="SignalReport", item_id=str(report.id), activity="assignment_changed"
+            ).count()
+            == 1
+        )
+        claimed_events = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_claimed"]
+        assert len(claimed_events) == (1 if holder is None else 0)
+
+    @parameterized.expand(
+        [
+            ("login_of_nobody_here", SignalReport.Status.READY, {"login": "someone-else"}),
+            ("another_account_with_the_login", SignalReport.Status.READY, {"github_id": 9001}),
+            ("inbox_viewer", SignalReport.Status.READY, {}),
+            ("resolved_report", SignalReport.Status.RESOLVED, {}),
+            ("suppressed_report", SignalReport.Status.SUPPRESSED, {}),
+            ("flag_off", SignalReport.Status.READY, {"flag_enabled": False}),
+        ]
+    )
+    def test_a_pull_request_description_leaves_the_report_alone(
+        self, name: str, report_status: str, link_kwargs: dict
+    ) -> None:
+        report = self._create_report(report_status=report_status)
+        self._description_author()
+        if name == "inbox_viewer":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=self.team, resource="task", access_level="viewer")
+
+        self._link_from_description(report, **link_kwargs)
+
+        report.refresh_from_db()
+        assert report.status == report_status
+        assert not SignalReportArtefact.objects.filter(report=report, type__in=["work_claim", "pull_request"]).exists()
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.id, scope="SignalReport", item_id=str(report.id)
+        ).exists()
 
     def test_bulk_claim_adds_a_fixed_number_of_queries_per_report(self):
         def queries_for(count: int) -> int:

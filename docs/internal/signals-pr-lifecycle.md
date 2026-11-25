@@ -77,7 +77,27 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
-## Manual implementation-completion integration
+## PRs that name a report in their description
+
+With `signals-pr-description-auto-link` enabled for the organization, a GitHub PR links itself to the inbox reports its description names.
+The flag is off by default, including in local development, and a failed flag check counts as off.
+The `pull_request` webhook acts on the `opened`, `edited`, `reopened`, and `ready_for_review` actions while the PR is open.
+A report URL is `/project/<team_id>/inbox/<report_id>` or `/project/<team_id>/inbox/<tab>/<report_id>`, on any host, with an optional query string or fragment.
+The team must be one that the delivering GitHub installation is connected to, and the report must exist in that team.
+One PR links at most five reports, in the order its description names them.
+The webhook reads the payload and a few indexed rows, then queues a worker task that does the linking after commit.
+
+The PR author must be a person, not a bot or app account.
+Their GitHub login must belong to an active member of the team's organization, and that member's linked GitHub account must carry the author's GitHub user ID, the same rule that credits a merger.
+The member also needs project access and Inbox editor access.
+Without this guard, a PR from a fork could suppress a report by naming it and then closing without a merge.
+
+Only reports in a claimable status are linked, so resolved, suppressed, closed, and Monitoring reports are left alone.
+When the report has no active claim, or its claim belongs to the author directly or through their agent, the PR is linked and claimed for the author, the same as a claim API call with that PR.
+When another person or a PostHog task holds the claim, the PR is linked to the report and the claim stays with its holder.
+The link is attributed to the author and writes the same activity log, reviewer, and claim side effects as a claim through the API.
+A report that already links the PR, through a stored link or a task's output, is skipped, so repeated or edited deliveries write nothing new.
+Removing the URL from the description does not unlink the PR.
 
 Manual entry calls `complete_implementation` from `SignalReportViewSet._transition_report_state`, shared by single and bulk writes, after the report is locked and refund and merge-survivor restrictions have passed. The service receives the literal `team_id`, `report_id`, server-owned `monitoring_started_at`, caller `attribution`, `actor_user`, and `close_pr_on_resolve=True`. The outer report lock uses `select_for_update(no_key=True)` so concurrent check activity can write its report foreign key. Both APIs refresh the caller's report after the service saves its separately loaded instance and return the resulting status.
 

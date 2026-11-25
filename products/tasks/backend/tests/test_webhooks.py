@@ -1396,6 +1396,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             "repository": {"full_name": "posthog/posthog"},
             "installation": {"id": 555000},
         }
+        return self._post_payload(payload)
+
+    def _post_payload(self, payload: dict):
         payload_bytes = json.dumps(payload).encode("utf-8")
         signature = generate_github_signature(payload_bytes, self.webhook_secret)
         return self.client.post(
@@ -1405,6 +1408,49 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             HTTP_X_HUB_SIGNATURE_256=signature,
             HTTP_X_GITHUB_EVENT="pull_request",
         )
+
+    @parameterized.expand([("opened",), ("edited",)])
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    def test_pr_description_claims_the_report_it_names_for_its_author(
+        self, action, _mock_capture, mock_get_secret, _first_for_repository
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        author = User.objects.create_and_join(self.organization, "avery@example.com", None)
+        UserSocialAuth.objects.create(user=author, provider="github", uid="7001", extra_data={"login": "avery-dev"})
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Checkout fails", summary="Checkout fails"
+        )
+        pr_url = "https://github.com/posthog/posthog/pull/77"
+        payload = {
+            "action": action,
+            "installation": {"id": 555000},
+            "repository": {"full_name": "posthog/posthog"},
+            "pull_request": {
+                "html_url": pr_url,
+                "number": 77,
+                "state": "open",
+                "merged": False,
+                "body": f"Fixes https://us.example.com/project/{self.team.id}/inbox/{report.id}",
+                "user": {"login": "avery-dev", "id": 7001, "type": "User"},
+            },
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "signals-pr-description-auto-link",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._post_payload(payload)
+
+        self.assertEqual(response.status_code, 202)
+        claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
+        self.assertEqual(claim.created_by_id, author.id)
+        link = SignalReportArtefact.objects.get(report=report, type="pull_request")
+        self.assertEqual((link.claim_id, link.pull_request.url if link.pull_request else None), (claim.id, pr_url))
 
     @parameterized.expand(
         [

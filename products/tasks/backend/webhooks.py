@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.facade.github import (
+    link_reports_from_pull_request_description,
     refresh_pull_request_review_decisions,
     update_pull_request_assignments,
 )
@@ -349,6 +350,7 @@ def handle_pull_request_event(payload: dict) -> None:
     else:
         if refresh_review_decision:
             refresh_pull_request_review_decisions(payload)
+        link_reports_from_pull_request_description(payload)
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return
 
@@ -401,6 +403,8 @@ def handle_pull_request_event(payload: dict) -> None:
         _record_run_pr_state(task_run, pr_state)
 
     update_pull_request_assignments(payload, pr_state)
+    # After the run backstop above, so a task's own pull request is already on its run when the link task reads it.
+    link_reports_from_pull_request_description(payload)
     if refresh_review_decision:
         refresh_pull_request_review_decisions(payload)
 

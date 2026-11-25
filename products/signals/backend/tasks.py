@@ -74,6 +74,7 @@ from products.signals.backend.models import (
 from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.pull_request_description_links import link_described_reports
 from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
@@ -215,6 +216,21 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
         state=details.state,
         merged_at=details.merged_at,
         merged_by=details.merged_by,
+    )
+
+
+# A retry is safe: a report that already links the pull request is skipped.
+@shared_task(ignore_result=True, autoretry_for=(OperationalError,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def link_pull_request_description_reports(
+    team_id: int, pr_url: str, author_login: str, author_github_id: int, report_ids: list[str]
+) -> None:
+    link_described_reports(
+        team_id=team_id,
+        pr_url=pr_url,
+        author_login=author_login,
+        author_github_id=author_github_id,
+        report_ids=report_ids,
     )
 
 
