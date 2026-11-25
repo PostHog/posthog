@@ -61,7 +61,7 @@ class TestMetricsDashboardFrames(ClickhouseTestMixin, APIBaseTest):
             date_from=dt.datetime(2026, 9, 19, 11, tzinfo=dt.UTC),
             date_to=dt.datetime(2026, 9, 19, 12, tzinfo=dt.UTC),
         )
-        assert sorted(frames, key=lambda frame: frame.name) == [
+        assert sorted(frames, key=lambda frame: frame.name or "") == [
             Frame(
                 name=f"container={container}",
                 labels={"container": container},
