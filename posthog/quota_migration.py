@@ -3,13 +3,13 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from math import inf
-from time import monotonic, sleep, time
+from time import monotonic, perf_counter, sleep, time
 
 from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     RedisClusterException,
@@ -29,6 +29,12 @@ QUOTA_SHADOW_READ_COMPARISONS = Counter(
     "billing_quota_shadow_read_comparisons_total",
     "Sampled quota reads compared between shared Redis and the optional store",
     ["function", "resource", "result"],
+)
+QUOTA_SHADOW_READ_DURATION = Histogram(
+    "billing_quota_shadow_read_duration_seconds",
+    "Client-side duration of sampled quota reads that the optional store answered",
+    ["function"],
+    buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
 SECONDARY_RETRY_DELAY_SECONDS = 30
 SHADOW_MISMATCH_LOG_DELAY_SECONDS = 60
@@ -146,11 +152,14 @@ def shadow_read_secondary_quota_store[T](
 ) -> None:
     """Counts how the copy compares with the shared answer the caller returns. A copy failure counts as an error
     and never raises into the caller."""
+    started = perf_counter()
     try:
-        differences = count_differences(read_secondary_quota_store(operation, callback, resource=key))
+        copy_answer = read_secondary_quota_store(operation, callback, resource=key)
     except SecondaryQuotaStoreUnavailable:
         QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="error").inc()
         return
+    QUOTA_SHADOW_READ_DURATION.labels(function=function).observe(perf_counter() - started)
+    differences = count_differences(copy_answer)
     if not differences:
         QUOTA_SHADOW_READ_COMPARISONS.labels(function=function, resource=resource, result="match").inc()
         return

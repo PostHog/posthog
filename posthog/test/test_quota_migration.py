@@ -1,10 +1,12 @@
 import os
 import sys
 import tempfile
+import importlib
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+import pytest
 import time_machine
 from unittest.mock import patch
 
@@ -35,6 +37,7 @@ from posthog.quota_migration import (
 )
 from posthog.quota_redis import clear_quota_redis_clients
 from posthog.redis import get_client
+from posthog.settings import data_stores
 
 from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
@@ -78,7 +81,8 @@ def _read_counts(reader: str) -> dict[str, float]:
         or 0
         for result in ("match", "mismatch", "error")
     }
-    return copy_reads | comparisons
+    timed = REGISTRY.get_sample_value("billing_quota_shadow_read_duration_seconds_count", {"function": reader}) or 0
+    return copy_reads | comparisons | {"timed": timed}
 
 
 def _changes(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
@@ -637,7 +641,7 @@ class TestQuotaMigration(SimpleTestCase):
                     "redis://quota-secondary.test:6379/0",
                     1.0,
                     False,
-                    {"copy_success": 2, "mismatch": 2},
+                    {"copy_success": 2, "mismatch": 2, "timed": 2},
                 ),
                 ("shadow_without_copy", "shadow", None, 1.0, False, {}),
                 ("live", "live", "redis://quota-secondary.test:6379/0", 1.0, True, {"copy_success": 2}),
@@ -773,7 +777,66 @@ class TestQuotaMigration(SimpleTestCase):
         with self.settings(QUOTA_LIMITING_REDIS_READ_MODE="shadow", QUOTA_LIMITING_REDIS_SHADOW_READ_RATE=1.0):
             answers = [list_limited_team_attributes(self.resource, self.cache, use_cache=True) for _ in range(3)]
         assert answers == [["limited"]] * 3
-        assert _changes(before, _read_counts("list_limited_team_attributes")) == {"copy_success": 1, "match": 1}
+        assert _changes(before, _read_counts("list_limited_team_attributes")) == {
+            "copy_success": 1,
+            "match": 1,
+            "timed": 1,
+        }
+
+    def test_shadow_set_read_judges_both_stores_at_one_instant(self) -> None:
+        expiry = datetime(2026, 11, 12, 12, 0, 1, tzinfo=UTC).timestamp()
+        for client in (self.shared, self.secondary):
+            client.zadd(self.key, {"expiring": expiry})
+        before = _read_counts("list_limited_team_attributes")
+        shared_read: Callable[..., list[bytes]] = self.shared.zrangebyscore
+        with time_machine.travel("2026-11-12T12:00:00.500Z", tick=False) as traveller:
+
+            def read_then_pass_the_expiry(*args: object, **kwargs: object) -> list[bytes]:
+                tokens = shared_read(*args, **kwargs)
+                traveller.shift(1)
+                return tokens
+
+            with (
+                self.settings(QUOTA_LIMITING_REDIS_READ_MODE="shadow", QUOTA_LIMITING_REDIS_SHADOW_READ_RATE=1.0),
+                patch.object(self.shared, "zrangebyscore", side_effect=read_then_pass_the_expiry),
+            ):
+                tokens = list_limited_team_attributes(self.resource, self.cache, use_cache=False)
+        assert tokens == ["expiring"]
+        assert _changes(before, _read_counts("list_limited_team_attributes")) == {
+            "copy_success": 1,
+            "match": 1,
+            "timed": 1,
+        }
+
+    def test_shadow_read_duration_is_observed_in_seconds(self) -> None:
+        def duration_sum() -> float:
+            labels = {"function": "is_team_limited"}
+            return REGISTRY.get_sample_value("billing_quota_shadow_read_duration_seconds_sum", labels) or 0
+
+        before = duration_sum()
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READ_MODE="shadow", QUOTA_LIMITING_REDIS_SHADOW_READ_RATE=1.0),
+            patch("posthog.quota_migration.perf_counter", side_effect=[10.0, 10.25]),
+        ):
+            is_team_limited("team-token", self.resource, self.cache)
+        assert duration_sum() - before == pytest.approx(0.25)
+
+    @parameterized.expand(
+        [
+            ("in_range", "0.25", 0.25),
+            ("above_one", "1.5", 1.0),
+            ("below_zero", "-0.5", 0.0),
+            ("not_a_number", "ten percent", 0.0),
+            ("nan", "nan", 0.0),
+        ]
+    )
+    def test_shadow_read_rate_setting_is_clamped_and_never_fails_startup(
+        self, _name: str, value: str, expected: float
+    ) -> None:
+        self.addCleanup(importlib.reload, data_stores)
+        with patch.dict(os.environ, {"QUOTA_LIMITING_REDIS_SHADOW_READ_RATE": value}):
+            importlib.reload(data_stores)
+        assert data_stores.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE == expected
 
     def test_shadow_mismatch_log_is_rate_limited_and_holds_no_token(self) -> None:
         for key in (self.key, "@posthog/quota-limits/recordings", "@posthog/quota-limits/exceptions"):

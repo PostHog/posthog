@@ -286,13 +286,13 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
     run_secondary_quota_operation("remove", lambda client: client.zrem(key, *tokens), resource=key)
 
 
-def _read_limited_team_attributes(client: QuotaRedisClient, key: str) -> list[str]:
-    results = client.zrangebyscore(key, min=timezone.now().timestamp(), max="+inf")
+def _read_limited_team_attributes(client: QuotaRedisClient, key: str, now_ts: float) -> list[str]:
+    results = client.zrangebyscore(key, min=now_ts, max="+inf")
     return [token.decode("utf-8") for token in results]
 
 
 def _read_shared_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
-    return _read_limited_team_attributes(get_client(), f"{cache_key.value}{resource.value}")
+    return _read_limited_team_attributes(get_client(), f"{cache_key.value}{resource.value}", timezone.now().timestamp())
 
 
 def _snapshot_shared_limited_team_attributes(cache_key: QuotaLimitingCaches) -> dict[str, list[str]]:
@@ -313,9 +313,10 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     Each refresh returns every member of the zset, so use `is_team_limited` to check one team.
     """
     key = f"{cache_key.value}{resource.value}"
-    read_copy = partial(_read_limited_team_attributes, key=key)
+    now_ts = timezone.now().timestamp()
+    read_copy = partial(_read_limited_team_attributes, key=key, now_ts=now_ts)
     if not quota_reads_use_secondary():
-        tokens = _read_limited_team_attributes(get_client(), key)
+        tokens = _read_limited_team_attributes(get_client(), key, now_ts)
         if quota_shadow_read_sampled():
             shadow_read_secondary_quota_store(
                 "read_set",
