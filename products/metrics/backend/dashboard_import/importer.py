@@ -264,7 +264,7 @@ class PanelResolver:
                 return None
             return PanelQuery(language="histogram", histogram_metric=entry.name)
         return PanelQuery(
-            language="promql", promql=combine_targets([(target.ref_id, target.expr) for target in panel.targets])
+            language="promql", promql=combine_targets([(target.clause, target.expr) for target in panel.targets])
         )
 
     @staticmethod
@@ -275,7 +275,7 @@ class PanelResolver:
         """
         if query.language != "promql" or not any(target.templated_expr for target in panel.targets):
             return query
-        promql = combine_targets([(target.ref_id, target.templated_expr or target.expr) for target in panel.targets])
+        promql = combine_targets([(target.clause, target.templated_expr or target.expr) for target in panel.targets])
         return query.model_copy(update={"promql": promql})
 
 
@@ -803,7 +803,7 @@ class DashboardImporter:
         # The parser maps a Grafana panel's display exactly, so only a screenshot panel takes the agent's display.
         query = answer.query
         if spec_panel is not None and any(target.templated_expr for target in spec_panel.targets):
-            unchanged = combine_targets([(target.ref_id, target.expr) for target in spec_panel.targets])
+            unchanged = combine_targets([(target.clause, target.expr) for target in spec_panel.targets])
             if query.language == "promql" and query.promql == unchanged:
                 query = PanelResolver._templated(spec_panel, query)
             else:

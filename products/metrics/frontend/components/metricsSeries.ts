@@ -28,13 +28,17 @@ export const seriesNamePrefixes = (seriesList: NamableSeries[]): string[] => {
 }
 
 // Human-readable series name from its label map (e.g. "service.name=checkout, env=prod"),
-// falling back to the metric name then a provided default for ungrouped/unlabelled series.
+// falling back to the metric name, then the clause, then a provided default for ungrouped/unlabelled series.
 const formatSeriesName = (series: NamableSeries, fallback: string, prefix: string): string => {
     const entries = Object.entries(series.labels ?? {})
     if (entries.length > 0) {
         return prefix + entries.map(([key, value]) => `${key}=${value}`).join(', ')
     }
-    return prefix + (series.metric_name ?? fallback)
+    if (series.metric_name) {
+        return prefix + series.metric_name
+    }
+    // The fallback describes the whole query, so it would name every clause the same.
+    return (prefix && series.clause) || fallback
 }
 
 /** Display names for a whole chart's series, index-aligned with the input. The clause

@@ -470,6 +470,28 @@ def test_joins_several_targets_with_the_clause_label() -> None:
 
 
 @pytest.mark.parametrize(
+    "legends, clauses",
+    [
+        pytest.param(["Requests", "Errors"], ["Requests", "Errors"], id="fixed_legends"),
+        pytest.param(["{{code}}", "Errors"], ["A", "Errors"], id="label_template"),
+        pytest.param(["formula", "$job"], ["A", "B"], id="reserved_name_and_variable"),
+        pytest.param(["Total", "Total"], ["A", "B"], id="names_that_collide"),
+        pytest.param(["B", None], ["A", "B"], id="legend_that_collides_with_a_ref_id"),
+    ],
+)
+def test_names_joined_series_by_their_fixed_legends(legends: list[str | None], clauses: list[str]) -> None:
+    targets = [
+        {"refId": ref_id, "expr": f"rate(metric_{ref_id.lower()}_total[5m])", "legendFormat": legend}
+        for ref_id, legend in zip(["A", "B"], legends)
+    ]
+    dashboard = {"panels": [{"id": 1, "type": "timeseries", "title": "Traffic", "targets": targets}]}
+
+    (panel,) = GrafanaDashboardParser(dashboard).parse().panels
+
+    assert [target.clause for target in panel.targets] == clauses
+
+
+@pytest.mark.parametrize(
     "expr, expected",
     [
         ('up{env=~"$env"}', 'up{env=~"(prod|dev)"}'),

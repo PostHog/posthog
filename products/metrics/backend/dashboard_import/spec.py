@@ -78,9 +78,15 @@ class TargetSpec(_Model):
     expr: str
     original_expr: str
     legend: str | None = None
+    # The fixed legend that names the target's series when the panel joins several targets.
+    series_name: str | None = None
     unresolved_variables: list[str] = Field(default_factory=list)
     # The expression with references to live dashboard variables kept. None when it refers to none.
     templated_expr: str | None = None
+
+    @property
+    def clause(self) -> str:
+        return self.series_name or self.ref_id
 
 
 class PanelSpec(_Model):
