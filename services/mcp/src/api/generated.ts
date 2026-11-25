@@ -107481,8 +107481,21 @@ export namespace Schemas {
          * @maxLength 200000
          */
       query: string;
-      /** HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run. */
-      bucketed?: boolean;
+      /**
+         * The series name template the panel draws. Returned unchanged on the target's line.
+         * @maxLength 1000
+         */
+      legend?: string;
+      /** How the panel draws the result. Returned unchanged on the target's line.
+       *
+       * * `time_series` - Time series
+       * * `table` - Table */
+      format?: QueryBatchTargetFormatEnum;
+      /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+       *
+       * * `classic` - Classic
+       * * `new` - New */
+      engine?: QueryBatchEngineEnum;
     }
 
     export interface QueryBatchTime {
