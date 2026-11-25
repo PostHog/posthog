@@ -87,7 +87,14 @@ export async function startEdgeProcess(
     }
     const kill = (): void => {
         if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
-            process.kill(-child.pid, 'SIGKILL')
+            try {
+                process.kill(-child.pid, 'SIGKILL')
+            } catch (error) {
+                // The group can already be gone if the child was reaped between the checks above and this signal.
+                if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+                    throw error
+                }
+            }
         }
     }
     const readQueuedRepliesThen = (next: () => void): void => void setImmediate(next)
