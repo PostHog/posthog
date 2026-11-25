@@ -207,6 +207,8 @@ class InstanceCheckState:
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
     last_seen_at: datetime | None = None
+    # A failing check status replaces the state, so this keeps whether the row still holds a firing.
+    failed_while_firing: bool = False
 
     def at_rest(self, now: datetime) -> bool:
         """Holds a slot and nothing else: not firing, failing or muted."""
@@ -242,6 +244,8 @@ class InstanceCheckState:
             snooze_until=max(snoozes, default=None),
             firing_started_at=firing_started_at,
             last_seen_at=last_seen_at,
+            failed_while_firing=check_status != PlatformAlertCheckStatus.OK
+            and state == PlatformAlertState.FIRING.value,
         )
 
 

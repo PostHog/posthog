@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -66,7 +67,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
 
@@ -120,8 +120,10 @@ def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
     return message_created_at(team_id, message_id, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
-def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
-    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+def _execute(
+    team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None, *, query_type: str
+) -> list[tuple]:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY, query_type=query_type)
     # The log is read by a person looking at the page, or by an agent answering one.
     return cast(
         list,
@@ -295,6 +297,7 @@ def list_transactional_emails(
         """,
         params,
         settings or None,
+        query_type="transactional_email_log_list",
     )
     has_more = len(rows) > limit
     return _build_entries(team_id, rows[:limit]), has_more
@@ -315,6 +318,7 @@ def get_transactional_email(
         team_id,
         f"SELECT {_MESSAGE_COLUMNS} FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {where} GROUP BY message_id",
         params,
+        query_type="transactional_email_log_detail",
     )
     entries = _build_entries(team_id, rows)
     if not entries or (access is not None and not access.allows(entries[0].workflow_id)):
@@ -331,6 +335,7 @@ def get_transactional_email(
         ORDER BY status_at, max(version)
         """,
         params,
+        query_type="transactional_email_log_timeline",
     )
     timeline: list[TransactionalEmailLogEvent] = []
     for kind, at, reason in events:
@@ -401,6 +406,7 @@ def transactional_email_stats(
         """,
         params,
         _GROUP_AS_READ,
+        query_type="transactional_email_stats",
     )
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
@@ -537,6 +543,7 @@ def transactional_email_stats_over_time(
             """,
             params,
             _GROUP_AS_READ,
+            query_type="transactional_email_stats_over_time",
         )
 
     current: dict[datetime, TransactionalEmailStatsCounts] = {}
@@ -647,6 +654,7 @@ def transactional_email_impact(
         """,
         params,
         _GROUP_AS_READ,
+        query_type="transactional_email_impact_funnel",
     )
     link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
     sessions: int | None = None
@@ -655,7 +663,7 @@ def transactional_email_impact(
     after_click: TransactionalEmailConversions | None = None
     without_click: TransactionalEmailConversions | None = None
     if event:
-        sends = _sends_to_follow(team, user, workflow_id, period)
+        sends = _sends_to_follow(team, workflow_id, period)
         converted = _converted_sends(team, user, event, sends)
         after_click = _conversions_of([send for send in sends if send.clicked], converted)
         without_click = _conversions_of([send for send in sends if not send.clicked], converted)
@@ -702,6 +710,7 @@ def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Pe
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
         _GROUP_AS_READ,
+        query_type="transactional_email_impact_clicked_sends",
     )
     sessions: set[str] = set()
     for batch in _batches_by_query_size(team.id, [message_id for (message_id,) in rows], _escaped_literal_bytes):
@@ -745,12 +754,11 @@ def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], pe
 class _FollowedSend:
     message_id: str
     distinct_id: str
-    recipient: str
     clicked: bool
     since: datetime
 
 
-def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
+def _sends_to_follow(team: Team, workflow_id: str, period: _Period) -> list[_FollowedSend]:
     rows = _execute(
         team.id,
         f"""
@@ -771,6 +779,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
         _GROUP_AS_READ,
+        query_type="transactional_email_impact_sends",
     )
     assets = fetch_message_assets_for_invocations(team.id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW)
     distinct_ids = {
@@ -778,12 +787,10 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         for asset in assets
         if asset.function_id == workflow_id and asset.distinct_id
     }
-    persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
     return [
         _FollowedSend(
             message_id=message_id,
             distinct_id=distinct_ids[message_id],
-            recipient=persons.get(distinct_ids[message_id], f"distinct:{distinct_ids[message_id]}"),
             clicked=bool(was_clicked),
             since=since.replace(tzinfo=UTC),
         )
@@ -795,7 +802,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
     for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
-        converted |= _converted_in_batch(team, user, event, batch)
+        converted |= {batch[index - 1].message_id for index in _converted_in_batch(team, user, event, batch)}
     return converted
 
 
@@ -822,49 +829,28 @@ def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Call
 
 
 def _query_bytes_of(send: _FollowedSend) -> int:
-    return (
-        _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
-        + _escaped_literal_bytes(send.recipient)
-        + _escaped_literal_bytes(send.message_id)
-        + _SINCE_MS_LITERAL_BYTES
-    )
+    return _escaped_literal_bytes(send.distinct_id) + _SINCE_MS_LITERAL_BYTES
 
 
 def _escaped_literal_bytes(value: str) -> int:
     return 2 * len(value.encode()) + len("'', ")
 
 
-def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
+def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[int]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
     end = max(send.since for send in sends) + window + timedelta(seconds=1)
     response = execute_hogql_query(
-        """
-        SELECT DISTINCT sends.message_id
-        FROM ("""
-        + _RECIPIENT_EVENTS
-        + """) AS conversions
-        INNER JOIN (
-            SELECT
-                tupleElement(send, 1) AS message_id,
-                tupleElement(send, 2) AS recipient,
-                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
-            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
-        ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.timestamp >= sends.since
-          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
-        LIMIT {limit}
-        """,
+        _IMPACT_CONVERSIONS,
         team=team,
         user=user,
         placeholders={
-            "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
-            "message_ids": ast.Constant(value=[send.message_id for send in sends]),
-            "recipients": ast.Constant(value=[send.recipient for send in sends]),
+            "revenue": ast.Constant(value=None),
+            "send_distinct_ids": ast.Constant(value=[send.distinct_id for send in sends]),
+            "distinct_ids": parse_select("SELECT distinct_id FROM sends"),
             "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
             "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(sends)),
@@ -872,7 +858,7 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         query_type="transactional_email_impact_conversions",
         workload=Workload.ONLINE,
     )
-    return {message_id for (message_id,) in response.results or []}
+    return {position for (position,) in response.results or []}
 
 
 def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> TransactionalEmailConversions:
@@ -916,6 +902,43 @@ _RECIPIENT_EVENTS = """
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
+
+
+_IMPACT_CONVERSIONS = (
+    """
+    WITH
+        sends AS (
+            SELECT
+                tupleElement(send, 1) AS position,
+                tupleElement(send, 2) AS distinct_id,
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (
+                SELECT arrayJoin(arrayZip(arrayEnumerate(batch_distinct_ids), batch_distinct_ids, batch_since_ms)) AS send
+                FROM (SELECT {send_distinct_ids} AS batch_distinct_ids, {since_ms} AS batch_since_ms)
+            )
+        ),
+        recipients AS (
+            SELECT
+                sends.position AS position,
+                sends.since AS since,
+                if(persons.distinct_id != '', toString(persons.person_id), concat('distinct:', sends.distinct_id))
+                    AS recipient
+            FROM sends
+            LEFT JOIN (
+                SELECT distinct_id, person_id FROM person_distinct_ids
+                WHERE distinct_id IN (SELECT distinct_id FROM sends)
+            ) AS persons ON persons.distinct_id = sends.distinct_id
+        )
+    SELECT DISTINCT recipients.position
+    FROM ("""
+    + _RECIPIENT_EVENTS
+    + """) AS conversions
+    INNER JOIN recipients ON conversions.recipient = recipients.recipient
+    WHERE conversions.timestamp >= recipients.since
+      AND conversions.timestamp <= recipients.since + toIntervalSecond({window_seconds})
+    LIMIT {limit}
+    """
+)
 
 
 @frozen

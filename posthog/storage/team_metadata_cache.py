@@ -68,7 +68,7 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
-    PropertyMatchingVersion,
+    CACHED_SETTING_DEFAULTS,
     TeamFeatureFlagsConfig,
 )
 
@@ -160,6 +160,7 @@ MISSING_KEY_DEFAULTS: dict[str, Any] = {
     "flags_blocked_hosts": [],
     "flags_blocked_ips": [],
     "realtime_cohort_level": RealtimeCohortLevel.OFF.value,
+    **CACHED_SETTING_DEFAULTS,
 }
 
 
@@ -173,6 +174,20 @@ def _load_request_blocklists(team_ids: list[int]) -> dict[int, dict[str, list[st
     ).values_list("team_id", "blocked_hosts", "blocked_ips"):
         blocklists[team_id] = {"flags_blocked_hosts": blocked_hosts, "flags_blocked_ips": blocked_ips}
     return blocklists
+
+
+def _load_cached_flag_settings(team_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Map each team id to its cached TeamFeatureFlagsConfig settings, with the defaults when it has no row.
+
+    Deliberately not team.teamfeatureflagsconfig: the reverse O2O accessor gets cache-populated as a
+    side effect of register_team_extension_signal's get_or_create(team=instance, ...) at team-creation
+    time, so an already-loaded Team object can carry a stale value if the config row changes after the
+    Team was loaded. An explicit query is always fresh.
+    """
+    settings_by_team_id = {team_id: dict(CACHED_SETTING_DEFAULTS) for team_id in team_ids}
+    for row in TeamFeatureFlagsConfig.objects.filter(team_id__in=team_ids).values("team_id", *CACHED_SETTING_DEFAULTS):
+        settings_by_team_id[row.pop("team_id")] = row
+    return settings_by_team_id
 
 
 def _load_realtime_cohort_levels(team_ids: list[int]) -> dict[int, str]:
@@ -190,8 +205,7 @@ def _load_realtime_cohort_levels(team_ids: list[int]) -> dict[int, str]:
 
 def _serialize_team_to_metadata(
     team: Team,
-    minimal_flag_called_events: bool | None = None,
-    property_matching_version: int | None = None,
+    flag_settings: dict[str, Any] | None = None,
     request_blocklist: dict[str, list[str]] | None = None,
     realtime_cohort_level: str | None = None,
 ) -> dict[str, Any]:
@@ -200,10 +214,8 @@ def _serialize_team_to_metadata(
 
     Args:
         team: Team object with organization and project already loaded
-        minimal_flag_called_events: Pre-fetched value from TeamFeatureFlagsConfig, to let
-            batch callers avoid an N+1 query. If None, this looks it up itself.
-        property_matching_version: Pre-fetched property matching semantics version. If None,
-            this looks it up with the other feature flags config value.
+        flag_settings: Pre-fetched entry from _load_cached_flag_settings, to let batch callers
+            avoid an N+1 query. If None, this looks it up itself.
         request_blocklist: Pre-fetched entry from _load_request_blocklists. If None, this
             looks it up itself.
         realtime_cohort_level: Pre-fetched entry from _load_realtime_cohort_levels. If None,
@@ -220,22 +232,9 @@ def _serialize_team_to_metadata(
     metadata["organization_name"] = team.organization.name if team.organization else None
     metadata["project_name"] = team.project.name if team.project else None
 
-    if minimal_flag_called_events is None or property_matching_version is None:
-        # Deliberately not team.teamfeatureflagsconfig: the reverse O2O accessor gets
-        # cache-populated as a side effect of register_team_extension_signal's
-        # get_or_create(team=instance, ...) at team-creation time, so an already-loaded
-        # Team object can carry a stale cached value if the config row changes after
-        # the Team was loaded. An explicit query is always fresh.
-        config_values = (
-            TeamFeatureFlagsConfig.objects.filter(team_id=team.id)
-            .values_list("minimal_flag_called_events", "property_matching_version")
-            .first()
-        )
-        if config_values is not None:
-            minimal_flag_called_events = config_values[0]
-            property_matching_version = config_values[1]
-    metadata["minimal_flag_called_events"] = minimal_flag_called_events or False
-    metadata["property_matching_version"] = property_matching_version or PropertyMatchingVersion.LEGACY
+    if flag_settings is None:
+        flag_settings = _load_cached_flag_settings([team.id])[team.id]
+    metadata.update(flag_settings)
 
     if request_blocklist is None:
         request_blocklist = _load_request_blocklists([team.id])[team.id]
@@ -262,19 +261,13 @@ def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
     Returns:
         Dict mapping team_id -> metadata dict
     """
-    config_by_team_id = {
-        team_id: (minimal_flag_called_events, property_matching_version)
-        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.filter(
-            team_id__in=[team.id for team in teams]
-        ).values_list("team_id", "minimal_flag_called_events", "property_matching_version")
-    }
+    flag_settings_by_team_id = _load_cached_flag_settings([team.id for team in teams])
     blocklist_by_team_id = _load_request_blocklists([team.id for team in teams])
     level_by_team_id = _load_realtime_cohort_levels([team.id for team in teams])
     return {
         team.id: _serialize_team_to_metadata(
             team,
-            minimal_flag_called_events=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[0],
-            property_matching_version=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[1],
+            flag_settings=flag_settings_by_team_id[team.id],
             request_blocklist=blocklist_by_team_id[team.id],
             realtime_cohort_level=level_by_team_id[team.id],
         )
@@ -397,8 +390,6 @@ def verify_team_metadata(
     fields_to_check = set(TEAM_METADATA_FIELDS) | {
         "organization_name",
         "project_name",
-        "minimal_flag_called_events",
-        "property_matching_version",
         *MISSING_KEY_DEFAULTS,
     }
     diffs = []

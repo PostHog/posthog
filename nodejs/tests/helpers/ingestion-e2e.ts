@@ -70,7 +70,6 @@ export const DEFAULT_TEAM: Team = {
     name: '2',
     anonymize_ips: true,
     api_token: 'api_token',
-    secret_api_token: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,

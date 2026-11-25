@@ -41,6 +41,7 @@ FAKE_MAP = {
     "backend_smoke_specs": ["playwright/e2e/auth.spec.ts", "playwright/e2e/product-analytics/dashboards.spec.ts"],
     "backend_explicit": {"posthog/hogql/**": ["playwright/e2e/product-analytics/"]},
     "scenes_smoke_only": ["inbox"],
+    "products_smoke_only": ["apm"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
         "billing": ["playwright/e2e/billing/"],
@@ -75,6 +76,12 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                     },
                     "",
                 ),
+            ),
+            (
+                "smoke-only product runs the smoke subset",
+                ["products/apm/frontend/ServicesTab.tsx"],
+                "selected",
+                ({"playwright/e2e/auth.spec.ts"}, ""),
             ),
             (
                 "explicit rule maps a spec-less product frontend",
@@ -317,6 +324,18 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         self.assertEqual(result["mode"], "selected")
         self.assertIn("products/messaging/frontend/e2e/message-preferences.spec.ts", result["spec_files"])
 
+    def test_real_map_runs_the_consent_spec_for_mcp_schema_changes(self) -> None:
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        result = selection.select(
+            ["services/mcp/schema/tool-definitions.json", "services/mcp/src/tools/exec.ts"], area_map, all_specs
+        )
+        self.assertEqual(result["mode"], "selected")
+        self.assertEqual(result["spec_files"], ["playwright/e2e/oauth-mcp-consent.spec.ts"])
+        # Tailwind scans this tree for classes, so it reaches the compiled frontend CSS
+        tailwind_source = selection.select(["services/mcp/src/ui-apps/lib/theme.ts"], area_map, all_specs)
+        self.assertEqual(tailwind_source["full_run_reason_category"], "force_full")
+
     def test_real_map_runs_the_full_suite_for_generated_messaging_clients(self) -> None:
         area_map = selection.load_map(selection.MAP_PATH)
         all_specs = selection.discover_specs(selection.REPO_ROOT)
@@ -330,9 +349,14 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         # smoke-only scene to the defensive no_specs full run, silently killing the
         # mechanism.
         area_map = selection.load_map(selection.MAP_PATH)
-        overlap = set(area_map.get("scenes_smoke_only", [])) & set(area_map.get("scenes", {}))
-        self.assertEqual(overlap, set(), msg="scene(s) listed in both scenes and scenes_smoke_only")
-        for source_key, specs_key in (("scenes_smoke_only", "smoke_subset"), ("backend_smoke", "backend_smoke_specs")):
+        for smoke_key, mapped_key in (("scenes_smoke_only", "scenes"), ("products_smoke_only", "products")):
+            overlap = set(area_map.get(smoke_key, [])) & set(area_map.get(mapped_key, {}))
+            self.assertEqual(overlap, set(), msg=f"listed in both {mapped_key} and {smoke_key}")
+        for source_key, specs_key in (
+            ("scenes_smoke_only", "smoke_subset"),
+            ("products_smoke_only", "smoke_subset"),
+            ("backend_smoke", "backend_smoke_specs"),
+        ):
             if area_map.get(source_key):
                 self.assertTrue(
                     area_map.get(specs_key),

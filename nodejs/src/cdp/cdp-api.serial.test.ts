@@ -2884,6 +2884,7 @@ describe('CDP API', () => {
 
             beforeEach(() => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
             })
 
             afterEach(() => {
@@ -2932,26 +2933,41 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_')).toEqual([])
             })
 
-            it('replays a keyed retry from its claim without producing it again', async () => {
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
-                const headers = authorized()
-                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
-                const first = await send(hogFlow.id, headers, keyed)
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+            it.each([
+                ['on', true],
+                ['off', false],
+            ])(
+                'replays a keyed retry from its claim without producing it again with sealing %s',
+                async (_, sealing) => {
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                    const headers = authorized()
+                    const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                    const first = await send(hogFlow.id, headers, keyed)
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                    api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
 
-                const retry = await send(hogFlow.id, headers, keyed)
+                    const retry = await send(hogFlow.id, headers, keyed)
 
-                expect(retry.status).toEqual(202)
-                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
-                expect(producedTo('cdp_intake_')).toEqual([])
-            })
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                    expect(producedTo('cdp_intake_')).toEqual([])
+                }
+            )
 
             it.each([
-                ['sealing is off', false, false, 1],
-                ['sealing is on and the send is keyed', true, true, 1],
-                ['sealing is on and the send has no key', true, false, 1],
-            ])('produces a sensitive send in async mode when %s', async (_name, sealing, keyed, produced) => {
+                ['refuses a sensitive send with 503 and produces nothing when sealing is off', false, false, 503, 0],
+                [
+                    'refuses a keyed sensitive send with 503 and produces nothing when sealing is off',
+                    false,
+                    true,
+                    503,
+                    0,
+                ],
+                ['produces a sensitive send when sealing is on and the send is keyed', true, true, 202, 1],
+                ['produces a sensitive send when sealing is on and the send has no key', true, false, 202, 1],
+            ])('%s', async (_name, sealing, keyed, status, produced) => {
                 api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+                const notSealingBefore = await outcomeCount('not_sealing')
 
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
@@ -2959,8 +2975,9 @@ describe('CDP API', () => {
                     send: { ...codeSend, sensitive: true },
                 })
 
-                expect(res.status).toEqual(202)
+                expect(res.status).toEqual(status)
                 expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
+                expect(await outcomeCount('not_sealing')).toEqual(notSealingBefore + (sealing ? 0 : 1))
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
@@ -5319,7 +5336,7 @@ describe('CDP API', () => {
                 expect(res.body.results).toEqual([
                     { status: 202, body: queuedAs(runIdOf(recipients[0])) },
                     { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(recipients[1]) } },
-                    { status: 400, body: { error: expect.any(String), invocation_id: runIdOf(recipients[2]) } },
+                    { status: 400, body: { error: 'invalid_recipient', invocation_id: runIdOf(recipients[2]) } },
                     { status: 202, body: queuedAs(runIdOf(recipients[3])) },
                     { status: 422, body: { error: 'recipient_suppressed', invocation_id: runIdOf(suppressed) } },
                     { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
@@ -5644,7 +5661,7 @@ describe('CDP API', () => {
                 async (_case, route, payload) => {
                     const res = await sendBatch(route, payload())
 
-                    expect(res.status).toEqual(400)
+                    expect([res.status, res.body]).toEqual([400, { error: 'invalid_request' }])
                     expect(intakeRecords()).toEqual([])
                 }
             )
@@ -5677,7 +5694,7 @@ describe('CDP API', () => {
                     recipients: [recipient('ada@example.com')],
                 })
 
-                expect(res.status).toEqual(500)
+                expect([res.status, res.body]).toEqual([500, { error: 'internal_error' }])
                 expect(intakeRecords()).toEqual([])
             })
 
@@ -5853,6 +5870,42 @@ describe('CDP API', () => {
                     expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
                         `person-${holder.to}`,
                         'person-di@example.com',
+                    ])
+                })
+
+                it('admits a batch from another team while one team holds its share of the pod', async () => {
+                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+                    const otherFlow = await insertHogFlow({
+                        ...transactionalFlow('api', 'active'),
+                        team_id: otherTeamId,
+                    })
+                    const { app: two } = await servedWith({
+                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
+                        CDP_INTAKE_KAFKA_ASYNC_TEAMS: `${team.id},${otherTeamId}`,
+                    })
+                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
+                        team.id
+                    )!
+
+                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const otherTeam = await supertest(two)
+                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                        })
+                        .send(batchOf(recipient('cy@example.com')))
+                    releaseTeamSlot()
+                    const ada = recipient('ada@example.com')
+                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+
+                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
+                    ])
+                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
                     ])
                 })
 

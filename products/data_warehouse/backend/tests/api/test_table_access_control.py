@@ -32,6 +32,29 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
     def _detail_url(self) -> str:
         return f"/api/environments/{self.team.pk}/warehouse_tables/{self.table.id}/"
 
+    def test_notebook_edit_access_does_not_grant_warehouse_snapshot_writes(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="notebook", access_level="editor")
+        self.client.force_login(self.viewer_user)
+        upload = {
+            "upload_id": "22222222-2222-4222-8222-222222222222",
+            "filename": "result.json",
+            "file_format": "json",
+            "notebook_cell": "notes/sql_1",
+        }
+        create = self.client.post(f"{self._list_url()}create_from_upload/", {**upload, "table_name": "counts"})
+        replace = self.client.post(f"{self._detail_url()}replace_file/", upload)
+        assert create.status_code == status.HTTP_403_FORBIDDEN
+        assert replace.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.post(f"{self._list_url()}create_from_file/", {}, format="multipart").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            self.client.post(f"{self._detail_url()}replace_with_file/", {}, format="multipart").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+
     @parameterized.expand(
         [
             # (access_level, method, expected_status, patch_body)

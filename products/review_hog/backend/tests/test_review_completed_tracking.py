@@ -387,10 +387,25 @@ class TestTrackReviewCompleted(BaseTest):
 
     @parameterized.expand(
         [
-            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FLASH, "follow_up"),
-            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, REVIEW_MODE_FLASH, "merge_only"),
-            ("deep_turn_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FULL, "follow_up"),
-            ("unknown_cadence", None, False, REVIEW_MODE_FLASH, "merge_only"),
+            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FLASH, None, (True, "follow_up")),
+            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, REVIEW_MODE_FLASH, None, (True, "merge_only")),
+            (
+                "deep_turn_after_the_ready_review",
+                _READY_REVIEWS_ONLY,
+                False,
+                REVIEW_MODE_FULL,
+                None,
+                (True, "follow_up"),
+            ),
+            (
+                "deep_follow_up_of_the_ready_review",
+                _READY_REVIEWS_ONLY,
+                False,
+                REVIEW_MODE_FULL,
+                "deep_follow_up",
+                (False, "no_rule_matched"),
+            ),
+            ("unknown_cadence", None, False, REVIEW_MODE_FLASH, None, (True, "merge_only")),
         ]
     )
     def test_without_push_reviews_only_the_ready_review_after_a_draft_review_reaches_the_gate(
@@ -399,7 +414,8 @@ class TestTrackReviewCompleted(BaseTest):
         cadence: ReviewCadence | None,
         reviewed_draft: bool,
         review_mode: str,
-        expected_reason: str,
+        trigger_action: str | None,
+        expected: tuple[bool, str],
     ) -> None:
         report_id = self._review_report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(automatic_reviewed_draft=reviewed_draft)
@@ -428,11 +444,13 @@ class TestTrackReviewCompleted(BaseTest):
                     head_sha="sha1",
                     run_index=2,
                     review_mode=review_mode,
+                    trigger_action=trigger_action,
                 )
             )
 
-        assert (decision.skip, decision.reason) == (True, expected_reason)
-        assert capture.call_args.kwargs["properties"]["reason"] == expected_reason
+        assert (decision.skip, decision.reason) == expected
+        if decision.skip:
+            assert capture.call_args.kwargs["properties"]["reason"] == expected[1]
 
     def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn

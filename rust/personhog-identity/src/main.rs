@@ -325,30 +325,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.tables(),
         outbox_writes,
     ));
-    let storage: Arc<dyn IdentityStorage> = if config.stub_create_workers == 0 {
-        postgres_storage
-    } else {
+    let max_queue_wait = Duration::from_secs(config.heavy_acquire_timeout_secs);
+    let stub_creates = (config.stub_create_workers > 0).then_some(CoalesceSettings {
+        workers: config.stub_create_workers,
+        max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
+        max_queued_calls: config.stub_create_max_queued_calls,
+        max_queue_wait,
+    });
+    let attaches = (config.attach_workers > 0).then_some(CoalesceSettings {
+        workers: config.attach_workers,
+        max_batch_distinct_ids: config.attach_max_batch_distinct_ids,
+        max_queued_calls: config.attach_max_queued_calls,
+        max_queue_wait,
+    });
+    if let Some(settings) = &stub_creates {
         tracing::info!(
-            workers = config.stub_create_workers,
-            max_batch_distinct_ids = config.stub_create_max_batch_distinct_ids,
-            max_queued_calls = config.stub_create_max_queued_calls,
+            workers = settings.workers,
+            max_batch_distinct_ids = settings.max_batch_distinct_ids,
+            max_queued_calls = settings.max_queued_calls,
             "Coalescing stub-creation transactions"
         );
-        if config.stub_create_workers >= config.heavy_max_pg_connections as usize {
-            tracing::warn!(
-                workers = config.stub_create_workers,
-                heavy_max_pg_connections = config.heavy_max_pg_connections,
-                "STUB_CREATE_WORKERS can hold every heavy connection, which leaves none for attach, saga steps and GC"
-            );
-        }
+    }
+    if let Some(settings) = &attaches {
+        tracing::info!(
+            workers = settings.workers,
+            max_batch_distinct_ids = settings.max_batch_distinct_ids,
+            max_queued_calls = settings.max_queued_calls,
+            "Coalescing attach statements"
+        );
+    }
+    let coalesce_workers = config.stub_create_workers + config.attach_workers;
+    if coalesce_workers >= config.heavy_max_pg_connections as usize {
+        tracing::warn!(
+            stub_create_workers = config.stub_create_workers,
+            attach_workers = config.attach_workers,
+            heavy_max_pg_connections = config.heavy_max_pg_connections,
+            "STUB_CREATE_WORKERS and ATTACH_WORKERS can hold every heavy connection, which leaves none for the rest of the heavy-pool work, such as saga steps and GC"
+        );
+    }
+    let storage: Arc<dyn IdentityStorage> = if stub_creates.is_none() && attaches.is_none() {
+        postgres_storage
+    } else {
         Arc::new(CoalescingIdentityStorage::spawn(
             postgres_storage,
-            CoalesceSettings {
-                workers: config.stub_create_workers,
-                max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
-                max_queued_calls: config.stub_create_max_queued_calls,
-                max_queue_wait: Duration::from_secs(config.heavy_acquire_timeout_secs),
-            },
+            stub_creates,
+            attaches,
         ))
     };
     let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
