@@ -369,6 +369,27 @@ describe('sessionConversationLogic', () => {
         expect(router.values.searchParams).toMatchObject({ session: SESSION_ID, trace: 'trace-0' })
     })
 
+    it('a step up reads the earlier page again after that read failed', async () => {
+        silenceKeaLoadersErrors()
+        answerPage = (params) =>
+            params.has('before_cursor')
+                ? [500, { detail: 'boom' }]
+                : [200, makeSessionTurnPage([1, 2], { previousCursor: 'cursor-before' })]
+        await mountOnSessionsPath()
+        await openTurnAt('trace-1')
+        const drawer = traceDrawerLogic({ listId: SESSION_TURNS_LIST })
+        drawer.actions.stepTo('previous')
+        await settle()
+        expect(logic.values.olderEdge).toEqual('failed')
+
+        answerPage = () => [200, makeSessionTurnPage([0])]
+        drawer.actions.stepTo('previous')
+        await settle()
+
+        expect(turnIds()).toEqual(['trace-0', 'trace-1', 'trace-2'])
+        expect(router.values.searchParams).toMatchObject({ session: SESSION_ID, trace: 'trace-0' })
+    })
+
     it.each<[string, Record<string, string>]>([
         ['closes the drawer', {}],
         ['opens another turn', { trace: 'trace-2' }],

@@ -414,11 +414,9 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             },
             stepTo: ({ direction }) => {
                 const firstRow = values.rows[0]
-                if (
-                    direction === 'previous' &&
-                    firstRow?.traceId === values.openTraceId &&
-                    values.olderEdge === 'more'
-                ) {
+                // A failed edge counts, or the drawer's step up would stay enabled and do nothing after a failed read.
+                const canLoadOlder = values.olderEdge === 'more' || values.olderEdge === 'failed'
+                if (direction === 'previous' && firstRow?.traceId === values.openTraceId && canLoadOlder) {
                     cache.openBeforeTraceId = firstRow.traceId
                     actions.loadOlder()
                 }
