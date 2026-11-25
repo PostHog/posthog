@@ -178,6 +178,7 @@ _LAZY = {
     "THERE_IS_NO_COLUMN_ERROR_CODE": "logic.describe_columns",
     "describe_ast_settings": "logic.describe_columns",
     "DescribedColumn": "facade.contracts",
+    "plan_prompt_jev_on_zero_rows": "logic.describe_columns",
     "print_describe_variant": "logic.describe_columns",
     "rename_described_columns": "logic.describe_columns",
 }
