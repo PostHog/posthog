@@ -39,7 +39,9 @@ def close_buffer_write(config: dict[str, Any], *, wrote: bool) -> None:
     """Count every write made so far.
 
     Called only by a run that completed, after its last write. An open write is counted even when
-    this run wrote nothing, because it belongs to an earlier run that is over.
+    this run wrote nothing, because it belongs to an earlier run. That assumes the earlier run is
+    over. An attempt that outlives its heartbeat timeout can still write after its retry counted,
+    and nothing then counts that file. The consumer's periodic full run reads it.
     """
     was_open = bool(config.pop(BUFFER_WRITE_OPEN_KEY, False))
     if wrote or was_open:

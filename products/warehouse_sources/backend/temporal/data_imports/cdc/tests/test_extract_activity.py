@@ -1976,7 +1976,7 @@ class TestBufferedIngressCapture:
         schema = _make_schema("users", source=source)
 
         with _capture_harness(source, [schema], [_make_event(position="0/100")]) as capture:
-            capture.buffer.write_batch.side_effect = RuntimeError("pod killed after the PUT")
+            capture.buffer.write_batch.side_effect = RuntimeError("s3 down")
             capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
             with pytest.raises(RuntimeError):
                 capture.extract()

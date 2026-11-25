@@ -708,7 +708,7 @@ class CDCSourceManager:
         *,
         deletion_floor: int | None = None,
         proof: ListingProof | None = None,
-        generation_seen: int = 0,
+        generation_seen: int,
     ) -> None:
         self._inputs = inputs
         self._logger = logger
