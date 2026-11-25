@@ -2247,7 +2247,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
-                dashboard.refresh_from_db()
+                # The replica cannot see the row this transaction inserted.
+                dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
                 # Group settings in the request apply on top of the template's groups, so they wait for the merge.
                 if has_groups or has_group_titles:
                     dashboard.customization = with_requested_groups(
@@ -4949,7 +4950,7 @@ class DashboardsViewSet(
                 user_id=cast(User, request.user).id,
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
-            dashboard.refresh_from_db()
+            dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
 
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":

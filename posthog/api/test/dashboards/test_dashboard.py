@@ -4962,6 +4962,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
+    @parameterized.expand(
+        [
+            ("use_template", "", {"name": "from template", "use_template": "DEFAULT_APP"}, status.HTTP_201_CREATED),
+            ("template_json", "create_from_template_json", {"template": valid_template}, status.HTTP_200_OK),
+        ]
+    )
+    def test_template_dashboard_reloads_from_the_writer(
+        self, _name: str, action: str, payload: dict[str, Any], expected_status: int
+    ) -> None:
+        # Only a reload of a Dashboard instance goes to the missing "replica" alias. These endpoints
+        # also make Dashboard reads that tolerate replica lag, such as the count before the limit check.
+        def route_dashboard_reloads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard and isinstance(hints.get("instance"), Dashboard) else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reloads_to_replica):
+            response = self.client.post(f"/api/environments/{self.team.id}/dashboards/{action}", payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""
         # Create dashboards with different creation modes
