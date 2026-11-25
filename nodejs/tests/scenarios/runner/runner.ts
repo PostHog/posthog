@@ -685,8 +685,13 @@ export function createRunner(
                             )
                           : { unread: `the ${runTarget.name} target has no counter read` })
                     : undefined
+                const judged = judge.evidence()
+                const unsettled =
+                    judged.unsettled ??
+                    (counters !== undefined && 'counted' in counters ? await judge.recheck(signal) : undefined)
                 const evidence = {
-                    ...judge.evidence(),
+                    ...judged,
+                    ...(unsettled !== undefined && { unsettled }),
                     counters,
                     converged: converged.converged,
                     ...sampled,

@@ -856,6 +856,32 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
     })
 
+    it.each<[string, () => Promise<unknown>, string | undefined]>([
+        ['only other runs reached the edge', () => Promise.resolve(recordOtherRuns(TRUTH_PAGE_LIMIT + 1)), undefined],
+        [
+            'the edge accepted a resend of this run',
+            async () => {
+                recordOtherRuns(TRUTH_PAGE_LIMIT)
+                await deliver(UNIT)
+            },
+            "the edge accepted more of this run's sends after the final truth reads",
+        ],
+        [
+            'the truth read failed',
+            () => Promise.resolve((truthFails = 'The operation was aborted due to timeout')),
+            'the truth could not be read again: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
+        ],
+    ])('rechecks the truth after the final reads when %s', async (_story, act, unsettled) => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await judge.converge(20, NEVER_ABORTED)
+        await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+        await act()
+
+        expect(await judge.recheck(NEVER_ABORTED)).toEqual(unsettled)
+        expect(judge.evidence().truth.filter(({ unitId }) => unitId === UNIT)).toHaveLength(1)
+    })
+
     const TEAM = 2_100_000_000
     const BACKLOG: Backlog = {
         teams: 1,
