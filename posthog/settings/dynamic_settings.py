@@ -498,8 +498,8 @@ CONSTANCE_CONFIG = {
         "Persons batches that project deletions, organization deletions and queued person deletions run at once "
         "across every worker in the region. "
         "Each batch adds storage read load on the persons writer, which slows down ingestion. "
-        "0 pauses the persons phase of every deletion. A queued person deletion that waits too long fails "
-        "and is logged for a requeue. A change takes effect within a minute.",
+        "0 pauses the persons phase of every deletion. When the limit is reached, a queued person deletion "
+        "goes back to the task queue and tries again later. A change takes effect within a minute.",
         int,
     ),
 }

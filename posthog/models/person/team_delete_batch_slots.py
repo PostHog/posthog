@@ -89,7 +89,7 @@ class TeamDeletePersonsBatchSlots:
         """Wait for a free slot and return its id, or return None when ``should_stop`` asks to stop first.
 
         Raises ``BatchSlotWaitTimeout`` after ``max_wait_seconds``, so that a paused or crowded cap does not
-        keep a worker thread for the whole wait. The activity retry asks again later.
+        keep a worker thread for the whole wait. The caller asks again later.
         """
         slot_id = uuid.uuid4().hex
         give_up_at = self._clock() + self._max_wait_seconds
