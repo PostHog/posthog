@@ -175,7 +175,7 @@ Selected TaskRun -> ordinary VM provision and agent launch
   maintained enrollment handoff -> revoke old execution, enroll a fresh relay
 ```
 
-Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
 
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
@@ -203,7 +203,7 @@ Maintained rotation explicitly permits a directory resume snapshot at the approv
 
 This is stop-and-re-enroll, with a fail-closed gap rather than uninterrupted traffic. Old authority is revoked or expires with its lease; a failed handoff cannot restore it. Delayed cleanup targets only its own execution and relay. Enrollment failure is logged and does not fail the agent run; this still authorizes only synthetic probes. Validate continuation and snapshot rotation on the deployed worker before expanding the cohort.
 
-Automatic snapshot rotation currently serves interactive runs, which enrollment excludes. The handoff supports that path without widening eligibility; a live rotation canary needs an eligible cohort first.
+Automatic snapshot rotation serves idle interactive runs with resume snapshots enabled. Selected interactive runs can enroll when run-lifetime maintenance is configured. A live rotation canary still needs that profile and a sandbox deadline reached during the test; enabling enrollment alone does not trigger rotation.
 
 ## Run the processes
 
