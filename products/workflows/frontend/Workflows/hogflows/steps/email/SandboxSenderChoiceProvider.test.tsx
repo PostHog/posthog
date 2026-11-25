@@ -357,11 +357,10 @@ describe('SandboxSenderChoiceProvider', () => {
                 "Save your changes and wait until they're saved. Reload this page after you verify a sender."
             )
         ).toBeInTheDocument()
-        expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
-            'href',
-            expect.stringMatching(/\/workflows\/channels$/)
-        )
         expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByTestId('workflow-email-test-sender-add'))
+        await waitFor(() => expect(document.getElementById('email-domain-another-domain')).toBeInTheDocument())
     })
 
     it.each<[string, string, IntegrationType[], boolean]>([

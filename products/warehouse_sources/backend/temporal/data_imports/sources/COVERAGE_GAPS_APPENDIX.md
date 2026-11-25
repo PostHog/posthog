@@ -1980,10 +1980,10 @@ Diffed against: <https://betterstack.com/docs/uptime/api/getting-started-with-up
 - [x] `GET heartbeat availability summary` — the heartbeat equivalent of the monitor SLA summary (medium)
 - [x] `GET severities and severity groups (/api/v2/urgencies, /api/v2/urgency-groups)` — call-routing severity lookup resolving the severity referenced on incidents (medium)
 - [x] `GET status page resources (/api/v2/status-pages/{id}/resources)` — join table mapping status pages to the monitors and heartbeats they display (medium)
-- [ ] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
-- [ ] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
-- [ ] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
-- [ ] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
+- [x] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
+- [x] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
+- [x] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
+- [x] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
 
 Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API reference nav across several fetched pages under /docs/uptime/api/. The severities routes are `/api/v2/urgencies` and `/api/v2/urgency-groups` — `/api/v2/severities` is a 404; the product was renamed but the API paths were not. On-call events and the on-call rotation are two separate per-schedule endpoints, so they became two tables. Excluded: the Reporting page, which is an outbound incident log drain (webhook payload schema), not a queryable resource, and the New Relic integrations endpoint (integration config).
 
@@ -2008,7 +2008,7 @@ Note: Extracted all GET and search routes from the OpenAPI embedded in docs.bexi
 
 ## BigCommerce — **thin**
 
-Today (13): `brands`, `categories`, `channels`, `customer_groups`, `customers`, `order_products`, `order_shipments`, `order_statuses`, `order_transactions`, `orders`, `products`, `refunds`, `variants`
+Today (15): `brands`, `categories`, `channels`, `customer_groups`, `customers`, `order_coupons`, `order_products`, `order_shipments`, `order_statuses`, `order_transactions`, `orders`, `product_reviews`, `products`, `refunds`, `variants`
 
 Diffed against: <https://raw.githubusercontent.com/bigcommerce/api-specs/master/reference/orders.v2.oas2.yml>
 
@@ -2020,8 +2020,8 @@ Diffed against: <https://raw.githubusercontent.com/bigcommerce/api-specs/master/
 - [x] `Refunds (GET /v3/orders/payment_actions/refunds)` — calculate net sales and analyze refund amounts, reasons, and refunded items (high)
 - [x] `Order transactions (GET /v3/orders/{order_id}/transactions)` — reconcile payments, captures, refunds, and payment provider outcomes against orders (high)
 - [x] `Order shipments (GET /v2/orders/{order_id}/shipments)` — measure fulfillment and connect shipped quantities, tracking references, and shipping providers to orders (medium)
-- [ ] `Order coupons (GET /v2/orders/{order_id}/coupons)` — attribute discounts and order revenue to specific coupon codes (medium)
-- [ ] `Product reviews (GET /v3/catalog/products/{product_id}/reviews)` — compare product ratings and review activity with sales and repeat purchases (medium)
+- [x] `Order coupons (GET /v2/orders/{order_id}/coupons)` — attribute discounts and order revenue to specific coupon codes (medium)
+- [x] `Product reviews (GET /v3/catalog/products/{product_id}/reviews)` — compare product ratings and review activity with sales and repeat purchases (medium)
 
 Note: The official api-specs repository supplies the order, customer, channel, marketing, product, and variant specifications used for this comparison. Orders use V2, while products and customers use V3; neither resource request adds optional related objects. Order products, coupons, transactions, shipments, and reviews need requests for each parent; refunds and variants have collection endpoints. Settings, webhooks, uploads, writes, and abandoned cart detail requests without a collection discovery endpoint are excluded.
 
@@ -3900,7 +3900,7 @@ Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but e
 
 ## Commercetools — gaps
 
-Today (17): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_projections`, `product_types`, `shopping_lists`, `standalone_prices`, `states`, `stores`, `variants`
+Today (21): `cart_discounts`, `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_discounts`, `product_projections`, `product_types`, `products`, `shipping_methods`, `shopping_lists`, `standalone_prices`, `states`, `stores`, `variants`
 
 Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-api-reference/main/oas/api/openapi.yaml>
 
@@ -3910,10 +3910,10 @@ Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-a
 - [x] `/{projectKey}/customer-groups` — lookup resolving customerGroup on customers, carts and orders - the standard segmentation dimension (high)
 - [x] `/{projectKey}/channels` — lookup resolving supplyChannel and distributionChannel ids on the inventory and orders we sync (high)
 - [x] `/{projectKey}/stores` — lookup resolving the store on orders and carts; required for any per-store revenue breakdown (high)
-- [ ] `/{projectKey}/shipping-methods` — lookup resolving the shipping method id on orders, plus its zone and rate structure (medium)
-- [ ] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
-- [ ] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
-- [ ] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
+- [x] `/{projectKey}/shipping-methods` — lookup resolving the shipping method id on orders, plus its zone and rate structure (medium)
+- [x] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
+- [x] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
+- [x] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
 - [x] `/{projectKey}/standalone-prices` — prices held outside the product, so price analysis on product-projections alone is incomplete (medium)
 - [x] `/{projectKey}/shopping-lists` — wishlist and saved-cart behavior, a common pre-purchase funnel table (medium)
 - [x] `/{projectKey}/variants` — standalone Product Variants on Modular Catalog projects, whose product projections carry no variants (medium)
@@ -4121,7 +4121,7 @@ Diffed against: <https://developer.copper.com/index.html>
 - [x] `GET /v1/custom_field_definitions` — resolves custom_field_definition_id, which appears on companies, people, leads, opportunities and projects (high)
 - [x] `GET /v1/tags` — tag lookup for segmenting every record type (medium)
 - [x] `GET /v1/related_items (view all records related to an entity)` — cross-object relationship junction linking companies, people, opportunities and projects (medium)
-- [ ] `GET /v1/{entity}/{id}/activities (see a company's / person's / lead's activities)` — per-record activity fan-out when the global activity search is too coarse (low)
+- [ ] `GET /v1/{entity}/{id}/activities (see a company's / person's / lead's activities)` — per-record activity fan-out when the global activity search is too coarse (low) Skipped: returns the same activity rows, with parent, that the synced activities table already holds from /activities/search.
 - [x] `GET /v1/field_layouts/{entity_type}` — field layout metadata for interpreting per-pipeline custom field sets (low)
 
 Note: MkDocs site; its nav enumerates every operation one page per endpoint, which is what I diffed against. Copper already exposes most lookup tables (contact_types, customer_sources, loss_reasons, pipelines) - the notable omissions are the remaining lookups plus the activity log.
@@ -5465,13 +5465,13 @@ Diffed against: <https://developers.everflow.io/llms.txt>
 
 - [x] `Categories (GET /networks/categories)` — lookup for offer category ids carried on offers (high)
 - [x] `Affiliate tiers (GET /networks/affiliatetiers)` — lookup for the tier of each affiliate (high)
-- [ ] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
+- [x] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
 - [x] `Affiliate users (GET /networks/affiliates/{affiliateId}/users)` — users per affiliate, fan-out per affiliate we sync (medium)
 - [ ] `Advertiser users (GET /networks/advertisers/{advertiserId}/users)` — users per advertiser, fan-out per advertiser we sync (low)
 - [x] `Partner invoices (POST /networks/billings/affiliates/invoicestable)` — affiliate payouts and billing status for finance reporting (high)
-- [ ] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
-- [ ] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
-- [ ] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
+- [x] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
+- [x] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
+- [x] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
 - [ ] `Offer groups (GET /networks/offergroups)` — grouping of offers for offer-level reports (low)
 
 Note: Read the Everflow llms.txt and the per-endpoint OpenAPI pages for the paths. Many list calls are POST table queries with paging in the body, so they need a request body. Excluded create, update, delete, bulk edit, webhooks, tracking links and click streams.
@@ -8511,9 +8511,9 @@ Note: The Custom Objects API is GA at revision 2026-07-15, which the source alre
 
 Re-audited 2026-11-19 against: <https://developers.klaviyo.com/openapi.json>
 
-- [ ] `Billing usage (GET /api/billing-usage)` — current-period usage and plan caps for the account, for cost and quota tracking (needs usage:read scope) (medium)
-- [ ] `Campaign messages (GET /api/campaign-messages)` — message-level content, status and channel per campaign, to resolve campaign_message_id used in campaign reports; list supports a campaign_id filter (medium)
-- [ ] `Universal content (GET /api/template-universal-content)` — reusable content blocks used inside templates (low)
+- [ ] `Billing usage (GET /api/billing-usage)` — current-period usage and plan caps for the account, for cost and quota tracking (needs usage:read scope) (medium) Skipped: only revision 2026-10-15 serves it; the source pins 2024-10-15 and 2026-07-15, so it needs a new revision first.
+- [ ] `Campaign messages (GET /api/campaign-messages)` — message-level content, status and channel per campaign, to resolve campaign_message_id used in campaign reports; list supports a campaign_id filter (medium) Skipped: only revision 2026-10-15 serves it; the source pins 2024-10-15 and 2026-07-15, so it needs a new revision first.
+- [x] `Universal content (GET /api/template-universal-content)` — reusable content blocks used inside templates (low)
 
 Note (2026-11-19): Parsed the revision 2026-10-15 OpenAPI spec and listed the top-level collection GET routes. Most collections are already synced. Excluded bulk job status routes, brand assets (logos, colors, buttons), per-record routes, relationship routes, client routes and beta APIs. Campaign variations and send jobs have no list route.
 
@@ -8732,10 +8732,10 @@ Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/ope
 - [x] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
 - [x] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
 - [x] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
-- [ ] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
-- [ ] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
-- [ ] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
-- [ ] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
+- [x] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
+- [x] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
+- [x] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
+- [x] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
 
 ## LambdaLabs — gaps
 
@@ -9042,7 +9042,7 @@ Today (1): `jobs`
 
 Diffed against: <https://lingo.dev/en/docs/api/localization/list>
 
-- [ ] `jobs/localization/{jobId} pipeline steps[]` — per-stage record (which pipeline stage ran, status, and cost) is only returned by the single-job GET; the list endpoint returns id/status/engineId/createdAt/targetLocale only, so cost and quality-stage analysis is impossible today (medium)
+- [ ] `jobs/localization/{jobId} pipeline steps[]` — per-stage record (which pipeline stage ran, status, and cost) is only returned by the single-job GET; the list endpoint returns id/status/engineId/createdAt/targetLocale only, so cost and quality-stage analysis is impossible today (medium) Skipped: Lingo.dev removed the reference for the legacy /jobs/localization API the source uses, so the steps[] shape cannot be verified; the new v2 jobs API needs a source migration first.
 
 Note: Lingo.dev's public REST API is genuinely tiny: the only listable collection is GET /jobs/localization, which PostHog already syncs. The other GETs are all keyed lookups - GET /jobs/localization/{jobId}, GET /jobs/localization/groups/{groupId}, GET /engines/{id}/suggestions - and there is no engines list endpoint, so engines cannot be synced as a lookup table. Everything else is POST (localize, recognize, create jobs, provisioning) or WebSocket/webhook. The source implementation uses a static endpoint map (LINGO_DEV_ENDPOINTS), no dynamic table discovery, so the single table reflects the API rather than under-coverage.
 
@@ -11860,10 +11860,10 @@ Diffed against: <https://appfire.atlassian.net/wiki/spaces/FD/pages/1802600473>
 - [x] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
 - [x] `DORA Metrics (GET /dora/build-release/change/lead_time/; GET /dora/build-release/deployment/frequency/; GET /dora/build-release/incident/change_failure_rate/; GET /dora/build-release/incident/time_to_restore/)` — measure deployment frequency, change failure rate, recovery time, and change lead time (high)
 - [x] `Ticket Metrics (GET /ticket-delivery/metrics/)` — track Flow velocity, cycle time, queue time, backflow rate, and jitter (high)
-- [ ] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
+- [x] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
 - [x] `Ticket Events (GET /v3/customer/core/ticket_events/)` — measure time in ticket states and identify workflow bottlenecks (medium)
 - [x] `Pull Request Comments (GET /v3/customer/core/pull_request_comments/)` — analyze reviewer participation, discussion depth, and response times (medium)
-- [ ] `Ticket Comments (GET /v3/customer/core/ticket_comments)` — analyze collaboration and discussion volume on issue tracker tickets (medium)
+- [x] `Ticket Comments (GET /v3/customer/core/ticket_comments)` — analyze collaboration and discussion volume on issue tracker tickets (medium)
 
 Note: Parsed Customer API reference pages from the official page tree and their current Appfire markdown versions. Parsed live Swagger specifications at /dora/docs?format=openapi and /ticket-delivery/docs?format=openapi for the metric operations. Metric tables need date windows and Metrics API permission; core resources use the workspace host. Excluded integration configuration, targets, write operations, and duplicate metric versions.
 

@@ -454,6 +454,13 @@ signatures      = true
 allow   = ["class"]
 deny    = ["model", "manager", "queryset"]
 
+# A core package's toolkit: classes and functions with their signatures, never an ORM type. Its
+# public modules read this policy, not `contract`: that one reads a class core defines as owned
+# elsewhere and would judge nothing inside the core package's own classes.
+[shapes.toolkit]
+allow   = ["class"]
+deny    = ["model", "manager", "queryset", "command"]
+
 # ── Exports: the only public surface of a product ──────────────
 
 [exports.facade]
@@ -496,6 +503,27 @@ symbols  = [
 ]
 audience = "src.zone == 'api'"
 shape    = "registration"
+
+# Public modules of core packages (D112), fitted to how code uses them. core-package-surface holds
+# code outside the package to them; tests may import any module. egress: each vendor's package
+# init, transport and clients, GitHub's pacing, and the shared limiter's policies and outbound
+# facade.
+[exports.egress]
+within   = "posthog/egress"
+paths    = [
+  "*/__init__.py", "*/transport.py", "*/client.py", "*/async_client.py", "github/limiter.py",
+  "limiter/policies.py", "limiter/outbound.py",
+]
+audience = "*"
+shape    = "toolkit"
+
+# ingress: the consumer contracts, the view builder, the signature schemes, each provider and the
+# statement-timeout helper webhook consumers read.
+[exports.ingress]
+within   = "posthog/ingress"
+paths    = ["contracts.py", "views.py", "verify/schemes.py", "*/provider.py", "dispatch/database.py"]
+audience = "*"
+shape    = "toolkit"
 
 # ── Registries: core finds product code by file convention ─────
 
@@ -605,6 +633,27 @@ growth_key    = ["dst.symbol", "edge.kind", "src.package"]
 # so CI shows each one and no ledger line holds it.
 report        = "advisory"
 ledger        = false
+
+# The public modules of core packages block, apart from public-surface: an import of another
+# module is a new leak, and the caller fixes it in its own code.
+[rules.core-package-surface]
+primitive      = "entrypoint"
+doc            = "Other packages import posthog.egress and posthog.ingress only through their public modules; tests may import any module. A later use of an imported name is judged once, at its import. Migrations are frozen history and are not judged."
+why            = "The module is inside posthog.egress or posthog.ingress and is not one of the package's public modules. Its owners change it freely, and code that calls it can skip the pacing and recording that the public modules do."
+ways           = [
+  { safety = "safe", text = "Import it from one of the package's public modules. posthog.egress: each vendor package (posthog.egress.<vendor>) and its transport, client and async_client modules, posthog.egress.github.limiter, posthog.egress.limiter.policies and posthog.egress.limiter.outbound. posthog.ingress: contracts, views, verify.schemes, each <provider>.provider and dispatch.database." },
+  { safety = "person", text = "If the name you need is not there, ask the package's owners to add it." },
+]
+example        = { finding = "from posthog.egress.slack.observability import record_slack_api_response", fixed = "from posthog.egress.slack import SlackWebClient" }
+kinds          = ["import", "reference", "dotted-path"]
+contexts       = { exclude = ["migration"] }
+select         = "crosses-package and dst.tier == 'core' and dst.door and src.history != true and 'test' not in edge.context"
+endpoint       = "surface"
+uses_at_import = true
+allow          = "dst.exported"
+on_unresolved  = "finding"
+identity       = ["dst.symbol", "src.module", "edge.kind"]
+growth_key     = ["dst.symbol", "edge.kind", "src.package"]
 
 [rules.export-shape]
 primitive  = "export"

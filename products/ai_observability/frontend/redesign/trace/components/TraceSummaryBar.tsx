@@ -8,6 +8,7 @@ import type { TraceClusterApi, TracePersonApi } from '../../../generated/api.sch
 import type { TraceOverview } from '../types'
 import { EvalsChip, EvalsChipProps } from './EvalsChip'
 import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
+import { partialStatKinds } from './formatStats'
 import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
 import { LabeledChipValue } from './LabeledChipValue'
 import { NodeStatsLine } from './NodeStatsLine'
@@ -17,7 +18,7 @@ import { TraceClustersChip } from './TraceClustersChip'
 import { TraceIdChip } from './TraceIdChip'
 
 export interface TraceSummaryBarProps {
-    overview: Pick<TraceOverview, 'id' | 'createdAt' | 'totals' | 'totalsPartial'>
+    overview: Pick<TraceOverview, 'id' | 'createdAt' | 'totals' | 'totalsPartial' | 'costAndLatencyPartial'>
     person?: TracePersonApi | null
     clusters?: TraceClusterApi[] | null
     evals?: EvalsChipProps | null
@@ -70,7 +71,7 @@ export function TraceSummaryBar({
             <span aria-hidden className="grow" />
             <NodeStatsLine
                 stats={overview.totals}
-                partial={overview.totalsPartial}
+                partialKinds={partialStatKinds(overview)}
                 wrap
                 className="leading-[1.375rem]"
             />

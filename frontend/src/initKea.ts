@@ -111,6 +111,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRelease: 'products.notebooks.appBuilder.notebookAppViewerLogic',
+    refresh: 'products.notebooks.appBuilder.notebookAppViewerLogic',
     loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
@@ -162,6 +164,8 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadDistributedTraceId: 'products.ai_observability.frontend.redesign.trace.traceDistributedTraceLogic', // The trace header shows no link when the read fails
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
+    loadMetrics: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home shows the error, or the range banner
+    loadDashboardId: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home hides the dashboard link
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',

@@ -192,6 +192,8 @@ def process_scheduled_changes() -> None:
                     executed_at__isnull=True,
                     scheduled_at__lte=timezone.now(),
                 )
+                # Skipped rather than marked executed, so a reactivated organization's schedules resume.
+                .exclude(team__organization__is_active=False)
                 .order_by("scheduled_at")[:10000]
             )
 
