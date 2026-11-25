@@ -122541,6 +122541,13 @@ export namespace Schemas {
          * @maxLength 16384
          */
       expression: string;
+      /**
+         * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 255
+         */
+      scope_ids?: string[] | null;
     }
 
     /**
@@ -123095,6 +123102,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version: PropertyMatchingVersionEnum;
+      /** Whether a property whose value is null counts as not set for the is_set and is_not_set operators, as it does in insights and cohorts. False means a null value counts as set. */
+      null_counts_as_not_set: boolean;
       /**
          * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
          * @nullable
@@ -123129,6 +123138,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version?: PropertyMatchingVersionEnum;
+      /** New value for the team's null_counts_as_not_set setting. True makes a property whose value is null count as not set for is_set and is_not_set, which changes the results of flags that use those operators on null values. Omit to leave it unchanged. */
+      null_counts_as_not_set?: boolean;
       /**
          * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
          * @minimum 1
