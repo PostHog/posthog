@@ -25,6 +25,7 @@ pace every request through a `RequestPacer` (see `_PacedSession`).
 """
 
 import re
+import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -47,6 +48,7 @@ from products.warehouse_sources.sources.sdk import (
     JSONResponseCursorPaginator,
     RequestPacer,
     RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
     _is_host_safe,
@@ -78,6 +80,13 @@ TimeWindow = tuple[datetime, datetime]
 
 class MoxieHostNotAllowedError(Exception):
     pass
+
+
+@dataclasses.dataclass
+class MoxieResumeConfig:
+    # `build_dependent_resource` checkpoint for a fan-out table: the parents already done and the
+    # cursor of the one in progress.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_base_url(base_url: Optional[str]) -> str:
@@ -235,9 +244,24 @@ def _paced_client_config(client_config: ClientConfig, api_key: str) -> ClientCon
 
 
 def _fanout_resource(
-    config: MoxieEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
+    config: MoxieEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[MoxieResumeConfig],
 ) -> Iterable[Any]:
     assert config.fanout is not None
+    # A paced fan-out over a large workspace runs for hours, so a restart skips the parents it
+    # already finished instead of starting again from the first one.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(MoxieResumeConfig(fanout_state=state))
+
     if config.name == "ticket_comments":
         child_endpoint_extra: Any = {
             "data_selector": "comments",
@@ -257,6 +281,8 @@ def _fanout_resource(
         child_endpoint_extra=child_endpoint_extra,
         child_params_extra=dict(config.params),
         page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
 
 
@@ -266,6 +292,7 @@ def moxie_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[MoxieResumeConfig],
 ) -> SourceResponse:
     resolved_base_url = normalize_base_url(base_url)
     host = _host_of(resolved_base_url)
@@ -304,7 +331,9 @@ def moxie_source(
 
         if config.fanout is not None:
             # Returned as is, so the pipeline reads the framework resource directly.
-            return _fanout_resource(config, _paced_client_config(client_config, api_key), team_id, job_id)
+            return _fanout_resource(
+                config, _paced_client_config(client_config, api_key), team_id, job_id, resumable_source_manager
+            )
         if endpoint == "time_entries":
             return iter_time_entries(fetch_time_entries, datetime.now(UTC))
         return items()

@@ -123,6 +123,44 @@ class TestMoxieTransport:
         assert [query.get("cursor") for query in comment_requests] == [None, ("n1",), None, None]
         assert all(query["commentType"] == ("ALL",) and query["limit"] == ("100",) for query in comment_requests)
 
+    def test_ticket_comments_resume_after_the_last_finished_ticket(self, pacers: Any) -> None:
+        tickets = ScriptedResponse(json=[{"id": "t1"}, {"id": "t2"}])
+        t1_comments = ScriptedResponse(
+            json={"comments": [{"id": "c1", "ticketId": "t1"}], "nextCursor": None, "hasMore": False}
+        )
+        first = _driver().run(
+            "ticket_comments",
+            route(
+                {
+                    "/action/tickets/list": [tickets],
+                    "/action/tickets/comments/list": [t1_comments, ScriptedResponse(status=400, json={})],
+                }
+            ),
+        )
+        assert first.raised is not None
+        assert first.committed_states
+
+        second = _driver().run(
+            "ticket_comments",
+            route(
+                {
+                    "/action/tickets/list": [tickets],
+                    "/action/tickets/comments/list": [
+                        ScriptedResponse(
+                            json={"comments": [{"id": "c2", "ticketId": "t2"}], "nextCursor": None, "hasMore": False}
+                        )
+                    ],
+                }
+            ),
+            resume_state=first.committed_states[-1],
+        )
+
+        assert second.raised is None
+        assert [row["id"] for row in second.rows] == ["c2"]
+        assert [query["ticketId"] for path, query in zip(second.paths, second.queries) if "comments" in path] == [
+            ("t2",)
+        ]
+
     def test_project_notes_fan_out_over_projects(self, pacers: Any) -> None:
         result = _driver().run(
             "project_notes",
