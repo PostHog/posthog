@@ -9,6 +9,8 @@ import { type Frame, type QueryBatchLine, readNdjson } from './queryBatchLines'
 const NO_ANSWER = 'No answer came back for this query'
 // The endpoint answers 429 while this person's earlier batches still hold its slots, which frees up within seconds.
 const THROTTLE_RETRY_DELAYS_MS = [1000, 3000, 8000]
+// The server frees a finished stream's slot just after its last line, so an immediate retry can still find it held.
+const BUSY_RETRY_DELAY_MS = 1000
 const MAX_QUERIES_PER_BATCH = 500
 // Tiles mount across several ticks, so one tick would split a board into several batches.
 const COALESCE_MS = 30
@@ -147,9 +149,18 @@ export function createQueryBatchRunner(teamId: number): RunQuery {
         const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
         queued = queued.slice(MAX_QUERIES_PER_BATCH)
         running = true
-        void runBatch(teamId, batch, (pending) => queued.push(pending)).finally(() => {
-            running = false
-            flush()
+        let retryingBusy = false
+        void runBatch(teamId, batch, (pending) => {
+            queued.push(pending)
+            retryingBusy = true
+        }).finally(() => {
+            setTimeout(
+                () => {
+                    running = false
+                    flush()
+                },
+                retryingBusy ? BUSY_RETRY_DELAY_MS : 0
+            )
         })
     }
 

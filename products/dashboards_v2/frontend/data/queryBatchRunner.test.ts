@@ -142,14 +142,16 @@ describe('createQueryBatchRunner', () => {
         await expect(late).resolves.toEqual(totalOf(4))
     })
 
-    it('asks once more for a query answered busy, after the stream ends', async () => {
+    it('asks once more for a query answered busy, a second after the stream ends', async () => {
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)
         await flush()
         streams[0].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
         streams[0].close()
         await flush()
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 
+        await jest.advanceTimersByTimeAsync(1000)
         expect(globalThis.fetch).toHaveBeenCalledTimes(2)
         streams[1].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
 
