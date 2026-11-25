@@ -6010,9 +6010,9 @@ Diffed against: <https://developer.flutterwave.com/v3.0.0/reference/get-all-tran
 - [x] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high). Added as `wallet_statement` (v3, one walk per currency listed by `/balances`).
 - [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium); skipped: one request per transaction on every sync, because `transactions` has no update cursor and the timeline has no list or date filter, and the rows are checkout UI steps with IP addresses and actor emails
 - [x] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium). Added as `bill_payments` (v3).
-- [ ] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium)
-- [ ] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium)
-- [ ] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium)
+- [x] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium). Added as `payout_subaccounts` (v3, follows `data.cursor.next` when the response has one).
+- [x] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium). Added as `payout_subaccount_transactions` (v3, one walk per wallet listed by `/payout-subaccounts`).
+- [x] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium). Added as `balances` (v3, full refresh).
 
 Note: Parsed the full operation metadata embedded in the official V3 reference and checked each proposed endpoint page. Existing subaccounts call /subaccounts, not /payout-subaccounts. Banks need country fan-out; wallet statements need currency windows; payout transactions need account fan-out. Excluded charge creation, tokens, verification tools, and nested refunds already covered by the refunds table.
 
