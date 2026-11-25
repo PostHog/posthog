@@ -162,7 +162,11 @@ jobs:
                       run-ci-frontend
                       ci-no-reuse
                   reuse-proof-checks: Build Storybook (depot-ubuntu-24.04)
-                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
+                  # vr-skip reads frontend == false as "no visual change" and posts a passing
+                  # Visual Review gate. After a reuse it only means "unchanged since a head where
+                  # this workflow passed", and with the commit status as the gate this workflow
+                  # passes with unapproved changes, so the new head would turn green unreviewed.
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE == 'true' || vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true' }}
                   filters: |
                       frontend:
                         - 'patches/jest-junit@16.0.0.patch'
