@@ -34,6 +34,7 @@ EXCLUDED_HAS_COHORT_REF = "excluded_has_cohort_ref"
 EXCLUDED_CYCLE_DETECTED = "excluded_cycle_detected"
 EXCLUDED_UNRESOLVED_REF = "excluded_unresolved_ref"
 EXCLUDED_HAS_DROPPED_LEAF = "excluded_has_dropped_leaf"
+# A leaf drop label. `realtime_state.py` reports it as an unsupported time range, so return it for nothing else.
 UNSUPPORTED_STATE_VARIANT = "unsupported_state_variant"
 # HogVM RETURN, which the catalog loader appends to every stored program before loading it.
 _OP_RETURN = 38

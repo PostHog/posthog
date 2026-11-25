@@ -9596,7 +9596,13 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
         turned_on = self._switch(cohort, True)
 
-        assert (realtime["state"], realtime["reason"], turned_on.status_code) == ("off", reason, turn_on_status)
+        refusal_code = "realtime_refused" if reason else None
+        assert (realtime["state"], realtime["reason"], turned_on.status_code, turned_on.json().get("code")) == (
+            "off",
+            reason,
+            turn_on_status,
+            refusal_code,
+        )
 
     def test_a_cohort_that_is_on_names_the_time_range_nothing_can_prepare(self) -> None:
         cohort = self._cohort(

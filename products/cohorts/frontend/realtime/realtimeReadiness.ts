@@ -41,11 +41,15 @@ export function unpreparableReasonSentence(realtime: CohortRealtimeReadinessApi)
     switch (realtime.reason) {
         case 'unsupported_time_range':
             return "One of its event criteria uses a time range realtime cohorts don't support. Use a range of whole days back from today, such as the last 7 days, then save the cohort."
+        case 'history_over_limit':
+            return realtime.history_limit_days === null
+                ? null
+                : `Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`
         default:
             return null
     }
 }
 
-/** Whether turning realtime on can work. The server refuses an `off` cohort that has a reason. */
+/** Whether to offer the switch on an `off` cohort. The server refuses one with a reason, and can still refuse one without. False for every other state. */
 export const canTurnOnRealtime = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
     realtime?.state === 'off' && !realtime.reason

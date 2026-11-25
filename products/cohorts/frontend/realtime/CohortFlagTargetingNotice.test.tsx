@@ -135,6 +135,16 @@ describe('CohortFlagTargetingNotice', () => {
     })
 
     it.each([
+        { state: 'off', reason: 'unsupported_time_range', shows: /whole days back from today/ },
+        { state: 'off', reason: 'added_after_this_bundle', shows: /Realtime can't be turned on for it/ },
+        { state: 'needs_attention', reason: 'unsupported_time_range', shows: /whole days back from today/ },
+    ] as const)('explains a cohort that is $state with the reason $reason', async ({ state, reason, shows }) => {
+        await renderNotice(readiness(state, { reason: reason as CohortRealtimeReadinessApi['reason'] }))
+
+        expect(await screen.findByText(shows)).toBeInTheDocument()
+    })
+
+    it.each([
         { name: 'ready', realtime: readiness('ready') },
         { name: 'matched on person properties', realtime: readiness('person_properties') },
         { name: 'static', realtime: readiness('static') },

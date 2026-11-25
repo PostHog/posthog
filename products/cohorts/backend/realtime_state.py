@@ -187,7 +187,7 @@ def _history_limit_to_report(
         limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
         # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute start
         # date at the limit can read on the other side of it here, which changes only the reason, and a page of
-        # daily cohorts reads no team.
+        # daily cohorts within the cap reads no team.
         today = timezone.now().date()
     else:
         return None
@@ -221,16 +221,14 @@ def _criteria_reason(cohort: Cohort) -> tuple[bool, CohortRealtimeUnavailableRea
     return has_bytecode_and_error, None
 
 
-def _time_range_refusal(cohort: Cohort) -> CohortRealtimeUnavailableReason | None:
-    """The reason for a cohort the pipeline can't prepare because of an event criterion's time range.
+def _has_unsupported_time_range(cohort: Cohort) -> bool:
+    """Whether the pipeline can't prepare this cohort because of an event criterion's time range.
 
     A save types such a cohort realtime and a turn-on refuses it, so without a reason it offers a switch that
     never works.
     """
     properties = (cohort.filters or {}).get("properties")
-    if any(leaf_drop_reason(leaf) == UNSUPPORTED_STATE_VARIANT for leaf in walk_filter_leaves(properties)):
-        return CohortRealtimeUnavailableReason.UNSUPPORTED_TIME_RANGE
-    return None
+    return any(leaf_drop_reason(leaf) == UNSUPPORTED_STATE_VARIANT for leaf in walk_filter_leaves(properties))
 
 
 def _unavailable_reason(
@@ -248,9 +246,8 @@ def _unavailable_reason(
             return criteria_reason, None
     if state == CohortRealtimeState.OFF:
         # A turn-on checks what the pipeline can prepare before the plan's limits.
-        time_range_reason = _time_range_refusal(cohort)
-        if time_range_reason is not None:
-            return time_range_reason, None
+        if _has_unsupported_time_range(cohort):
+            return CohortRealtimeUnavailableReason.UNSUPPORTED_TIME_RANGE, None
     history_limit_days = _history_limit_to_report(
         cohort, state, plan_history_days=plan_history_days, team_today=team_today
     )
@@ -512,7 +509,9 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             reason=(
                 CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD
                 if cohort.id in too_large
-                else _time_range_refusal(cohort)
+                else CohortRealtimeUnavailableReason.UNSUPPORTED_TIME_RANGE
+                if _has_unsupported_time_range(cohort)
+                else None
             ),
         )
 
