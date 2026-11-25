@@ -36,6 +36,7 @@ from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.helpers.two_factor_session import enforce_credential_two_factor
 from posthog.models import PersonalAPIKey, Team, User
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
@@ -154,7 +155,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""
         if getattr(self, "action", None) == "authorize":
-            return [IsAuthenticated()]
+            # The key never expires, so minting one needs a recent sign-in.
+            return [IsAuthenticated(), TimeSensitiveActionPermission()]
         return [AllowAny()]
 
     def get_authenticators(self):

@@ -11,8 +11,10 @@ The AI detector makes a charged model call on every check, so most of these rule
 ### Cost and gating
 
 - A change that adds a model call to a check needs a cost story first. Calls per day are enabled AI alerts multiplied by cadence ticks per day.
-- The AI detector is not available as an ensemble member, on the real-time cadence, or on breakdown insights. Each of these would multiply calls per check, or exceed the evaluate activity's time budget.
+- An alert cannot use the AI detector as an ensemble member, on the real-time cadence, or on breakdown insights. Each of these would multiply calls per check, or exceed the evaluate activity's time budget.
+- Anomaly scoring (`default-v2` in `products/signals`) is the only caller that pairs the judge with a local detector. It goes through the lazy AND in [`backend/judge/lazy_and.py`](backend/judge/lazy_and.py), which asks the judge only about a bucket the local detector flags. Read that module before you let any other caller put the judge in an ensemble.
 - `llm_detector_access_error` (rollout flag plus AI data processing consent) runs in simulate, in every alert writer, and inside the judge on every scheduled check. Keep all three calls. The per-check call is what makes turning the flag off stop the spend.
+- A judge call with no person (`JudgeAttribution.user` is None) checks only AI data processing consent. Its caller owns the rollout, as the `ai_judge` object of the `anomaly-scoring` payload does for scoring.
 - A refused access check or an exhausted AI credit budget inside the judge raises `LLMDetectorPausedError`. Both evaluation stacks record an errored check and leave the alert enabled, so turning the flag off is a safe rollback. Only a missing creator (`LLMDetectorMisconfiguredError`) disables an AI alert.
 - The rollout is checked for the alert's creator, because the check runs as the creator. Do not check the last editor.
 - Every writer that can put an alert on the AI detector (the API and the Max tool) calls `admit_llm_alert_write` inside its own transaction, after it locks the alert row. Do not add the cadence, access, or cap rules to a writer directly.

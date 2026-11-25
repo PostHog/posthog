@@ -3,6 +3,7 @@ import { Editor } from '@tiptap/core'
 import { EmailBlockKeymap } from './emailCanvasPlugins'
 import { createEmailEditorAdapter } from './emailEditorAdapter'
 import { buildEmailExtensions } from './emailExtensions'
+import * as renderEmailHtmlModule from './renderEmailHtml'
 
 jest.mock('./components/EmailHtmlBlockView', () => ({ EmailHtmlBlockView: () => null }))
 jest.mock('./components/EmailImageBlockView', () => ({ EmailImageBlockView: () => null }))
@@ -129,6 +130,24 @@ describe('emailEditorAdapter', () => {
         const { from, to } = editor.state.selection
 
         expect(editor.state.doc.textBetween(from, to)).toEqual(selected)
+        editor.destroy()
+    })
+
+    it('falls back to the html text when the text part fails, so the edit still saves', () => {
+        const editor = new Editor({
+            extensions: buildEmailExtensions(''),
+            content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }] },
+        })
+        const adapter = createEmailEditorAdapter(editor)
+        const renderText = jest.spyOn(renderEmailHtmlModule, 'renderEmailText').mockImplementation(() => {
+            throw new Error('text failed')
+        })
+        const callback = jest.fn()
+
+        adapter.exportPlainText(callback)
+
+        expect(callback).toHaveBeenCalledWith({ text: 'Hello' })
+        renderText.mockRestore()
         editor.destroy()
     })
 })

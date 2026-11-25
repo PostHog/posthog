@@ -28,6 +28,20 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true, undefined])('email sender tools require the email from code rollout: %s', async (enabled) => {
+        const tools = await getToolsFromContext(createMockContext(['integration:write']), {
+            featureFlags: { 'workflows-email-from-code': enabled },
+        })
+        const names = tools.map((tool) => tool.name)
+        for (const tool of [
+            'integrations-email-partial-update',
+            'integrations-domain-connect-check-retrieve',
+            'integrations-domain-connect-apply-url-create',
+        ]) {
+            expect(names.includes(tool)).toBe(enabled === true)
+        }
+        expect(names).toContain('integrations-list')
+    })
     it.each([
         { scopes: ['llm_analytics:read'], enabled: true, visible: true },
         { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
@@ -1147,7 +1161,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
-            'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
@@ -1211,7 +1224,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'aeo-citation-tracking',
+                'web-analytics-content-autopilot',
                 'self-driving-usage-display',
                 'logs-agent-tools',
                 'release-objects',

@@ -1,14 +1,21 @@
 import re
+import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError, UnknownTypeError
+from clickhouse_driver.errors import (
+    Error as ClickHouseDriverError,
+    NetworkError,
+    ServerException,
+    SocketTimeoutError,
+    UnknownTypeError,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -38,8 +45,7 @@ class InternalCHQueryError(ServerException):
 
 
 class ExposedCHQueryError(InternalCHQueryError):
-    """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
-    which classify_query_error() uses to categorize them as USER_ERROR."""
+    """User-safe ClickHouse query error. Its message is suitable for returning to a query caller."""
 
     user_safe = True
 
@@ -56,13 +62,11 @@ class ExposedCHQueryError(InternalCHQueryError):
         return message[start_index:end_index].strip()
 
 
-@dataclass
+@frozen(kw_only=False)
 class ErrorCodeMeta:
     name: str
-    user_safe: bool | str = False
-    """Whether this error code is safe to show to the user and couldn't be caught at HogQL level.
-    If a string is set, it will be used as the error message instead of the ClickHouse one.
-    """
+    user_safe: str | None = None
+    """Fixed public explanation for errors the caller can correct."""
     category: QueryErrorCategory | None = None
     """Explicit error category for observability. If None, defaults to USER_ERROR when user_safe
     is set, otherwise ERROR. Set explicitly for CANCELLED and RATE_LIMITED codes."""
@@ -79,17 +83,50 @@ class ErrorCodeMeta:
         return self.name.replace("_", " ").title().replace(" ", "")
 
 
+_HTTP_CLIENT_ERROR_CODE = re.compile(r"\b[Cc]ode: ([0-9]{1,6})\b")
+_HTTP_CLIENT_RESPONSE_PREFIX = "server response: "
+_HTTP_CLIENT_URL_SUFFIX = re.compile(r"\s*\(for url [^)]*\)\s*$")
+_SERVER_CODE_PREFIX = re.compile(r"^Code: [0-9]{1,6}\.\s*")
+
+
+def _server_exception_from_http_client_error(err: Exception) -> ServerException | None:
+    """Rebuild a clickhouse_connect error as the native driver's ServerException.
+
+    The HTTP client (ProxyClient) raises clickhouse_connect errors that carry the ClickHouse code only
+    in the message text, for example "Received ClickHouse exception, code: 394, server response: Code:
+    394. DB::Exception: ...". Rebuilding them lets both clients share one code mapping.
+    """
+    # Importing clickhouse_connect loads pandas, so do not import it here. If the module is not
+    # loaded, no HTTP client ran and the error cannot come from it.
+    exceptions = sys.modules.get("clickhouse_connect.driver.exceptions")
+    if exceptions is None or not isinstance(err, (exceptions.DatabaseError, exceptions.StreamFailureError)):
+        return None
+    text = str(err)
+    code_match = _HTTP_CLIENT_ERROR_CODE.search(text)
+    if code_match is None:
+        return None
+    _, has_prefix, response = text.partition(_HTTP_CLIENT_RESPONSE_PREFIX)
+    if not has_prefix:
+        response = text
+    # The URL holds the cluster host, so it stays out of the message.
+    message = _SERVER_CODE_PREFIX.sub("", _HTTP_CLIENT_URL_SUFFIX.sub("", response).strip())
+    return ServerException(message, int(code_match.group(1)))
+
+
 def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
+    e = _server_exception_from_http_client_error(e) or e
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
-STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
-CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row (\d+)\)")
+CSV_ROW_NUMBER_PATTERN = re.compile(r"\(at row ([0-9]{1,19})\)")
 _ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+_SIMPLE_CLICKHOUSE_TYPE = re.compile(
+    r"U?Int(?:8|16|32|64|128|256)|Float(?:32|64)|String|Bool|Date(?:32|Time64|Time)?|UUID|Array|Tuple|Map|Nothing|IPv[46]"
+)
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
     r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
@@ -106,23 +143,16 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
-    match = STORAGE_FILE_URI_PATTERN.search(err.message)
-    file_uri = match.group(1) if match else "unknown file"
     return CHQueryErrorS3FileChangedDuringRead(
-        f"A file backing a data warehouse table changed while the query was reading it ({file_uri}). "
-        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
-        "upload new files and delete old ones instead.",
+        CHQueryErrorS3FileChangedDuringRead.public_message,
         code=err.code,
-        code_name="s3_file_changed_during_read",
+        code_name=CHQueryErrorS3FileChangedDuringRead.public_code,
     )
 
 
 def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
     row_match = CSV_ROW_NUMBER_PATTERN.search(err.message)
-    file_uris = STORAGE_FILE_URI_PATTERN.findall(err.message)
     location = f" at row {row_match.group(1)}" if row_match else ""
-    if file_uris:
-        location += f" of {file_uris[-1]}"
     return CHQueryErrorMalformedCsvRow(
         f"A row in a CSV file backing this table is malformed{location}. "
         "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
@@ -143,14 +173,34 @@ def _is_unparseable_parquet_metadata_error(code_name: str, message: str) -> bool
 
 
 def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
-    match = BAD_GET_TYPE_MISMATCH_PATTERN.search(err.message)
+    match = BAD_GET_TYPE_MISMATCH_PATTERN.search(err.message or "")
     message = BAD_GET_FALLBACK_MESSAGE
-    if match:
+    if match and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(value) for value in match.groups()):
         message = (
             f"A value in the query has the wrong type: got {match.group('actual')}, "
             f"expected {match.group('expected')}. Check function parameters and type conversions."
         )
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
+
+
+def _argument_type_message(message: str, fallback: str) -> str:
+    subject = "The function"
+    if match := re.search(r"\bof (?:aggregate )?function ([A-Za-z][A-Za-z0-9_]{0,63})\b", message):
+        from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function
+
+        if find_hogql_function(match[1]) or find_hogql_aggregation(match[1]):
+            subject = f"`{match[1]}`"
+    pair = re.search(r"\bIllegal types ([A-Za-z0-9]+)(?:\([^()\n]{0,128}\))? and ([A-Za-z0-9]+)\b", message)
+    if pair and all(_SIMPLE_CLICKHOUSE_TYPE.fullmatch(t) for t in pair.groups()):
+        return (
+            f"{subject} cannot combine {pair[1]} and {pair[2]} here. Check the types on both sides of the expression."
+        )
+    if actual := re.search(r"\bIllegal type ([A-Za-z][A-Za-z0-9]+)\b", message):
+        if _SIMPLE_CLICKHOUSE_TYPE.fullmatch(actual[1]):
+            return f"{subject} cannot use an argument of type {actual[1]} here. Check the argument order and cast it to a supported type."
+    if subject != "The function":
+        return f"Check the argument types for {subject}. Cast each argument to a type the function accepts."
+    return fallback
 
 
 def _unreadable_type_advice(unreadable_type: str) -> str:
@@ -180,7 +230,17 @@ def _unreadable_type_subject(unreadable_type: str, column_names: Sequence[str]) 
 def unknown_type_error(
     unreadable_type: str, column_names: Sequence[str] = (), code: int | None = None
 ) -> "CHQueryErrorUnknownType":
-    subject = _unreadable_type_subject(unreadable_type, column_names)
+    family = unreadable_type.partition("(")[0]
+    if family not in {
+        "AggregateFunction",
+        "SimpleAggregateFunction",
+        "Variant",
+        "Dynamic",
+        "Object",
+        "JSON",
+    } and not _SIMPLE_CLICKHOUSE_TYPE.fullmatch(family):
+        family = "unsupported"
+    subject = _unreadable_type_subject(family, column_names)
     advice = _unreadable_type_advice(unreadable_type)
     error = CHQueryErrorUnknownType(
         f"{subject}, which PostHog can't send back in results. {advice}", code=code, code_name="unknown_type"
@@ -190,7 +250,7 @@ def unknown_type_error(
 
 
 def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
-    return unknown_type_error(err.message.removeprefix("Unknown type "), code=err.code)
+    return unknown_type_error((err.message or "").removeprefix("Unknown type "), code=err.code)
 
 
 # NOT_IMPLEMENTED covers many ClickHouse limits, and PostHog-generated SQL can reach some of them. Only
@@ -225,12 +285,13 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
         return _wrap_unknown_type_error(err)
+    err = _server_exception_from_http_client_error(err) or err
     if not isinstance(err, ServerException):
         return err
 
     meta = look_up_clickhouse_error_code_meta(err)
     name = meta.name
-    message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
+    raw_message = err.message or ""
 
     # Naming convention:
     # - Exceptions starting with ClickHouse inherit from APIException and are not sent to error reporting.
@@ -247,90 +308,78 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
         # "(for user)", or a future rewording - counts as transient cluster pressure, which gets
         # its own class so the CH_TRANSIENT_ERRORS retry paths cover it.
-        if "(for query)" in err.message or "Query memory limit exceeded" in err.message:
+        if "(for query)" in raw_message or "Query memory limit exceeded" in raw_message:
             memory_error = ClickHouseQueryMemoryLimitExceeded()
             memory_error.is_per_query_limit = True
             return memory_error
         return ClickHouseClusterMemoryLimitExceeded()
     elif (
-        name == "SYNTAX_ERROR" and "query size exceeded" in err.message
+        name == "SYNTAX_ERROR" and "query size exceeded" in raw_message
     ):  # Handle syntax error when "max query size exceeded" in the message
         return ClickHouseQuerySizeExceeded()
     elif name == "TOO_SLOW":
         # Return a 512 error for queries which would time out
         detail = "Estimated query execution time is too long"
-        if match := re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message):
+        if match := re.search(
+            r"Estimated query execution time \([0-9]{1,12}(?:\.[0-9]{1,9})? seconds\) is too long\.", raw_message
+        ):
             detail = match.group(0)
         return ClickHouseEstimatedQueryExecutionTimeTooLong(
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
-        if "The requested range is not satisfiable" in err.message:
+        if "The requested range is not satisfiable" in raw_message:
             return _wrap_storage_file_changed_error(err)
-        return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
-    elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
+        return CHQueryErrorS3Error(f"S3 error occurred. ({raw_message})", code=err.code)
+    elif name == "INCORRECT_DATA" and "Not a Parquet file" in raw_message and "(in file/uri" in raw_message:
         return _wrap_storage_file_changed_error(err)
-    elif name == "INCORRECT_DATA" and "Expected end of line" in err.message:
+    elif name == "INCORRECT_DATA" and "Expected end of line" in raw_message:
         # A bad row in a self-managed CSV file. Table validation reads only the first rows, so a later
         # bad row first shows up at query time. The raw message holds row contents, so it stays hidden.
         return _wrap_malformed_csv_row_error(err)
-    elif _is_unparseable_parquet_metadata_error(name, err.message):
+    elif _is_unparseable_parquet_metadata_error(name, raw_message):
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
         )
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
-        return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+        return CHQueryErrorTableIsReadOnly(raw_message, code=err.code, code_name="table_is_read_only")
     elif name == "QUERY_WAS_CANCELLED":
         # Not retryable by default: a deploy cancelling in-flight queries and a deliberate
         # KILL QUERY are indistinguishable here, so this stays out of CH_TRANSIENT_ERRORS and
         # callers that want the deploy case retried opt in themselves.
-        return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
+        return CHQueryErrorQueryWasCancelled(raw_message, code=err.code, code_name="query_was_cancelled")
 
-    # user query errors - pass through original message with proper code_name
     elif name == "BAD_GET":
         return _wrap_bad_get_error(err)
-    elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
-        return CHQueryErrorIllegalTypeOfArgument(err.message, code=err.code, code_name="illegal_type_of_argument")
-    elif name == "NO_COMMON_TYPE":
-        return CHQueryErrorNoCommonType(err.message, code=err.code, code_name="no_common_type")
-    elif name == "NOT_AN_AGGREGATE":
-        return CHQueryErrorNotAnAggregate(err.message, code=err.code, code_name="not_an_aggregate")
-    elif name == "UNKNOWN_FUNCTION":
-        return CHQueryErrorUnknownFunction(err.message, code=err.code, code_name="unknown_function")
-    elif name == "TYPE_MISMATCH":
-        return CHQueryErrorTypeMismatch(err.message, code=err.code, code_name="type_mismatch")
-    elif name == "ILLEGAL_AGGREGATION":
-        return CHQueryErrorIllegalAggregation(err.message, code=err.code, code_name="illegal_aggregation")
-    elif name == "NUMBER_OF_ARGUMENTS_DOESNT_MATCH":
-        return CHQueryErrorNumberOfArgumentsDoesntMatch(
-            err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
-        )
     elif name == "UNKNOWN_IDENTIFIER":
-        return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
-    elif name == "TOO_MANY_BYTES":
-        return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
-    elif name == "CANNOT_PARSE_UUID":
-        return CHQueryErrorCannotParseUuid(message, code=err.code, code_name="cannot_parse_uuid")
-    elif name == "CANNOT_PARSE_BOOL":
-        return CHQueryErrorCannotParseBool(message, code=err.code, code_name="cannot_parse_bool")
+        return CHQueryErrorUnknownIdentifier(raw_message, code=err.code, code_name="unknown_identifier")
     elif name == "UNSUPPORTED_METHOD":
-        return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
-    elif name == "INVALID_JOIN_ON_EXPRESSION":
-        return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
-    elif name == "UNKNOWN_TABLE":
-        return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
-    elif name == "NOT_IMPLEMENTED" and (fixed_message := _user_caused_not_implemented_message(err.message)):
+        return CHQueryErrorUnsupportedMethod(raw_message, code=err.code, code_name="unsupported_method")
+    elif name == "NOT_IMPLEMENTED" and (fixed_message := _user_caused_not_implemented_message(raw_message)):
         return CHQueryErrorNotImplemented(fixed_message, code=err.code, code_name="not_implemented")
 
-    # all other errors
-    else:
-        name = f"CHQueryError{meta.label}"
-        processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
+    class_name = f"CHQueryError{meta.label}"
+    if meta.user_safe is not None:
+        message = meta.user_safe
+        if name == "ILLEGAL_TYPE_OF_ARGUMENT":
+            message = _argument_type_message(raw_message, message)
+        elif name == "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+            # ClickHouse appends the executing SQL and row values after the explicit throwIf message.
+            match = re.search(
+                r"DB::Exception:\s*([^\r\n]+?)(?:[:.]\s*while (?:executing|processing)\b|\s*\(FUNCTION_THROW_IF_VALUE_IS_NON_ZERO\))",
+                raw_message,
+                re.IGNORECASE,
+            )
+            if match:
+                message = match[1].strip()
+        exposed_type = _EXPOSED_CH_ERROR_TYPES.get(name) or type(class_name, (ExposedCHQueryError,), {})
+        return exposed_type(message, code=err.code, code_name=name.lower())
+
+    return type(class_name, (InternalCHQueryError,), {})(raw_message, code=err.code, code_name=name.lower())
 
 
-def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
+def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCodeMeta:
     code = getattr(error, "code", None)
     if code is None or code not in CLICKHOUSE_ERROR_CODE_LOOKUP:
         return CLICKHOUSE_UNKNOWN_EXCEPTION
@@ -339,6 +388,7 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    e = _server_exception_from_http_client_error(e) or e
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
@@ -381,7 +431,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
 
-    pass
+    public_code = "s3_file_changed_during_read"
+    public_message = (
+        "A file backing a data warehouse table changed while the query was reading it. "
+        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+        "upload new files and delete old ones instead."
+    )
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
@@ -473,6 +528,22 @@ class CHQueryErrorNotImplemented(ExposedCHQueryError):
     pass
 
 
+_EXPOSED_CH_ERROR_TYPES: dict[str, type[ExposedCHQueryError]] = {
+    "CANNOT_PARSE_BOOL": CHQueryErrorCannotParseBool,
+    "CANNOT_PARSE_UUID": CHQueryErrorCannotParseUuid,
+    "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation,
+    "ILLEGAL_TYPE_OF_ARGUMENT": CHQueryErrorIllegalTypeOfArgument,
+    "INVALID_JOIN_ON_EXPRESSION": CHQueryErrorInvalidJoinOnExpression,
+    "NOT_AN_AGGREGATE": CHQueryErrorNotAnAggregate,
+    "NO_COMMON_TYPE": CHQueryErrorNoCommonType,
+    "NUMBER_OF_ARGUMENTS_DOESNT_MATCH": CHQueryErrorNumberOfArgumentsDoesntMatch,
+    "TOO_MANY_BYTES": CHQueryErrorTooManyBytes,
+    "TYPE_MISMATCH": CHQueryErrorTypeMismatch,
+    "UNKNOWN_FUNCTION": CHQueryErrorUnknownFunction,
+    "UNKNOWN_TABLE": CHQueryErrorUnknownTable,
+}
+
+
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
@@ -522,15 +593,29 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         "CANNOT_PARSE_TEXT",
         user_safe="Cannot parse a value as the requested type. Check your input formats and type conversions.",
     ),
-    7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
-    8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
+    7: ErrorCodeMeta(
+        "INCORRECT_NUMBER_OF_COLUMNS",
+        user_safe="The column count doesn't match. Check the columns on each side of the expression.",
+        category=QueryErrorCategory.ERROR,
+    ),
+    8: ErrorCodeMeta(
+        "THERE_IS_NO_COLUMN",
+        user_safe="A referenced column is missing. Check the table schema and the columns returned by each subquery.",
+        category=QueryErrorCategory.ERROR,
+    ),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
     10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
     12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND"),
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
-    15: ErrorCodeMeta("DUPLICATE_COLUMN"),
-    16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
+    15: ErrorCodeMeta(
+        "DUPLICATE_COLUMN", user_safe="Two output columns have the same name. Give them distinct aliases."
+    ),
+    16: ErrorCodeMeta(
+        "NO_SUCH_COLUMN_IN_TABLE",
+        user_safe="A referenced column is missing. Check the column names in the source table.",
+        category=QueryErrorCategory.ERROR,
+    ),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
     20: ErrorCodeMeta(
         "NUMBER_OF_COLUMNS_DOESNT_MATCH",
@@ -548,9 +633,18 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
-    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", user_safe=True),
-    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", user_safe=True),
-    36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
+    34: ErrorCodeMeta(
+        "TOO_MANY_ARGUMENTS_FOR_FUNCTION",
+        user_safe="A function received too many arguments. Check its signature and remove the extra arguments.",
+    ),
+    35: ErrorCodeMeta(
+        "TOO_FEW_ARGUMENTS_FOR_FUNCTION",
+        user_safe="A function is missing arguments. Check its signature and supply each required argument.",
+    ),
+    36: ErrorCodeMeta(
+        "BAD_ARGUMENTS",
+        user_safe="A function received an invalid argument. Check the order, types, and allowed values of its arguments.",
+    ),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe="Cannot parse a date. Check your date values and their format."),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
@@ -558,34 +652,62 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     41: ErrorCodeMeta(
         "CANNOT_PARSE_DATETIME", user_safe="Cannot parse a date and time. Check your datetime values and their format."
     ),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
-    43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
+    42: ErrorCodeMeta(
+        "NUMBER_OF_ARGUMENTS_DOESNT_MATCH",
+        user_safe="The argument count doesn't match the function signature. Check the required and optional arguments.",
+    ),
+    43: ErrorCodeMeta(
+        "ILLEGAL_TYPE_OF_ARGUMENT",
+        user_safe="A function cannot use an argument of this type. Check the function signature and cast the argument to the expected type.",
+    ),
     44: ErrorCodeMeta(
-        "ILLEGAL_COLUMN", user_safe=True
+        "ILLEGAL_COLUMN",
+        user_safe="A column cannot be used in this expression. Check whether the function requires a constant argument.",
     ),  # column has wrong type for the operation (e.g. non-constant where constant required)
-    46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
-    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
+    46: ErrorCodeMeta(
+        "UNKNOWN_FUNCTION",
+        user_safe="ClickHouse couldn't find a function used in this query. Check its spelling and the SQL function list.",
+    ),
+    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", category=QueryErrorCategory.USER_ERROR),
     48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
-    50: ErrorCodeMeta("UNKNOWN_TYPE", user_safe=True),  # referenced data type does not exist
-    51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
+    50: ErrorCodeMeta(
+        "UNKNOWN_TYPE",
+        user_safe="ClickHouse couldn't find a data type used in this query. Check the type name in casts and function arguments.",
+    ),  # referenced data type does not exist
+    51: ErrorCodeMeta(
+        "EMPTY_LIST_OF_COLUMNS_QUERIED", user_safe="The query selects no columns. Add a column or expression to SELECT."
+    ),
     52: ErrorCodeMeta("COLUMN_QUERIED_MORE_THAN_ONCE"),
-    53: ErrorCodeMeta("TYPE_MISMATCH", user_safe=True),
+    53: ErrorCodeMeta(
+        "TYPE_MISMATCH",
+        user_safe="The types on the two sides of an expression don't match. Cast them to a common type before comparing or combining them.",
+    ),
     55: ErrorCodeMeta("STORAGE_REQUIRES_PARAMETER"),
     56: ErrorCodeMeta("UNKNOWN_STORAGE"),
     57: ErrorCodeMeta("TABLE_ALREADY_EXISTS"),
     58: ErrorCodeMeta("TABLE_METADATA_ALREADY_EXISTS"),
     59: ErrorCodeMeta(
-        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", user_safe=True
+        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER",
+        user_safe="The filter needs a boolean condition. Use an explicit comparison in WHERE or HAVING.",
     ),  # WHERE/HAVING column is not boolean-convertible
-    60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
+    60: ErrorCodeMeta(
+        "UNKNOWN_TABLE",
+        user_safe="ClickHouse couldn't find a table used in this query. Check the table name in the schema and the scope of any table aliases.",
+    ),
     # Stays internal: HogQL validates syntax before ClickHouse, so a raw CH syntax error means
     # PostHog generated invalid SQL — a bug we want in error tracking, not hidden as user-safe.
     62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),
-    63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
+    63: ErrorCodeMeta(
+        "UNKNOWN_AGGREGATE_FUNCTION",
+        user_safe="ClickHouse couldn't find an aggregate function used in this query. Check its name and any aggregate suffix.",
+    ),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     # Fixed message: the raw CH text formats a per-row value (e.g. geoToH3 resolution) into the error.
-    69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe="An argument is out of bounds."),
+    69: ErrorCodeMeta(
+        "ARGUMENT_OUT_OF_BOUND",
+        user_safe="A function argument is outside its allowed range. Check its bounds and the values passed to it.",
+    ),
     # Fixed message: the raw CH text embeds the failing data value (see code 6 note), so a fixed
     # string keeps that value out of the response while still returning a 400 for the bad query.
     70: ErrorCodeMeta(
@@ -603,7 +725,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     77: ErrorCodeMeta("CANNOT_CLOSE_FILE"),
     78: ErrorCodeMeta("UNKNOWN_TYPE_OF_QUERY"),
     79: ErrorCodeMeta("INCORRECT_FILE_NAME"),
-    80: ErrorCodeMeta("INCORRECT_QUERY", user_safe=True),  # query parses but is semantically invalid
+    80: ErrorCodeMeta(
+        "INCORRECT_QUERY",
+        user_safe="ClickHouse couldn't execute this combination of SQL clauses. Run the inner SELECT on its own, then add the outer clauses one at a time.",
+    ),  # query parses but is semantically invalid
     81: ErrorCodeMeta("UNKNOWN_DATABASE"),
     82: ErrorCodeMeta("DATABASE_ALREADY_EXISTS"),
     83: ErrorCodeMeta("DIRECTORY_DOESNT_EXIST"),
@@ -642,7 +767,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         "UNSUPPORTED_JOIN_KEYS",
         user_safe="Unsupported JOIN keys. Check the expressions and types used to join your tables.",
     ),
-    122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
+    122: ErrorCodeMeta(
+        "INCOMPATIBLE_COLUMNS",
+        user_safe="The column types don't match the expected schema. Check the number, order, and types of the selected columns.",
+    ),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta(
         "INCORRECT_ELEMENT_OF_SET",
@@ -665,9 +793,17 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         user_safe="Cannot parse an array. Check the format of the values converted to arrays.",
     ),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
-    133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
-    134: ErrorCodeMeta("PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
-    135: ErrorCodeMeta("ZERO_ARRAY_OR_TUPLE_INDEX", user_safe=True),
+    133: ErrorCodeMeta(
+        "AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS",
+        user_safe="This aggregate doesn't take parameters. Pass its input columns in a single pair of parentheses.",
+    ),
+    134: ErrorCodeMeta(
+        "PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS",
+        user_safe="The aggregate parameters must be constants. Put constant parameters in the first pair of parentheses and input columns in the second.",
+    ),
+    135: ErrorCodeMeta(
+        "ZERO_ARRAY_OR_TUPLE_INDEX", user_safe="Array and tuple indexes start at 1. Use 1 to select the first element."
+    ),
     137: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_CONFIG"),
     138: ErrorCodeMeta("EXCESSIVE_ELEMENT_IN_CONFIG"),
     139: ErrorCodeMeta("NO_ELEMENTS_IN_CONFIG"),
@@ -675,10 +811,13 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     142: ErrorCodeMeta("NOT_FOUND_NODE"),
     145: ErrorCodeMeta("UNKNOWN_OVERFLOW_MODE"),
     152: ErrorCodeMeta("UNKNOWN_DIRECTION_OF_SORTING"),
-    153: ErrorCodeMeta("ILLEGAL_DIVISION", user_safe=True),
+    153: ErrorCodeMeta(
+        "ILLEGAL_DIVISION",
+        user_safe="Division failed. Check the divisor for zero and use nullIf(divisor, 0) if a missing result is appropriate.",
+    ),
     156: ErrorCodeMeta("DICTIONARIES_WAS_NOT_LOADED"),
     158: ErrorCodeMeta("TOO_MANY_ROWS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-    159: ErrorCodeMeta("TIMEOUT_EXCEEDED", user_safe=True, category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+    159: ErrorCodeMeta("TIMEOUT_EXCEEDED", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     160: ErrorCodeMeta(
         "TOO_SLOW", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
     ),  # estimated execution time exceeds threshold
@@ -693,16 +832,27 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     168: ErrorCodeMeta("TOO_BIG_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     169: ErrorCodeMeta("BAD_TYPE_OF_FIELD"),
     # The wrapper exposes only allowlisted ClickHouse type identifiers from the raw message.
-    170: ErrorCodeMeta("BAD_GET", user_safe=True),
+    170: ErrorCodeMeta("BAD_GET", user_safe=BAD_GET_FALLBACK_MESSAGE),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-    174: ErrorCodeMeta("CYCLIC_ALIASES", user_safe=True),
-    179: ErrorCodeMeta("MULTIPLE_EXPRESSIONS_FOR_ALIAS"),
+    174: ErrorCodeMeta(
+        "CYCLIC_ALIASES",
+        user_safe="Two or more aliases depend on each other. Give each expression a distinct name and remove the circular reference.",
+    ),
+    179: ErrorCodeMeta(
+        "MULTIPLE_EXPRESSIONS_FOR_ALIAS",
+        user_safe="Several expressions use the same alias. Give each expression a distinct alias.",
+    ),
     180: ErrorCodeMeta("THERE_IS_NO_PROFILE"),
     181: ErrorCodeMeta("ILLEGAL_FINAL"),
-    182: ErrorCodeMeta("ILLEGAL_PREWHERE"),
+    182: ErrorCodeMeta(
+        "ILLEGAL_PREWHERE", user_safe="ClickHouse couldn't apply the PREWHERE filter. Move the condition into WHERE."
+    ),
     183: ErrorCodeMeta("UNEXPECTED_EXPRESSION"),
-    184: ErrorCodeMeta("ILLEGAL_AGGREGATION", user_safe=True),
+    184: ErrorCodeMeta(
+        "ILLEGAL_AGGREGATION",
+        user_safe="An aggregate is nested inside another aggregate or used in a clause that runs before grouping. Move the inner aggregate to a subquery or filter groups with HAVING.",
+    ),
     186: ErrorCodeMeta("UNSUPPORTED_COLLATION_LOCALE"),
     187: ErrorCodeMeta("COLLATION_COMPARISON_FAILED"),
     190: ErrorCodeMeta(
@@ -718,22 +868,28 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
     201: ErrorCodeMeta("QUOTA_EXCEEDED"),
-    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=QueryErrorCategory.RATE_LIMITED),
+    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", category=QueryErrorCategory.RATE_LIMITED),
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta(
         "ALIAS_REQUIRED",
         user_safe="A subquery or table function in a JOIN needs an alias. Add one, for example JOIN (SELECT ...) AS sub.",
     ),
-    207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
+    207: ErrorCodeMeta(
+        "AMBIGUOUS_IDENTIFIER",
+        user_safe="A name matches more than one column or alias. Qualify the column with its table alias or give the expressions distinct names.",
+    ),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
     210: ErrorCodeMeta("NETWORK_ERROR"),
-    211: ErrorCodeMeta("EMPTY_QUERY", user_safe=True),
+    211: ErrorCodeMeta("EMPTY_QUERY", user_safe="The query is empty. Enter a SELECT statement and run it again."),
     212: ErrorCodeMeta("UNKNOWN_LOAD_BALANCING"),
     213: ErrorCodeMeta("UNKNOWN_TOTALS_MODE"),
     214: ErrorCodeMeta("CANNOT_STATVFS"),
-    215: ErrorCodeMeta("NOT_AN_AGGREGATE", user_safe=True),
+    215: ErrorCodeMeta(
+        "NOT_AN_AGGREGATE",
+        user_safe="A selected expression uses a column outside an aggregate. Add the column to GROUP BY or aggregate it.",
+    ),
     216: ErrorCodeMeta("QUERY_WITH_SAME_ID_IS_ALREADY_RUNNING"),
     217: ErrorCodeMeta("CLIENT_HAS_CONNECTED_TO_WRONG_PORT"),
     218: ErrorCodeMeta("TABLE_IS_DROPPED"),
@@ -778,14 +934,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     257: ErrorCodeMeta("PARTITION_DOESNT_EXIST"),
     258: ErrorCodeMeta(
         "UNION_ALL_RESULT_STRUCTURES_MISMATCH",
-        user_safe="Mismatched number of columns in UNION ALL.",
+        user_safe="The UNION branches return different structures. Select the same number of columns in the same order with compatible types.",
     ),
     260: ErrorCodeMeta("CLIENT_OUTPUT_FORMAT_SPECIFIED"),
     261: ErrorCodeMeta("UNKNOWN_BLOCK_INFO_FIELD"),
     262: ErrorCodeMeta("BAD_COLLATION"),
     263: ErrorCodeMeta("CANNOT_COMPILE_CODE"),
     264: ErrorCodeMeta(
-        "INCOMPATIBLE_TYPE_OF_JOIN", user_safe=True
+        "INCOMPATIBLE_TYPE_OF_JOIN",
+        user_safe="The join types are incompatible. Check the JOIN kind and cast the join keys on both sides to compatible types.",
     ),  # join type not supported for this engine or context
     265: ErrorCodeMeta("NO_AVAILABLE_REPLICA"),
     266: ErrorCodeMeta("MISMATCH_REPLICAS_DATA_SOURCES"),
@@ -826,13 +983,21 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     305: ErrorCodeMeta("TABLE_WAS_NOT_DROPPED"),
     306: ErrorCodeMeta("TOO_DEEP_RECURSION", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     307: ErrorCodeMeta(
-        "TOO_MANY_BYTES", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        "TOO_MANY_BYTES",
+        user_safe="This query exceeded its byte limit. Narrow the date range, filter rows earlier, or select fewer columns.",
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),  # too many bytes read from storage
     308: ErrorCodeMeta("UNEXPECTED_NODE_IN_ZOOKEEPER"),
-    309: ErrorCodeMeta("FUNCTION_CANNOT_HAVE_PARAMETERS"),
+    309: ErrorCodeMeta(
+        "FUNCTION_CANNOT_HAVE_PARAMETERS",
+        user_safe="This function doesn't take a separate parameter list. Pass its arguments in a single pair of parentheses.",
+    ),
     318: ErrorCodeMeta("INVALID_CONFIG_PARAMETER"),
     319: ErrorCodeMeta("UNKNOWN_STATUS_OF_INSERT"),
-    321: ErrorCodeMeta("VALUE_IS_OUT_OF_RANGE_OF_DATA_TYPE", user_safe=True),
+    321: ErrorCodeMeta(
+        "VALUE_IS_OUT_OF_RANGE_OF_DATA_TYPE",
+        user_safe="A value is outside the range of its data type. Check the input values or use a type with a wider range.",
+    ),
     336: ErrorCodeMeta("UNKNOWN_DATABASE_ENGINE"),
     341: ErrorCodeMeta("UNFINISHED"),
     342: ErrorCodeMeta("METADATA_MISMATCH"),
@@ -840,9 +1005,18 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     345: ErrorCodeMeta("TABLE_DIFFERS_TOO_MUCH"),
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
-    349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
-    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", user_safe=True),
-    353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
+    349: ErrorCodeMeta(
+        "CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN",
+        user_safe="An expression produced NULL for a non-nullable column. Filter out NULLs or supply a default with coalesce().",
+    ),
+    352: ErrorCodeMeta(
+        "AMBIGUOUS_COLUMN_NAME",
+        user_safe="A column name is ambiguous. Qualify it with its table alias and give duplicate output columns distinct aliases.",
+    ),
+    353: ErrorCodeMeta(
+        "INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE",
+        user_safe="A column position is outside the SELECT list. Use an existing column alias or a position starting at 1.",
+    ),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),
     358: ErrorCodeMeta("INTO_OUTFILE_NOT_ALLOWED"),
@@ -863,15 +1037,24 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     376: ErrorCodeMeta(
         "CANNOT_PARSE_UUID", user_safe="Cannot parse a UUID. Check the format of the values converted to UUIDs."
     ),
-    377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE", user_safe=True),
-    378: ErrorCodeMeta("DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
+    377: ErrorCodeMeta(
+        "ILLEGAL_SYNTAX_FOR_DATA_TYPE",
+        user_safe="A data type declaration is invalid. Check its name, parentheses, and parameters.",
+    ),
+    378: ErrorCodeMeta(
+        "DATA_TYPE_CANNOT_HAVE_ARGUMENTS",
+        user_safe="This data type doesn't take parameters. Remove its arguments or choose a parameterized type.",
+    ),
     380: ErrorCodeMeta("CANNOT_KILL"),
     381: ErrorCodeMeta("HTTP_LENGTH_REQUIRED"),
     382: ErrorCodeMeta("CANNOT_LOAD_CATBOOST_MODEL"),
     383: ErrorCodeMeta("CANNOT_APPLY_CATBOOST_MODEL"),
     384: ErrorCodeMeta("PART_IS_TEMPORARILY_LOCKED"),
     385: ErrorCodeMeta("MULTIPLE_STREAMS_REQUIRED"),
-    386: ErrorCodeMeta("NO_COMMON_TYPE", user_safe=True),
+    386: ErrorCodeMeta(
+        "NO_COMMON_TYPE",
+        user_safe="ClickHouse couldn't find a common type for these expressions. Cast comparison operands, conditional branches, or UNION columns to the same type.",
+    ),
     387: ErrorCodeMeta("DICTIONARY_ALREADY_EXISTS"),
     388: ErrorCodeMeta("CANNOT_ASSIGN_OPTIMIZE"),
     389: ErrorCodeMeta("INSERT_WAS_DEDUPLICATED"),
@@ -880,7 +1063,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
     394: ErrorCodeMeta("QUERY_WAS_CANCELLED", category=QueryErrorCategory.CANCELLED),
-    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
+    395: ErrorCodeMeta(
+        "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO",
+        user_safe="A throwIf condition evaluated to true. Check the condition and the rows it applies to.",
+    ),
     396: ErrorCodeMeta(
         "TOO_MANY_ROWS_OR_BYTES", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
     ),  # result set exceeds row or byte limit
@@ -895,9 +1081,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         user_safe="Invalid JOIN ON expression. Check that the condition uses supported comparisons between the joined tables.",
     ),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
-    406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
+    406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER", user_safe="Use either TOP or LIMIT to set the row count."),
     # Fixed message: the raw CH text can format a converted decimal value into the overflow error.
-    407: ErrorCodeMeta("DECIMAL_OVERFLOW", user_safe="Decimal overflow while executing query."),
+    407: ErrorCodeMeta(
+        "DECIMAL_OVERFLOW",
+        user_safe="A decimal result exceeds its precision. Use a wider decimal type before the calculation.",
+    ),
     408: ErrorCodeMeta("BAD_REQUEST_PARAMETER"),
     410: ErrorCodeMeta("EXTERNAL_SERVER_IS_NOT_RESPONDING"),
     411: ErrorCodeMeta("PTHREAD_ERROR"),
@@ -972,7 +1161,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         user_safe="Invalid WITH FILL expression. FROM and TO must be constants of the same type as the column you "
         "order by. STEP must be a number, or an interval such as INTERVAL 1 DAY for date and time columns.",
     ),
-    476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
+    476: ErrorCodeMeta(
+        "WITH_TIES_WITHOUT_ORDER_BY",
+        user_safe="LIMIT WITH TIES needs an ORDER BY clause. Add the ordering that defines a tie or remove WITH TIES.",
+    ),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),
     478: ErrorCodeMeta("UNKNOWN_POLICY"),
     479: ErrorCodeMeta("UNKNOWN_DISK"),
@@ -999,7 +1191,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     495: ErrorCodeMeta("ACCESS_STORAGE_READONLY"),
     496: ErrorCodeMeta("QUOTA_REQUIRES_CLIENT_KEY"),
     497: ErrorCodeMeta("ACCESS_DENIED"),
-    498: ErrorCodeMeta("LIMIT_BY_WITH_TIES_IS_NOT_SUPPORTED"),
+    498: ErrorCodeMeta("LIMIT_BY_WITH_TIES_IS_NOT_SUPPORTED", user_safe="Use LIMIT BY or LIMIT WITH TIES separately."),
     499: ErrorCodeMeta("S3_ERROR"),
     500: ErrorCodeMeta("AZURE_BLOB_STORAGE_ERROR"),
     501: ErrorCodeMeta("CANNOT_CREATE_DATABASE"),
@@ -1051,12 +1243,18 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     555: ErrorCodeMeta("ROCKSDB_ERROR"),
     556: ErrorCodeMeta("SYNC_MYSQL_USER_ACCESS_ERROR"),
     557: ErrorCodeMeta("UNKNOWN_UNION"),
-    558: ErrorCodeMeta("EXPECTED_ALL_OR_DISTINCT"),
+    558: ErrorCodeMeta(
+        "EXPECTED_ALL_OR_DISTINCT",
+        user_safe="Specify UNION ALL to keep duplicate rows or UNION DISTINCT to remove them.",
+    ),
     559: ErrorCodeMeta("INVALID_GRPC_QUERY_INFO"),
     560: ErrorCodeMeta("ZSTD_ENCODER_FAILED"),
     561: ErrorCodeMeta("ZSTD_DECODER_FAILED"),
     562: ErrorCodeMeta("TLD_LIST_NOT_FOUND"),
-    563: ErrorCodeMeta("CANNOT_READ_MAP_FROM_TEXT"),
+    563: ErrorCodeMeta(
+        "CANNOT_READ_MAP_FROM_TEXT",
+        user_safe="A value couldn't be read as a map. Check its key and value types and its format.",
+    ),
     564: ErrorCodeMeta("INTERSERVER_SCHEME_DOESNT_MATCH"),
     565: ErrorCodeMeta("TOO_MANY_PARTITIONS"),
     566: ErrorCodeMeta("CANNOT_RMDIR"),
@@ -1091,7 +1289,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     593: ErrorCodeMeta("ZERO_COPY_REPLICATION_ERROR"),
     594: ErrorCodeMeta("BZIP2_STREAM_DECODER_FAILED"),
     595: ErrorCodeMeta("BZIP2_STREAM_ENCODER_FAILED"),
-    596: ErrorCodeMeta("INTERSECT_OR_EXCEPT_RESULT_STRUCTURES_MISMATCH"),
+    596: ErrorCodeMeta(
+        "INTERSECT_OR_EXCEPT_RESULT_STRUCTURES_MISMATCH",
+        user_safe="The two SELECT statements must return the same number of columns with compatible types in each position.",
+    ),
     597: ErrorCodeMeta("NO_SUCH_ERROR_CODE"),
     598: ErrorCodeMeta("BACKUP_ALREADY_EXISTS"),
     599: ErrorCodeMeta("BACKUP_NOT_FOUND"),
@@ -1121,7 +1322,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     625: ErrorCodeMeta("IO_SETUP_ERROR"),
     626: ErrorCodeMeta("CANNOT_SKIP_UNKNOWN_FIELD"),
     627: ErrorCodeMeta("BACKUP_ENGINE_NOT_FOUND"),
-    628: ErrorCodeMeta("OFFSET_FETCH_WITHOUT_ORDER_BY"),
+    628: ErrorCodeMeta(
+        "OFFSET_FETCH_WITHOUT_ORDER_BY",
+        user_safe="Add an ORDER BY clause before OFFSET and FETCH to define which rows to return.",
+    ),
     629: ErrorCodeMeta("HTTP_RANGE_NOT_SATISFIABLE"),
     630: ErrorCodeMeta("HAVE_DEPENDENT_OBJECTS"),
     631: ErrorCodeMeta("UNKNOWN_FILE_SIZE"),
@@ -1143,7 +1347,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     649: ErrorCodeMeta("INVALID_TRANSACTION"),
     650: ErrorCodeMeta("SERIALIZATION_ERROR"),
     651: ErrorCodeMeta("CAPN_PROTO_BAD_TYPE"),
-    652: ErrorCodeMeta("ONLY_NULLS_WHILE_READING_SCHEMA"),
+    652: ErrorCodeMeta(
+        "ONLY_NULLS_WHILE_READING_SCHEMA",
+        user_safe="ClickHouse found only NULL values while inferring the schema. Supply explicit column types or provide a file with representative values.",
+        category=QueryErrorCategory.ERROR,
+    ),
     653: ErrorCodeMeta("CANNOT_PARSE_BACKUP_SETTINGS"),
     654: ErrorCodeMeta("WRONG_BACKUP_SETTINGS"),
     655: ErrorCodeMeta("FAILED_TO_SYNC_BACKUP_OR_RESTORE"),
@@ -1187,7 +1395,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     700: ErrorCodeMeta("USER_SESSION_LIMIT_EXCEEDED"),
     701: ErrorCodeMeta("CLUSTER_DOESNT_EXIST"),
     702: ErrorCodeMeta("CLIENT_INFO_DOES_NOT_MATCH"),
-    703: ErrorCodeMeta("INVALID_IDENTIFIER", user_safe=True),  # identifier contains invalid characters
+    703: ErrorCodeMeta(
+        "INVALID_IDENTIFIER",
+        user_safe="A table, column, or alias has an invalid name. Check the spelling and quote identifiers that contain spaces or punctuation.",
+    ),  # identifier contains invalid characters
     704: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NONDETERMINISTIC_FUNCTIONS"),
     705: ErrorCodeMeta("TABLE_NOT_EMPTY"),
     706: ErrorCodeMeta("LIBSSH_ERROR"),
@@ -1256,7 +1467,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
 
-GENERIC_INTERNAL_CH_ERROR_MESSAGE = "ClickHouse error while executing query."
+_CH_ERRORS_BY_NAME = {meta.name: meta for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()}
 
 _TOO_MUCH_DATA_MESSAGE = (
     "This query reads or returns more data than the limit allows. "
@@ -1271,9 +1482,33 @@ _TEMPORARY_FAILURE_MESSAGE = (
     "Wait a few minutes, then run the query again. If the problem continues, contact support."
 )
 
+TRANSIENT_CH_ERROR_NAMES = frozenset(
+    {
+        "TOO_MANY_PARTS",
+        "TABLE_IS_READ_ONLY",
+        "NETWORK_ERROR",
+        "SOCKET_TIMEOUT",
+        "ALL_CONNECTION_TRIES_FAILED",
+        "EXTERNAL_SERVER_IS_NOT_RESPONDING",
+        "SHARD_HAS_NO_CONNECTIONS",
+        "NO_AVAILABLE_REPLICA",
+        "NO_ACTIVE_REPLICAS",
+        "NO_FREE_CONNECTION",
+        "S3_ERROR",
+        CHQueryErrorS3FileChangedDuringRead.public_code.upper(),
+    }
+)
+
 # Fixed copy for internal ClickHouse errors. The raw ClickHouse message stays hidden, because it can
 # contain stored data values or server internals.
 INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
+    **dict.fromkeys(TRANSIENT_CH_ERROR_NAMES, _TEMPORARY_FAILURE_MESSAGE),
+    "TIMEOUT_EXCEEDED": str(ClickHouseQueryTimeOut.default_detail),
+    "TOO_SLOW": "The query would take too long to finish. Shorten the date range or filter the rows before joining or aggregating.",
+    "MEMORY_LIMIT_EXCEEDED": "The database ran out of memory. Try again once, then narrow the date range or reduce the size of the joins.",
+    "CANNOT_ALLOCATE_MEMORY": "The database couldn't allocate memory for this query. Wait a few minutes, then run it again.",
+    "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS": _TOO_COMPLEX_MESSAGE,
+    "TOO_SLOW_PARSING": _TOO_COMPLEX_MESSAGE,
     "TOO_MANY_ROWS": _TOO_MUCH_DATA_MESSAGE,
     "TOO_MANY_ROWS_OR_BYTES": _TOO_MUCH_DATA_MESSAGE,
     "SET_SIZE_LIMIT_EXCEEDED": _TOO_MUCH_DATA_MESSAGE,
@@ -1282,15 +1517,18 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
     "TOO_DEEP_AST": _TOO_COMPLEX_MESSAGE,
     "TOO_BIG_AST": _TOO_COMPLEX_MESSAGE,
     "TOO_DEEP_RECURSION": _TOO_COMPLEX_MESSAGE,
-    "TOO_MANY_PARTS": _TEMPORARY_FAILURE_MESSAGE,
-    "TABLE_IS_READ_ONLY": _TEMPORARY_FAILURE_MESSAGE,
-    "NETWORK_ERROR": _TEMPORARY_FAILURE_MESSAGE,
-    "SOCKET_TIMEOUT": _TEMPORARY_FAILURE_MESSAGE,
-    "ALL_CONNECTION_TRIES_FAILED": _TEMPORARY_FAILURE_MESSAGE,
+    "QUERY_IS_TOO_LARGE": _TOO_COMPLEX_MESSAGE,
+    "TOO_MANY_TEMPORARY_COLUMNS": _TOO_COMPLEX_MESSAGE,
+    "TOO_MANY_TEMPORARY_NON_CONST_COLUMNS": _TOO_COMPLEX_MESSAGE,
     "S3_ERROR": (
         "PostHog couldn't read from storage while running this query. "
         "Wait a few minutes, then run the query again. If the problem continues, contact support."
     ),
+    "UNSUPPORTED_METHOD": "This operation isn't supported here. Simplify the expression or use a different SQL function.",
+    "NOT_IMPLEMENTED": "ClickHouse doesn't support this combination of operations. Try running each subquery separately to isolate the unsupported expression.",
+    "SYNTAX_ERROR": "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+    "CANNOT_EXTRACT_TABLE_STRUCTURE": "ClickHouse couldn't infer the source table's schema. Check the source file's format and column definitions.",
+    "INCORRECT_DATA": "ClickHouse couldn't read the data in the expected format. Check the source format and column types.",
     "UNKNOWN_IDENTIFIER": (
         "A column in this query doesn't exist in the data. "
         "Check the column names. If the query uses a view, check that the view still matches its source table."
@@ -1298,27 +1536,46 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
 }
 
 
-# The error name holds no stored data values, so it is safe to show for an error the query caused,
-# even when the full message is not. Server faults and compiler syntax errors stay out, because
-# callers cannot act on them.
+def clickhouse_error_category(code_name: str) -> QueryErrorCategory | None:
+    meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
+    return meta.get_category() if meta else None
+
+
 def is_clickhouse_query_rejection(code_name: str) -> bool:
-    code_name = code_name.upper()
-    return code_name != "SYNTAX_ERROR" and any(
-        meta.name == code_name and meta.get_category() == QueryErrorCategory.USER_ERROR
-        for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
-    )
+    return code_name.upper() != "SYNTAX_ERROR" and clickhouse_error_category(code_name) == QueryErrorCategory.USER_ERROR
 
 
 def internal_ch_error_user_message(code_name: str | None) -> str | None:
-    """Return user-safe copy for a known internal ClickHouse error, or None for an unknown error."""
+    """Translate a stored status code. Statuses from other query engines share this field."""
     if not code_name:
         return None
-    code_name = code_name.upper()
-    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name):
-        return message
-    if is_clickhouse_query_rejection(code_name):
-        return f"ClickHouse rejected the query with error {code_name}."
-    return None
+    if code_name.lower() == CHQueryErrorS3FileChangedDuringRead.public_code:
+        return CHQueryErrorS3FileChangedDuringRead.public_message
+    meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
+    if meta is None:
+        if not re.fullmatch(r"clickhouse_[0-9]{1,10}", code_name):
+            return None
+        reference = code_name.removeprefix("clickhouse_")
+    else:
+        if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(meta.name) or meta.user_safe:
+            return message
+        match meta.get_category():
+            case QueryErrorCategory.CANCELLED:
+                return "The query was cancelled before it finished. Run it again if you still need the results."
+            case QueryErrorCategory.RATE_LIMITED:
+                return _TEMPORARY_FAILURE_MESSAGE
+            case QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+                return _TOO_MUCH_DATA_MESSAGE
+        reference = meta.name
+    return f"ClickHouse couldn't complete this query. Contact support and include the error code {reference}."
+
+
+def clickhouse_error_message(error: ClickHouseDriverError) -> str:
+    if isinstance(error, ExposedCHQueryError):
+        return str(error)
+    message = internal_ch_error_user_message(error_code_from_type(error))
+    assert message is not None
+    return message
 
 
 def error_code_from_type(error: BaseException) -> str:
@@ -1326,8 +1583,18 @@ def error_code_from_type(error: BaseException) -> str:
 
     A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
     """
-    if isinstance(error, ServerException):
-        return look_up_clickhouse_error_code_meta(error).name.lower()
+    if isinstance(error, CHQueryErrorS3FileChangedDuringRead):
+        return error.public_code
+    if isinstance(error, ClickHouseDriverError):
+        meta = look_up_clickhouse_error_code_meta(error)
+        if (
+            meta is CLICKHOUSE_UNKNOWN_EXCEPTION
+            and type(error.code) is int
+            and 0 <= error.code <= 2**31 - 1
+            and error.code not in CLICKHOUSE_ERROR_CODE_LOOKUP
+        ):
+            return f"clickhouse_{error.code}"
+        return meta.name.lower()
     class_name = _WORD_BOUNDARY.sub(r"\1_\2", _ACRONYM_BOUNDARY.sub(r"\1_\2", type(error).__name__))
     return f"unhandled_{class_name.lower()}"
 

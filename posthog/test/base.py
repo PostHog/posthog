@@ -30,6 +30,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 
 import sqlparse
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import (
@@ -46,6 +47,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.team_first_prewhere import _events_last_year_cache, _recent_events_last_year
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -84,6 +86,7 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -768,6 +771,14 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_project_and_team(self)
         elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+        # The team event volume cache is keyed on team ids, which repeat across tests, so clear it.
+        # Then warm it for this test's team. The cold read compares `computed_at` with the wall clock,
+        # so inside an assertNumQueries or query snapshot block it would add a query whose text
+        # changes on every run. A test that writes a TeamEventVolume row clears the cache again.
+        _events_last_year_cache.clear()
+        if self.team is not None:
+            _recent_events_last_year(self.team.pk)
 
     def tearDown(self):
         from posthog.test.persons import has_unflushed_persons, reset_persons_state
@@ -2155,7 +2166,12 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
             try:
                 future.result()
             except Exception as exc:
-                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                driver_error = exc.__cause__ if isinstance(exc, CHQueryErrorUnknownTable) else exc
+                if (
+                    isinstance(driver_error, ServerException)
+                    and driver_error.code == 60
+                    and "posthog_test." in (driver_error.message or "")
+                ):
                     continue
                 exceptions.append(exc)
 

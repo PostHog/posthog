@@ -1,9 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { buildAiObservabilityStorageConfig } from '../shared/preferenceStorage'
 import { pageLoad } from '../shared/testPageLoad'
 import { rawSearchParam } from '../trace/rawSearchParam'
 import { shellScopeLogic } from './shellScopeLogic'
@@ -103,4 +107,75 @@ describe('shellScopeLogic', () => {
             expect(router.values.lastMethod).toEqual('REPLACE')
         }
     )
+
+    describe('filterTestAccounts', () => {
+        it.each([true, false])('defaults filterTestAccounts to the project default %s', (projectDefault) => {
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(projectDefault)
+
+            mountAt(TRACES)
+
+            expect(logic.values.filterTestAccounts).toBe(projectDefault)
+        })
+
+        it.each([
+            ['true', true],
+            ['false', false],
+        ])('reads filter_test_accounts=%s from the URL on a shell path', (raw, expected) => {
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(!expected)
+
+            mountAt(`${urls.aiObservabilityErrors()}?filter_test_accounts=${raw}`)
+
+            expect(logic.values.filterTestAccounts).toBe(expected)
+        })
+
+        it('ignores filter_test_accounts on a non-shell path and leaves its url alone', () => {
+            mountAt(TRACES)
+            const outside = `${urls.webAnalytics()}?filter_test_accounts=true`
+            const before = logic.values.filterTestAccounts
+
+            router.actions.push(outside)
+
+            expect(logic.values.filterTestAccounts).toBe(before)
+            expect(
+                JSON.parse(
+                    localStorage.getItem(buildAiObservabilityStorageConfig('shell.filterTestAccounts').storageKey) ??
+                        'null'
+                )
+            ).toBeNull()
+            expect(router.values.searchParams).toEqual({ filter_test_accounts: true })
+        })
+
+        it.each([
+            ['the same project', MOCK_DEFAULT_TEAM.id, true],
+            ['another project', MOCK_DEFAULT_TEAM.id + 1, false],
+        ])('keeps a remembered choice to its project, reading it back in %s', (_name, nextTeamId, expected) => {
+            mountAt(TRACES)
+            logic.actions.setFilterTestAccounts(true)
+            logic.unmount()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: nextTeamId })
+            filterTestAccountsDefaultsLogic.mount()
+            filterTestAccountsDefaultsLogic.actions.setLocalDefault(false)
+
+            mountAt(urls.aiObservabilityErrors())
+
+            expect(logic.values.filterTestAccounts).toBe(expected)
+        })
+
+        it('writes a toggle to the url in place and keeps the other params', () => {
+            mountAt(`${TRACES}?date_from=-24h`)
+
+            logic.actions.setFilterTestAccounts(true)
+
+            expect(router.values.searchParams).toEqual({ date_from: '-24h', filter_test_accounts: 'true' })
+            expect(router.values.lastMethod).toEqual('REPLACE')
+        })
+
+        it('does not write the project default to the url', () => {
+            mountAt(TRACES)
+
+            expect(router.values.searchParams).toEqual({})
+        })
+    })
 })

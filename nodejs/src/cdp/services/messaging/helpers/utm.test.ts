@@ -245,6 +245,22 @@ describe('addUtmTagsToEmail', () => {
             html: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
             expected: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
         },
+        ...['signature', 'SIG', 'X-Amz-Signature', 'x-goog-signature', 'Hmac', '_hash'].map((param) => ({
+            case: `leaves a link signed with ${param} and tags the unsigned link next to it`,
+            html: `<a href="https://example.com/verify?id=1&amp;${param}=abc">x</a><a href="https://example.com/">y</a>`,
+            expected: `<a href="https://example.com/verify?id=1&amp;${param}=abc">x</a><a href="https://example.com/?ph_workflow_run=run-1">y</a>`,
+        })),
+        {
+            case: 'leaves the earlier run id on a signed link for a team that turned the tag off',
+            runId: null,
+            html: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+            expected: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+        },
+        {
+            case: 'leaves the earlier run id on a signed link for a team with the tag on',
+            html: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+            expected: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+        },
         {
             case: 'leaves an earlier run id on a link marked data-ph-no-utm for a team that turned the tag off',
             runId: null,

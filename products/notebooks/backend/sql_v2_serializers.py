@@ -194,7 +194,7 @@ class NotebookSQLV2PageRequestSerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
-        help_text="Number of rows to skip; pages re-query ClickHouse with LIMIT/OFFSET.",
+        help_text="Number of rows to skip in the stored result frame.",
     )
     limit = serializers.IntegerField(
         required=False,
@@ -203,6 +203,16 @@ class NotebookSQLV2PageRequestSerializer(serializers.Serializer):
         max_value=500,
         help_text="Rows per page.",
     )
+
+
+class NotebookSQLV2PageResponseSerializer(serializers.Serializer):
+    columns = serializers.ListField(child=serializers.CharField(), help_text="Column names in result order.")
+    types = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Column name and type pairs in result order.",
+    )
+    rows = serializers.ListField(child=serializers.ListField(), help_text="Rows of cell values in column order.")
+    has_more = serializers.BooleanField(help_text="Whether another page follows these rows.")
 
 
 class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
@@ -340,6 +350,7 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Identifier of the materialized result, used as the paging key.",
     )
+    delivery = serializers.CharField(required=False, help_text="How the run returned its rows.")
     error = serializers.CharField(
         required=False,
         allow_null=True,
@@ -408,9 +419,8 @@ class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
         child=serializers.ListField(help_text="A single result row as a list of cell values."),
         required=False,
         help_text=(
-            "SQL (hogql) runs only: the full capped row set for client-side paging, present while the "
-            "query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel "
-            "(python/duckdb) runs, which keep only the envelope's first_page preview."
+            "Capped SQL rows for paging, available from the query cache or a retained app release. "
+            "The result envelope also includes the first saved page."
         ),
     )
 

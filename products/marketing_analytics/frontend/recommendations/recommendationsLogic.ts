@@ -98,6 +98,7 @@ export interface recommendationsLogicValues {
     recommendations: MarketingAnalyticsRecommendation[]
     activeRecommendations: MarketingAnalyticsRecommendation[]
     resolvedCount: number
+    detectedCount: number
     totals: RecommendationTotal[]
     activeGroups: RecommendationGroup[]
     groups: RecommendationGroup[]
@@ -342,6 +343,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 recommendations: MarketingAnalyticsRecommendation[],
                 activeRecommendations: MarketingAnalyticsRecommendation[]
             ): number => recommendations.length - activeRecommendations.length,
+        ],
+        detectedCount: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): number =>
+                recommendations.filter((recommendation) => !recommendation.resolution && recommendation.detectedChange)
+                    .length,
         ],
         totals: [
             (s) => [s.activeRecommendations],

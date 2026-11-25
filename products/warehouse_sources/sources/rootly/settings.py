@@ -115,6 +115,38 @@ ROOTLY_ENDPOINTS: dict[str, RootlyEndpointConfig] = {
     "escalation_policies": RootlyEndpointConfig(name="escalation_policies", path="/escalation_policies"),
     "workflows": RootlyEndpointConfig(name="workflows", path="/workflows"),
     "statuses": RootlyEndpointConfig(name="statuses", path="/statuses"),
+    "incident_roles": RootlyEndpointConfig(name="incident_roles", path="/incident_roles"),
+    # Rotations are listed only per schedule and carry no timestamps, so there is nothing to partition on.
+    "schedule_rotations": RootlyEndpointConfig(
+        name="schedule_rotations",
+        path="/schedules/{schedule_id}/schedule_rotations",
+        fanout=DependentEndpointConfig(
+            parent_name="schedules",
+            resolve_param="schedule_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "schedule_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        primary_keys=["schedule_id", "id"],
+        partition_key=None,
+        should_sync_default=False,
+    ),
+    # Rotation members are listed only per rotation, so this fans out two levels: schedules, then
+    # each schedule's rotations.
+    "schedule_rotation_users": RootlyEndpointConfig(
+        name="schedule_rotation_users",
+        path="/schedule_rotations/{schedule_rotation_id}/schedule_rotation_users",
+        fanout=DependentEndpointConfig(
+            parent_name="schedule_rotations",
+            resolve_param="schedule_rotation_id",
+            resolve_field="id",
+            include_from_parent=["schedule_id"],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        primary_keys=["schedule_rotation_id", "id"],
+        should_sync_default=False,
+    ),
     # Small enumeration resources whose timestamp columns we haven't confirmed against the live API.
     # Partitioning a handful of rows buys nothing, so don't risk partitioning on an absent field.
     "environments": RootlyEndpointConfig(name="environments", path="/environments", partition_key=None),

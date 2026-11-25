@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 import pytest
@@ -110,7 +111,36 @@ class TestClearGithubEnvFromGitlabSandbox:
             check=True,
         )
         subprocess.run(
+            [
+                "git",
+                "-C",
+                str(github),
+                "config",
+                "remote.origin.pushurl",
+                "https://x-access-token:push@api.github.com/old/repo.git",
+            ],
+            check=True,
+        )
+        (github / ".git" / "shared.gitconfig").write_text(
+            '[url "https://x-access-token:included@github.com/"]\n    insteadOf = gh:\n'
+        )
+        subprocess.run(
+            ["git", "-C", str(github), "config", "include.path", "shared.gitconfig"],
+            check=True,
+        )
+        subprocess.run(
             ["git", "-C", str(gitlab), "remote", "add", "origin", "https://oauth2:fake@gitlab.com/new/repo.git"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(github),
+                "config",
+                "http.https://gitlab.com/.extraheader",
+                "Authorization: Basic gitlab",
+            ],
             check=True,
         )
         nested = github / "node_modules" / "dep"
@@ -120,18 +150,74 @@ class TestClearGithubEnvFromGitlabSandbox:
             ["git", "-C", str(nested), "remote", "add", "origin", "https://x-access-token:nested@github.com/dep.git"],
             check=True,
         )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(github),
+                "config",
+                "url.https://x-access-token:rewrite@github.com/.insteadOf",
+                "https://github.com/",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(github),
+                "config",
+                "http.https://github.com/.extraheader",
+                "Authorization: Basic stale",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(github), "config", "credential.https://github.com.helper", "!echo stale"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(github), "config", "credential.https://gitlab.com.helper", "!echo gitlab"],
+            check=True,
+        )
+        submodule_config = github / ".git" / "modules" / "dep" / "config"
+        submodule_config.parent.mkdir(parents=True)
+        submodule_config.write_text(
+            '[remote "origin"]\n    url = https://x-access-token:submodule@www.github.com./old/dep.git\n'
+        )
+        credentials = tmp_path / "credentials"
+        credentials.write_text(
+            "https://x-access-token:stored@github.com/old/repo.git\nhttps://oauth2:gitlab@gitlab.com/new/repo.git\n"
+        )
+        subprocess.run(
+            ["git", "-C", str(github), "config", "credential.helper", f"store --file={credentials}"],
+            check=True,
+        )
+        env_file = tmp_path / "agent-github-env"
+        env_file.write_bytes(b"GITHUB_TOKEN=old\x00GH_TOKEN=old\x00KEEP=value\x00")
         sandbox = MagicMock()
         sandbox.write_file.return_value = _ok()
 
         def execute(command, **kwargs):
             if command.startswith("chmod "):
                 return _ok()
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            env = {**os.environ, "HOME": str(tmp_path / "home")}
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, env=env)
             return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
 
         sandbox.execute.side_effect = execute
-        with patch(
-            "products.tasks.backend.temporal.process_task.sandbox_credentials.SANDBOX_REPOSITORIES_ROOT", str(tmp_path)
+        (tmp_path / "home").mkdir()
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_WORKING_DIR",
+                str(tmp_path),
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_HOME",
+                str(tmp_path / "home"),
+            ),
+            patch("products.tasks.backend.temporal.process_task.sandbox_credentials.ENV_FILE", str(env_file)),
+            patch("products.tasks.backend.temporal.process_task.sandbox_credentials.GITHUB_ENV_FILE", str(env_file)),
         ):
             assert clear_github_env_from_gitlab_sandbox(sandbox) is True
         assert (
@@ -142,12 +228,77 @@ class TestClearGithubEnvFromGitlabSandbox:
             subprocess.check_output(["git", "-C", str(gitlab), "remote", "get-url", "origin"], text=True).strip()
             == "https://oauth2:fake@gitlab.com/new/repo.git"
         )
+        config_result = subprocess.run(
+            ["git", "-C", str(github), "config", "--get-regexp", "^(url|http)\\."], capture_output=True
+        )
+        assert (
+            config_result.stdout.decode().strip() == "http.https://gitlab.com/.extraheader Authorization: Basic gitlab"
+        )
+        assert (
+            subprocess.check_output(
+                ["git", "-C", str(github), "config", "--get", "remote.origin.pushurl"], text=True
+            ).strip()
+            == "https://api.github.com/old/repo.git"
+        )
+        assert (
+            subprocess.check_output(
+                ["git", "config", "--file", str(submodule_config), "--get", "remote.origin.url"], text=True
+            ).strip()
+            == "https://www.github.com./old/dep.git"
+        )
+        assert (
+            subprocess.check_output(
+                ["git", "-C", str(github), "config", "--get", "credential.helper"], text=True
+            ).strip()
+            == f"store --file={credentials}"
+        )
+        assert (
+            subprocess.run(
+                ["git", "-C", str(github), "config", "--get", "credential.https://github.com.helper"],
+                capture_output=True,
+            ).returncode
+            == 1
+        )
+        assert (
+            subprocess.check_output(
+                ["git", "-C", str(github), "config", "--get", "credential.https://gitlab.com.helper"], text=True
+            ).strip()
+            == "!echo gitlab"
+        )
+        assert credentials.read_text() == "https://oauth2:gitlab@gitlab.com/new/repo.git\n"
+        assert env_file.read_bytes() == b"KEEP=value\x00"
         assert sandbox.write_file.call_args.args[1] == b""
-        # The walk stops at each checkout root, so it never reads a working tree's build output.
         assert (
             subprocess.check_output(["git", "-C", str(nested), "remote", "get-url", "origin"], text=True).strip()
-            == "https://x-access-token:nested@github.com/dep.git"
+            == "https://github.com/dep.git"
         )
+
+    def test_missing_workspace_is_nothing_to_scrub(self, tmp_path):
+        sandbox = MagicMock()
+        sandbox.write_file.return_value = _ok()
+
+        def execute(command, **kwargs):
+            if command.startswith("chmod "):
+                return _ok()
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
+
+        sandbox.execute.side_effect = execute
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_WORKING_DIR",
+                str(tmp_path / "missing"),
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.ENV_FILE",
+                str(tmp_path / "missing-env"),
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_HOME",
+                str(tmp_path / "missing-home"),
+            ),
+        ):
+            assert clear_github_env_from_gitlab_sandbox(sandbox) is True
 
     def test_failed_remote_cleanup_fails_closed(self):
         sandbox = MagicMock()
@@ -801,6 +952,46 @@ class TestLiveSandboxRegistry:
         assert {(r.run_id, r.sandbox_id, r.repository) for r in result} == {
             (str(live_run.id), "sb-live", "org/live"),
         }
+
+    def test_owner_token_propagation_requires_a_persisted_slack_actor(self):
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        from products.tasks.backend.models import Task, TaskRun
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+            _live_sandboxes_for_user_integration,
+        )
+
+        organization = Organization.objects.create(name="slack propagation org")
+        team = Team.objects.create(organization=organization, name="slack propagation team")
+        owner = User.objects.create(email="slack-owner@example.com")
+        other_actor = User.objects.create(email="slack-actor@example.com")
+        integration = UserIntegration.objects.create(
+            user=owner, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="i", config={}, sensitive_config={}
+        )
+
+        def create_slack_run(name: str, actor_user_id: int | None) -> TaskRun:
+            task = Task.objects.create(
+                team=team, created_by=owner, repository=f"org/{name}", github_user_integration=integration
+            )
+            state: dict[str, str | int] = {
+                "sandbox_id": name,
+                "pr_authorship_mode": "user",
+                "interaction_origin": "slack",
+            }
+            if actor_user_id is not None:
+                state["slack_actor_user_id"] = actor_user_id
+            return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS, state=state)
+
+        unstamped_run = create_slack_run("sb-unstamped", None)
+        owner_run = create_slack_run("sb-owner", owner.id)
+        create_slack_run("sb-other", other_actor.id)
+
+        result = _live_sandboxes_for_user_integration(integration.id)
+
+        assert [(run.run_id, run.sandbox_id) for run in result] == [(str(owner_run.id), "sb-owner")]
+        assert all(run.run_id != str(unstamped_run.id) for run in result)
 
     def test_propagation_rechecks_provider_after_selection(self):
         from posthog.models import Organization, Team

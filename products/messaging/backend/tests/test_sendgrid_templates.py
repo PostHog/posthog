@@ -242,7 +242,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "value_after_a_loop_that_closes_its_own_tags",
                 '<h1>x</h1>{{#each xs}}<p>{{this}}</p>{{/each}}<a href="{{after}}">y</a>',
-                '<a href="{{ variables.after | join: "," }}">',
+                '<a href="{{ variables.after | join: &quot;,&quot; }}">',
             ),
             (
                 "global_unsubscribe_tag",
@@ -365,6 +365,37 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": '<p>{{name}} <a href="<%asm_preferences_raw_url%>">Go</a></p>'})
 
         assert converted.text == '{{ variables.name | join: "," }} Go ({{ unsubscribe_url }})'
+
+    @parameterized.expand(
+        [
+            ("escaped_tag", '<a \\{{x a="&}}{{name}}">'),
+            ("unsupported_tag", '<p title="{{x "a="b &amp;}}">'),
+        ]
+    )
+    def test_quotes_a_kept_tag_prints_stay_quotes(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html}).html
+
+        assert 'a="' in converted and "a=&quot;" not in converted
+
+    @parameterized.expand(
+        [
+            (
+                "with_a_brace_in_a_default",
+                '{{{body}}}<a href="{{insert url "default={x"}}">Go</a>',
+                'Go ({{ variables.url | default: "{x" | join: "," }})',
+            ),
+            ("after_raw_html", '{{{body}}}<a href="{{url}}">Go</a>', 'Go ({{ variables.url | join: "," }})'),
+            (
+                "next_to_a_tag_kept_as_text",
+                '<a href="https://example.com/{{a%20b}}?n={{n}}">Go</a>',
+                'Go (https://example.com/{{ "{{" }}a%20b}}?n={{ variables.n | join: "," }})',
+            ),
+        ]
+    )
+    def test_plain_text_reads_the_liquid_of_a_link(self, _name: str, html: str, expected: str) -> None:
+        converted = convert_version({"html_content": html})
+
+        assert expected in converted.text
 
     def test_an_unsubscribe_tag_kept_as_text_stays_whole_in_the_plain_part(self) -> None:
         converted = convert_version(

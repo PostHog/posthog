@@ -91,11 +91,6 @@ struct Committer {
 
 const NESTING_LIMIT_REFUSAL: &str = "exceeds the nesting limit";
 
-const STORED_TOO_DEEP_MESSAGE: &str = "This person's stored properties are nested more than 128 \
-     levels deep, so events for this person are not processed. This usually means an object such \
-     as a DOM element or an SDK instance was set as a person property. Delete this person to \
-     resume processing their events, and pass a plain value where the property is set.";
-
 const UPDATE_TOO_DEEP_MESSAGE: &str = "A person property update was rejected because a value is \
      nested more than 128 levels deep. This usually means an object such as a DOM element or an \
      SDK instance was passed as a property value. Pass a plain value instead.";
@@ -382,16 +377,6 @@ impl PersonHogLeaderService {
         }
     }
 
-    fn warn_stored_too_deep(&self, team_id: i64, person_uuid: String, reason: &str) {
-        if reason.contains("recursion limit") {
-            self.warnings.emit_depth(&DepthViolationWarning {
-                team_id,
-                person_uuid: Some(person_uuid),
-                message: STORED_TOO_DEEP_MESSAGE,
-            });
-        }
-    }
-
     fn warn_update_too_deep(&self, partition: u32, key: &PersonCacheKey, refusal: &Status) {
         if !refusal.message().ends_with(NESTING_LIMIT_REFUSAL) {
             return;
@@ -532,7 +517,7 @@ impl PersonHogLeaderService {
                     key.team_id, key.person_id
                 )))
             }
-            Err(LoadError::UnprocessableProperties { reason, row }) => {
+            Err(LoadError::UnprocessableProperties { reason, .. }) => {
                 counter!(
                     "personhog_leader_person_loads_total",
                     "source" => "pg", "outcome" => "unprocessable"
@@ -544,7 +529,6 @@ impl PersonHogLeaderService {
                     reason,
                     "stored person properties cannot be parsed"
                 );
-                self.warn_stored_too_deep(key.team_id, row.uuid, &reason);
                 Err(unprocessable_person_status())
             }
             Err(LoadError::Query(e)) => {
@@ -623,7 +607,7 @@ impl PersonHogLeaderService {
                     .increment(1);
                 Ok(person)
             }
-            Err(LoadError::UnprocessableProperties { reason, row }) => {
+            Err(LoadError::UnprocessableProperties { reason, .. }) => {
                 counter!("personhog_leader_revivals_total", "outcome" => "unprocessable")
                     .increment(1);
                 tracing::error!(
@@ -632,7 +616,6 @@ impl PersonHogLeaderService {
                     reason,
                     "stored person properties cannot be parsed"
                 );
-                self.warn_stored_too_deep(key.team_id, row.uuid, &reason);
                 Err(unprocessable_person_status())
             }
             Err(LoadError::Query(e)) => {

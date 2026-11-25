@@ -1,7 +1,8 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonModal } from '@posthog/lemon-ui'
 
 import { AccountPropertySelection } from './AccountPropertySelection'
-import { AccountPropertyOption } from './accountPropertyTypes'
+import { AccountPropertyDefaultOption, AccountPropertyOption } from './accountPropertyTypes'
 
 export interface AccountPropertyConfiguratorProps {
     isOpen: boolean
@@ -13,6 +14,8 @@ export interface AccountPropertyConfiguratorProps {
     onCancel: () => void
     saveDisabledReason?: string
     title?: string
+    resetOptions?: AccountPropertyDefaultOption[]
+    onReset?: (option: AccountPropertyDefaultOption) => void
 }
 
 export function AccountPropertyConfigurator({
@@ -25,6 +28,8 @@ export function AccountPropertyConfigurator({
     onCancel,
     saveDisabledReason,
     title = 'Pin properties',
+    resetOptions,
+    onReset,
 }: AccountPropertyConfiguratorProps): JSX.Element {
     return (
         <LemonModal
@@ -33,6 +38,31 @@ export function AccountPropertyConfigurator({
             onClose={onCancel}
             footer={
                 <>
+                    {resetOptions && resetOptions.length > 0 ? (
+                        <div className="mr-auto">
+                            <LemonMenu
+                                items={resetOptions.map((option) => ({
+                                    key: option.key,
+                                    label: option.label,
+                                    onClick: () => {
+                                        if (!saving) {
+                                            onReset?.(option)
+                                        }
+                                    },
+                                    'data-attr': `account-pinned-properties-reset-${option.key}`,
+                                }))}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    sideIcon={<IconChevronDown />}
+                                    disabledReason={saving ? 'Saving' : undefined}
+                                    data-attr="account-pinned-properties-reset"
+                                >
+                                    Reset to default
+                                </LemonButton>
+                            </LemonMenu>
+                        </div>
+                    ) : null}
                     <LemonButton type="secondary" onClick={onCancel} data-attr="account-pinned-properties-cancel">
                         Cancel
                     </LemonButton>
