@@ -178,4 +178,39 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "objectTypeId": "Prefixed object type ID (format `cot_<number>`) of the object.",
         },
     },
+    "activity_sentiment": {
+        "description": "Activity sentiment classifications of the workspace.",
+        "docs_url": "https://api.commonroom.io/docs/api-v2.html#tag/Activities",
+        "columns": {
+            "id": "Prefixed label ID (format `l_<number>`)",
+            "name": "Display name for the sentiment (e.g. positive, negative, neutral)",
+        },
+    },
+    "job_openings": {
+        "description": "Job postings of each organization in the workspace.",
+        "docs_url": "https://api.commonroom.io/docs/api-v2.html#tag/Job-Openings",
+        "columns": {
+            "id": "Prefixed job opening ID (format `j_<external id>`)",
+            "jobTitle": "Title of the job posting",
+            "url": "Link to the posting",
+            "firstSeenAt": "When the posting was first published or first discovered",
+            "isClosed": "Whether the posting is closed. Also true when the posting has not been observed for 30 days, even if the source has not marked it closed.",
+            "location": "Location of the job posting",
+            "jobDescription": "Full posting text",
+            "organizationId": "Prefixed organization ID (format `o_<number>`) the job opening was read for.",
+        },
+    },
+    "news_items": {
+        "description": "News articles that mention each organization in the workspace.",
+        "docs_url": "https://api.commonroom.io/docs/api-v2.html#tag/News-Items",
+        "columns": {
+            "id": "Prefixed news item ID (format `n_<external id>`)",
+            "title": "Title of the article",
+            "url": "Link to the article",
+            "publishedAt": "When the article was published",
+            "category": "Category name, e.g. `receives_financing`",
+            "articleSentence": "The sentence from the article that mentions the organization",
+            "organizationId": "Prefixed organization ID (format `o_<number>`) the news item was read for.",
+        },
+    },
 }

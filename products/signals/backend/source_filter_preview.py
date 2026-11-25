@@ -114,9 +114,17 @@ class _PreviewTable:
 
 
 def preview_source_filter(
-    *, team: Team, user: User, source_product: str, source_type: str, expression: str
+    *,
+    team: Team,
+    user: User,
+    source_product: str,
+    source_type: str,
+    expression: str,
+    scope_ids: list[str] | None = None,
 ) -> SourceFilterPreview:
     """Evaluate an unsaved expression against the records emission would read over the lookback window.
+
+    `scope_ids` replaces the source's saved allowlist when it is not None. Pass validated, stripped ids.
 
     Raises `FilterValidationError("not_available")` when this organization cannot write the source's filter.
     The query runs as `user`, under warehouse access control, unlike emission, which reads as the system.
@@ -165,7 +173,9 @@ def preview_source_filter(
     for table in tables:
         try:
             previews.append(
-                _preview_table(team, user, database, source, record_columns, table, expression, source_config)
+                _preview_table(
+                    team, user, database, source, record_columns, table, expression, source_config, scope_ids
+                )
             )
         except TableAccessDeniedError:
             return outcome(SourceFilterPreviewStatus.ACCESS_DENIED)
@@ -214,6 +224,7 @@ def _preview_table(
     table: _PreviewTable,
     expression: str,
     source_config: object,
+    scope_ids_override: list[str] | None,
 ) -> SourceFilterPreview:
     columns = {
         name: field for name, field in database.get_table(table.name).fields.items() if isinstance(field, DatabaseField)
@@ -237,7 +248,9 @@ def _preview_table(
         conditions.append(parse_expr(config.where_clause))
     if config.emittable_where:
         conditions.append(parse_expr(config.emittable_where))
-    scope_ids = scope_ids_from_source_config(config, source_config)
+    scope_ids = (
+        scope_ids_from_source_config(config, source_config) if scope_ids_override is None else scope_ids_override
+    )
     if scope_ids and config.scope_field:
         conditions.append(
             parse_expr(

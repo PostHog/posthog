@@ -1,19 +1,25 @@
 import gc
 import json
 import asyncio
-from collections.abc import AsyncIterator, Iterator
-from contextlib import aclosing
+import datetime as dt
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import aclosing, contextmanager
 from threading import Event
 from typing import Any, cast
+from urllib.parse import parse_qsl
+from zoneinfo import ZoneInfo
 
+import time_machine
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+import httpx
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -23,13 +29,17 @@ from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.waiting import wait_until
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.v2 import query_batch as query_batch_module
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
+from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
 
 _LAST_7_DAYS = {"from": "now-7d", "to": "now"}
@@ -72,6 +82,8 @@ class _QueryBatchMixin:
         if flag == "dashboard-v2-users":
             email = (kwargs.get("person_properties") or {}).get("email")
             return self.dashboard_v2_users is None or email in self.dashboard_v2_users
+        if flag in ("metrics", "logs-metrics-snuffle-api"):
+            return True
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
     def _batch(self, queries: list[dict], **body: Any) -> Any:
@@ -314,6 +326,8 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self._enable_flag()
@@ -339,6 +353,381 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
+
+
+_NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)
+_LAST_HOUR = {"from": "now-1h", "to": "now"}
+
+
+def _telemetry(language: str, query: str, **options: Any) -> dict:
+    return {"target": {"refId": language, "language": language, "query": query}, "time": _LAST_HOUR, **options}
+
+
+def _snuffle(status_code: int, payload: dict) -> MagicMock:
+    response = MagicMock(spec=requests.Response)
+    response.status_code = status_code
+    response.json.return_value = payload
+    response.iter_content.return_value = [json.dumps(payload).encode()]
+    response.headers = {}
+    return response
+
+
+@contextmanager
+def _snuffle_requests(status_code: int = 200, payload: dict | None = None) -> Iterator[MagicMock]:
+    payload = payload if payload is not None else _matrix(0)
+    with patch(
+        "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(status_code, payload)
+    ) as sent:
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            sent(request.method, str(request.url), data=dict(parse_qsl(request.content.decode())))
+            return httpx.Response(status_code, json=payload)
+
+        with patch(
+            "posthog.api.snuffle_proxy.internal_httpx_async_client",
+            side_effect=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(handle), **kwargs),
+        ):
+            yield sent
+
+
+def _matrix(start: int) -> dict:
+    return {
+        "status": "success",
+        "data": {"resultType": "matrix", "result": [{"metric": {"job": "api"}, "values": [[start, "2"]]}]},
+    }
+
+
+class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._enable_flag()
+        self.enterContext(
+            override_settings(SNUFFLE_METRICS_URL="http://metrics.test", SNUFFLE_APM_URL="http://logs.test")
+        )
+
+    def _snuffle_calls(self, request: MagicMock) -> dict[str, dict]:
+        return {call.args[1]: call.kwargs["data"] for call in request.call_args_list}
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_runs_promql_through_the_metrics_query_cache_and_logql_uncached(self) -> None:
+        queries = [
+            _telemetry("promql", "sum(rate(http_requests_total[5m]))"),
+            _telemetry("logql", 'sum(count_over_time({service_name="api"}[1m]))'),
+        ]
+        with _snuffle_requests(200, _matrix(int(_NOW.timestamp()) - 3600)) as request:
+            promql, logql = self._lines(queries)
+            sent = self._snuffle_calls(request)
+            request.reset_mock()
+            cached_promql, rerun_logql = self._lines(queries)
+
+        self.assertEqual(promql["result"]["cache"]["hit"], False)
+        self.assertEqual(promql["result"]["result"]["results"][0]["labels"], {"job": "api"})
+        self.assertEqual(sent["http://metrics.test/api/v1/query_range"]["step"], "60")
+        self.assertEqual(logql["result"]["result"]["results"]["resultType"], "matrix")
+        logql_sent = sent["http://logs.test/loki/api/v1/query_range"]
+        self.assertEqual(logql_sent["step"], "15")
+        self.assertEqual(float(logql_sent["end"]), _NOW.timestamp() - 7)
+        self.assertEqual(cached_promql["result"]["cache"], {**promql["result"]["cache"], "hit": True})
+        self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
+        self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
+
+    @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
+    def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:
+        with _snuffle_requests(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"}):
+            lines = self._lines([_telemetry(language, query)])
+
+        self.assertEqual(lines, [{"i": 0, "error": "parse error at char 5"}])
+
+    def test_a_relative_logql_range_moves_with_the_clock(self) -> None:
+        sent_ends = []
+        for moment in (_NOW, _NOW + dt.timedelta(minutes=5)):
+            with (
+                time_machine.travel(moment, tick=False),
+                _snuffle_requests() as request,
+            ):
+                self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+            sent_ends.append(float(request.call_args.kwargs["data"]["end"]))
+
+        self.assertEqual(sent_ends[1] - sent_ends[0], 300)
+
+    def test_an_oversized_logql_response_is_an_error_line_not_a_buffered_body(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.telemetry.MAX_LOGQL_RESPONSE_BYTES", 10),
+            _snuffle_requests(),
+        ):
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertIn("too much data", lines[0]["error"])
+
+    def test_a_logql_body_that_outlasts_the_timeout_is_an_error_line(self) -> None:
+        class StalledBody(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield b"{"
+                await asyncio.Event().wait()
+
+        response = httpx.Response(200, stream=StalledBody())
+        with (
+            override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=0.01),
+            patch(
+                "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                side_effect=lambda **kwargs: httpx.AsyncClient(
+                    transport=httpx.MockTransport(lambda _request: response), **kwargs
+                ),
+            ),
+        ):
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertEqual(lines, [{"i": 0, "error": "The LogQL query timed out. Try a shorter date range."}])
+        self.assertTrue(response.is_closed)
+
+    @parameterized.expand([("headers", False), ("body", True)])
+    @patch.object(query_batch_module, "MAX_BATCHES_PER_USER", query_batch_module.MAX_BATCHES_PER_ORG)
+    @patch.object(query_batch_module, "MAX_OPEN_BATCHES_PER_USER", query_batch_module.MAX_OPEN_BATCHES_PER_ORG)
+    def test_disconnecting_logql_batches_closes_upstream_and_releases_admission(
+        self, _name: str, send_headers: bool
+    ) -> None:
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="logs", language=QueryBatchLanguage.LOGQL, query='{service_name="api"}'),
+                date_from="now-1h",
+                date_to="now",
+            )
+        ]
+        batches = [
+            QueryBatch(
+                team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id=f"disconnect-{index}"
+            )
+            for index in range(4)
+        ]
+
+        async def exercise() -> list[dict]:
+            started: asyncio.Queue[None] = asyncio.Queue()
+            disconnected: asyncio.Queue[None] = asyncio.Queue()
+            request_count = 0
+            loop = asyncio.get_running_loop()
+
+            class StalledBody(httpx.AsyncByteStream):
+                async def __aiter__(self) -> AsyncIterator[bytes]:
+                    loop.call_soon_threadsafe(started.put_nowait, None)
+                    yield b"{"
+                    await asyncio.Event().wait()
+
+                async def aclose(self) -> None:
+                    loop.call_soon_threadsafe(disconnected.put_nowait, None)
+
+            async def upstream(request: httpx.Request) -> httpx.Response:
+                nonlocal request_count
+                request_count += 1
+                self.assertEqual(request.headers["X-Team-ID"], str(self.team.pk))
+                if request_count <= 3:
+                    if send_headers:
+                        return httpx.Response(200, stream=StalledBody())
+                    loop.call_soon_threadsafe(started.put_nowait, None)
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        loop.call_soon_threadsafe(disconnected.put_nowait, None)
+                return httpx.Response(200, json=_matrix(0))
+
+            async def consume(batch: QueryBatch) -> list[dict]:
+                async with aclosing(cast(Any, batch.astream())) as stream:
+                    return [json.loads(chunk) async for chunk in stream if chunk.strip()]
+
+            readers: list[asyncio.Task[list[dict]]] = []
+            try:
+                with (
+                    override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=60),
+                    patch(
+                        "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                        side_effect=lambda **kwargs: httpx.AsyncClient(
+                            transport=httpx.MockTransport(upstream), **kwargs
+                        ),
+                    ),
+                ):
+                    readers = [asyncio.create_task(consume(batch)) for batch in batches[:3]]
+                    for _ in readers:
+                        await asyncio.wait_for(started.get(), timeout=10)
+                    for reader in readers:
+                        reader.cancel()
+                    await asyncio.gather(*readers, return_exceptions=True)
+                    for _ in readers:
+                        await asyncio.wait_for(disconnected.get(), timeout=5)
+                    await asyncio.to_thread(
+                        wait_until,
+                        lambda: not query_batch_module._org_batches,
+                    )
+                    return await asyncio.wait_for(consume(batches[3]), timeout=10)
+            finally:
+                for reader in readers:
+                    reader.cancel()
+                await asyncio.gather(*readers, return_exceptions=True)
+
+        try:
+            lines = asyncio.run(exercise())
+        finally:
+            for batch in batches:
+                batch._close(complete=False)
+                batch._watchdog.cancel()
+                batch._open.release()
+
+        self.assertEqual(lines[0]["result"]["result"]["results"], _matrix(0)["data"])
+
+    @patch.object(query_batch_module, "MAX_OPEN_BATCHES_PER_USER", query_batch_module.MAX_OPEN_BATCHES_PER_ORG)
+    def test_timeout_and_disconnect_hold_admission_until_http_cleanup_finishes(self) -> None:
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="logs", language=QueryBatchLanguage.LOGQL, query='{service_name="api"}'),
+                date_from="now-1h",
+                date_to="now",
+            )
+        ]
+        batches = [
+            QueryBatch(
+                team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id=f"cleanup-{index}"
+            )
+            for index in range(3)
+        ]
+
+        async def exercise() -> None:
+            loop = asyncio.get_running_loop()
+            closing: asyncio.Queue[Callable[[], None]] = asyncio.Queue()
+            cleanup_complete = Event()
+            request_count = 0
+
+            class GatedBody(httpx.AsyncByteStream):
+                async def __aiter__(self) -> AsyncIterator[bytes]:
+                    yield b"{"
+                    await asyncio.Event().wait()
+
+                async def aclose(self) -> None:
+                    worker_loop = asyncio.get_running_loop()
+                    allow_close = asyncio.Event()
+
+                    def release() -> None:
+                        try:
+                            worker_loop.call_soon_threadsafe(allow_close.set)
+                        except RuntimeError:
+                            pass
+
+                    loop.call_soon_threadsafe(closing.put_nowait, release)
+                    await allow_close.wait()
+                    cleanup_complete.set()
+
+            def upstream(_request: httpx.Request) -> httpx.Response:
+                nonlocal request_count
+                request_count += 1
+                return (
+                    httpx.Response(200, stream=GatedBody())
+                    if request_count == 1
+                    else httpx.Response(200, json=_matrix(0))
+                )
+
+            async def consume(batch: QueryBatch) -> list[dict]:
+                async with aclosing(cast(Any, batch.astream())) as stream:
+                    return [json.loads(chunk) async for chunk in stream if chunk.strip()]
+
+            release_cleanup: Callable[[], None] | None = None
+            reader: asyncio.Task[list[dict]] | None = None
+            worker: asyncio.Future[None] | None = None
+            with (
+                override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=0.01),
+                patch("products.dashboards.backend.v2.query_batch.MAX_BATCHES_PER_ORG", 1),
+                patch(
+                    "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                    side_effect=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(upstream), **kwargs),
+                ),
+            ):
+                try:
+                    reader = asyncio.create_task(consume(batches[0]))
+                    release_cleanup = await asyncio.wait_for(closing.get(), timeout=5)
+                    worker = asyncio.wrap_future(batches[0]._futures[0])
+                    reader.cancel()
+                    await asyncio.gather(reader, return_exceptions=True)
+                    await asyncio.to_thread(wait_until, batches[0]._logql_cancelled.is_set)
+                    done, _ = await asyncio.wait({worker}, timeout=1)
+                    self.assertFalse(done, "The worker finished before its HTTP response cleanup was released")
+                    blocked = await consume(batches[1])
+                    self.assertEqual(
+                        blocked, [{"i": 0, "error": "Too many dashboards are loading at once. Try again shortly."}]
+                    )
+                    release_cleanup()
+                    release_cleanup = None
+                    await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), timeout=5)
+                    self.assertTrue(cleanup_complete.is_set())
+                    await asyncio.to_thread(wait_until, lambda: not query_batch_module._org_batches)
+                    with override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=60):
+                        fresh = await consume(batches[2])
+                    self.assertEqual(fresh[0]["result"]["result"]["results"], _matrix(0)["data"])
+                finally:
+                    if release_cleanup is not None:
+                        release_cleanup()
+                    if reader is not None:
+                        reader.cancel()
+                        await asyncio.gather(reader, return_exceptions=True)
+                    if worker is not None:
+                        await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), timeout=5)
+
+        try:
+            asyncio.run(exercise())
+        finally:
+            for batch in batches:
+                batch._close(complete=False)
+                batch._watchdog.cancel()
+                batch._open.release()
+
+    @patch("products.dashboards.backend.v2.telemetry.budget_enabled", return_value=True)
+    @patch("products.dashboards.backend.v2.telemetry.api_queries_budget_enforcement_enabled", return_value=True)
+    @patch("products.dashboards.backend.v2.telemetry.refill_and_read", return_value=0.0)
+    @patch("products.dashboards.backend.v2.telemetry.events_last_year_for", return_value=0)
+    def test_an_exhausted_byte_budget_refuses_logql_before_reaching_snuffle(
+        self, events_last_year: MagicMock, *_mocks: MagicMock
+    ) -> None:
+        logql = _telemetry("logql", 'sum(rate({service_name="api"}[1m]))')
+        with _snuffle_requests() as request:
+            lines = self._lines([logql, {**logql, "target": {**logql["target"], "refId": "b"}}])
+
+        refused = "This project has used its query budget for now. Try again later."
+        self.assertEqual(lines, [{"i": 0, "error": refused}, {"i": 1, "error": refused}])
+        request.assert_not_called()
+        # The budget spec reads Postgres, so the batch resolves it once for all its LogQL targets.
+        events_last_year.assert_called_once_with(self.team.pk)
+
+    def test_a_huge_relative_date_fails_only_its_own_panel(self) -> None:
+        lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
+
+        self.assertEqual(lines, [{"i": 0, "error": "Unsupported time expression: 'now-99999999y'."}])
+
+    @parameterized.expand([("no_access", "none", False), ("viewer", "viewer", True)])
+    def test_a_member_runs_logql_only_with_logs_access(self, _name: str, access_level: str, runs: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="logs", team=self.team, access_level=access_level)
+        self.client.force_login(self._create_user("logs-member@posthog.com", level=OrganizationMembership.Level.MEMBER))
+
+        with _snuffle_requests() as request:
+            [line] = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        if runs:
+            self.assertEqual(line["result"]["result"]["results"], _matrix(0)["data"])
+        else:
+            self.assertEqual(
+                line,
+                {"i": 0, "error": "Access control failure. You don't have `viewer` access to the `logs` resource."},
+            )
+            request.assert_not_called()
+
+    @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])
+    def test_flag_off_runs_nothing(self, language: str, query: str) -> None:
+        self.flag_on_for_project = self.team.pk + 1
+        with _snuffle_requests() as request:
+            response = self._batch([_telemetry(language, query)])
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        request.assert_not_called()
 
 
 class TestResolveQuery(SimpleTestCase):
@@ -397,3 +786,93 @@ class TestResolveQuery(SimpleTestCase):
 
         with self.assertRaises(InvalidTarget):
             resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))
+
+    @parameterized.expand(
+        [
+            # (name, time from, min interval, max data points, MetricsQuery interval)
+            ("an_hour_stays_on_the_scrape_interval", "now-1h", None, None, "minute"),
+            ("a_week_coarsens_to_fit_the_points", "now-7d", None, None, "hour"),
+            ("more_points_give_a_finer_step", "now-7d", None, 3000, "minute_5"),
+            ("the_min_interval_wins", "now-1h", "5m", None, "minute_5"),
+        ]
+    )
+    def test_promql_keeps_its_range_relative_and_picks_a_stable_step(
+        self, _name: str, date_from: str, interval: str | None, max_points: int | None, expected: str
+    ) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        resolved = resolve_query(
+            QueryBatchInput(
+                target=target, date_from=date_from, date_to="now", interval=interval, max_data_points=max_points
+            )
+        )
+
+        self.assertEqual(resolved.query["dateRange"], {"date_from": to_posthog_date(date_from), "date_to": None})
+        self.assertEqual(resolved.query["interval"], expected)
+
+    def test_months_are_calendar_months_and_naive_dates_are_in_the_project_timezone(self) -> None:
+        at = dt.datetime(2026, 11, 20, 12, tzinfo=dt.UTC)
+        berlin = ZoneInfo("Europe/Berlin")
+
+        self.assertEqual(time_range("now-1M", "now", at=at).start, dt.datetime(2026, 10, 20, 12, tzinfo=dt.UTC))
+        self.assertEqual(
+            time_range("2026-11-01T00:00:00", "now", tz=berlin, at=at).start,
+            dt.datetime(2026, 11, 1, tzinfo=berlin),
+        )
+        across_dst = time_range("now-30m", "now", tz=berlin, at=dt.datetime(2026, 3, 29, 1, 15, tzinfo=dt.UTC))
+        self.assertEqual(across_dst.end - across_dst.start, dt.timedelta(minutes=30))
+
+    @parameterized.expand(
+        [
+            ("a_min_interval_past_the_ladder", "now-30d", "2w", None),
+            ("a_range_too_long_for_the_points", "now-30d", None, 1),
+        ]
+    )
+    def test_promql_rejects_a_step_past_a_week(
+        self, _name: str, date_from: str, interval: str | None, max_points: int | None
+    ) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        with self.assertRaises(InvalidTarget):
+            resolve_query(
+                QueryBatchInput(
+                    target=target, date_from=date_from, date_to="now", interval=interval, max_data_points=max_points
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("a_min_interval_past_the_ladder", dt.timedelta(days=30), "2w", None, 1209600),
+            ("a_range_too_long_for_the_points", dt.timedelta(days=30), None, 1, 2592000),
+        ]
+    )
+    def test_logql_keeps_both_step_constraints_past_the_ladder(
+        self, _name: str, span: dt.timedelta, interval: str | None, max_points: int | None, expected: int
+    ) -> None:
+        step = pick_step(span, max_data_points=max_points, min_interval=interval, is_promql=False)
+
+        self.assertEqual(step.seconds, expected)
+
+    @parameterized.expand(
+        [
+            ("a_filter_quoting_a_function_name", '{service_name="api"} |= "rate("', True),
+            ("a_backtick_filter", '{service_name="api"} |~ `count_over_time(`', True),
+            ("a_metric_query", 'sum(rate({service_name="api"} |= "x" [1m]))', False),
+            ("an_escaped_quote_inside_a_filter", r'{service_name="api"} |= "a\"rate("', True),
+            ("an_unterminated_filter", '{service_name="api"} |= "rate(' + '\\"' * 20000, True),
+        ]
+    )
+    def test_classifies_logql_by_its_functions_not_its_strings(self, _name: str, logql: str, expected: bool) -> None:
+        self.assertEqual(returns_log_lines(logql), expected)
+
+    def test_logql_has_no_scrape_interval_floor(self) -> None:
+        self.assertEqual(
+            pick_step(dt.timedelta(hours=1), max_data_points=None, min_interval=None, is_promql=False),
+            Step(seconds=15, interval="second_15"),
+        )
+
+    def test_rejects_an_unknown_min_interval(self) -> None:
+        target = QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.PROMQL, query="up")
+
+        with self.assertRaises(InvalidTarget):
+            resolve_query(QueryBatchInput(target=target, date_from="now-1h", date_to="now", interval="hour"))
