@@ -11836,6 +11836,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter1Response;
       schema_map: ConversionGoalFilter1SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11869,6 +11871,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: ConversionGoalFilter2Response;
       schema_map: ConversionGoalFilter2SchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -11907,6 +11911,8 @@ export namespace Schemas {
       schema_map: ConversionGoalFilter3SchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -24972,18 +24978,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `frames` - Frames
-     * * `result` - Result
-     */
-    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
-
-
-    export const CachedTileFormatEnum = {
-      Frames: 'frames',
-      Result: 'result',
-    } as const;
-
-    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25090,6 +25084,18 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type ResultFormatEnum = typeof ResultFormatEnum[keyof typeof ResultFormatEnum];
+
+
+    export const ResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
     export interface FrameMeta {
       /**
          * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -25169,9 +25175,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
     }
@@ -32939,6 +32945,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter1Response;
       schema_map?: PartialConversionGoalFilter1SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -32970,6 +32977,7 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: PartialConversionGoalFilter2Response;
       schema_map?: PartialConversionGoalFilter2SchemaMap;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -33006,6 +33014,7 @@ export namespace Schemas {
       schema_map?: PartialConversionGoalFilter3SchemaMap;
       table_name?: string | null;
       timestamp_field?: string | null;
+      use_in_recommendations?: boolean | null;
       version?: number | null;
     }
 
@@ -34445,6 +34454,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties
+     */
+    export type WarehousePersonPropertyMissingRowBehaviorEnum = typeof WarehousePersonPropertyMissingRowBehaviorEnum[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnum];
+
+
+    export const WarehousePersonPropertyMissingRowBehaviorEnum = {
+      Keep: 'keep',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `tracked` - tracked
      * * `ignored` - ignored
      */
@@ -34536,6 +34557,8 @@ export namespace Schemas {
       readonly existing: number;
       /** Property updates written or produced to the ingestion pipeline. */
       readonly produced: number;
+      /** People whose mapped properties were removed after they left the source table. */
+      readonly removed: number;
       /** Changed rows skipped because no existing account, person, or group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
@@ -34577,6 +34600,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -34728,6 +34756,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -36073,9 +36106,9 @@ export namespace Schemas {
       insight?: CachedTileInsightResult;
       /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
        *
-       * * `frames` - Frames
-       * * `result` - Result */
-      format?: CachedTileFormatEnum;
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /** Chart-ready frames, one per series. Present when format is 'frames'. */
       frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
@@ -43018,8 +43051,6 @@ export namespace Schemas {
     export interface EmailInfrastructureHealth {
       /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
       readonly emails_sent_at_least: number;
-      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-      readonly delivery_rate: number;
       /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
       readonly bounce_rate: number;
       /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -50456,7 +50487,8 @@ export namespace Schemas {
      * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
      * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `primary_metric_count` - Primary metrics of the experiment
+     * * `secondary_metric_count` - Secondary metrics of the experiment
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
      * * `metric_count` - Metrics that the calculation computes
      * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50467,6 +50499,7 @@ export namespace Schemas {
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
      * * `metric_name` - The name of a metric
@@ -50485,6 +50518,8 @@ export namespace Schemas {
      * * `forced_count` - Users or groups that a release condition with a variant override served
      * * `forced_percentage` - forced_count as a share of variant_matched_count
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+     * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50493,6 +50528,8 @@ export namespace Schemas {
      * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
      * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `cohort_count` - Cohorts that the exposure criteria filter on
+     * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
      * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -50521,6 +50558,7 @@ export namespace Schemas {
       UnservedExposedPercentage: 'unserved_exposed_percentage',
       OnlyCountMaturedUsers: 'only_count_matured_users',
       PrimaryMetricCount: 'primary_metric_count',
+      SecondaryMetricCount: 'secondary_metric_count',
       WaitingMetricCount: 'waiting_metric_count',
       MetricCount: 'metric_count',
       CompletedMetricCount: 'completed_metric_count',
@@ -50531,6 +50569,7 @@ export namespace Schemas {
       FlagRolledOut: 'flag_rolled_out',
       ShippedVariant: 'shipped_variant',
       FlagLastCalledAt: 'flag_last_called_at',
+      FlagCalled: 'flag_called',
       SinceStartHours: 'since_start_hours',
       DailyCalculationEndsAt: 'daily_calculation_ends_at',
       MetricName: 'metric_name',
@@ -50549,6 +50588,8 @@ export namespace Schemas {
       ForcedCount: 'forced_count',
       ForcedPercentage: 'forced_percentage',
       TrafficSinceAt: 'traffic_since_at',
+      HistorySinceAt: 'history_since_at',
+      ChangeCount: 'change_count',
       ChangedAt: 'changed_at',
       BeforeExposure: 'before_exposure',
       ChangedSetting: 'changed_setting',
@@ -50557,6 +50598,8 @@ export namespace Schemas {
       BeforeFilters: 'before_filters',
       AfterFilters: 'after_filters',
       FlagServiceCallPercentage: 'flag_service_call_percentage',
+      CohortCount: 'cohort_count',
+      DynamicCohortCount: 'dynamic_cohort_count',
       Event: 'event',
       EventReceived: 'event_received',
       InvalidMetricCount: 'invalid_metric_count',
@@ -50606,7 +50649,8 @@ export namespace Schemas {
        * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
        * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `primary_metric_count` - Primary metrics of the experiment
+       * * `secondary_metric_count` - Secondary metrics of the experiment
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
        * * `metric_count` - Metrics that the calculation computes
        * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50617,6 +50661,7 @@ export namespace Schemas {
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
        * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
        * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
        * * `metric_name` - The name of a metric
@@ -50635,6 +50680,8 @@ export namespace Schemas {
        * * `forced_count` - Users or groups that a release condition with a variant override served
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50643,6 +50690,8 @@ export namespace Schemas {
        * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
        * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `cohort_count` - Cohorts that the exposure criteria filter on
+       * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
        * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -50673,7 +50722,8 @@ export namespace Schemas {
        * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
        * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
        * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `primary_metric_count` - Primary metrics of the experiment
+       * * `secondary_metric_count` - Secondary metrics of the experiment
        * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
        * * `metric_count` - Metrics that the calculation computes
        * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -50684,6 +50734,7 @@ export namespace Schemas {
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
        * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
        * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `flag_called` - Whether PostHog has recorded a call of the feature flag
        * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
        * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
        * * `metric_name` - The name of a metric
@@ -50702,6 +50753,8 @@ export namespace Schemas {
        * * `forced_count` - Users or groups that a release condition with a variant override served
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50710,6 +50763,8 @@ export namespace Schemas {
        * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
        * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `cohort_count` - Cohorts that the exposure criteria filter on
+       * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
        * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -62354,6 +62409,10 @@ export namespace Schemas {
     export const MarketingAnalyticsRecommendationsDataGapKind = {
       ConversionActionTablesNotSynced: 'conversion_action_tables_not_synced',
       PerformanceMaxSearchTermsCountPrimaryConversions: 'performance_max_search_terms_count_primary_conversions',
+      PosthogConversionsNotReady: 'posthog_conversions_not_ready',
+      PosthogConversionGoalsUnusable: 'posthog_conversion_goals_unusable',
+      PosthogCampaignsUnmatched: 'posthog_campaigns_unmatched',
+      PosthogConversionsFailed: 'posthog_conversions_failed',
     } as const;
 
     export interface MarketingAnalyticsRecommendationsDataGap {
@@ -74563,6 +74622,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsActionConversionGoalResponse;
       schema_map: MarketingAnalyticsActionConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74610,6 +74671,8 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       response?: MarketingAnalyticsEventConversionGoalResponse;
       schema_map: MarketingAnalyticsEventConversionGoalSchemaMap;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -74648,6 +74711,8 @@ export namespace Schemas {
       schema_map: MarketingAnalyticsWarehouseConversionGoalSchemaMap;
       table_name: string;
       timestamp_field: string;
+      /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+      use_in_recommendations?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -80247,6 +80312,20 @@ export namespace Schemas {
       step_at_delegation?: string;
     }
 
+    /**
+     * * `this_organization` - Linked to this organization
+     * * `other_region` - Linked to an organization in another region
+     * * `not_linked` - Not linked
+     */
+    export type OrganizationLinkStateEnum = typeof OrganizationLinkStateEnum[keyof typeof OrganizationLinkStateEnum];
+
+
+    export const OrganizationLinkStateEnum = {
+      ThisOrganization: 'this_organization',
+      OtherRegion: 'other_region',
+      NotLinked: 'not_linked',
+    } as const;
+
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
@@ -80384,6 +80463,8 @@ export namespace Schemas {
      * * `not_a_partner` - Not a provisioning partner
      * * `in_review` - In review
      * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
      * * `on` - On
      * * `off` - Off
      * * `blocked` - Blocked
@@ -80395,6 +80476,8 @@ export namespace Schemas {
       NotAPartner: 'not_a_partner',
       InReview: 'in_review',
       WaitingForStaff: 'waiting_for_staff',
+      ChangesRequested: 'changes_requested',
+      Declined: 'declined',
       On: 'on',
       Off: 'off',
       Blocked: 'blocked',
@@ -80403,7 +80486,9 @@ export namespace Schemas {
     /**
      * * `pending` - Pending
      * * `accepted` - Accepted
-     * * `rejected` - Rejected
+     * * `declined` - Declined
+     * * `changes_requested` - Changes requested
+     * * `rejected` - Blocked
      * * `needs_human` - Needs staff review
      */
     export type ProvisioningReviewStatusEnum = typeof ProvisioningReviewStatusEnum[keyof typeof ProvisioningReviewStatusEnum];
@@ -80412,9 +80497,55 @@ export namespace Schemas {
     export const ProvisioningReviewStatusEnum = {
       Pending: 'pending',
       Accepted: 'accepted',
+      Declined: 'declined',
+      ChangesRequested: 'changes_requested',
       Rejected: 'rejected',
       NeedsHuman: 'needs_human',
     } as const;
+
+    /**
+     * * `registered` - Registered
+     * * `automated_review` - Automated review
+     * * `staff_decision` - PostHog staff decision
+     * * `staff_message` - Message from PostHog staff
+     * * `partner_note` - Note from the partner
+     */
+    export type PartnerReviewEventKindEnum = typeof PartnerReviewEventKindEnum[keyof typeof PartnerReviewEventKindEnum];
+
+
+    export const PartnerReviewEventKindEnum = {
+      Registered: 'registered',
+      AutomatedReview: 'automated_review',
+      StaffDecision: 'staff_decision',
+      StaffMessage: 'staff_message',
+      PartnerNote: 'partner_note',
+    } as const;
+
+    export interface PartnerReviewEvent {
+      /** When it happened. */
+      readonly at: string;
+      /** registered: the app registered for provisioning. automated_review: the automated review decided. staff_decision: PostHog staff decided. staff_message: PostHog staff changed their message. partner_note: an admin of the app's organization sent a note.
+       *
+       * * `registered` - Registered
+       * * `automated_review` - Automated review
+       * * `staff_decision` - PostHog staff decision
+       * * `staff_message` - Message from PostHog staff
+       * * `partner_note` - Note from the partner */
+      readonly kind: PartnerReviewEventKindEnum;
+      /** The review status the event left. Null for registrations and notes.
+       *
+       * * `pending` - Pending
+       * * `accepted` - Accepted
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
+       * * `needs_human` - Needs staff review */
+      readonly status: ProvisioningReviewStatusEnum | null;
+      /** What PostHog staff wrote to the app's owners, or the text of the note. Empty when there is none. */
+      readonly message: string;
+      /** The email of the admin who sent a note. Empty for every other event. */
+      readonly author: string;
+    }
 
     /**
      * The review an app went through to become a provisioning partner, as its owners see it.
@@ -80423,11 +80554,13 @@ export namespace Schemas {
      * review checks, which would teach an abusive app what to fake.
      */
     export interface PartnerReview {
-      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. changes_requested: PostHog staff asked for changes or more information, so send a review note. declined: not approved, and a review note asks for another review. rejected: provisioning is blocked, and only PostHog staff can lift it.
        *
        * * `pending` - Pending
        * * `accepted` - Accepted
-       * * `rejected` - Rejected
+       * * `declined` - Declined
+       * * `changes_requested` - Changes requested
+       * * `rejected` - Blocked
        * * `needs_human` - Needs staff review */
       readonly status: ProvisioningReviewStatusEnum;
       /** When the app registered for provisioning. */
@@ -80437,8 +80570,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly decided_at: string | null;
-      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization. */
       readonly partner_message: string;
+      /** What happened on the review, oldest first: decisions, messages from PostHog staff, and notes. */
+      readonly timeline: readonly PartnerReviewEvent[];
     }
 
     /**
@@ -80460,6 +80595,8 @@ export namespace Schemas {
        * * `not_a_partner` - Not a provisioning partner
        * * `in_review` - In review
        * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
        * * `on` - On
        * * `off` - Off
        * * `blocked` - Blocked */
@@ -80467,6 +80604,94 @@ export namespace Schemas {
       readonly provisioning_review: PartnerReview | null;
       readonly created: string;
       readonly updated: string;
+    }
+
+    /**
+     * * `none` - Public client, PKCE only
+     * * `client_secret_post` - Client secret
+     * * `private_key_jwt` - Signs with a private key
+     */
+    export type PartnerAuthenticationEnum = typeof PartnerAuthenticationEnum[keyof typeof PartnerAuthenticationEnum];
+
+
+    export const PartnerAuthenticationEnum = {
+      None: 'none',
+      ClientSecretPost: 'client_secret_post',
+      PrivateKeyJwt: 'private_key_jwt',
+    } as const;
+
+    export interface RegisteredPartnerDetails {
+      /** The app's name, as of its last metadata refresh. */
+      readonly client_name: string;
+      /** The homepage in the document saved when the review opened. Empty when it had none. */
+      readonly client_uri: string;
+      /** The app's logo, as of its last metadata refresh. */
+      readonly logo_uri: string;
+      /** The terms of service in the document saved when the review opened. Empty when it had none. */
+      readonly tos_uri: string;
+      /** The privacy policy in the document saved when the review opened. Empty when it had none. */
+      readonly policy_uri: string;
+      /** Contact emails in the document saved when the review opened. */
+      readonly contacts: readonly string[];
+      /** Where PostHog sends people after they sign in, as of the last metadata refresh. */
+      readonly redirect_uris: readonly string[];
+      /** Where the app publishes the public keys it signs with. Empty for a public client. */
+      readonly jwks_uri: string;
+      /** How the app authenticates: none (public client), client_secret_post, or private_key_jwt.
+       *
+       * * `none` - Public client, PKCE only
+       * * `client_secret_post` - Client secret
+       * * `private_key_jwt` - Signs with a private key */
+      readonly authentication: PartnerAuthenticationEnum;
+      /** Every scope the app can ask people to grant. */
+      readonly scopes: readonly string[];
+      /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
+      readonly uses_default_scopes: boolean;
+      /** Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with. */
+      readonly needs_signing_key: boolean;
+      /** Whether the app can create PostHog accounts once provisioning is on. */
+      readonly can_create_accounts: boolean;
+      /** Whether the app can create projects and resources once provisioning is on. */
+      readonly can_provision_resources: boolean;
+      /** Whether a verification token links the app to this organization, to one in another region, or to none.
+       *
+       * * `this_organization` - Linked to this organization
+       * * `other_region` - Linked to an organization in another region
+       * * `not_linked` - Not linked */
+      readonly organization_link: OrganizationLinkStateEnum;
+      /** The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none. */
+      readonly metadata_document: string;
+    }
+
+    /**
+     * One application, with what PostHog read from its metadata document.
+     */
+    export interface OrganizationOAuthApplicationDetail {
+      readonly id: string;
+      /** @maxLength 255 */
+      name?: string;
+      /** @maxLength 2048 */
+      client_id?: string;
+      readonly redirect_uris_list: readonly string[];
+      /** True if this application has been verified by PostHog */
+      is_verified?: boolean;
+      /** True when the app registered itself from a client ID metadata document (CIMD). */
+      readonly is_cimd_client: boolean;
+      /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+       *
+       * * `not_a_partner` - Not a provisioning partner
+       * * `in_review` - In review
+       * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `changes_requested` - Changes requested
+       * * `declined` - Declined
+       * * `on` - On
+       * * `off` - Off
+       * * `blocked` - Blocked */
+      readonly provisioning_status: PartnerProvisioningStatusEnum;
+      readonly provisioning_review: PartnerReview | null;
+      readonly created: string;
+      readonly updated: string;
+      readonly registration: RegisteredPartnerDetails;
     }
 
     export interface OrganizationPersonalAPIKeyOwner {
@@ -90208,6 +90433,14 @@ export namespace Schemas {
       results: PanelQueryCheckResult[];
     }
 
+    export interface PartnerReviewNote {
+      /**
+         * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
+         * @maxLength 4000
+         */
+      note: string;
+    }
+
     export interface PassRateBucket {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
@@ -91613,6 +91846,11 @@ export namespace Schemas {
       column_property_map?: unknown;
       /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
       column_descriptions?: unknown;
+      /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+       *
+       * * `keep` - Keep the last synced values
+       * * `remove` - Remove mapped properties */
+      missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnum;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
     }
@@ -94083,6 +94321,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    export interface PatchedGroupTypeMetadataUpdateRequest {
+      /**
+         * Group type metadata updates to apply, at most 5, one per group type.
+         * @maxItems 5
+         */
+      updates?: GroupTypeMetadataUpdate[];
     }
 
     /**
@@ -107049,15 +107295,33 @@ export namespace Schemas {
     }
 
     /**
+     * * `classic` - Classic
+     * * `new` - New
+     */
+    export type QueryBatchEngineEnum = typeof QueryBatchEngineEnum[keyof typeof QueryBatchEngineEnum];
+
+
+    export const QueryBatchEngineEnum = {
+      Classic: 'classic',
+      New: 'new',
+    } as const;
+
+    /**
+     * * `query` - Query
      * * `insight` - Insight
      * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL
      */
     export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
 
 
     export const QueryBatchLanguageEnum = {
+      Query: 'query',
       Insight: 'insight',
       Hogql: 'hogql',
+      Promql: 'promql',
+      Logql: 'logql',
     } as const;
 
     /**
@@ -107066,22 +107330,52 @@ export namespace Schemas {
      */
     export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
 
+    /**
+     * * `time_series` - Time series
+     * * `table` - Table
+     */
+    export type QueryBatchTargetFormatEnum = typeof QueryBatchTargetFormatEnum[keyof typeof QueryBatchTargetFormatEnum];
+
+
+    export const QueryBatchTargetFormatEnum = {
+      TimeSeries: 'time_series',
+      Table: 'table',
+    } as const;
+
     export interface QueryBatchTarget {
       /**
          * The panel's ID for this query. Not used for caching.
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+      /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
+       * * `query` - Query
        * * `insight` - Insight
-       * * `hogql` - HogQL */
+       * * `hogql` - HogQL
+       * * `promql` - PromQL
+       * * `logql` - LogQL */
       language: QueryBatchLanguageEnum;
       /**
          * The query text, read according to `language`.
          * @maxLength 200000
          */
       query: string;
+      /**
+         * The series name template the panel draws. Returned unchanged on the target's line.
+         * @maxLength 1000
+         */
+      legend?: string;
+      /** How the panel draws the result. Returned unchanged on the target's line.
+       *
+       * * `time_series` - Time series
+       * * `table` - Table */
+      format?: QueryBatchTargetFormatEnum;
+      /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+       *
+       * * `classic` - Classic
+       * * `new` - New */
+      engine?: QueryBatchEngineEnum;
     }
 
     export interface QueryBatchTime {
@@ -107108,14 +107402,25 @@ export namespace Schemas {
          */
       variables?: QueryBatchQueryVariables;
       /**
-         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
          * @maxLength 20
          */
       interval?: string;
+      /**
+         * For promql and logql targets: the most points per series. Sets the step with `interval`.
+         * @minimum 1
+         * @maximum 10000
+         */
+      maxDataPoints?: number;
       /** Serve a stale cached result at once and recompute it in the background for the next read. */
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
       cacheOnly?: boolean;
+      /**
+         * The tile this target belongs to. Only labels the query's run in the query log.
+         * @maxLength 64
+         */
+      tile?: string;
     }
 
     export interface QueryBatchRequest {
@@ -107124,6 +107429,11 @@ export namespace Schemas {
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: ResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable
@@ -122354,6 +122664,13 @@ export namespace Schemas {
          * @maxLength 16384
          */
       expression: string;
+      /**
+         * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 255
+         */
+      scope_ids?: string[] | null;
     }
 
     /**
@@ -122908,6 +123225,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version: PropertyMatchingVersionEnum;
+      /** Whether a property whose value is null counts as not set for the is_set and is_not_set operators, as it does in insights and cohorts. False means a null value counts as set. */
+      null_counts_as_not_set: boolean;
       /**
          * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
          * @nullable
@@ -122942,6 +123261,8 @@ export namespace Schemas {
        * * `1` - Legacy
        * * `2` - Explicit */
       property_matching_version?: PropertyMatchingVersionEnum;
+      /** New value for the team's null_counts_as_not_set setting. True makes a property whose value is null count as not set for is_set and is_not_set, which changes the results of flags that use those operators on null values. Omit to leave it unchanged. */
+      null_counts_as_not_set?: boolean;
       /**
          * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
          * @minimum 1

@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "group_key": {
+            "description": "Specify the key of the group to find",
+            "type": "string"
+        },
+        "group_type_index": {
+            "description": "Specify the group type to find",
+            "type": "number"
+        },
+        "key": {
+            "description": "Name of the property to set.",
+            "type": "string"
+        },
+        "value": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "boolean"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {},
+                    "type": "object"
+                },
+                {
+                    "items": {},
+                    "type": "array"
+                }
+            ],
+            "description": "Value to set. Any JSON value other than null."
+        }
+    },
+    "required": ["group_key", "group_type_index", "key", "value"],
+    "type": "object"
+}
