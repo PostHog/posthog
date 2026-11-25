@@ -15,6 +15,7 @@ compatibility: >
   report). Assumes the signals-scout MCP tool family plus metric-list, metric-describe,
   data-catalog-metric-run, execute-sql, read-data-schema, inbox-reports-list and the
   notebook tools listed in the MCP tools section.
+scout-structured-output-schema: references/structured-output.schema.json
 allowed_tools:
   - emit_report
   - edit_report
@@ -142,6 +143,12 @@ Prefer measures on materialized views and small tables over measures on large ra
 Do not try to cover every metric in one run.
 
 For a measure that enters the watchlist, call `metric-describe` once and record: the grain, the shape, the referenced tables and their sizes, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), the metric's own dimension column when it has one, and otherwise the dimension profile.
+
+Before you profile, look for a **dimension hint**: a `dims:business_metrics:<metric>` scratchpad entry, which a person sets once for a metric they own ("decompose by: tenure bucket (paying_month_number: 1-3, 4-12, over 12), product, plan"), or a scout note that names dimensions for a metric.
+A hint wins over profiling: a person knows that revenue churn splits by tenure and that an identifier column explains nothing, and profiling cannot derive a bucket.
+Record the hint on the `watchlist:` entry with `dims_source=hint`, never overwrite a `dims:` entry a person wrote, and when you decompose by a hinted dimension say so in the evidence.
+With no hint, profile, and write `dims_source=profiled`.
+The rules for reading and writing hints are in [`references/driver-analysis.md`](references/driver-analysis.md#dimension-hints).
 Describe it again only when `metric-list` shows a status or drift change, or after 30 days.
 A `definition_kind: insight` metric over `events` alone is the anomaly-detection scout's territory: skip it.
 
@@ -196,9 +203,22 @@ Feed each dimension's segment rows to the script's `decompose` mode (`kind: sum`
 Drill down one more level only inside the top segment, only with the dimensions you already profiled, and only in the full-method tier.
 Stop at two levels.
 
+### Gate 4: is this one story?
+
+Before you decide anything, lay this run's findings side by side: every series that passed gate 2, with its period, direction, driver verdict and top segments.
+Two findings belong to one story when they share a **segment** (the same dimension value drives both, or one finding's driver is the other finding's population), a **mechanism** (a count rose and the rate over that count fell, the classic more-volume-lower-quality pair), or an **onset** (the same period, the same direction, on measures a person would read together, such as the stages of one bridge).
+Join them into one report: the title names the chain ("More sign-ups of lower intent: sign-ups +35%, set-up rate down 10 points, churn up among new customers"), the summary tells the chain in order with the key number of each link, and each link keeps its own charts as a section.
+Give the story an id (`story:<run date>:<slug>`), record it on every member's structured-output record and `pending:` entry, and search the inbox for an open report on any link before you author, because the story is an edit to that report when one exists.
+A finding that joins no story is filed on its own.
+Never join by time alone across unrelated surfaces: two moves in the same month on measures no person reads together are two reports.
+The join rules with worked examples are in [`references/driver-analysis.md`](references/driver-analysis.md#correlating-findings-into-a-story).
+
 ### Save memory as you go
 
 ```text
+key:     dims:business_metrics:<metric>
+content: "decompose by: tenure bucket (paying_month_number: 1-3, 4-12, over 12), product; set by <person> on 2026-11-25"
+
 key:     catalog:business_metrics
 content: "read 2026-11-24, 78 approved, 31 series (6 daily, 25 monthly), 47 not-a-series"
 
@@ -223,7 +243,7 @@ content: "month-end invoicing spike every 1st, explained by billing cycle; skip 
 Classify each finding against the inbox and the scratchpad: net new, material update, already covered, or noise.
 Then:
 
-- **Author** with `scout-emit-report` when all three gates pass and a dimension explains the move.
+- **Author** with `scout-emit-report` when all three gates pass and a dimension explains the move, one report per story when gate 4 joined findings, one per finding otherwise.
   Author too when the move is at least one and a half times the bar and every profiled dimension moved together: say in the summary that the move is broad, name the dimensions and the test or bot segments you checked, and point the reader at causes outside the data (a campaign, a launch, a pricing or signup-flow change).
   Build the three supporting charts first (below): a call without them is incomplete, so do not make it.
   Before you author, build a notebook (`notebooks-create-markdown`, then `notebooks-add-cell`) with: the measure and its definition, the same charts, the driver table (segment, baseline, current, delta, share of the total delta, mix and rate split for ratios), and the SQL, so a human can rerun it.
@@ -258,6 +278,15 @@ The exact node shapes and the notebook cells are in [`references/report-charts.m
 Three charts a reader studies beat more they scroll past, so add a fourth (the second-level drill-down) only when it carries the finding.
 Prose must stand alone: write "net revenue fell 22%" in the summary, not "the chart below shows the drop", because a Slack delivery draws no chart.
 
+## Structured output
+
+Your config carries the schema in `references/structured-output.schema.json`, so the run prompt has a `# Structured output` section.
+Record **one record per series you judged**, in every run, whatever the verdict: a quiet series is the denominator that makes precision measurable.
+Set `subject` to `metric:<name>:<measure>:<period>`.
+Fill `bm_lens_verdict` with the gate 2 outcome or the reason the series was not scored (`stale`, `out_of_scope`, `insufficient_history`), `bm_driver_verdict` with the script's verdict or `not_run`, `bm_decision` with what you did, `bm_story_id` when gate 4 joined the finding, and `bm_report_id` when a report exists.
+Batch the records in one `scout-record-output` call at the end of the run, before the close-out, and say in the close-out how many you recorded.
+The records are how the team reads precision (reports kept over reports filed), recall (moves that stayed `remembered`), and cost per finding, from `$scout_structured_output` events, without opening a transcript.
+
 ## Disqualifiers (skip these)
 
 - **Stale or partial data.** A failed sync, a source behind its cadence, the current partial period, a backfill that rewrote history.
@@ -284,6 +313,7 @@ Direct (read-only):
 Write (user-facing):
 
 - `scout-emit-report` / `scout-edit-report`: the report channel.
+- `scout-record-output`: one record per judged series, the schema rides in the run prompt.
 - `notebooks-create-markdown` + `notebooks-add-cell`: the write-up behind each authored report.
   No notebook tools in your toolset means a dry run or notebooks turned off: author the report with `charts` and `evidence` only.
 - `notebooks-destroy`: remove the write-up when the report did not surface.
@@ -299,7 +329,8 @@ The run history shows the summary collapsed to its first two lines, so the verdi
 Then a blank line, then short bullets, so a reader knows what happened without opening the transcript:
 
 - One bullet per measure you checked: the value against its baseline, and the gate it stopped at ("Orders: 1,240 vs 28-day median 1,190 and same-weekday median 1,250; within baseline").
-- One bullet per report you authored or edited: the report link and the notebook link from the tool results, the driver and its share ("[Net revenue down 22%](<report url>): the EU Pro plan carries 80% of the drop; charts and SQL in [the notebook](<notebook url>)").
+- One bullet per report you authored or edited: the report link and the notebook link from the tool results, the driver and its share ("[Net revenue down 22%](<report url>): the EU Pro plan carries 80% of the drop; charts and SQL in [the notebook](<notebook url>)"), and for a story the links it joined.
+- One bullet with the structured-output records you recorded, and which dimension hints you used.
 - One bullet for what you remembered (`pending:`, `noise:`, `baseline:`) and what you ruled out, with the reason: a stale source, a calendar effect, an even move.
 - One bullet with the query calls used, out of 40, and whether the catalog was read in full or from the watchlist.
 
