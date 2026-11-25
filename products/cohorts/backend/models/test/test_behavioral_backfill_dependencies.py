@@ -38,9 +38,7 @@ TRIGGER_KINDS = [
 class TestBehavioralBackfillDependencies(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        on_commit_patch = mock.patch(
-            "django.db.transaction.on_commit", side_effect=lambda callback, using=None, robust=False: callback()
-        )
+        on_commit_patch = mock.patch("django.db.transaction.on_commit", side_effect=lambda callback: callback())
         self.on_commit = on_commit_patch.start()
         self.addCleanup(on_commit_patch.stop)
 

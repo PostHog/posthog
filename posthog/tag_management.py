@@ -16,6 +16,7 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
     LogActivityEntry,
     bulk_log_activity,
+    defer_activity_log_events,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import ActingUserContext, get_was_impersonated
@@ -156,7 +157,7 @@ def merge_tags(team_id: int, source_id: UUID, target_id: UUID, actor: User) -> T
     using = router.db_for_write(Tag)
     source = _get_tags(team_id, [source_id, target_id], using=using)[source_id]
     _validate_sync_assignment_count(source, using=using)
-    with tag_assignment_transaction([team_id]) as using, ActingUserContext(actor):
+    with tag_assignment_transaction([team_id]) as using, ActingUserContext(actor), defer_activity_log_events():
         tags = _get_tags(team_id, [source_id, target_id], using=using, lock=True)
         source, target = tags[source_id], tags[target_id]
         _validate_sync_assignment_count(source, using=using)
@@ -218,7 +219,7 @@ def rename_tag(team_id: int, tag_id: UUID, name: str, actor: User) -> Tag:
     if tag.name != name:
         _validate_sync_assignment_count(tag, using=using)
     try:
-        with tag_assignment_transaction([team_id]) as using, ActingUserContext(actor):
+        with tag_assignment_transaction([team_id]) as using, ActingUserContext(actor), defer_activity_log_events():
             tag = _get_tags(team_id, [tag_id], using=using, lock=True)[tag_id]
             if tag.name == name:
                 return tag
@@ -287,7 +288,7 @@ def delete_unused_tags(team_id: int, tag_ids: Collection[UUID]) -> list[UUID]:
 
 
 def delete_unused_tag(team_id: int, tag_id: UUID, actor: User) -> None:
-    with tag_assignment_transaction([team_id]) as using:
+    with tag_assignment_transaction([team_id]) as using, defer_activity_log_events():
         tag = _get_tags(team_id, [tag_id], using=using, lock=True)[tag_id]
         if TaggedItem.objects.using(using).filter(tag_id=tag_id).exists():
             raise ValidationError("This tag is in use. Merge it into another tag instead.")

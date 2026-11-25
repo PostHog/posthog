@@ -126,7 +126,7 @@ class TestTicketUpdateRequestSerializer(SimpleTestCase):
 
 
 # Patch on_commit to execute immediately in tests
-def immediate_on_commit(func, using=None, robust=False):
+def immediate_on_commit(func):
     func()
 
 
