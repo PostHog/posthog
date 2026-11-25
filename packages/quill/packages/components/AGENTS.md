@@ -55,7 +55,7 @@ Rules:
 
 - Use `Infotip` for every icon-only info hint. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
 - A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Focus then returns to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
-- The button draws 20px so it fits a line of text, and an invisible layer grows its target to 24px. Don't shrink it with `className`.
+- The button draws 16px so it fits a line of small text, even a truncated one, and an invisible layer grows its target to 24px. Don't resize it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
 - A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
 - Put it next to a `<label>`, not inside one, and never inside a button, tab, menu item or select option. Inside a label its name joins the control's accessible name, and inside another control it nests one control in another.

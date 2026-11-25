@@ -25,9 +25,13 @@ const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infot
             <PopoverTrigger
                 ref={ref}
                 // Info icons sit in sortable headers, collapse headers and clickable cards, so a click or key
-                // press that opens the popup must not also reach the parent's handler. Escape is left alone,
-                // because Base UI listens for it on the document.
-                onClick={(event) => event.stopPropagation()}
+                // press that opens the popup must not also reach the parent's handler. Inside a link, the
+                // browser would then follow the href itself, so the default action is cancelled too. Escape is
+                // left alone, because Base UI listens for it on the document.
+                onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                }}
                 onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.stopPropagation()
@@ -38,10 +42,11 @@ const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infot
                         variant="default"
                         size="icon-xs"
                         aria-label={label}
-                        // The ::after layer grows the touch target to 24px, the WCAG 2.5.8 minimum. The negative
-                        // margins take 16px of layout height, so a line of small text or a tag does not grow.
+                        // The button draws 16px, so it fits a line of small text without growing it or being
+                        // clipped by a truncated parent, and its focus ring sits inside it. The ::after layer
+                        // grows the touch target to 24px, the WCAG 2.5.8 minimum.
                         className={cn(
-                            "relative -my-0.5 align-middle text-muted-foreground after:absolute after:-inset-0.5 after:content-['']",
+                            "relative size-4 align-middle text-muted-foreground focus-visible:ring-inset after:absolute after:-inset-1 after:content-['']",
                             className
                         )}
                     />
