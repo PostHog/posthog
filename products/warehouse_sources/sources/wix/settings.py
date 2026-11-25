@@ -205,9 +205,10 @@ WIX_ENDPOINTS: dict[str, WixEndpointConfig] = {
         body_key="query",
         data_key="services",
         cursors_key="pagingMetadata",
-        # Services page by offset, and the documented sort and filter fields have no dates.
+        # Services page by offset only, and have no documented date filter. createdDate is the
+        # documented default sort; the filtering and sorting article does not list id as sortable.
         paging="offset",
-        sort_field="id",
+        sort_field="createdDate",
         permission="Read Bookings - Public Data",
         partition_key="createdDate",
     ),

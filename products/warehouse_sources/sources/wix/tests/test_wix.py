@@ -151,7 +151,7 @@ class TestWixTransport:
         "endpoint,path,data_key,sort_field,expected_extras",
         [
             ("blog_categories", "/blog/v3/categories/query", "categories", "id", {}),
-            ("booking_services", "/_api/bookings/v2/services/query", "services", "id", {}),
+            ("booking_services", "/_api/bookings/v2/services/query", "services", "createdDate", {}),
             (
                 "events",
                 "/events/v3/events/query",
