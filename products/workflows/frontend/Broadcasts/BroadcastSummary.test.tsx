@@ -207,6 +207,71 @@ describe('BroadcastSummary', () => {
         }
     )
 
+    const emailSender = (id: number, name: string, email: string): Record<string, unknown> => ({
+        id,
+        kind: 'email',
+        display_name: email,
+        config: { name, email, verified: true },
+    })
+
+    it.each([
+        {
+            project: 'one email sender',
+            senders: [emailSender(2, 'Product updates', 'updates@example.com')],
+            from: { integrationId: 2 },
+            expected: 'Product updates <updates@example.com>',
+            shown: false,
+        },
+        {
+            project: 'two email senders',
+            senders: [
+                emailSender(1, 'Support', 'support@example.com'),
+                emailSender(2, 'Product updates', 'updates@example.com'),
+            ],
+            from: { integrationId: 2 },
+            expected: 'Product updates <updates@example.com>',
+            shown: true,
+        },
+        {
+            project: 'two email senders and a name and address set on the email',
+            senders: [
+                emailSender(1, 'Support', 'support@example.com'),
+                emailSender(2, 'Product updates', 'updates@example.com'),
+            ],
+            from: { integrationId: 2, name: 'Ada at Example', email: 'ada@example.com' },
+            expected: 'Ada at Example <ada@example.com>',
+            shown: true,
+        },
+    ])('shows the sender only when it can differ, with $project', async ({ senders, from, expected, shown }) => {
+        const broadcast = sentBroadcast(AccessControlLevel.Editor, []) as any
+        broadcast.actions[1].config.inputs.email.value.from = from
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/:id/': broadcast,
+                '/api/projects/:team_id/hog_flows/:id/batch_jobs/': [],
+                '/api/projects/:team_id/integrations/': { results: senders, count: senders.length },
+            },
+        })
+        initKeaTests()
+        const props = { id: BROADCAST_ID }
+
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={props}>
+                    <BindLogic logic={broadcastPreviewLogic} props={props}>
+                        <BindLogic logic={broadcastTestSendLogic} props={props}>
+                            <BroadcastSummary />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(await screen.findByText('October news')).toBeInTheDocument()
+        await waitFor(() => expect(broadcastWizardLogic(props).values.integrations).toHaveLength(senders.length))
+        expect(!!screen.queryByText(expected)).toBe(shown)
+    })
+
     it.each([
         { opened: 'by clicking the History tab', activityLink: false },
         { opened: 'from a copied activity link', activityLink: true },
