@@ -5116,11 +5116,11 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a workflow with another trigger', transactionalFlow('schedule', 'active')],
-            ['a transactional email that is not active', transactionalFlow('api', 'draft')],
-            ['a workflow that only sends a push', withPushStep(transactionalFlow('api', 'active'), false)],
+            ['a workflow with another trigger', () => transactionalFlow('schedule', 'active')],
+            ['a transactional email that is not active', () => transactionalFlow('api', 'draft')],
+            ['a workflow that only sends a push', () => withPushStep(transactionalFlow('api', 'active'), false)],
         ])('refuses to run %s', async (_desc, flow) => {
-            const other = await insertHogFlow(flow)
+            const other = await insertHogFlow(flow())
 
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
