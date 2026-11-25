@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 
 import requests
 import structlog
@@ -25,6 +25,8 @@ INSTALLATION_TOKEN_CACHE_SALT = "vercel_installation_token"
 INSTALLATION_TOKEN_MAX_AGE_SECONDS = 3600
 # A cached token must outlive the request it authorizes, including that request's retries.
 INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS = 300
+
+token_cache = caches["vercel_installation_tokens"]
 
 
 @frozen
@@ -474,7 +476,7 @@ def get_installation_access_token(installation_id: str) -> str:
     """Return a short-lived token for one Vercel installation, from the cache when it has time left."""
     cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
     try:
-        cached = cache.get(cache_key)
+        cached = token_cache.get(cache_key)
     except Exception:
         # The cache only saves a token request, so an outage costs a request, not the call.
         logger.warning("Vercel token cache read failed", installation_id=installation_id, integration="vercel")
@@ -485,7 +487,8 @@ def get_installation_access_token(installation_id: str) -> str:
                 "access_token"
             ]
         except (InvalidToken, KeyError):
-            cache.delete(cache_key)
+            # An entry from an earlier client secret; the write below replaces it.
+            pass
 
     client_id = settings.VERCEL_CLIENT_INTEGRATION_ID
     client_secret = settings.VERCEL_CLIENT_INTEGRATION_SECRET
@@ -497,7 +500,7 @@ def get_installation_access_token(installation_id: str) -> str:
     cache_timeout = min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
     if cache_timeout > 0:
         try:
-            cache.set(
+            token_cache.set(
                 cache_key,
                 encrypt_payload({"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False),
                 timeout=cache_timeout,
