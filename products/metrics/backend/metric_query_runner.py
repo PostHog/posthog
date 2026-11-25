@@ -585,10 +585,13 @@ def _metric_names_expr(metric_name: str | Sequence[str]) -> ast.Expr:
     return metric_name_expr((metric_name,) if isinstance(metric_name, str) else tuple(metric_name))
 
 
-def series_label_keys_query(metric_names: Sequence[str], date_from: dt.datetime) -> ast.SelectQuery:
+def series_label_keys_query(
+    metric_names: Sequence[str], filters: Sequence[MetricFilter], date_from: dt.datetime
+) -> ast.SelectQuery:
     """Return one hash of the full label set for each series of `metric_names`.
 
     Series of different names or types that carry the same labels get the same key.
+    Like the series fingerprint, the key leaves out `posthog.original_timestamp`.
     """
     query = parse_select(
         """
@@ -597,14 +600,23 @@ def series_label_keys_query(metric_names: Sequence[str], date_from: dt.datetime)
                 any(cityHash64(arrayStringConcat(arrayConcat(
                     [service_name],
                     arraySort(arrayMap((key, val) -> concat('r:', key, '=', val), mapKeys(resource_attributes), mapValues(resource_attributes))),
-                    arraySort(arrayMap((key, val) -> concat('a:', key, '=', val), mapKeys(attributes), mapValues(attributes)))
+                    arraySort(arrayMap(
+                        (key, val) -> concat('a:', key, '=', val),
+                        arrayFilter(key -> key != 'posthog.original_timestamp', mapKeys(attributes)),
+                        arrayFilter((val, key) -> key != 'posthog.original_timestamp', mapValues(attributes), mapKeys(attributes))
+                    ))
                 ), '\\n'))) AS label_key
             FROM posthog.metric_series
             WHERE {metric_name}
               AND {active_since}
+              AND {filters}
             GROUP BY series_fingerprint
         """,
-        placeholders={"metric_name": _metric_names_expr(metric_names), "active_since": _active_since_expr(date_from)},
+        placeholders={
+            "metric_name": _metric_names_expr(metric_names),
+            "active_since": _active_since_expr(date_from),
+            "filters": filters_expr(filters),
+        },
     )
     assert isinstance(query, ast.SelectQuery)
     return query
@@ -1186,7 +1198,8 @@ class MetricQueryRunner:
                 },
             )
         else:
-            # A series without a `metric_series` row keeps its own fingerprint as its key.
+            # A series without a `metric_series` row keeps its own fingerprint as its key. The key keeps
+            # the type, so only the classic `_count` rows (type `sum`) join the histogram sequence.
             query = parse_select(
                 """
                     SELECT
@@ -1194,7 +1207,11 @@ class MetricQueryRunner:
                         p.series_fingerprint AS series_fingerprint,
                         p.aggregation_temporality AS aggregation_temporality,
                         if(p.metric_type = 'sum', p.value, toFloat(p.count)) AS counter_value,
-                        ifNull(nullIf(k.label_key, 0), p.series_fingerprint) AS series_key
+                        if(
+                            ifNull(k.label_key, 0) = 0,
+                            p.series_fingerprint,
+                            cityHash64(tuple(k.label_key, if(p.metric_type = 'sum', 'histogram', p.metric_type)))
+                        ) AS series_key
                     FROM {points} AS p
                     LEFT JOIN {label_keys} AS k ON p.series_fingerprint = k.series_fingerprint
                 """,
@@ -1202,7 +1219,7 @@ class MetricQueryRunner:
                     "points": self._points_query(
                         ("timestamp", "series_fingerprint", "metric_type", "value", "count", "aggregation_temporality")
                     ),
-                    "label_keys": series_label_keys_query(self._series_metric_names, self.scan_from),
+                    "label_keys": series_label_keys_query(self._series_metric_names, self.filters, self.scan_from),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
