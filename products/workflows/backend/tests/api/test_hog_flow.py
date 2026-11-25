@@ -5946,7 +5946,12 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_snapshot_status:
-            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            assert response.json() == {
+                "status": expected_snapshot_status,
+                "audience_size": None,
+                "error": None,
+                "skipped_test_account_filters": [],
+            }
             mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
         else:
             mock_task.assert_not_called()
