@@ -145,6 +145,10 @@ class TestBuildQueryParams:
             # Form handlers filter on createdAt but have no updatedAt, so a createdAt
             # watermark would never pick up edits.
             ("form_handlers", "createdAt"),
+            # A tag's objectCount moves without its updatedAt, so tags stay full refresh.
+            ("tags", "updatedAt"),
+            # Tagged objects have no updatedAt filter; v5 would 400 the query.
+            ("tagged_objects", "updatedAt"),
         ],
     )
     def test_unsupported_cursor_falls_back_to_the_default_sort(self, endpoint: str, incremental_field: str) -> None:

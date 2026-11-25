@@ -580,6 +580,78 @@ PARDOT_ENDPOINTS: dict[str, PardotEndpointConfig] = {
             *_TIMESTAMPS,
         ),
     ),
+    "tags": PardotEndpointConfig(
+        name="tags",
+        path="tags",
+        # objectCount moves when a tag is applied or removed, which a tag's updatedAt
+        # isn't documented to track — full refresh keeps the count current.
+        order_by="id",
+        fields=(
+            "id",
+            "name",
+            "objectCount",
+            *_TIMESTAMPS,
+        ),
+    ),
+    "tagged_objects": PardotEndpointConfig(
+        name="tagged_objects",
+        path="tagged-objects",
+        # Tagged objects have no updatedAt and only filter/sort on createdAt. Removing a
+        # tag deletes the record, so only a full refresh drops removed tags.
+        order_by="id",
+        incremental_fields=[incremental_field("createdAt")],
+        partition_key="createdAt",
+        fields=(
+            "id",
+            "tagId",
+            "objectType",
+            "objectId",
+            "objectName",
+            "createdAt",
+            "createdById",
+        ),
+    ),
+    "engagement_studio_programs": PardotEndpointConfig(
+        name="engagement_studio_programs",
+        path="engagement-studio-programs",
+        order_by="id",
+        incremental_fields=_CREATED_AND_UPDATED,
+        # The businessHours, prospectsMultipleEntry and schedule representations are
+        # nested maps, so they're left out to keep rows flat.
+        fields=(
+            "id",
+            "name",
+            "description",
+            "status",
+            "folderId",
+            "recipientListIds",
+            "suppressionListIds",
+            "scheduleCreatedById",
+            "salesforceId",
+            "isDeleted",
+            *_TIMESTAMPS,
+        ),
+    ),
+    "dynamic_contents": PardotEndpointConfig(
+        name="dynamic_contents",
+        path="dynamic-contents",
+        order_by="id",
+        incremental_fields=_CREATED_AND_UPDATED,
+        # baseContent (the default HTML block) is skipped to keep rows small.
+        fields=(
+            "id",
+            "name",
+            "basedOn",
+            "basedOnProspectApiFieldId",
+            "folderId",
+            "trackerDomainId",
+            "embedCode",
+            "embedUrl",
+            "tagReplacementLanguage",
+            "isDeleted",
+            *_TIMESTAMPS,
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(PARDOT_ENDPOINTS.keys())
