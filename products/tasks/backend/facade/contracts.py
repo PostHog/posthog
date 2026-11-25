@@ -185,6 +185,7 @@ class TaskRunSpend:
     run_id: UUID
     task_id: UUID
     cost_microusd: int | None
+    standard_cost_microusd: int | None
     complete: bool
     is_terminal: bool
     stage: str
