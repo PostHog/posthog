@@ -354,6 +354,58 @@ Choose a budget that allows long streams to finish. Expiry cuts off an active st
 The relay sets the same deadline on reads from and writes to the guest. Response wrappers must support `SetReadDeadline` and `SetWriteDeadline`, or expose the underlying writer through `Unwrap`.
 If either deadline cannot be set, the relay reports the failure through `OnError` and aborts before sending anything upstream.
 
+### Git read adapter
+
+`internal/gitread` implements the first credential-aware adapter. It is a library;
+the deployed request listener still serves only the probe. Worker publication,
+regional credential storage and route wiring must land before a sandbox can use it.
+
+```text
+Verified run + repository -> read grant -> GitHub HTTPS with injected token
+```
+
+The caller verifies the capability and relay identity first, reserves audit capacity,
+then calls `Prepare` with that registration. `Lookup` reads an already-published grant;
+it must not mint or refresh credentials. A grant binds the repository and credential
+version to the exact team, run, execution, actor, epoch, relay key and authority.
+Missing, revoked or expired grants deny access. Lookup failures return unavailable.
+Token minting and coordinated refresh remain with the existing Tasks worker owners.
+
+The supported paths follow [Git's smart HTTP protocol](https://git-scm.com/docs/http-protocol):
+
+| Request                                                            | Operation                                 |
+| ------------------------------------------------------------------ | ----------------------------------------- |
+| `GET /v1/git/{owner}/{repo}.git/info/refs?service=git-upload-pack` | Discover refs                             |
+| `POST /v1/git/{owner}/{repo}.git/git-upload-pack`                  | Clone/fetch negotiation and pack transfer |
+
+The adapter creates a new header set, injects Basic authentication for `x-access-token`,
+and sends only to `https://github.com/{owner}/{repo}.git/...`. Guest authorization,
+cookies and other headers are dropped. Git protocol v2 is allowed; other protocol
+header values are rejected. Redirects, pushes, LFS and other paths are refused.
+Response headers are limited to the Git content type and `Cache-Control: no-store`;
+upstream errors have generic responses. Successful pack data streams to the guest.
+
+The caller records admission before calling `Forward`, then records its outcome;
+only `CredentialVersion`, never the grant or token, belongs in audit metadata.
+It supplies the upstream transport, which must use the approved external egress path.
+No direct transport, registry client or credential service is selected by this library.
+
+Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
+and decoded sizes. The adapter buffers this bounded negotiation before forwarding
+it uncompressed. Pack responses stream without whole-response buffering.
+Transfer deadlines cannot exceed either
+registration lease, credential expiry, the caller deadline or the configured timeout.
+This first slice supports small transfers that fit within the current lease;
+long clones need continued authorization before this restriction can be relaxed.
+Prepare a fresh operation for each request so rotation takes effect on the next call.
+The response writer must support read/write deadlines. A failed response stream is
+aborted rather than reported as a complete pack.
+
+Tests run actual `git clone`, `fetch` and denied operations against a local
+[`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
+They exercise token replacement, scope checks, stripped headers and cancellation.
+They do not prove worker publication, cloud transport or sandbox credential removal.
+
 ## Registration and time
 
 `Lookup` receives the verified team, run and execution IDs and returns their current registration.
