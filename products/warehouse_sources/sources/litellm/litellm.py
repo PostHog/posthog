@@ -298,9 +298,10 @@ _ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 class _PagesWithoutTotalPaginator(PageNumberPaginator):
     """Page numbers for a list that returns no page count.
 
-    A page with fewer or more rows than asked for is the last one. Proxies that do not page the
-    list yet ignore `page` and send the whole list again, so a page that repeats an id of the page
-    before is emptied and ends the walk.
+    A page with fewer or more rows than asked for is the last one. Rows that the page before
+    already held are dropped: a delete between two requests shifts one row onto the next page, and
+    proxies that do not page the list yet ignore `page` and send the whole list again. A page with
+    no new rows ends the walk.
     """
 
     def __init__(self, page_size: int, primary_key: str) -> None:
@@ -311,15 +312,17 @@ class _PagesWithoutTotalPaginator(PageNumberPaginator):
 
     def update_state(self, response: requests.Response, data: list[Any] | None = None) -> None:
         rows = data or []
-        ids = {row.get(self.primary_key) for row in rows if isinstance(row, dict)}
-        if data and ids & self._previous_ids:
-            # The client yields this same list after this call, so clearing it drops the repeat.
-            data.clear()
-            self._has_next_page = False
-            return
-        self._previous_ids = ids
+        page_length = len(rows)
+        previous_ids = self._previous_ids
+        self._previous_ids = {row.get(self.primary_key) for row in rows if isinstance(row, dict)}
+        if data and previous_ids:
+            # The client yields this same list after this call, so the repeats are removed in place.
+            data[:] = [row for row in data if not (isinstance(row, dict) and row.get(self.primary_key) in previous_ids)]
+            if not data:
+                self._has_next_page = False
+                return
         super().update_state(response, data)
-        if len(rows) != self.page_size:
+        if page_length != self.page_size:
             self._has_next_page = False
 
 

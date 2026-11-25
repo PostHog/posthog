@@ -315,6 +315,12 @@ class TestListEndpoints:
             ([[f"c{i:03}" for i in range(150)]], ["1"], 150),
             # ...or exactly one page long, so the repeat on page 2 is dropped.
             ([[f"c{i:03}" for i in range(100)], [f"c{i:03}" for i in range(100)]], ["1", "2"], 100),
+            # A delete between requests shifts the last row of page 1 onto page 2; the walk goes on.
+            (
+                [[f"c{i:03}" for i in range(100)], [f"c{i:03}" for i in range(99, 199)], ["c199"]],
+                ["1", "2", "3"],
+                200,
+            ),
         ],
     )
     def test_customers_stop_without_a_page_count(

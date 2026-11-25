@@ -98,7 +98,7 @@ Enter the proxy's public https URL and the master key or an admin key. A key wit
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "LiteLLM rejected the key. Update the key on this source, then sync again.",
-            "403 Client Error: Forbidden for url": "The LiteLLM key can't read this table. Use the master key or an admin key, then sync again.",
+            "403 Client Error: Forbidden for url": "The LiteLLM key can't read this table. Use the master key or an admin key, then sync again. The organizations table also needs a LiteLLM Enterprise license.",
             SPEND_LOGS_UNAVAILABLE_MESSAGE: SPEND_LOGS_UNAVAILABLE_MESSAGE,
         }
 
@@ -118,6 +118,8 @@ Enter the proxy's public https URL and the master key or an admin key. A key wit
             INCREMENTAL_FIELDS,
             names,
             merge_only=("spend_logs",),
+            # `/organization/list` answers 403 on proxies without a LiteLLM Enterprise license.
+            should_sync_default={"organizations": False},
             default_incremental_lookback_seconds={"spend_logs": SPEND_LOGS_LOOKBACK_SECONDS},
         )
 
