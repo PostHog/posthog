@@ -13,6 +13,7 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person.team_delete_batch_slots import TeamDeletePersonsBatchSlots
+from posthog.models.utils import transaction_with_timeouts
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.facade.api import delete_widget_tiles_for_teams
@@ -29,8 +30,8 @@ logger = structlog.get_logger(__name__)
 TEAM_DELETE_BATCH_SIZE = 2000
 
 # A timed-out delete_team_records attempt keeps running in its worker thread, with its transaction open. These
-# limits make a retry fail fast instead of queueing behind that transaction, and stop any cascade statement from
-# holding the cascade's locks for long. Both stay well below the activity's 10-minute start-to-close timeout.
+# limits make a retry fail fast instead of queueing behind that transaction, and stop any cascade or purge batch
+# statement from holding its locks for long. Both stay well below the activity's 10-minute start-to-close timeout.
 TEAM_RECORDS_LOCK_TIMEOUT_MS = 30_000
 TEAM_RECORDS_STATEMENT_TIMEOUT_MS = 120_000
 
@@ -185,14 +186,16 @@ def _delete_event_definitions_for_teams(
         while True:
             if should_stop is not None and should_stop():
                 raise TeamPurgeStopped(f"The event definition purge of team {team_id} stopped before it finished")
-            batch = list(
-                EventDefinition.objects.filter(team_id=team_id, name__gte=last_name)
-                .order_by("name")
-                .values_list("id", "name")[:batch_size]
-            )
+            with transaction_with_timeouts(TEAM_RECORDS_LOCK_TIMEOUT_MS, TEAM_RECORDS_STATEMENT_TIMEOUT_MS):
+                batch = list(
+                    EventDefinition.objects.filter(team_id=team_id, name__gte=last_name)
+                    .order_by("name")
+                    .values_list("id", "name")[:batch_size]
+                )
+                if batch:
+                    EventDefinition.objects.filter(id__in=[row[0] for row in batch]).delete()
             if not batch:
                 break
-            EventDefinition.objects.filter(id__in=[row[0] for row in batch]).delete()
             if len(batch) < batch_size:
                 break
             last_name = batch[-1][1]
@@ -448,7 +451,6 @@ def delete_team_records(team_ids: list[int], should_stop: Callable[[], bool] | N
     FOR UPDATE on the teams blocks concurrent FK-inserts to any child table during the
     cascade delete.
     """
-    from django.db import transaction
 
     from posthog.models.team import Team
 
@@ -459,10 +461,7 @@ def delete_team_records(team_ids: list[int], should_stop: Callable[[], bool] | N
     _delete_stack_frames_and_symbol_sets_for_teams(team_ids, should_stop=should_stop)
     _delete_event_definitions_for_teams(team_ids, should_stop=should_stop)
 
-    with transaction.atomic():
-        with connections["default"].cursor() as cursor:
-            cursor.execute("SET LOCAL lock_timeout = %s", [TEAM_RECORDS_LOCK_TIMEOUT_MS])
-            cursor.execute("SET LOCAL statement_timeout = %s", [TEAM_RECORDS_STATEMENT_TIMEOUT_MS])
+    with transaction_with_timeouts(TEAM_RECORDS_LOCK_TIMEOUT_MS, TEAM_RECORDS_STATEMENT_TIMEOUT_MS):
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:

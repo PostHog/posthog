@@ -394,11 +394,18 @@ async def test_delete_team_records_activity_fails_a_futile_retry_terminally(erro
     assert exc_info.value.non_retryable
 
 
-async def test_delete_team_records_activity_retries_a_lock_timeout():
-    def raise_lock_timeout(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
-        raise _database_error(psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"))
+@pytest.mark.parametrize(
+    "cause",
+    [
+        psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
+        psycopg.errors.QueryCanceled("canceling statement due to user request"),
+    ],
+)
+async def test_delete_team_records_activity_retries_an_error_that_a_retry_can_pass(cause: Exception):
+    def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
+        raise _database_error(cause)
 
-    with patch("posthog.models.team.util.delete_team_records", raise_lock_timeout):
+    with patch("posthog.models.team.util.delete_team_records", raise_error):
         with pytest.raises(OperationalError):
             await ActivityEnvironment().run(
                 delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)

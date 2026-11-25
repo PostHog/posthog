@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.team import Team
@@ -65,3 +67,15 @@ class TestDeleteStackFramesAndSymbolSetsForTeam(BaseTest):
 
         assert Team.objects.filter(id=self.team.id).exists()
         assert ErrorTrackingStackFrame.objects.filter(team_id=self.team.id).count() == 5
+
+    @override_settings(OBJECT_STORAGE_ENABLED=True)
+    def test_deletes_the_stored_files_of_the_deleted_symbol_sets(self, _sleep: MagicMock) -> None:
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="uploaded", storage_ptr="symbolsets/uploaded")
+        ErrorTrackingSymbolSet.objects.create(team=self.team, ref="missing")
+
+        with patch(
+            "products.error_tracking.backend.logic.team_purge.delete_symbol_set_contents_many", return_value=[]
+        ) as delete_files:
+            assert delete_stack_frames_and_symbol_sets_for_team(self.team.id)
+
+        delete_files.assert_called_once_with(["symbolsets/uploaded"])

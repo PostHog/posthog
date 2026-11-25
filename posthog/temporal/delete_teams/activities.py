@@ -146,11 +146,12 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
                 non_retryable=True,
             ) from None
         except OperationalError as error:
-            if not isinstance(error.__cause__, psycopg.errors.QueryCanceled):
+            cause = error.__cause__
+            if not isinstance(cause, psycopg.errors.QueryCanceled) or "statement timeout" not in str(cause):
                 raise
             # The cascade runs under a statement timeout so that it cannot hold its locks for long. The data is
-            # unchanged on a retry, so the same statement times out again. A lock timeout stays retryable,
-            # because the transaction it waited behind finishes.
+            # unchanged on a retry, so the same statement times out again. A lock timeout and an operator's
+            # pg_cancel_backend stay retryable, because a retry can succeed after them.
             raise ApplicationError(
                 f"A statement timed out deleting team records for {inputs.team_ids}. Add a batched purge for "
                 "the cascaded table that the statement deletes, then reset the workflow.",
