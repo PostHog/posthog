@@ -176,7 +176,9 @@ def test_intro_skips_the_pitch_for_someone_who_mentioned_the_agent_before_the_st
     integration = _install(team)
     update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
     if earlier_thread_offset is not None:
-        started_at = datetime.fromisoformat(resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID).started_at)
+        state = resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID)
+        assert state is not None and state.started_at is not None
+        started_at = datetime.fromisoformat(state.started_at)
         task = apps.get_model("tasks", "Task").objects.create(team=team, title="t")
         task_run = apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task)
         mapping = SlackThreadTaskMapping.objects.create(
