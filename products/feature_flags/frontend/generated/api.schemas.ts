@@ -432,6 +432,38 @@ export interface CopyFlagsDependencyRequirementsResponseApi {
     reason: string
 }
 
+export interface DeleteFlagInProjectsRequestApi {
+    /** Key of the feature flag to delete */
+    feature_flag_key: string
+    /**
+     * IDs of the projects to delete the flag from. All of them must belong to this organization.
+     * @minItems 1
+     * @maxItems 50
+     */
+    project_ids: number[]
+}
+
+export interface DeletedFlagInProjectApi {
+    /** Project the flag was deleted from */
+    project_id: number
+    /** ID of the deleted feature flag */
+    flag_id: number
+}
+
+export interface FailedFlagDeleteInProjectApi {
+    /** Project where the flag was not deleted */
+    project_id: number
+    /** Why the flag was not deleted from this project */
+    error_message: string
+}
+
+export interface DeleteFlagInProjectsResponseApi {
+    /** Projects the flag was deleted from */
+    deleted: DeletedFlagInProjectApi[]
+    /** Projects where the flag was not deleted */
+    failed: FailedFlagDeleteInProjectApi[]
+}
+
 export interface OrganizationFeatureFlagRowApi {
     /** ID of the representative feature flag for this key */
     id: number

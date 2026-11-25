@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Final, Optional, cast
 
 from django.db.models import Case, CharField, Count, Exists, Model, OuterRef, QuerySet, Value, When
@@ -77,18 +78,27 @@ def flag_owner_label(kind: str) -> str:
     return _OWNER_LABELS[kind]
 
 
-def flag_owner_kind(flag: "FeatureFlag") -> str | None:
-    """Return the product that owns this flag, or None when nothing owns it.
+def iter_flag_owner_kinds(flag: "FeatureFlag") -> Iterator[str]:
+    """Yield every product that owns this flag, one query at a time.
 
-    A flag may be owned by at most one product. `assert_flag_available_for` keeps it that way.
+    `flag_owner_kind` is enough for most callers. Use this one when an owner matters even if
+    another one comes first: a flag adopted in a race, or before `assert_flag_available_for`
+    existed, can have two.
     """
     for accessor, kind, manager in _OWNING_ACCESSORS:
         related = getattr(flag, accessor)
         if manager is not None:
             related = related(manager=manager)
         if related.exists():
-            return kind
-    return None
+            yield kind
+
+
+def flag_owner_kind(flag: "FeatureFlag") -> str | None:
+    """Return the product that owns this flag, or None when nothing owns it.
+
+    A flag may be owned by at most one product. `assert_flag_available_for` keeps it that way.
+    """
+    return next(iter_flag_owner_kinds(flag), None)
 
 
 def assert_flag_available_for(flag: "FeatureFlag", *, product: str, links_a_rule: bool = False) -> None:

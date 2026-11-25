@@ -216,6 +216,22 @@ export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = /* @__PURE_
 })
 
 /**
+ * Delete the flag with a given key from several projects.
+ *
+ * Each project is independent: a failure in one does not stop or undo the others.
+ */
+export const orgFeatureFlagsDeleteInProjectsBodyProjectIdsMax = 50
+
+export const OrgFeatureFlagsDeleteInProjectsBody = /* @__PURE__ */ zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to delete'),
+    project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(orgFeatureFlagsDeleteInProjectsBodyProjectIdsMax)
+        .describe('IDs of the projects to delete the flag from. All of them must belong to this organization.'),
+})
+
+/**
  * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
  *
  * POST hides the name; DELETE restores it. The underlying context row and any flags already

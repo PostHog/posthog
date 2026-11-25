@@ -21,6 +21,8 @@ import type {
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     CreateStaticCohortForFlagResponseApi,
+    DeleteFlagInProjectsRequestApi,
+    DeleteFlagInProjectsResponseApi,
     DependentFlagApi,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
@@ -454,6 +456,28 @@ export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
             body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
         }
     )
+}
+
+export const getOrgFeatureFlagsDeleteInProjectsUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/delete_in_projects/`
+}
+
+/**
+ * Delete the flag with a given key from several projects.
+ *
+ * Each project is independent: a failure in one does not stop or undo the others.
+ */
+export const orgFeatureFlagsDeleteInProjects = async (
+    organizationId: string,
+    deleteFlagInProjectsRequestApi: DeleteFlagInProjectsRequestApi,
+    options?: RequestInit
+): Promise<DeleteFlagInProjectsResponseApi> => {
+    return apiMutator<DeleteFlagInProjectsResponseApi>(getOrgFeatureFlagsDeleteInProjectsUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deleteFlagInProjectsRequestApi),
+    })
 }
 
 export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {

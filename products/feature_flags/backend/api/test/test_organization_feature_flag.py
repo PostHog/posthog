@@ -19,6 +19,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -32,6 +33,8 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.api.organization_feature_flag import (
+    DELETE_PERMISSION_ERROR,
+    DELETE_UNEXPECTED_ERROR,
     EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
     MAX_COPY_FLAGS_TARGET_PROJECTS,
     TARGET_COPY_PERMISSION_ERROR,
@@ -43,6 +46,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payload,
 )
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.flag_deletion import delete_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -3115,6 +3119,158 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         )
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.filters, {"groups": [{"rollout_percentage": 10}]})
+
+
+class TestOrganizationFeatureFlagDeleteInProjects(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team_2 = Team.objects.create(organization=self.organization)
+        self.team_3 = Team.objects.create(organization=self.organization)
+        self.flag_1, self.flag_2, self.flag_3 = (
+            FeatureFlag.objects.create(
+                team=team,
+                created_by=self.user,
+                key="shared-key",
+                filters={"groups": [{"rollout_percentage": 100}]},
+            )
+            for team in (self.team, self.team_2, self.team_3)
+        )
+
+    def _delete(self, project_ids: list[int], **headers: Any) -> Any:
+        return self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/delete_in_projects",
+            {"feature_flag_key": "shared-key", "project_ids": project_ids},
+            format="json",
+            **headers,
+        )
+
+    def _is_deleted(self, flag: FeatureFlag) -> bool:
+        return FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk).deleted
+
+    def test_deletes_only_in_the_chosen_projects(self):
+        self.flag_2.filters = {
+            "version": 2,
+            "return_type": "boolean",
+            "rules": [],
+        }
+        self.flag_2.version = 4
+        self.flag_2.save()
+        team_without_flag = Team.objects.create(organization=self.organization)
+
+        response = self._delete([self.team.id, self.team_2.id, team_without_flag.id, self.team.id])
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "deleted": [
+                {"project_id": self.team.id, "flag_id": self.flag_1.id},
+                {"project_id": self.team_2.id, "flag_id": self.flag_2.id},
+            ],
+            "failed": [{"project_id": team_without_flag.id, "error_message": "Feature flag not found."}],
+        }
+        assert [self._is_deleted(flag) for flag in (self.flag_1, self.flag_2, self.flag_3)] == [True, True, False]
+
+    @parameterized.expand(
+        [
+            ("early_access", "in use with early access features"),
+            ("survey", "belongs to a survey"),
+            ("survey_and_experiment", "belongs to a survey"),
+        ]
+    )
+    def test_blocked_project_does_not_stop_the_others(self, blocker, expected_error):
+        if blocker == "early_access":
+            EarlyAccessFeature.objects.create(team=self.team_2, name="Feature", stage="beta", feature_flag=self.flag_2)
+        else:
+            if blocker == "survey_and_experiment":
+                create_experiment(team_id=self.team_2.id, feature_flag_id=self.flag_2.id, created_by_id=self.user.id)
+            Survey.objects.create(team=self.team_2, name="Survey", type="popover", internal_targeting_flag=self.flag_2)
+
+        response = self._delete([self.team_2.id, self.team_3.id])
+
+        assert response.json()["deleted"] == [{"project_id": self.team_3.id, "flag_id": self.flag_3.id}]
+        (failure,) = response.json()["failed"]
+        assert failure["project_id"] == self.team_2.id
+        assert expected_error in failure["error_message"]
+        assert not self._is_deleted(self.flag_2)
+
+    def test_unexpected_error_still_reports_the_other_projects(self):
+        def fail_in_team_2(flag, *, team, user, request):
+            if team == self.team_2:
+                raise RuntimeError("internal detail")
+            return delete_flag(flag, team=team, user=user, request=request)
+
+        with patch(
+            "products.feature_flags.backend.api.organization_feature_flag.delete_flag", side_effect=fail_in_team_2
+        ):
+            response = self._delete([self.team_2.id, self.team.id])
+
+        assert response.json() == {
+            "deleted": [{"project_id": self.team.id, "flag_id": self.flag_1.id}],
+            "failed": [{"project_id": self.team_2.id, "error_message": DELETE_UNEXPECTED_ERROR}],
+        }
+
+    @parameterized.expand(
+        [
+            ("private_project", "project", "none", "Project not found."),
+            ("flags_viewer", "feature_flag", "viewer", DELETE_PERMISSION_ERROR),
+            ("flag_denied", "feature_flag_object", "none", DELETE_PERMISSION_ERROR),
+        ]
+    )
+    def test_requires_edit_access_in_each_project(self, _name, resource, access_level, expected_error):
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        resource_ids = {"project": str(self.team_2.id), "feature_flag_object": str(self.flag_2.id)}
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="project" if resource == "project" else "feature_flag",
+            resource_id=resource_ids.get(resource),
+            access_level=access_level,
+        )
+        self.client.force_login(self._create_user("member@posthog.com"))
+
+        response = self._delete([self.team_2.id, self.team_3.id])
+
+        assert response.json() == {
+            "deleted": [{"project_id": self.team_3.id, "flag_id": self.flag_3.id}],
+            "failed": [{"project_id": self.team_2.id, "error_message": expected_error}],
+        }
+        assert not self._is_deleted(self.flag_2)
+
+    def test_refuses_a_project_of_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        self.user.join(organization=other_organization)
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        other_flag = FeatureFlag.objects.create(team=other_team, created_by=self.user, key="shared-key")
+
+        response = self._delete([other_team.id])
+
+        assert response.json() == {
+            "deleted": [],
+            "failed": [{"project_id": other_team.id, "error_message": "Project not found."}],
+        }
+        assert not self._is_deleted(other_flag)
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["feature_flag:write"], status.HTTP_200_OK),
+            ("read_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_needs_the_write_scope(self, _name, scopes, expected_status):
+        self.client.logout()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self._delete([self.team.id], headers={"authorization": f"Bearer {value}"})
+
+        assert response.status_code == expected_status
+        assert self._is_deleted(self.flag_1) == (expected_status == status.HTTP_200_OK)
 
 
 class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
