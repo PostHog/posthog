@@ -13,19 +13,15 @@ export function IssuesFilters(): JSX.Element {
     return (
         <ErrorFilters.Root>
             <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-start gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <ReloadIssuesButton />
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.Status />
-                        <ErrorFilters.Severity />
-                        {hasIssueTags && <ErrorFilters.IssueTag />}
-                        <ErrorFilters.Assignee />
-                        <ErrorFilters.InternalAccounts />
-                    </div>
-                    <div className="ml-auto flex flex-wrap items-center gap-2">
-                        <ErrorTrackingQuickFilters />
-                    </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <ReloadIssuesButton />
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.Status />
+                    <ErrorFilters.Severity />
+                    {hasIssueTags && <ErrorFilters.IssueTag />}
+                    <ErrorFilters.Assignee />
+                    <ErrorFilters.InternalAccounts />
+                    <ErrorTrackingQuickFilters configureButtonClassName="ml-auto" />
                 </div>
                 <div className="flex w-full flex-wrap items-center gap-2">
                     <ErrorFilters.Search />

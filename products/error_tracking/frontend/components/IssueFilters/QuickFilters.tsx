@@ -36,7 +36,11 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
     )
 }
 
-export const ErrorTrackingQuickFilters = (): JSX.Element => {
+export const ErrorTrackingQuickFilters = ({
+    configureButtonClassName,
+}: {
+    configureButtonClassName?: string
+}): JSX.Element => {
     const context = CONTEXT
     const { quickFilters } = useValues(quickFiltersLogic({ context }))
     const modalProps = { context }
@@ -55,6 +59,7 @@ export const ErrorTrackingQuickFilters = (): JSX.Element => {
                             variant="outline"
                             size={quickFilters.length === 0 ? 'default' : 'icon'}
                             onClick={openModal}
+                            className={configureButtonClassName}
                         />
                     }
                 >
