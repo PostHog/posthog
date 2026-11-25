@@ -447,7 +447,7 @@ class TestVercelAPIClient:
             json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
         )
 
-        with patch.object(VercelAPIClient.request_installation_token.retry, "sleep", lambda _seconds: None):
+        with patch("tenacity.nap.time.sleep"):
             assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
 
         assert len(responses.calls) == 2
