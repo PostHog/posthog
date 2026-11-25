@@ -1,12 +1,16 @@
 import re
 import uuid
 import dataclasses
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
 from django.db.models.manager import BaseManager
 
+import boto3
+import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -33,6 +37,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
@@ -46,6 +51,7 @@ from products.data_warehouse.backend.presentation.table_activity import log_tabl
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
@@ -66,12 +72,15 @@ from products.warehouse_sources.backend.facade.contracts import (
 from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
+    discard_unused_upload,
     has_file_upload_source,
     hosted_upload_in_use,
+    is_legacy_upload_url,
     is_safe_upload_filename,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
+    upload_format_for_table_format,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -86,6 +95,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
     ExternalDataSourceAccessMethod,
     UploadedFileFormat,
 )
@@ -214,6 +224,27 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         get_s3_client().rm(path)
     except Exception as e:
         capture_exception(e)
+
+
+def _is_legacy_upload_table(table: DataWarehouseTable) -> bool:
+    """Whether the legacy `file` action could have made the table: no source, no credential, and a
+    file in the team's own `managed/` folder."""
+    return (
+        table.external_data_source_id is None
+        and table.credential_id is None
+        and is_legacy_upload_url(table.team_id, table.url_pattern or "")
+    )
+
+
+def _discard_failed_upload(table: DataWarehouseTable) -> None:
+    """Reclaim a table and its hosted file after the upload that created them failed.
+
+    The legacy `file` action writes the object and persists the row before it reads the file even
+    once, so every failure after that point has both to undo. The file goes first, because
+    `_delete_hosted_upload_file` decides by looking for another live table on the same url_pattern.
+    """
+    _delete_hosted_upload_file(table)
+    table.delete()
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -433,7 +464,8 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             raise serializers.ValidationError(error_message)
 
         # A table with no credential is read with the ClickHouse node's own role rather than a key
-        # the team supplied, so the URL is only trustworthy because PostHog built it.
+        # the team supplied, so the URL is only trustworthy because PostHog built it. `create`
+        # refuses that combination outright, and an update has to hold the same line.
         if (
             self.instance is not None
             and self.instance.credential_id is None
@@ -556,12 +588,30 @@ class FileUploadResponseSerializer(serializers.Serializer):
     size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
 
 
-class UploadedFileSerializer(serializers.Serializer):
-    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
-    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
+class UploadOptionsSerializer(serializers.Serializer):
+    notebook_cell = serializers.RegexField(
+        r"^[A-Za-z0-9_-]{1,12}/[^\x00-\x1f\x7f]{1,128}$",
+        required=False,
+        help_text="Notebook short ID and cell ID separated by a slash. On create, associates the new table with "
+        "that cell. On replace, requires the table to have been created for that cell.",
+    )
     file_format = serializers.ChoiceField(
         choices=UploadedFileFormat.choices, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
     )
+
+
+@extend_schema_field(OpenApiTypes.BINARY)
+class BinaryUploadField(serializers.FileField):
+    pass
+
+
+class InlineUploadSerializer(UploadOptionsSerializer):
+    file = BinaryUploadField()
+
+
+class UploadedFileSerializer(UploadOptionsSerializer):
+    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
+    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
 
     def validate_filename(self, filename: str) -> str:
         # upload_file only ever returns a safe name, so anything else did not come from it.
@@ -583,15 +633,20 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+class CreateTableFromFileSerializer(InlineUploadSerializer):
+    table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
+
+
+INCLUDE_TABLE_COLUMNS = OpenApiParameter(
+    "include_columns", bool, description="Include table columns. Disable for lightweight table lookups.", default=True
+)
+
+
 @extend_schema_view(
+    retrieve=extend_schema(parameters=[INCLUDE_TABLE_COLUMNS]),
     list=extend_schema(
         parameters=[
-            OpenApiParameter(
-                "include_columns",
-                bool,
-                description="Include table columns. Disable for lightweight table existence or name lookups.",
-                default=True,
-            ),
+            INCLUDE_TABLE_COLUMNS,
             OpenApiParameter(
                 "pending_source",
                 bool,
@@ -599,7 +654,7 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 default=False,
             ),
         ]
-    )
+    ),
 )
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -896,10 +951,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """Store an uploaded file for a new warehouse table and FileUpload source.
 
-        Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
-        this returns an `upload_id` the caller passes back to build the table. The file is written under
-        a team-scoped prefix, so a table can only ever read back its own team's uploads.
+        Returns an upload ID for a subsequent create or replacement.
         """
+        upload = self._receive_upload(request)
+        if isinstance(upload, response.Response):
+            return upload
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=FileUploadResponseSerializer(
+                {**dataclasses.asdict(upload), "size_bytes": request.FILES["file"].size}
+            ).data,
+        )
+
+    def _receive_upload(self, request: request.Request) -> UploadedFileRef | response.Response:
         if not settings.DATAWAREHOUSE_BUCKET:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -963,17 +1027,29 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         if upload_id is None:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
 
-        return response.Response(
-            status=status.HTTP_201_CREATED,
-            data=FileUploadResponseSerializer(
-                {
-                    "upload_id": upload_id,
-                    "filename": safe_filename,
-                    "file_format": file_format,
-                    "size_bytes": file.size,
-                }
-            ).data,
-        )
+        return UploadedFileRef(upload_id=upload_id, filename=safe_filename, file_format=file_format)
+
+    def _save_with_upload(
+        self, request: request.Request, save: Callable[[dict[str, Any]], response.Response]
+    ) -> response.Response:
+        upload = self._receive_upload(request)
+        if isinstance(upload, response.Response):
+            return upload
+        fields: dict[str, Any] = {
+            key: request.data[key] for key in ("table_name", "notebook_cell") if key in request.data
+        }
+        saved = False
+        try:
+            result = save({**fields, **dataclasses.asdict(upload)})
+            saved = status.is_success(result.status_code)
+            return result
+        finally:
+            if not saved:
+                # A failed sync can already have adopted this request's file.
+                try:
+                    discard_unused_upload(self.team_id, upload)
+                except Exception as error:
+                    capture_exception(error)
 
     @extend_schema(
         request=CreateTableFromUploadSerializer,
@@ -989,7 +1065,25 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         is always derived from the caller's own team, so a client-supplied
         `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
         fall back to the node role, never a user-supplied key).
+
+        For a team with object storage sources, the table also gets a file upload source. Its first
+        sync imports the file and turns the same table row into a managed table.
         """
+        return self._create_table_from_upload(request.data)
+
+    @extend_schema(request={"multipart/form-data": CreateTableFromFileSerializer}, responses={201: TableSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser],
+    )
+    def create_from_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Create a warehouse table from the file in this request."""
+        return self._save_with_upload(request, self._create_table_from_upload)
+
+    def _create_table_from_upload(self, data: dict[str, Any]) -> response.Response:
+        request = self.request
         # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
         # queryable url_pattern. Missing either would create a table whose every query fails.
         if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
@@ -998,7 +1092,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": "Object storage must be available to create a table from a file."},
             )
 
-        serializer = CreateTableFromUploadSerializer(data=request.data)
+        serializer = CreateTableFromUploadSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         upload_id = str(serializer.validated_data["upload_id"])
         filename = serializer.validated_data["filename"]
@@ -1043,7 +1137,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table.save()
         log_table_activity(table, "created")
         # The table reads the file in place until the source's first sync imports it.
-        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        create_file_upload_source(
+            self.team_id, table.pk, upload, read_settings, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
@@ -1066,15 +1162,29 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def replace_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
+        return self._replace_table_from_upload(table, request.data)
+
+    @extend_schema(request={"multipart/form-data": InlineUploadSerializer}, responses={202: TableSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser],
+    )
+    def replace_with_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Replace the rows of a file-upload table with the file in this request."""
+        table: DataWarehouseTable = self.get_object()
+        return self._save_with_upload(request, lambda data: self._replace_table_from_upload(table, data))
+
+    def _replace_table_from_upload(self, table: DataWarehouseTable, data: dict[str, Any]) -> response.Response:
         if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Object storage must be available to replace a table's file."},
             )
 
-        serializer = UploadedFileSerializer(data=request.data)
+        serializer = UploadedFileSerializer(data=data)
         serializer.is_valid(raise_exception=True)
-        file_format = serializer.validated_data["file_format"]
 
         if not can_replace_file(self.team_id, table.pk):
             return response.Response(
@@ -1085,15 +1195,22 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         upload = UploadedFileRef(
             upload_id=str(serializer.validated_data["upload_id"]),
             filename=serializer.validated_data["filename"],
-            file_format=file_format,
+            file_format=serializer.validated_data["file_format"],
         )
         missing = _missing_upload_response(self.team_id, upload)
         if missing is not None:
             return missing
-        return self._replace_file_with_upload(table, upload, status.HTTP_202_ACCEPTED)
+        return self._replace_file_with_upload(
+            table, upload, status.HTTP_202_ACCEPTED, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
     def _replace_file_with_upload(
-        self, table: DataWarehouseTable, upload: UploadedFileRef, success_status: int
+        self,
+        table: DataWarehouseTable,
+        upload: UploadedFileRef,
+        success_status: int,
+        *,
+        notebook_cell: str | None = None,
     ) -> response.Response:
         # Read the new file in place first, so a file the import can't read never replaces a working one.
         try:
@@ -1104,7 +1221,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         try:
-            replace_file_upload(self.team_id, table.pk, upload, read_settings)
+            replace_file_upload(self.team_id, table.pk, upload, read_settings, notebook_cell=notebook_cell)
         except FileUploadSourceError as e:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
@@ -1113,3 +1230,204 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             status=success_status,
             data=TableSerializer(table, context=self.get_serializer_context()).data,
         )
+
+    def _replace_file_from_legacy_upload(
+        self, table: DataWarehouseTable, file: Any, safe_filename: str, table_format: str
+    ) -> response.Response:
+        """Store a file the legacy `file` action received as an upload, and import it into the table's source.
+
+        A file upload source can only read the upload folder, so the file goes there and not over the
+        table's file. The table reads its current file until the sync of the new one finishes.
+        """
+        file_format = upload_format_for_table_format(table_format)
+        if file_format is None or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "This table imports its file, so upload a CSV with a header row, newline-delimited "
+                    "JSON, or Parquet file."
+                },
+            )
+        upload_id = _store_upload(self.team_id, file, safe_filename)
+        if upload_id is None:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
+        upload = UploadedFileRef(upload_id=upload_id, filename=safe_filename, file_format=file_format)
+        result = self._replace_file_with_upload(table, upload, status.HTTP_201_CREATED)
+        if result.status_code != status.HTTP_201_CREATED:
+            # The upload exists only for this request. A refused replace leaves nothing that reads it,
+            # so it would never be cleaned up. A source that already points at it keeps it.
+            discard_unused_upload(self.team_id, upload)
+        return result
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = Team.objects.get(id=self.team_id)
+        is_warehouse_api_enabled = posthoganalytics.feature_enabled(
+            "warehouse-api",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+
+        if not is_warehouse_api_enabled:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Warehouse API is not enabled for this organization"},
+            )
+
+        if "file" not in request.FILES:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        file = request.FILES["file"]
+
+        # Sanitize filename — Django strips path separators via os.path.basename
+        # in UploadedFile._set_name, but we further restrict to safe characters
+        # as defense-in-depth for the S3 key and url_pattern.
+        safe_filename = sanitize_upload_filename(file.name or "")
+        if safe_filename is None:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid filename"},
+            )
+
+        table_name = request.data.get("name", safe_filename)
+        file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate format against allowed choices
+        valid_formats = {c[0] for c in DataWarehouseTableFormat.choices}
+        if file_format not in valid_formats:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"},
+            )
+
+        # Validate table name format
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
+                },
+            )
+
+        # Validate table name
+        team_id = self.team_id
+        table = None
+        table_query = DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name)
+        if table_query.exists():
+            table = table_query.first()
+        if table is not None:
+            # The table is found by name, not through `get_object`, so check access to it here.
+            self.check_object_permissions(request, table)
+        # A table that a file upload source imports, or that the migration moved to one, takes the new file
+        # through that source.
+        imports_through_source = table is not None and can_replace_file(team_id, table.pk)
+        # Re-uploading may otherwise only replace the file of a table this action made itself. Any other
+        # table with the name reads data this upload must not overwrite or repoint.
+        if table is not None and not imports_through_source and not _is_legacy_upload_table(table):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"A table named '{table_name}' already exists, and it wasn't made by uploading "
+                    "a file here. Choose a different name."
+                },
+            )
+
+        if file.size > 52428800:  # 50MB in bytes
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"File size exceeds maximum allowed size of 50MB"},
+            )
+
+        if table is not None and imports_through_source:
+            return self._replace_file_from_legacy_upload(table, file, safe_filename, file_format)
+
+        created_table = table is None
+        before = snapshot_table(table) if table is not None else None
+
+        # Create the table record
+        try:
+            # Create the table if it doesn't exist, otherwise use existing one
+            if table is None:
+                created_by = request.user if isinstance(request.user, User) else None
+                table = DataWarehouseTable.objects.create(
+                    team_id=team_id,
+                    name=table_name,
+                    format=file_format,
+                    created_by=created_by,
+                    created_via=resolve_created_via(request),
+                )
+
+            # Generate URL pattern and store file in object storage
+            if settings.DATAWAREHOUSE_BUCKET:
+                if settings.USE_LOCAL_SETUP:
+                    s3 = boto3.client(
+                        "s3",
+                        aws_access_key_id=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                        aws_secret_access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+                        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                    )
+                else:
+                    s3 = boto3.client("s3")
+
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{safe_filename}")
+
+                # Set the URL pattern for the table
+                table.url_pattern = (
+                    f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
+                )
+                table.format = file_format
+
+                # Detect on this path too, so a CSV uploaded here is read under the quoting its
+                # columns are detected with. Only an unset option is filled, so an explicit choice
+                # on an existing table survives a re-upload.
+                if table._is_csv_format() and table.csv_allow_double_quotes is None:
+                    allow_double_quotes = table.detect_csv_double_quotes_setting()
+                    if allow_double_quotes is None:
+                        # Left behind, the row is an incomplete table that the next upload of the
+                        # same name silently reuses. A table that already existed belongs to the
+                        # caller, so leave it alone.
+                        if created_table:
+                            _discard_failed_upload(table)
+                        return response.Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": _file_read_error_message(FORMAT_CSV)},
+                        )
+                    table.options = {**table.options, "csv_allow_double_quotes": allow_double_quotes}
+
+                # Try to determine columns from the file
+                table.columns = table.get_columns()
+                # team_id comes from routing and safe_filename is sanitized (no path separators), so
+                # the URL above is always scoped to this team's own managed/ prefix, never taken
+                # verbatim from request input the way the PATCH endpoint's url_pattern field is.
+                table.save(internally_computed_url_pattern=True)
+                # A re-upload replaces the data even when no metadata changes, so it is always logged.
+                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
+
+                # Validate columns in background
+                validate_data_warehouse_table_columns.delay(team_id, str(table.id))
+
+                return response.Response(
+                    status=status.HTTP_201_CREATED,
+                    data=TableSerializer(table, context=self.get_serializer_context()).data,
+                )
+            else:
+                if table is not None and table.credential is None:
+                    table.delete()
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Object storage must be available to upload files."},
+                )
+        except Exception as e:
+            capture_exception(e)
+            # Reading the file can fail outright rather than return an answer, in column detection
+            # and in quote detection alike. A table that already existed belongs to the caller, so
+            # leave it alone.
+            if created_table and table is not None:
+                _discard_failed_upload(table)
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
