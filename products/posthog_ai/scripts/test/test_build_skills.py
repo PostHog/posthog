@@ -73,8 +73,13 @@ def test_validate_frontmatter_valid() -> None:
         ("No frontmatter\n", "Missing YAML frontmatter"),
         ("---\nname: only-name\n---\nBody\n", "description"),
         ("---\ndescription: only-desc\n---\nBody\n", "name"),
+        ("---\nname: signals-scout-foo\ndescription: A scout\n---\nBody\n", "disable-model-invocation"),
+        (
+            "---\nname: review-hog-perspective-foo\ndescription: A lens\ndisable-model-invocation: false\n---\nBody\n",
+            "disable-model-invocation",
+        ),
     ],
-    ids=["no-frontmatter", "missing-description", "missing-name"],
+    ids=["no-frontmatter", "missing-description", "missing-name", "scout-listed", "review-perspective-listed"],
 )
 def test_validate_frontmatter_invalid(text: str, error_fragment: str) -> None:
     with pytest.raises(ValueError, match=error_fragment):
@@ -636,6 +641,8 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         ("", "has no `metadata.audience`"),
         ("metadata:\n  audience: staff\n", "not a known audience"),
         ("metadata:\n  audience: internal\n  feature_flag: some-flag\n", "does not serve an `internal` skill"),
+        ("metadata:\n  audience: customer\n  consumers: slack, posthog_ai\n", None),
+        ("metadata:\n  audience: customer\n  consumers: slak\n", "names `slak`, which the MCP server does not know"),
     ],
     ids=[
         "customer",
@@ -645,6 +652,8 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         "no-metadata",
         "unknown-audience",
         "internal-with-flag",
+        "known-consumers",
+        "misspelled-consumer",
     ],
 )
 def test_lint_all_requires_a_known_audience_on_every_product_skill(

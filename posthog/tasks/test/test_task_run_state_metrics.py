@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar, Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError, ProgrammingError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
+import requests_mock
 from parameterized import parameterized
 from prometheus_client import CollectorRegistry
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 from posthog.tasks.tasks import capture_task_run_state_metrics, capture_task_status_shadow_metrics
@@ -310,7 +312,10 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
         task = Task.objects.create(team=team, title="t", description="d", origin_product=Task.OriginProduct.SLACK)
-        TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=3)
+        )
+        TaskRun.objects.filter(task=task).update(updated_at=timezone.now() - timedelta(hours=3))
         Task.objects.filter(pk=task.pk).update(status=Task.Status.QUEUED)
         registry = CollectorRegistry()
         context = MagicMock()
@@ -323,5 +328,82 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         labels = {"stored_status": "queued", "derived_status": "running"}
         assert registry.get_sample_value("posthog_tasks_status_shadow_mismatches", labels) == 1
         assert registry.get_sample_value("posthog_tasks_status_shadow_repaired", labels) == 1
+        stale_labels = {"profile": "none", "run_environment": "cloud", "rule": "heartbeat"}
+        assert registry.get_sample_value("posthog_tasks_stale_live_runs", stale_labels) == 1
         task.refresh_from_db()
         assert task.status == Task.Status.RUNNING
+
+    def test_ends_a_quiet_run_of_a_profile_the_sweep_enforces(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED, profile="user"
+        )
+        run = TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=3)
+        )
+        TaskRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=3))
+        registry = CollectorRegistry()
+        context = MagicMock()
+        context.__enter__ = MagicMock(return_value=registry)
+        context.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("posthog.tasks.tasks.pushed_metrics_registry", return_value=context),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={"user": "enforce"},
+            ),
+            patch("posthog.temporal.common.client.sync_connect") as connect,
+        ):
+            connect.return_value.get_workflow_handle.return_value.describe = AsyncMock(
+                side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+            )
+            capture_task_status_shadow_metrics()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.FAILED
+        assert registry.get_sample_value("posthog_tasks_stale_live_runs_swept", {"profile": "user"}) == 1
+
+    @override_settings(
+        SANDBOX_AI_GATEWAY_URL="https://gateway.example.com",
+        SANDBOX_AI_GATEWAY_WORKER_URL="http://localhost:18080",
+        SANDBOX_AI_GATEWAY_MINT_KEY="phs_test",
+    )
+    def test_revokes_the_gateway_tokens_of_a_run_that_ended(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED, profile="user"
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.COMPLETED,
+            completed_at=timezone.now(),
+            state={"gateway_token_hashes": ["a" * 64]},
+        )
+        registry = CollectorRegistry()
+        context = MagicMock()
+        context.__enter__ = MagicMock(return_value=registry)
+        context.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("posthog.tasks.tasks.pushed_metrics_registry", return_value=context),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={"user": "enforce"},
+            ),
+            requests_mock.Mocker() as gateway,
+        ):
+            gateway.post("http://localhost:18080/v1/tokens/revoke", status_code=200)
+            capture_task_status_shadow_metrics()
+
+        run.refresh_from_db()
+        assert "gateway_token_hashes" not in run.state
+        labels = {"profile": "user", "outcome": "revoked"}
+        assert registry.get_sample_value("posthog_tasks_ended_run_gateway_tokens", labels) == 1

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.db.models import F
 from django.http import QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -5489,30 +5490,58 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
         other_teams_report.refresh_from_db()
         assert other_teams_report.status == SignalReport.Status.READY
 
-    def test_bulk_status_labels_reuse_request_user_without_actor_lookups(self):
-        ids = [str(self._create_report().id) for _ in range(3)]
-
-        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
-            with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
-                response = self._post({"ids": ids, "state": "suppressed"})
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        labels = [
-            call.kwargs["properties"]
-            for call in mock_capture.call_args_list
-            if call.kwargs["event"] == "signal_report_status_changed"
+    @parameterized.expand(
+        [
+            ("user", None, True),
+            ("task_called_by_its_creator", "caller", True),
+            ("task_of_another_creator", "other", False),
         ]
+    )
+    def test_bulk_status_labels_resolve_the_actor_once_per_request(self, _name, task_creator, names_caller):
+        headers: dict[str, str] = {}
+        if task_creator:
+            creators = {
+                "caller": self.user,
+                "other": User.objects.create_and_join(self.organization, "other@example.com", None),
+            }
+            Task = apps.get_model("tasks", "Task")
+            task = Task.objects.create(
+                team=self.team, title="task", description="desc", created_by=creators[task_creator]
+            )
+            headers["X-PostHog-Task-Id"] = str(task.id)
+
+        def suppress(count: int) -> tuple[list[dict], list[dict]]:
+            ids = [str(self._create_report().id) for _ in range(count)]
+            with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+                with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        self._bulk_url(),
+                        data=json.dumps({"ids": ids, "state": "suppressed"}),
+                        content_type="application/json",
+                        headers=headers,
+                    )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            labels = [
+                call.kwargs["properties"]
+                for call in mock_capture.call_args_list
+                if call.kwargs["event"] == "signal_report_status_changed"
+            ]
+            actor_lookups = [
+                query
+                for query in ctx.captured_queries
+                if 'FROM "posthog_user"' in query["sql"] or 'FROM "posthog_task"' in query["sql"]
+            ]
+            return labels, actor_lookups
+
+        _, lookups_for_one = suppress(1)
+        labels, lookups_for_three = suppress(3)
+
         assert len(labels) == 3
         for label in labels:
-            assert label["actor_kind"] == "user"
-            assert label["actor_user_uuid"] == str(self.user.uuid)
-            assert label["actor_distinct_id"] == self.user.distinct_id
-        actor_lookups = [
-            query
-            for query in ctx.captured_queries
-            if query["sql"].startswith('SELECT "posthog_user"."uuid" AS "uuid", "posthog_user"."distinct_id"')
-        ]
-        assert actor_lookups == []
+            assert label["actor_kind"] == ("task" if task_creator else "user")
+            assert label["actor_user_uuid"] == (str(self.user.uuid) if names_caller else None)
+            assert label["actor_distinct_id"] == (self.user.distinct_id if names_caller else None)
+        assert len(lookups_for_three) == len(lookups_for_one)
 
     def test_bulk_deduplicates_ids_preserving_order(self):
         first = self._create_report()
@@ -5664,26 +5693,51 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
         response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_reports_list_filters_by_task_id(self):
-        report = self._create_report()
-        other_report = self._create_report()
+    @parameterized.expand(
+        [
+            ("all_associations", "implementation", "", {"claimed", "linked"}),
+            ("pr_targets_drop_claim_beside_other_report", "implementation", "&pr_targets=true", {"linked"}),
+            ("pr_targets_keep_sole_claim", None, "&pr_targets=true", {"claimed"}),
+            ("pr_targets_keep_claim_with_attached_pr", "attached_pr", "&pr_targets=true", {"linked"}),
+        ]
+    )
+    def test_reports_list_filters_by_task_id(self, _name, link, extra_params, expected):
+        reports = {"claimed": self._create_report(), "linked": self._create_report()}
+        self._create_report()
         task = self._create_task()
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            product="tasks",
-            type="agent_run",
-            task_id=str(task.id),
-        )
+        claimed_reports = ["claimed", "linked"] if link == "attached_pr" else ["claimed"]
+        for name in claimed_reports:
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports[name].id),
+                product="tasks",
+                type="agent_run",
+                task_id=str(task.id),
+            )
+        if link == "implementation":
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                product="signals",
+                type=TASK_RUN_TYPE_IMPLEMENTATION,
+                task_id=str(task.id),
+            )
+        elif link == "attached_pr":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                content=PullRequestLink(url="https://github.com/example/repo/pull/1"),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
+            )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}{extra_params}")
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(report.id)}
-        assert str(other_report.id) not in ids
+        assert ids == {str(reports[name].id) for name in expected}
 
-    def test_reports_list_rejects_malformed_task_id(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+    @parameterized.expand([("malformed_task_id", "task_id=not-a-uuid"), ("pr_targets_without_task", "pr_targets=true")])
+    def test_reports_list_rejects_bad_task_filter(self, _name, query):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
@@ -5808,7 +5862,17 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         # Listing must not write the synthetic artefacts — the backfill owns that.
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_synthetic_rows_count_and_interleave_chronologically(self):
+    @parameterized.expand(
+        [
+            ("unfiltered", {}, 4, ["newer", "note", "middle", "older"]),
+            ("task_runs_only", {"type": "task_run"}, 3, ["newer", "middle", "older"]),
+            ("note_only", {"type": "note"}, 1, ["note"]),
+            ("second_page_of_task_runs", {"type": "task_run", "limit": 1, "offset": 1}, 3, ["middle"]),
+        ]
+    )
+    def test_synthetic_rows_count_and_interleave_chronologically(
+        self, _name: str, query: dict[str, str | int], expected_count: int, expected_rows: list[str]
+    ) -> None:
         report = self._create_report()
         older_task = self._create_task()
         newer_task = self._create_task()
@@ -5823,18 +5887,25 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
             task_id=str(self._create_task().id),
         )
         SignalReportArtefact.objects.filter(id=middle.id).update(created_at=timezone.now() - timedelta(hours=1))
+        note = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "Checked the export job."}),
+        )
+        SignalReportArtefact.objects.filter(id=note.id).update(created_at=F("created_at") - timedelta(minutes=30))
         newer = SignalReportTask.objects.create(
             team=self.team, report=report, task=newer_task, relationship="implementation"
         )
+        ids = {"newer": str(newer.id), "note": str(note.id), "middle": str(middle.id), "older": str(older.id)}
 
-        response = self.client.get(self._artefacts_url(str(report.id)))
+        response = self.client.get(self._artefacts_url(str(report.id)), query)
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        # count covers the real artefact plus both synthetic legacy rows.
-        assert body["count"] == 3
+        # count covers every matching row, real and synthetic, not only the page.
+        assert body["count"] == expected_count
         # Default order is newest-first; the legacy rows land at their own timestamps, not appended last.
-        ids_newest_first = [a["id"] for a in body["results"]]
-        assert ids_newest_first == [str(newer.id), str(middle.id), str(older.id)]
+        assert [a["id"] for a in body["results"]] == [ids[name] for name in expected_rows]
 
     def test_legacy_rows_do_not_cross_reports(self):
         report = self._create_report()

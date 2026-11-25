@@ -353,7 +353,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -585,7 +585,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -1660,11 +1660,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:

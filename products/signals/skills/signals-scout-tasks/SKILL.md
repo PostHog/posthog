@@ -1,5 +1,6 @@
 ---
 name: signals-scout-tasks
+disable-model-invocation: true
 scout-display-name: Tasks
 description: >
   Signals scout for PostHog Tasks. Watches delivery health — failing runs clustered by

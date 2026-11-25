@@ -19,6 +19,8 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -30,7 +32,8 @@ import { visibilityChange } from './rankingsReport'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'percentage_scaled', showGrid: true },
     legend: { show: true },
     showCrosshair: true,
@@ -42,14 +45,20 @@ const VisibilityChart = (): JSX.Element | null => {
     const { chart } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => (chart?.series ?? []).map(({ domain, label, data }) => ({ key: domain, label, data })),
-        [chart]
+        () =>
+            (chart?.series ?? []).map(({ domain, label, colorIndex, data }) => ({
+                key: domain,
+                label,
+                color: theme.colors[colorIndex % theme.colors.length],
+                data,
+            })),
+        [chart, theme]
     )
     if (!chart) {
         return null
     }
     return (
-        <div className="h-80 min-w-0 flex flex-col p-2">
+        <div className="h-64 min-w-0 flex flex-col p-2">
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -59,6 +68,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { reviewShown } = useValues(aiVisibilityCompetitorReviewLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -81,13 +91,15 @@ export const ContentAutopilotRankings = (): JSX.Element => {
             <div className="min-w-0 flex-1 basis-80">
                 <h4 className="m-0">{filtersHeading(rankings)}</h4>
                 <p className="m-0 text-xs text-muted" data-attr="content-autopilot-rankings-answers">
-                    {brandedAnswersNote(rankings.branded, rankings.answers)} Visibility is the share of those answers
-                    that name a brand or cite its site.{' '}
+                    {brandedAnswersNote(rankings.branded, rankings.answers)}{' '}
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
                             <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
+                    ) : reviewShown ? (
+                        // The review card below the header offers the same action.
+                        'Competitors are guessed from the sites the engines cite most.'
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
@@ -142,7 +154,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
             {header}
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+            <AiVisibilityCompetitorReview />
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
                     <VisibilityChart />
@@ -201,6 +214,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 {
                                     title: 'Visibility',
                                     key: 'visibility',
+                                    tooltip: 'The share of these answers that name the brand or cite its site.',
                                     align: 'right',
                                     render: (_, brand) => (
                                         <span className="tabular-nums">
@@ -212,7 +226,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points.`,
+                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points. Left blank when those days have under a quarter of this range's answers.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {

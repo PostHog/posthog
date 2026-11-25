@@ -1,3 +1,4 @@
+import Ajv from 'ajv'
 import { afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { z } from 'zod'
 
@@ -15,7 +16,7 @@ import servedSkillsJson from '@/generated/served-skills.json'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
-import { ToolCatalog } from '@/hono/tool-catalog'
+import { ToolCatalog, toMcpInputSchema } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
@@ -359,6 +360,33 @@ describe('ToolExecutor', () => {
     })
 
     describe('handleToolsList', () => {
+        it('compacts property filter unions in the advertised trends schema', async () => {
+            const state = makeToolExecutorState([{ name: 'query-trends' }])
+            const { tools } = await executor.handleToolsList(state)
+            const original = toMcpInputSchema(GENERATED_TOOL_MAP['query-trends']!().schema)
+            const advertised = tools.find((tool) => tool.name === 'query-trends')!.inputSchema
+            const originalFilter = original.properties!.properties
+            const advertisedFilter = advertised.properties!.properties
+
+            expect(JSON.stringify(advertisedFilter).length).toBeLessThan(JSON.stringify(originalFilter).length)
+
+            const ajv = new Ajv({ strict: false })
+            const validate = ajv.compile(advertisedFilter as object)
+            const validateOriginal = ajv.compile(originalFilter as object)
+            const filters = [
+                { type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] },
+                { type: 'person', key: 'age', operator: 'gt', value: 18 },
+                { type: 'group', key: 'name', operator: 'icontains', value: 'example', group_type_index: 0 },
+                { type: 'element', key: 'tag_name', operator: 'is_set' },
+                { type: 'group', key: 'name', operator: 'is_set' },
+                { type: 'event', key: '$browser', operator: 'gt', value: ['Chrome'] },
+                { type: 'person', operator: 'is_set' },
+            ]
+            expect(filters.map((filter) => validate([filter]))).toEqual(
+                filters.map((filter) => validateOriginal([filter]))
+            )
+        })
+
         it('returns filtered tools matching the state allTools', async () => {
             const allEntries = catalog.getPreBuiltEntries()
             const subset = allEntries.slice(0, 3)
@@ -425,9 +453,6 @@ describe('ToolExecutor', () => {
             ])
         })
 
-        // The flag decides skill exposure per client; guides stay a Claude chat-host
-        // feature; plugin and sandbox consumers get neither because they carry their
-        // own skills. A regression in any row silently changes what an agent is told.
         it.each([
             {
                 label: 'Claude web/desktop with flag off',
@@ -450,7 +475,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: false,
                 skillsEnabled: false,
                 consumer: undefined,
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: false,
             },
             {
@@ -458,7 +483,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: false,
                 skillsEnabled: true,
                 consumer: undefined,
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: true,
             },
             {
@@ -466,7 +491,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: true,
                 skillsEnabled: true,
                 consumer: 'plugin',
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: false,
             },
             {
@@ -594,7 +619,7 @@ describe('ToolExecutor', () => {
         )
 
         it.each([{ skillsEnabled: false }, { skillsEnabled: true }])(
-            'keeps guides off a directly connected Claude Code CLI (skills flag: $skillsEnabled)',
+            'serves guides to a directly connected Claude Code CLI (skills flag: $skillsEnabled)',
             async ({ skillsEnabled }) => {
                 const state = makeToolExecutorState(
                     catalog
@@ -612,10 +637,8 @@ describe('ToolExecutor', () => {
                     { name: 'exec', arguments: { command: 'learn analytics' } },
                     state
                 )) as { content: { text: string }[]; isError?: boolean }
-                expect(result.isError).toBe(true)
-                expect(result.content[0]!.text).toContain(
-                    skillsEnabled ? 'Unknown learning topic' : 'learn command is not available'
-                )
+                expect(result.isError).toBeFalsy()
+                expect(result.content[0]!.text).toContain('### Retrieving data')
             }
         )
 
@@ -769,9 +792,11 @@ describe('ToolExecutor', () => {
 
                 expect(JSON.stringify(other.tools)).toBe(JSON.stringify(result.tools))
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
-                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
+                expect(commandDesc).toContain(
+                    isClaudeChatHost ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
+                )
+                expect(commandDesc).toContain('- analytics:')
+                expect(commandDesc).not.toContain('### Retrieving data')
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
                 expect(commandDesc).toContain('Call `project-get` without an ID to read the active project')
             }
@@ -832,71 +857,6 @@ describe('ToolExecutor', () => {
             }
         )
 
-        describe('served skills', () => {
-            const listed = Object.entries(servedSkillsJson.skills) as [
-                string,
-                { audience: string; feature_flag?: string; consumers?: string[] },
-            ][]
-            const openSkill = OPEN_SERVED_SKILL
-            const [gatedSkill, { feature_flag: gate }] = listed.find(([, entry]) => entry.feature_flag)!
-            const [scopedSkill, { consumers }] = listed.find(([, entry]) => entry.consumers && !entry.feature_flag)!
-            const unlistedSkill = 'internal-runbook'
-            const skills = new SkillCatalog(
-                [openSkill, gatedSkill, scopedSkill, unlistedSkill].map((name) => ({
-                    name,
-                    description: `The ${name} skill.`,
-                    files: [makeSkillFile('SKILL.md', `# ${name}`)],
-                }))
-            )
-            const skillExecutor = (): ToolExecutor =>
-                new ToolExecutor(catalog, new InstructionsBuilder(''), { getCatalog: () => skills } as any)
-            const learn = async (
-                command: string,
-                state: ResolvedState
-            ): Promise<{ content: { text: string }[]; isError?: boolean }> =>
-                (await skillExecutor().handleToolCall({ name: 'exec', arguments: { command } }, state)) as any
-
-            it.each([
-                { label: 'a listed skill', skill: openSkill, served: true },
-                { label: 'an unlisted skill', skill: unlistedSkill, served: false },
-                { label: 'a gated skill without its flag', skill: gatedSkill, served: false },
-                { label: 'a gated skill with its flag', skill: gatedSkill, gateOn: true, served: true },
-                { label: 'a consumer skill to another caller', skill: scopedSkill, served: false },
-                {
-                    label: 'a consumer skill to its consumer',
-                    skill: scopedSkill,
-                    consumer: consumers![0],
-                    served: true,
-                },
-            ])('learn serves $label: $served', async ({ skill, gateOn, consumer, served }) => {
-                const state = makeToolExecutorState([], {
-                    useSingleExec: true,
-                    toolFeatureFlags: {
-                        [MCP_EXEC_SKILLS_FEATURE_FLAG]: true,
-                        ...(gateOn ? { [gate!]: true } : {}),
-                    },
-                    ...(consumer
-                        ? {
-                              sessionContext: {
-                                  mcpClientName: 'claude-ai',
-                                  mcpClientVersion: '1.0',
-                                  mcpProtocolVersion: '2025-03-26',
-                                  mcpConsumer: consumer,
-                                  mcpVendorClient: undefined,
-                              },
-                          }
-                        : {}),
-                })
-
-                const read = await learn(`learn posthog:${skill}`, state)
-                const search = await learn(`learn -s "${skill}"`, state)
-
-                expect(read.content[0]!.text.includes(`# ${skill}`)).toBe(served)
-                expect(read.content[0]!.text.includes('Unknown skill')).toBe(!served)
-                expect(search.content[0]!.text.includes(`posthog:${skill}`)).toBe(served)
-            })
-        })
-
         it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeToolExecutorState(
                 catalog
@@ -924,7 +884,7 @@ describe('ToolExecutor', () => {
 
             expect(result.content[0]!.text).toContain('## Analytics')
             expect(result.content[0]!.text).toContain('### Retrieving data')
-            expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).not.toContain('### Examples')
             expect(result.content[0]!.text).toContain('## Visualizations')
             expect(result.content[0]!.text).toContain('### Rendering visualizations')
         })

@@ -319,6 +319,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: traceNode.stats,
         totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree: [traceNode],
     initialNodeId: lastStep.generationId,
@@ -332,6 +333,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
+                waitMs: null,
                 ...messagesSides(stepInput(lastStep), stepOutput(lastStep)),
                 error: null,
             },

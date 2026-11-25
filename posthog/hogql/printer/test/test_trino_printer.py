@@ -989,6 +989,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
             "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
         ),
+        # HogQL parses with the OrNull variant, so a value no branch can read, such as '', is NULL and not a failed cast.
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            'with_timezone(TRY_CAST("users"."user_id" AS TIMESTAMP)',
+            'with_timezone(CAST("users"."user_id" AS TIMESTAMP)',
+        ),
         # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
         (
             "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
@@ -2419,6 +2425,31 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
             [(3, 6, 2)],
         ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT id, length(name AS label) AS size FROM rows ORDER BY size, id LIMIT 1 BY size",
+            [(1, 1), (2, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT DISTINCT length(name AS label) AS size FROM rows ORDER BY id DESC",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, name FROM rows ORDER BY length(name AS label) DESC, id LIMIT 1 BY label",
+            [(2, "bb"), (1, "a")],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id FROM rows ORDER BY id LIMIT 1 BY length(name AS label), label",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, length(name) AS size FROM rows ORDER BY length(name AS label), id LIMIT 1 BY label",
+            [(1, 1), (2, 2)],
+        ),
     ],
 )
 def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
@@ -3478,6 +3509,29 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
     assert expected in sql
     assert not [column for column in unread_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
+
+
+def test_column_restricted_table_reads_only_its_allowed_columns() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="people",
+            table=DirectTrinoTable(
+                name="people",
+                fields={"user_id": StringDatabaseField(name="user_id", nullable=False)},
+                external_data_source_id="source-id",
+                trino_catalog="lake",
+                trino_schema="analytics",
+                trino_table_name="people",
+                column_restricted=True,
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT user_id FROM people"), context, "trino")
+
+    assert '(SELECT "user_id" FROM "lake"."analytics"."people")' in sql
 
 
 @pytest.mark.parametrize(

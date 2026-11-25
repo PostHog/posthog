@@ -2,19 +2,14 @@ import { AI_LAB_SHADES, type AiLab, MAIN_LAB_SHADE } from 'lib/components/BrandM
 import type { BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
-import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
     AEOPromptCheckApi,
     AEOPromptApi,
     AEOPromptImportResultApi,
     BrandedSegmentEnumApi,
-    ContentAutopilotOpportunityApi,
-    ContentAutopilotProposalListApi,
     PatchedAEOPromptUpdateRequestApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
-
-const OPPORTUNITIES_STALE_AFTER_MS = 60 * 60 * 1000
 
 export const ENGINE_LABELS: Record<string, string> = {
     'claude-web-search': 'Claude',
@@ -27,6 +22,10 @@ export const ENGINE_LABELS: Record<string, string> = {
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+/** Topics that differ only in letter case are one topic, as the API counts them. */
+export const sameTopic = (a: string | null | undefined, b: string | null | undefined): boolean =>
+    a !== null && a !== undefined && b !== null && b !== undefined && a.toLowerCase() === b.toLowerCase()
 
 export const unavailableEngineReason = (setting: { available: boolean }): string | undefined =>
     setting.available ? undefined : "This engine isn't set up for this project yet."
@@ -109,47 +108,6 @@ export const sortEngines = (engines: Iterable<string>): string[] => {
     return [...new Set(engines)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
-export type ContentAutopilotPageTarget =
-    | { isNewPage: true; path: string }
-    | { isNewPage: false; path: string; url: string }
-
-export const proposalPagePath = (proposal: Pick<ContentAutopilotProposalListApi, 'file_path' | 'target_url'>): string =>
-    (proposal.target_url && parseWebAnalyticsURL(proposal.target_url).pathname) ||
-    (proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : '')
-
-export const pageToUpdate = (
-    opportunity: Pick<ContentAutopilotOpportunityApi, 'recommended_type' | 'target_url'>,
-    proposal: ContentAutopilotProposalListApi | undefined
-): ContentAutopilotPageTarget | null => {
-    if (proposal && proposal.lifecycle_status !== 'generating') {
-        const path = proposalPagePath(proposal)
-        if (proposal.proposal_type === 'new_content' && path) {
-            return { isNewPage: true, path }
-        }
-        if (proposal.proposal_type !== 'new_content' && proposal.target_url) {
-            return { isNewPage: false, path, url: proposal.target_url }
-        }
-    }
-    if (opportunity.recommended_type === 'page_improvement' && opportunity.target_url) {
-        return {
-            isNewPage: false,
-            path: parseWebAnalyticsURL(opportunity.target_url).pathname ?? opportunity.target_url,
-            url: opportunity.target_url,
-        }
-    }
-    return null
-}
-
-export const opportunitiesNeedRefresh = (
-    opportunities: Pick<ContentAutopilotOpportunityApi, 'last_refreshed_at'>[],
-    now: number
-): boolean => {
-    const refreshedAt = opportunities
-        .map(({ last_refreshed_at }) => Date.parse(last_refreshed_at))
-        .filter((time) => !Number.isNaN(time))
-    return refreshedAt.length === 0 || now - Math.max(...refreshedAt) > OPPORTUNITIES_STALE_AFTER_MS
-}
-
 // Checks recorded before prompts had versions carry no version. A prompt's text could not change
 // before then, so those checks all ran the text that became version 1.
 export const checkPromptVersion = (check: Pick<AEOPromptCheckApi, 'prompt_version'>): number =>
@@ -192,17 +150,6 @@ export const promptEditPatch = (
         patch.topic = topic.trim()
     }
     return Object.keys(patch).length ? patch : null
-}
-
-const normalizedPrompt = (text: string): string => text.trim().replace(/\s+/g, ' ').toLowerCase()
-
-// An opportunity drafts from the text it was found for, so after an edit it stays hidden until a refresh matches it.
-export const draftableOpportunity = (
-    opportunityByPromptId: Record<string, ContentAutopilotOpportunityApi>,
-    prompt: Pick<AEOPromptApi, 'id' | 'prompt'>
-): ContentAutopilotOpportunityApi | null => {
-    const opportunity = opportunityByPromptId[prompt.id]
-    return opportunity && normalizedPrompt(opportunity.title) === normalizedPrompt(prompt.prompt) ? opportunity : null
 }
 
 const SEGMENT_PROMPTS: Record<BrandedSegmentEnumApi, string> = {

@@ -36,6 +36,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
+    ResumeSnapshotCredentialScrubError,
     SandboxNetworkPolicyError,
     TaskInvalidStateError,
     TaskNotFoundError,
@@ -97,6 +98,7 @@ from products.tasks.backend.temporal.process_task.sandbox_connection import (
 )
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
+    clear_github_env_from_gitlab_sandbox,
     replace_sandbox_credentials,
     sandbox_credential_lock,
     set_git_remote_token,
@@ -471,8 +473,9 @@ def _resolve_sandbox_github_token(
     A run that requested read-only access is resolved FIRST: a task whose team has GitHub
     connected can carry the team integration, so has_github_credentials is true for it. Resolved the
     other way around, the write-capable installation token would reach a run that asked for
-    read-only. Repository selection does not grant write access. The read-only mint is best-effort (empty string on failure, never the full token);
-    the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
+    read-only. Repository selection does not grant write access. The read-only mint is best-effort
+    (empty string on failure, never the full token). A fresh repo-less run can continue without
+    GitHub when user auth needs reauthorization; a repo-backed run still fails because it cannot
     work without credentials.
 
     Everything else follows the attached integration, including a repo-less signals run: a scout or
@@ -509,6 +512,9 @@ def _resolve_sandbox_github_token(
             or ""
         )
     except ReauthorizationRequired as e:
+        if not has_repo:
+            _log_github_unavailable_without_repository(ctx.run_id)
+            return ""
         # Expected user-actionable state — the acting user must re-link GitHub. Non-retryable and
         # kept out of the raw error stream (CredentialUnavailableError does not capture) so it does
         # not surface as error-tracking noise. Mirrors the refresh path in sandbox_credentials.py.
@@ -523,6 +529,10 @@ def _resolve_sandbox_github_token(
             f"Failed to get GitHub token for integration {ctx.github_integration_id}",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
         )
+
+
+def _log_github_unavailable_without_repository(run_id: str) -> None:
+    emit_agent_log(run_id, "debug", "GitHub access is unavailable. Continuing because no repository was selected.")
 
 
 def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
@@ -1012,6 +1022,9 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
             agent_egress_observation=bool(ctx.agent_egress_observation_config),
+            agent_egress_resume=ctx.agent_egress_enrollment_enabled
+            and ctx.agent_egress_maintain_for_run
+            and ctx.is_snapshot_resume,
             use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
@@ -1587,7 +1600,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
     This activity always fetches fresh tokens (rather than trusting whatever
     the workflow previously cached in its inputs) and persists them to the
-    in-sandbox locations that Modal secrets cannot refresh.
+    in-sandbox locations that Modal secrets cannot refresh. A restored snapshot
+    can still contain stale GitHub credentials, so this activity strips them
+    before it resolves or applies credentials for this run.
     """
     ctx = input.context
 
@@ -1597,9 +1612,13 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         **ctx.to_log_context(),
     ):
         task = _load_task(ctx)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        if not clear_github_env_from_gitlab_sandbox(sandbox):
+            raise ResumeSnapshotCredentialScrubError(ctx.run_id, input.sandbox_id)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
+        has_repository = bool(ctx.repositories or input.repository)
         if ctx.github_read_access:
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
             # read-only run must never regain the write-capable token on resume, cloned repos or
@@ -1620,11 +1639,13 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     or ""
                 )
             except ReauthorizationRequired as e:
-                raise CredentialUnavailableError(
-                    "GitHub user integration for this run requires reauthorization",
-                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
-                    cause=e,
-                )
+                if has_repository:
+                    raise CredentialUnavailableError(
+                        "GitHub user integration for this run requires reauthorization",
+                        {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+                        cause=e,
+                    )
+                _log_github_unavailable_without_repository(ctx.run_id)
             except Exception as e:
                 raise _github_token_error(
                     e,
@@ -1644,8 +1665,6 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,
             )
-
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.

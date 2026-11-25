@@ -59,7 +59,9 @@ import { getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
-import { toParams } from 'lib/utils/url'
+import { getRelativeNextPath, toParams } from 'lib/utils/url'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
+import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsParentBreadcrumb'
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -323,7 +325,7 @@ const EDITABLE_PLACEMENTS = [DashboardPlacement.Dashboard, DashboardPlacement.Bu
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
 
 /** How a load ran, so a tile whose load a tab switch stops can load the same way later. */
-interface TileLoadRefresh {
+export interface TileLoadRefresh {
     forceRefresh: boolean
     settings: DashboardSettings
 }
@@ -1056,11 +1058,18 @@ export interface dashboardLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+    abortQuery: (payload: {
         deferred?: boolean
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
+        skipCancel?: boolean
+    }) => {
+        deferred?: boolean
+        queryId: string
+        queryStartTime: number
+        shortId: InsightShortId
+        skipCancel?: boolean
     }
     addTileGroup: (title?: string) => {
         title: string
@@ -2179,7 +2188,8 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType | null,
             error404: boolean,
             dashboardFailedToLoad: boolean,
-            searchParams: Record<string, any>
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
         projectTreeRef: (arg: number) => ProjectTreeRef
         hasInvalidDashboardId: (arg: number) => boolean
@@ -2491,6 +2501,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queryStartTime: number
             shortId: InsightShortId
             deferred?: boolean
+            /** Another abortQuery already cancelled this queryId, so this one only updates the tile's state. */
+            skipCancel?: boolean
         }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
@@ -4789,29 +4801,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams, s.featureFlags],
             (
                 dashboard: DashboardType | null,
                 error404: boolean,
                 dashboardFailedToLoad: boolean,
-                searchParams: Record<string, any>
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
-                const backUrl = searchParams.backUrl as string | undefined
+                // Anyone can put a `backUrl` in a shared link, so only a path inside the app becomes the first crumb.
+                const backUrl = getRelativeNextPath(searchParams.backUrl, window.location)
                 const backName = searchParams.backName as string | undefined
+                // A back link from another page, such as a flag's usage dashboard, wins over the Analytics list.
+                const otherBackUrl = backUrl && !analyticsBackLink(searchParams, featureFlags) ? backUrl : undefined
                 return [
-                    backUrl
+                    otherBackUrl
                         ? {
-                              key: backUrl,
+                              key: otherBackUrl,
                               name: backName || 'Back',
-                              path: backUrl,
+                              path: otherBackUrl,
                               iconType: 'dashboard',
                           }
-                        : {
+                        : analyticsParentBreadcrumb(searchParams, featureFlags, {
                               key: Scene.Dashboards,
                               name: 'Dashboards',
                               path: urls.dashboards(),
                               iconType: 'dashboard',
-                          },
+                          }),
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
                         name: dashboard?.id
@@ -6182,6 +6198,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return
                 }
                 boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
+                if (boardStream?.stopped) {
+                    // A tab switch stopped the stream, so the tiles it had not delivered wait for their tab to show again.
+                    // Every left tile shares the stream's queryId, so only the first one cancels it on the server.
+                    boardStream.leftTiles.forEach((tile, index) => {
+                        streamedTiles.add(tile.id)
+                        actions.abortQuery({
+                            queryId: boardStream.queryId,
+                            queryStartTime: boardStream.startedAt,
+                            shortId: tile.insight.short_id,
+                            deferred: true,
+                            skipCancel: index > 0,
+                        })
+                        settleTile(tile, 'deferred')
+                    })
+                }
                 if (
                     !boardStream &&
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
@@ -7164,7 +7195,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.disposables.dispose('stoppedTileLoadsReload')
             cache.stoppedTileLoadsSettled = undefined
         },
-        abortQuery: async ({ queryId, queryStartTime }) => {
+        abortQuery: async ({ queryId, queryStartTime, skipCancel }) => {
+            if (skipCancel) {
+                return
+            }
             const { currentTeamId, dashboardLoadData } = values
             try {
                 await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
