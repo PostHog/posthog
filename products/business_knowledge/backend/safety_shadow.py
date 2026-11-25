@@ -43,7 +43,6 @@ SHADOW_WINDOW_OVERLAP_BYTES = 256
 SHADOW_MAX_WINDOWS = 64
 SHADOW_CONCURRENCY = 4
 SHADOW_CALL_TIMEOUT_SECONDS = 10.0
-# Documents the shadow does not reach inside this budget get no event.
 SHADOW_BUDGET_SECONDS = 120.0
 # Not calibrated. The event carries the highest window probability so the threshold can be tuned offline.
 SHADOW_UNSAFE_PROBABILITY = 0.5
@@ -133,7 +132,6 @@ def _shadow_enabled(team_id: int) -> bool:
 
 
 def _decide_window(doc: PendingDocument, window: str) -> _WindowAnswer:
-    # A document that contains its own marker-like text cannot guess this one, so it cannot end the data early.
     marker = f"===BK::{secrets.token_hex(16)}==="
     result = decision_api.decide_when_available(
         DecisionRequest(
