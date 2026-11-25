@@ -830,6 +830,54 @@ class TestDailyFocusControls:
         assert row.at == time(14, 30)
         assert row.next_run_at == expected_next_run
 
+    @pytest.mark.parametrize(
+        "scopes, turned_off_before, expected_next_run",
+        [
+            ("search:read.public", False, datetime(2026, 11, 10, 8, 0, tzinfo=UTC)),
+            ("search:read.public", True, None),
+            ("users:read", False, None),
+        ],
+        ids=["never chose", "turned it off", "link cannot search"],
+    )
+    def test_opening_home_turns_it_on_only_for_a_person_who_never_chose(
+        self,
+        slack_integration,
+        mock_slack_client,
+        flag_on,
+        link_user,
+        scopes,
+        turned_off_before,
+        expected_next_run,
+    ):
+        self._link(slack_integration, link_user, scopes)
+        if turned_off_before:
+            SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+                team_id=slack_integration.team_id,
+                slack_workspace_id=SLACK_WORKSPACE_ID,
+                slack_user_id="U001",
+                integration_id=slack_integration.id,
+                next_run_at=None,
+            )
+
+        with (
+            time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False),
+            patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
+        assert (row.next_run_at if row else None) == expected_next_run
+        assert (captured.call_args.kwargs.get("source") if captured.called else None) == (
+            "home_default" if expected_next_run else None
+        )
+        # The checkbox shows what runs.
+        state = _resolve_daily_focus_state(slack_integration, "U001")
+        assert state is not None and state.enabled is bool(expected_next_run)
+
     def _link(self, slack_integration, link_user, scopes: str) -> None:
         user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)
         link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
