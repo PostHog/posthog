@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 
 use cssparser::{
     match_ignore_ascii_case, AtRuleParser, CowRcStr, DeclarationParser, Delimiter, ParseError,
@@ -12,6 +12,7 @@ use cssparser::{
 };
 use url::Url;
 
+use super::budget;
 use super::dom::{RemoteKind, RemoteUrl};
 use crate::fonts::bundled_font;
 use crate::refs::{unnamed_url, UrlAsset};
@@ -121,13 +122,9 @@ impl<'p> Resolver<'p> {
             return None;
         }
         let absolute = String::from(self.base?.join(source).ok()?);
-        let within_budget = self.budget.is_none_or(|budget| {
-            budget
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
-                    left.checked_sub(absolute.len())
-                })
-                .is_ok()
-        });
+        let within_budget = self
+            .budget
+            .is_none_or(|budget| budget::take(budget, absolute.len()));
         if !within_budget {
             self.remaining = 0;
             return None;

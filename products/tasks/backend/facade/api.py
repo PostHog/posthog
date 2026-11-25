@@ -62,6 +62,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, Team, User
@@ -189,6 +190,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
@@ -252,10 +254,20 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.run_token_fencing import fence_ended_runs
+from products.tasks.backend.stale_runs import (
+    StaleRule,
+    WorkflowLiveness,
+    collect_stale_live_runs,
+    quiet_since_q,
+    reopen_swept_runs,
+    runs_to_sweep,
+)
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    read_run_log_tail,
 )
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
@@ -273,6 +285,8 @@ from products.tasks.backend.task_profiles import (
 )
 from products.tasks.backend.task_run_sync import (
     collect_status_mismatches,
+    done_mode,
+    keeps_done,
     repair_status_mismatches,
     sync_task_pr_urls,
     sync_task_status,
@@ -378,10 +392,12 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_stale_live_task_runs",
     "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
+    "origin_run_ids_since",
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
@@ -477,6 +493,7 @@ __all__ = [
     "get_task_run_logs",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_log_tail",
     "read_task_run_conversation_logs",
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
@@ -492,7 +509,10 @@ __all__ = [
     "claim_mobile_push_cooldown",
     "release_mobile_push_cooldown",
     "record_run_failure_cause",
+    "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
+    "sweep_stale_live_task_runs",
+    "fence_ended_task_runs",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -1463,6 +1483,14 @@ def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
 
 
+def get_task_signal_report_source_ids(*, task_ids: Iterable[str | UUID], team_id: int) -> dict[str, UUID]:
+    """The source report of each task that has one, keyed by task id."""
+    tasks = Task.objects.filter(team_id=team_id, id__in=list(task_ids)).only(
+        "id", "source_kind", "source_id", "signal_report_id", "hog_flow_id"
+    )
+    return {str(task.id): source_id for task in tasks if (source_id := task.signal_report_source_id) is not None}
+
+
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
     """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
 
@@ -1887,6 +1915,8 @@ def get_stale_queued_task_run_ids(
     """
     now = django_timezone.now()
     stale = Q(updated_at__lt=now - older_than)
+    if environment == TaskRun.Environment.LOCAL:
+        stale &= Q(last_heartbeat_at__isnull=True) | Q(last_heartbeat_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
@@ -2122,6 +2152,72 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
     ]
 
 
+def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
+    swept: Counter[str] = Counter()
+    workflows = WorkflowLiveness()
+    for run in runs_to_sweep():
+        try:
+            if run.rule == StaleRule.HEARTBEAT:
+                if workflows.is_running(run.workflow_id):
+                    continue
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run stopped responding, so it was ended.",
+                    error_type="stale_heartbeat",
+                    quiet_since=run.quiet_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
+                )
+            else:
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run made no progress for a day, so it was ended.",
+                    error_type="stale_live_run",
+                    not_updated_since=run.not_written_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
+                )
+        except Exception as error:
+            logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
+            capture_exception(error)
+            continue
+        if claimed:
+            swept[run.profile] += 1
+    return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def reopen_swept_task_runs(
+    *,
+    profile: str,
+    hours: int = 24,
+    team_id: int | None = None,
+    check_workflows: bool = True,
+    dry_run: bool = False,
+) -> list[contracts.ReopenedSweptRunsRow]:
+    outcomes = Counter(
+        reopen_swept_runs(
+            profile=profile, hours=hours, team_id=team_id, check_workflows=check_workflows, dry_run=dry_run
+        )
+    )
+    return [contracts.ReopenedSweptRunsRow(outcome=outcome.value, count=count) for outcome, count in outcomes.items()]
+
+
+def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
+    from products.tasks.backend.temporal.process_task.ai_gateway_token import revoke_scoped_token_hashes
+
+    return [
+        contracts.FencedRunTokensRow(profile=row.profile, outcome=row.outcome.value, count=row.count)
+        for row in fence_ended_runs(revoke_scoped_token_hashes)
+    ]
+
+
+def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
+    return [
+        contracts.StaleLiveRunRow(
+            profile=row.profile or "none", run_environment=row.environment, rule=row.rule.value, count=row.count
+        )
+        for row in collect_stale_live_runs()
+    ]
+
+
 # --- Writes ---
 
 
@@ -2312,6 +2408,21 @@ def owner_origin_recent_run_ids(
         )
         .order_by("-created_at")
         .values_list("id", flat=True)[:limit]
+    )
+
+
+def origin_run_ids_since(*, team_id: int, origin_product: str, since: datetime) -> list[UUID]:
+    """Ids of every run started since ``since`` on the team's tasks of this origin, deleted tasks included.
+
+    Reads only Tasks rows, so a product that deletes its own records of a run still finds it here.
+    """
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        ).values_list("id", flat=True)
     )
 
 
@@ -2602,11 +2713,49 @@ def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bo
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
     try:
-        run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "task_id", "state").first()
+        run = (
+            TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
+            .only("id", "task_id", "team_id", "state")
+            .first()
+        )
         if run is not None:
             run.signal_client_activity()
     except Exception:
         logger.warning("Failed to signal client activity for task run %s", run_id)
+
+
+def _task_keeps_done(task: Task) -> bool:
+    return task.status == Task.Status.DONE and keeps_done(done_mode(task.profile, task.team_id))
+
+
+def record_local_task_run_heartbeat(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> Literal["recorded", "not_found", "not_live_local"]:
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "environment").first()
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("id", "team_id", "profile", "status").first()
+    if run is None or task is None:
+        return "not_found"
+    if run.environment != TaskRun.Environment.LOCAL:
+        return "not_live_local"
+    warm_done_mode(task)
+    with transaction.atomic():
+        locked_task = (
+            Task.objects.select_for_update().only("id", "team_id", "profile", "status", "state").get(pk=task.pk)
+        )
+        locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if not locked_run.matches_task_ownership(locked_task):
+            return "not_found"
+        if locked_run.status == TaskRun.Status.COMPLETED:
+            if wake_refusal(locked_task, source="local_run_heartbeat") is not None:
+                return "not_live_local"
+            locked_run.status = TaskRun.Status.QUEUED
+            locked_run.completed_at = None
+            locked_run.queued_at = django_timezone.now()
+            locked_run.save(update_fields=["status", "completed_at", "queued_at", "updated_at"])
+        elif locked_run.is_terminal or _task_keeps_done(locked_task):
+            return "not_live_local"
+        locked_run.record_client_heartbeat()
+    return "recorded"
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
@@ -2686,7 +2835,13 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
 
 
 def claim_and_fail_stale_run(
-    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+    run_id: str | UUID,
+    error: str,
+    error_type: str | None = None,
+    *,
+    not_updated_since: datetime | None = None,
+    quiet_since: datetime | None = None,
+    state_updates: dict[str, Any] | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2703,7 +2858,12 @@ def claim_and_fail_stale_run(
     )  # nosemgrep: celery-task-team-scope-audit
     if not_updated_since is not None:
         claimable = claimable.filter(updated_at__lt=not_updated_since)
-    claimed = claimable.update(status=TaskRun.Status.FAILED)
+    if quiet_since is not None:
+        claimable = claimable.filter(quiet_since_q(quiet_since))
+    with transaction.atomic():
+        claimed = claimable.update(status=TaskRun.Status.FAILED, completed_at=django_timezone.now())
+        if claimed and state_updates:
+            TaskRun.update_state_atomic(run_id, updates=state_updates)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
@@ -3287,6 +3447,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "resume_from_run_id",
         # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
         "agent_memory_locked",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -3305,11 +3466,15 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_startup_attempt",
         "agent_startup_success",
         "unprocessed_request_ids",
+        "gateway_token_hashes",
+        "gateway_token_revoke_pending",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
         # Decides which repositories the run's GitHub token can write to.
         "github_access_repositories",
+        "caller_ends_run",
+        "end_run_when_done",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -3702,6 +3867,7 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
+    from products.tasks.backend.logic.services.compute_quota import organization_deactivated  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.activities.post_slack_update import (  # noqa: PLC0415 — keep temporalio off the api import path
         PostSlackUpdateInput,
         post_slack_update,
@@ -3712,7 +3878,8 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
             notify_implementation_prs_opened,
         )
 
-        notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
+        if not organization_deactivated(run.team_id):
+            notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
@@ -4278,7 +4445,12 @@ def _entries_show_agent_activity(entries: list[dict]) -> bool:
 
 
 def append_task_run_log(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    sent_by_run_sandbox: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Append log entries to a run's S3 log and heartbeat its workflow.
 
@@ -4289,7 +4461,7 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries, lock_attempts=1)
+    run.append_log(entries, lock_attempts=1, sent_by_run_sandbox=sent_by_run_sandbox)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
@@ -4465,8 +4637,7 @@ def append_imported_task_run_log(
     append the same lines: the append only happens while ``expected_state`` still matches the
     run's state, and returns False when another writer moved it on first. ``batch_id`` names
     this batch in the log, so a retry after the append succeeded but the state write failed
-    skips the append instead of writing the lines twice. Imported transcripts are user chat
-    history, so the log is never tagged for expiry, and there is no workflow to heartbeat.
+    skips the append instead of writing the lines twice. There is no workflow to heartbeat.
     ``completed_at`` follows the source so the run reads as current as the conversation it copies.
     """
     with transaction.atomic():
@@ -4474,7 +4645,7 @@ def append_imported_task_run_log(
         state = run.state or {}
         if any(state.get(key) != value for key, value in expected_state.items()):
             return False
-        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        run.append_log(entries, batch_id=batch_id)
         run.state = {**state, **state_updates}
         run.completed_at = completed_at
         run.save(update_fields=["state", "completed_at"])
@@ -4616,12 +4787,19 @@ def validate_task_run_sandbox_token(
         claims = validate_sandbox_event_ingest_token(token)
     except (InvalidTokenError, ValueError):
         return False
-    return (
-        claims.run_id == str(run_id)
-        and claims.task_id == str(task_id)
-        and claims.team_id == team_id
-        and claims.sandbox_id == sandbox_id
-    )
+    if (
+        claims.run_id != str(run_id)
+        or claims.task_id != str(task_id)
+        or claims.team_id != team_id
+        or claims.sandbox_id != sandbox_id
+    ):
+        return False
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "status").first()
+    if run is not None and run.is_terminal:
+        from products.tasks.backend.metrics import observe_ended_run_credential_used
+
+        observe_ended_run_credential_used(surface="task_run_sandbox_token")
+    return True
 
 
 def issue_codex_subscription_access_grant(
@@ -5894,6 +6072,17 @@ def read_task_run_conversation_log_slice(
     )
 
 
+def read_task_run_log_tail(run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int) -> str | None:
+    """The newest whole JSONL entries of the run's own log, at most `max_bytes`. None when the run is not visible.
+
+    Reads a byte range from storage, so a caller that polls pays for `max_bytes`, not for the whole log.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return read_run_log_tail(run.log, max_bytes)
+
+
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:
     """Logs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -6221,6 +6410,7 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     person_message: str | None = None,
+    person_message_ts: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
@@ -6290,7 +6480,11 @@ def signal_task_run_user_message(
                 claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
-        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context_values = {
+            "actor_slack_user_id": actor_slack_user_id,
+            "person_message": person_message,
+            "person_message_ts": person_message_ts,
+        }
         context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
@@ -12756,13 +12950,12 @@ def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     )
 
 
-def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
+def _task_activity_qs(team_id: int, user_id: int, visible_tasks: QuerySet[Task]) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
@@ -12784,9 +12977,8 @@ def _visible_activity_canvas_ids(team_id: int, user_id: int) -> set[str]:
 
 
 def _comment_activity_qs(
-    team_id: int, user_id: int, visible_canvas_ids: set[str] | None = None
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str] | None = None
 ) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     if visible_canvas_ids is None:
         visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
     return (
@@ -12846,13 +13038,20 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
-    return _count_unread_activity(team_id, user_id, _visible_activity_canvas_ids(team_id, user_id))
+    return _count_unread_activity(
+        team_id,
+        user_id,
+        _activity_visible_task_qs(team_id, user_id),
+        _visible_activity_canvas_ids(team_id, user_id),
+    )
 
 
-def _count_unread_activity(team_id: int, user_id: int, visible_canvas_ids: set[str]) -> int:
+def _count_unread_activity(
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str]
+) -> int:
     return (
-        _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_activity_qs(team_id, user_id, visible_canvas_ids).filter(read_at__isnull=True).count()
+        _task_activity_qs(team_id, user_id, visible_tasks).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids).filter(read_at__isnull=True).count()
     )
 
 
@@ -12871,9 +13070,10 @@ def list_task_activity(
     """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    task_qs = _task_activity_qs(team_id, user_id)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
+    task_qs = _task_activity_qs(team_id, user_id, visible_tasks)
     visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
-    comment_qs = _comment_activity_qs(team_id, user_id, visible_canvas_ids)
+    comment_qs = _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
@@ -12927,7 +13127,7 @@ def list_task_activity(
             for row in rows
             for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
-        unread_count=_count_unread_activity(team_id, user_id, visible_canvas_ids),
+        unread_count=_count_unread_activity(team_id, user_id, visible_tasks, visible_canvas_ids),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )

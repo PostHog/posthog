@@ -5,6 +5,9 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { crossSellLinkProps } from '../../workflowsCrossSell'
 import { emailImpactLogic } from './emailImpactLogic'
 
 export function AfterClickingCard(): JSX.Element {
@@ -34,6 +37,10 @@ export function AfterClickingCard(): JSX.Element {
                             type="secondary"
                             size="small"
                             to={urls.settings('project-replay', 'replay')}
+                            {...crossSellLinkProps(
+                                ProductKey.SESSION_REPLAY,
+                                ProductIntentContext.WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY
+                            )}
                             data-attr="email-impact-turn-on-replay"
                         >
                             Turn on session replay

@@ -25,6 +25,12 @@ rules:
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
+    - match: ['/scripts/mobile-rebuild.mjs', '/scripts/mobile-rebuild.test.mjs']
+      owners: [team-devex, team-mobile-app]
+    - match: ['/workflows/pr-native-rebuild.yml', '/workflows/pr-rebuild-notify.yml']
+      owners: [team-devex, team-mobile-app]
+    - match: ['/workflows/*mobile*.yml', '/workflows/*mobile*.yaml']
+      owners: [team-mobile-app, team-devex]
     # The dependency proof decides which bot updates stamphog may approve on its own. The prover
     # itself is in tools/change-prover, which its own owners.yaml marks sensitive.
     - match:
@@ -34,7 +40,17 @@ rules:
       owners: team-devex
       sensitive: true
     - match: '/shared-image-releases.yaml'
-      owners: [team-devex, team-data-stack, batch-exports, team-growth, team-apm, team-web-analytics]
+      owners:
+          - team-devex
+          - team-data-stack
+          - batch-exports
+          - team-growth
+          - team-apm
+          - team-analytics
+          - team-warehouse-sources
+          - team-error-tracking
+          - team-self-driving
+          - team-surfaces
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
@@ -42,7 +58,7 @@ rules:
           - '/workflows/ci-livestream-tui.yml'
           - '/workflows/ci-livestream.yml'
           - '/workflows/livestream-docker-image.yml'
-      owners: [team-devex, team-web-analytics]
+      owners: [team-devex, team-analytics]
     - match:
           - '/workflows/cd-mcp-image.yml'
           - '/workflows/ci-mcp-agent-api-diff.yml'

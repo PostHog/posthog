@@ -8,6 +8,8 @@ import { iconSizes, radii, type } from '@/ui/tokens'
 import { CopyMessageButton } from './CopyMessageButton'
 import { MessageTime } from './MessageTime'
 import type { SessionAttachment } from './session/types'
+import { splitUserMessageLinks } from './userMessageLinks'
+import { openUserMessageUrl } from './webLinks'
 
 interface UserBubbleProps {
     text: string
@@ -64,7 +66,22 @@ export const UserBubble = memo(function UserBubble({
             ) : null}
             {text ? (
                 <View style={styles.bubble}>
-                    <Text style={styles.text}>{text}</Text>
+                    <Text style={styles.text}>
+                        {splitUserMessageLinks(text).map((part) =>
+                            typeof part === 'string' ? (
+                                part
+                            ) : (
+                                <Text
+                                    key={part.offset}
+                                    accessibilityRole="link"
+                                    style={styles.link}
+                                    onPress={() => openUserMessageUrl(part.url)}
+                                >
+                                    {part.label}
+                                </Text>
+                            )
+                        )}
+                    </Text>
                 </View>
             ) : null}
             <View style={styles.actions}>
@@ -120,5 +137,10 @@ const useStyles = createStyles(({ colors }) => ({
     text: {
         ...type.body,
         color: colors.ink,
+    },
+    link: {
+        color: colors.accent,
+        fontWeight: '500',
+        textDecorationLine: 'underline',
     },
 }))

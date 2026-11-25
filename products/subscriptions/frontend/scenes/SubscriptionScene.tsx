@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionResourceTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -114,6 +115,7 @@ export function SubscriptionScene(): JSX.Element {
                 <div className="py-8 flex-1 min-h-0 flex flex-col gap-6 max-w-full">
                     <SceneTitleSection
                         name={subscription ? subscriptionName(subscription) : 'Subscription'}
+                        nameAction={<TodayScenePinButton />}
                         description={null}
                         resourceType={{ type: 'inbox' }}
                         isLoading={subscriptionLoading}

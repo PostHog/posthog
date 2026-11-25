@@ -39,7 +39,7 @@ import {
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
 import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 
@@ -400,7 +400,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 { status: 'sent', reason: 'untracked' },
             ])
             await waitForExpect(() =>
-                expect(capturedAnalytics).toEqual([
+                expect(capturedFor(world.team.uuid)).toEqual([
                     expect.objectContaining({
                         event: 'workflows sandbox email sent',
                         properties: expect.objectContaining({ is_test: false, source: 'code' }),
@@ -412,6 +412,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
     it('answers with the sandbox sender kind when its team hands sends to the intake consumer', async () => {
         hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+        hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
         try {
             const res = await sendFromCode(request(sandboxSend()))
 
@@ -435,7 +436,67 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
         }
+    })
+
+    describe('in a batch', () => {
+        const sendBatchFromCode = (payload: Record<string, unknown>) =>
+            supertest(app)
+                .post(`/api/projects/${world.team.id}/hog_flows/${hogFlow.id}/transactional_email/send/batch`)
+                .set({
+                    Authorization: `Bearer ${jwt.sign(
+                        { team_id: world.team.id, hog_flow_id: hogFlow.id, kind: 'code_send_batch' },
+                        hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                        { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
+                    )}`,
+                })
+                .send(payload)
+        const batchTo = (...recipients: string[]) => ({
+            send: sandboxSend(),
+            recipients: recipients.map((to) => ({ to, distinct_id: to, idempotency_key: `key-${to}` })),
+        })
+        const intakeJobIds = (): string[] =>
+            recordsAtKafka<{ job: { id: string } }>(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC).map(({ job }) => job.id)
+
+        beforeEach(() => {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
+        })
+
+        afterEach(() => {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
+        })
+
+        it('refuses only the recipients outside the organization, and queues the members as sandbox sends', async () => {
+            const outsider = `other-${new UUIDT().toString()}@example.com`
+
+            const res = await sendBatchFromCode(batchTo(outsider, member))
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                {
+                    status: 422,
+                    body: { error: 'sandbox_recipient_not_member', invocation_id: expect.any(String) },
+                },
+                {
+                    status: 202,
+                    body: expect.objectContaining({ status: 'queued', sender_kind: 'email_sandbox' }),
+                },
+            ])
+            expect(intakeJobIds()).toEqual([res.body.results[1].body.invocation_id])
+        })
+
+        it('refuses the whole batch when the sandbox sender is paused', async () => {
+            await world.setTenant('PAUSED', new Date())
+
+            const res = await sendBatchFromCode(batchTo(member))
+
+            expect(res.status).toEqual(403)
+            expect(res.body).toEqual({ error: 'sandbox_sender_unavailable' })
+            expect(intakeJobIds()).toEqual([])
+        })
     })
 
     const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
@@ -494,7 +555,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 ['workflows sandbox email blocked', 'code'],
             ])
         )
@@ -566,7 +627,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         const expectedEvent =
             final.status === 'sent' ? 'workflows sandbox email sent' : 'workflows sandbox email failed'
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 [expectedEvent, 'code'],
             ])
         )

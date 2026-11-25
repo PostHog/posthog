@@ -103,7 +103,7 @@ This applies to the legacy handlers and to the v1 handlers.
 These apply to the legacy handlers and to the v1 handlers.
 
 - **No panic on a request path.** No `unwrap()`, `expect()` or unchecked index on request data: a panic loses the whole batch and the sender gets no result.
-- **No new store or external system.** Capture depends on Kafka and Redis, and on S3 for AI blobs. Anything more needs the ingestion team's agreement in `#team-ingestion` before the code merges.
+- **No new store or external system.** Capture depends on Kafka and Redis, and on S3 for AI blobs and the fallback sink. Anything more needs the ingestion team's agreement in `#team-ingestion` before the code merges.
 - **A new call on the request path has a timeout** and a stated choice between failing open and failing closed.
 - **An endpoint that builds events itself applies every limit the main pipelines apply:** quota, overflow, event restrictions and the AI byte limit.
 - **The AI lane is the `$ai_` event name prefix** (`is_ai_event`). The analytics endpoint sends those events to the AI topic, and the AI endpoint drops any other name as `misrouted_event`. A new route by event name changes both endpoints, the quota check, the README and the public docs together.
@@ -122,7 +122,7 @@ What the analytics endpoint has that legacy analytics capture does not. The [v1 
 - **One batch shape with strict event fields.** `event`, `uuid`, `distinct_id` and `timestamp` are JSON strings. Legacy capture treats `uuid` and `timestamp` as optional and accepts any JSON value as `distinct_id`.
 - **Settings in `options`,** with a type check on each one capture knows.
 - **One result for each event:** `ok`, `drop`, `warning` or `retry`, with a public `details` reason. A sender resends only the `retry` events.
-- **Status codes with one meaning each:** 400, 401, 402, 413 and 415 for the request, 408 and 5xx with `Retry-After`, and never 429.
+- **Status codes with one meaning each:** 400, 401, 402, 404, 413 and 415 for the request, 408 and 5xx with `Retry-After`, and never 429.
 
 **The v1 endpoint rejects input that legacy capture accepts.** Keep these checks, and tell senders that move from legacy about them:
 

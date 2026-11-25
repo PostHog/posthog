@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional
 
+from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.campaign_monitor.settings import (
@@ -9,6 +10,7 @@ from products.warehouse_sources.sources.campaign_monitor.settings import (
     CampaignMonitorEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     Endpoint,
     EndpointResource,
@@ -35,9 +37,10 @@ JOURNEY_FULL_REFRESH_SINCE_DATE = "1900-01-01 00:00"
 # Intermediate resource fanning the journey summary out into one row per journey email. Not a
 # synced table: it exists so the journey report endpoints have an `EmailID` to resolve.
 JOURNEY_EMAILS_RESOURCE = "journey_emails"
+TRANSACTIONAL_PAGE_SIZE = 200  # The message timeline's documented maximum `count`.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CampaignMonitorResumeConfig:
     # Pre-framework fan-out bookmarks. Kept (with defaults) so previously saved state still
     # parses; no longer written — fan-out resume now lives in fanout_state.
@@ -48,6 +51,8 @@ class CampaignMonitorResumeConfig:
     # Framework fan-out resume state for list-/campaign-scoped endpoints:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     fanout_state: dict | None = None
+    # Next `sentBeforeID` cursor on the transactional message timeline.
+    sent_before_id: str | None = None
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -64,6 +69,46 @@ def _paginator() -> PageNumberPaginator:
     # Paged envelopes are `{"Results": [...], "NumberOfPages": N, ...}` with 1-based pages;
     # NumberOfPages is the TOTAL NUMBER OF PAGES, so pagination stops after the last page.
     return PageNumberPaginator(base_page=1, page_param="page", total_path="NumberOfPages")
+
+
+class CampaignMonitorMessageTimelinePaginator(BasePaginator):
+    """The message timeline has no page numbers or next link: each page asks for the messages sent
+    before the last `MessageID` of the previous page, and an empty page ends the walk."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def init_request(self, request: Request) -> None:
+        if self._cursor is not None:
+            request.params = {**(request.params or {}), "sentBeforeID": self._cursor}
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        last = data[-1]
+        last_id = last.get("MessageID") if isinstance(last, dict) else None
+        if not last_id:
+            # Without the cursor, stopping here would publish a truncated timeline as complete.
+            raise ValueError("Campaign Monitor message timeline page ended without a MessageID cursor")
+        if last_id == self._cursor:
+            # The API ignored the cursor and served the same page again — fail loud, not loop.
+            raise ValueError("Campaign Monitor message timeline cursor is not advancing")
+        self._cursor = str(last_id)
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self.init_request(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor:
+            self._cursor = str(cursor)
+            self._has_next_page = True
 
 
 def _page_params(config: CampaignMonitorEndpointConfig) -> dict[str, Any]:
@@ -102,6 +147,14 @@ def _top_level_resource(
             "paginator": _paginator(),
             "data_selector": "Results",
         }
+    elif config.message_timeline:
+        endpoint = {
+            "path": path,
+            # `clientID` is required for account-level API keys and ignored for client keys.
+            "params": {"clientID": client_id, "status": "all", "count": TRANSACTIONAL_PAGE_SIZE},
+            "paginator": CampaignMonitorMessageTimelinePaginator(),
+            "data_selector_required": True,
+        }
     else:
         # Bare-array endpoints: a non-list 200 body means the response shape changed — fail loud
         # instead of syncing a stray object as a row.
@@ -119,14 +172,18 @@ def _top_level_resource(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if manager.can_resume():
         resume = manager.load_state()
-        if resume is not None and resume.page > 1:
+        if resume is not None and resume.sent_before_id is not None:
+            initial_paginator_state = {"cursor": resume.sent_before_id}
+        elif resume is not None and resume.page > 1:
             initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the checkpoint is saved AFTER a page is yielded so
         # a crash re-fetches the in-flight page (the merge dedupes re-pulled rows) rather than
         # skipping it.
-        if state and state.get("page") is not None:
+        if state and state.get("cursor") is not None:
+            manager.save_state(CampaignMonitorResumeConfig(sent_before_id=str(state["cursor"])))
+        elif state and state.get("page") is not None:
             manager.save_state(CampaignMonitorResumeConfig(page=int(state["page"])))
 
     return rest_api_resource(

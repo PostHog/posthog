@@ -6669,7 +6669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             key="purple_button",
-            filters={"multivariate": {"variants": [{"foo": "bar"}]}},
+            filters={"multivariate": {"variants": [{"key": "purple", "rollout_percentage": 100}]}},
         )
 
         filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")
@@ -14556,25 +14556,6 @@ class TestFeatureFlagLimits(APIBaseTest):
                         "control": {"transforms": [], "rollout_percentage": 50},
                         "test": {"transforms": [], "rollout_percentage": 50},
                     },
-                },
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
-
-    def test_product_tour_creation_blocked_when_at_flag_limit(self):
-        """Product tour creation with auto_launch should fail when team is at the flag limit."""
-        self._create_flag("flag-1")
-        self._create_flag("flag-2")
-
-        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/product_tours",
-                {
-                    "name": "Test Product Tour",
-                    "auto_launch": True,
-                    "content": {"steps": []},
                 },
                 format="json",
             )

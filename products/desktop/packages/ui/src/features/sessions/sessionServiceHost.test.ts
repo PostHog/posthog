@@ -122,6 +122,7 @@ vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
 
 const mockAuthenticatedClient = vi.hoisted(() => ({
   createTaskRun: vi.fn(),
+  heartbeatTaskRun: vi.fn(),
   appendTaskRunLog: vi.fn(),
   getTaskRun: vi.fn(),
   getTask: vi.fn(),
@@ -10785,6 +10786,49 @@ describe("SessionService", () => {
   });
 
   describe("automatic local recovery", () => {
+    it.each([
+      { name: "before the session connects", missingFirst: true, beats: 0 },
+      { name: "after the session connects", missingFirst: false, beats: 1 },
+    ])(
+      "sends no further heartbeat once the workspace is found missing $name",
+      async ({ missingFirst, beats }) => {
+        vi.useFakeTimers();
+        const service = getSessionService();
+        const mockSession = createMockSession({
+          status: "connected",
+          logUrl: "https://logs.example.com/run-123",
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
+        mockSessionStoreSetters.getSessions.mockReturnValue({
+          "run-123": mockSession,
+        });
+        let reportWorkspace!: (result: { exists: boolean }) => void;
+        mockTrpcWorkspace.verify.query.mockReturnValue(
+          new Promise<{ exists: boolean }>((resolve) => {
+            reportWorkspace = resolve;
+          }),
+        );
+        mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+        mockTrpcAgent.reconnect.mutate.mockResolvedValue({
+          sessionId: "run-123",
+          channel: "agent-event:run-123",
+          configOptions: [],
+        });
+        const beatsBefore =
+          mockAuthenticatedClient.heartbeatTaskRun.mock.calls.length;
+
+        if (missingFirst) reportWorkspace({ exists: false });
+        await service.clearSessionError("task-123", "/repo");
+        if (!missingFirst) reportWorkspace({ exists: false });
+        await vi.advanceTimersByTimeAsync(900_000);
+
+        expect(mockAuthenticatedClient.heartbeatTaskRun).toHaveBeenCalledTimes(
+          beatsBefore + beats,
+        );
+        vi.useRealTimers();
+      },
+    );
+
     it("reconnects automatically after a subscription error", async () => {
       vi.useFakeTimers();
       const service = getSessionService();
@@ -10812,7 +10856,7 @@ describe("SessionService", () => {
       expect(onError).toBeDefined();
 
       onError?.(new Error("connection dropped"));
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(2);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -10855,7 +10899,7 @@ describe("SessionService", () => {
       expect(onError).toBeDefined();
 
       onError?.(new Error("connection dropped"));
-      await vi.runAllTimersAsync();
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(4);
       expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
@@ -10864,6 +10908,12 @@ describe("SessionService", () => {
           errorTitle: "Connection lost",
           errorMessage: expect.any(String),
         }),
+      );
+      const beatsAtFailure =
+        mockAuthenticatedClient.heartbeatTaskRun.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(900_000);
+      expect(mockAuthenticatedClient.heartbeatTaskRun).toHaveBeenCalledTimes(
+        beatsAtFailure,
       );
 
       vi.useRealTimers();

@@ -25,6 +25,7 @@ def refresh_stale_sandbox_custom_images(batch_size: int = CUSTOM_IMAGE_REFRESH_B
         .exclude(modal_image_name="")
         .exclude(spec={})
         .exclude(Q(base_image_reference=base_image_reference) | Q(base_image_refresh_reference=base_image_reference))
+        .exclude(team__organization__is_active=False)
         .order_by("updated_at")
         .values_list("id", "team_id")[:batch_size]
     )

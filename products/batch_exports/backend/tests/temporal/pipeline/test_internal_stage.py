@@ -1589,6 +1589,63 @@ async def test_exports_route_compiled_queries_to_their_workload(
             assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
 
 
+@pytest.mark.parametrize("interval_minutes", [5, 60])
+@pytest.mark.parametrize(
+    "batch_exports_url,reads_recent_events,expected_host",
+    [
+        ("http://batch-exports.example.com:8123/", True, "batch-exports"),
+        ("http://batch-exports.example.com:8123/", False, None),
+        (None, True, None),
+    ],
+    ids=["recent-events", "other-table", "no-batch-exports-host"],
+)
+async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
+    settings: "Settings",
+    ateam: Team,
+    interval_minutes: int,
+    batch_exports_url: str | None,
+    reads_recent_events: bool,
+    expected_host: str | None,
+) -> None:
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    expected_host = expected_host or ("five-minute" if interval_minutes == 5 else "offline")
+    expected_url = f"http://{expected_host}.example.com:8123/"
+    s3_client = AsyncMock()
+    s3_client.__aenter__.return_value = s3_client
+    s3_client.list_objects_v2.return_value = {}
+
+    with (
+        aioresponses() as responses,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client", return_value=s3_client),
+    ):
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.post(
+            re.compile(r"^" + re.escape(expected_url) + r"\?"),
+            headers={"X-ClickHouse-Summary": '{"written_rows":"1"}'},
+        )
+
+        written_rows = await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model="INSERT INTO FUNCTION s3('https://stage.example.com/export.arrow', 'ArrowStream') SELECT 1",
+            full_range=(start, end),
+            query_parameters={},
+            team_id=ateam.pk,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+            s3_staging_folder_url="https://stage.example.com/",
+            reads_recent_events=reads_recent_events,
+        )
+
+    assert written_rows == 1
+
+
 class TestHogQLModel:
     """Tests for the 'hogql' model, which exports the results of a user-defined HogQL query."""
 

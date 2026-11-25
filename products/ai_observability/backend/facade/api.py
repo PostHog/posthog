@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
@@ -16,6 +17,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
 from products.engineering_analytics.backend.facade import api as engineering_analytics_api
 from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
 from products.exports.backend.facade.api import (
@@ -33,6 +35,7 @@ from products.surveys.backend.facade.api import (
     get_survey_responses_linked_to,
 )
 
+from ..dashboard_templates import get_ai_observability_default_template
 from ..logic.eval_suggestions import (
     config as eval_suggestions_config,
     eligibility as eval_suggestions_eligibility,
@@ -95,7 +98,7 @@ from ..logic.traces.summary_store import fail_abandoned_summary, request_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.team_recipes import save_team_recipe, team_normalizer, team_normalizer_with
 from ..logic.traces.timeline import TimelineRow
-from ..logic.traces.trace import Trace
+from ..logic.traces.trace import Trace, read_completeness
 from ..logic.traces.trace_export import (
     MAX_TRACE_EXPORT_BYTES,
     TRACE_EXPORT_FORMAT,
@@ -107,6 +110,22 @@ from ..logic.traces.trace_export import (
     TraceExportState,
     TraceExportWriter,
 )
+from ..logic.traces.trace_metrics import (
+    BucketSize,
+    MetricKey,
+    bucket_size_for,
+    bucket_starts,
+    has_no_previous_window,
+    has_too_many_buckets,
+    previous_window,
+    tiles_of,
+)
+from ..logic.traces.trace_metrics_queries import (
+    TraceMetricsRows,
+    TraceMetricsTooHeavyError as TraceMetricsTooHeavyError,
+    metrics_insight_queries,
+)
+from ..logic.traces.trace_metrics_store import cached_trace_metrics
 from ..logic.traces.trace_queries import (
     PageTraceRows,
     PersonRow,
@@ -195,7 +214,10 @@ def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: date
     loaded = load_trace(team, user, trace_id, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, partial=loaded.truncated))
+    completeness = read_completeness(
+        truncated=loaded.truncated, first_timestamp=loaded.rows[0].timestamp, read_start=loaded.read_start
+    )
+    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, completeness=completeness))
 
 
 def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None) -> TraceWindow:
@@ -223,6 +245,65 @@ def load_trace_list(
     )
 
 
+def load_trace_metrics(team: Team, user: User, selection: TraceSelection) -> Callable[[], contracts.TraceMetrics]:
+    """Reads the totals of the selected window and of the period of the same length before it, and returns the step
+    that builds them into tiles. Raises `TraceMetricsTooHeavyError` when the range is too long to compute.
+
+    The read is cached for a few minutes, so a dashboard that refreshes does not query ClickHouse again. The step
+    builds each tile's insight query, which reads the team's schema from Postgres but runs no ClickHouse query, so a
+    caller that holds a query concurrency slot for the load can release the slot before it runs the step.
+    """
+    # Buckets start at midnight in the project's zone, so every step works on the window in that zone.
+    zone = team.timezone_info
+    zoned = replace(
+        selection,
+        window=TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone)),
+    )
+    size = bucket_size_for(zoned.window)
+    if has_too_many_buckets(zoned.window, size) or has_no_previous_window(zoned.window):
+        raise TraceMetricsTooHeavyError()
+    rows = cached_trace_metrics(team, user, zoned, size)
+    return lambda: _to_trace_metrics(zoned.window, size, rows, metrics_insight_queries(team, zoned, size))
+
+
+def _to_trace_metrics(
+    window: TraceWindow, size: BucketSize, rows: TraceMetricsRows, insight_queries: Mapping[MetricKey, str]
+) -> contracts.TraceMetrics:
+    previous = previous_window(window)
+    starts = bucket_starts(window, size)
+    return contracts.TraceMetrics(
+        date_from=window.start,
+        date_to=window.end,
+        previous_date_from=previous.start,
+        previous_date_to=previous.end,
+        bucket_size=contracts.TraceMetricBucketSize(size.value),
+        bucket_starts=starts,
+        tiles=[
+            contracts.TraceMetricTile(
+                key=contracts.TraceMetricKey(tile.key.value),
+                label=tile.label,
+                value=tile.value,
+                previous=tile.previous,
+                change=tile.change,
+                change_unit=contracts.TraceMetricChangeUnit(tile.change_unit.value),
+                change_tone=contracts.TraceMetricChangeTone(tile.change_tone.value),
+                status=contracts.TraceMetricStatus(tile.status.value),
+                docs_url=tile.setup.docs_url if tile.setup else None,
+                setup_label=tile.setup.label if tile.setup else None,
+                detail=tile.detail,
+                latency_quantiles=contracts.TraceMetricLatencyQuantiles(
+                    p50_seconds=tile.latency_quantiles.p50_s, p99_seconds=tile.latency_quantiles.p99_s
+                )
+                if tile.latency_quantiles
+                else None,
+                series=tile.series,
+                insight_query=insight_queries[tile.key],
+            )
+            for tile in tiles_of(rows.current, rows.previous, rows.buckets, starts, window)
+        ],
+    )
+
+
 def _to_list_counts(counts: SelectionCounts) -> contracts.TraceListCounts:
     return contracts.TraceListCounts(total=counts.total, errors=counts.errors, feedback=counts.feedback)
 
@@ -244,23 +325,18 @@ def _list_items(
     found = [position for position in positions if position.trace_id in loaded]
     reviews = load_trace_review_states(team, user, [position.trace_id for position in found])
     return [
-        _to_list_item(
-            Trace(
-                position.trace_id,
-                loaded[position.trace_id].rows,
-                None,
-                partial=_is_partial(window, position, loaded[position.trace_id]),
-            ),
-            reviews[position.trace_id],
-        )
+        _to_list_item(_page_trace(window, position, loaded[position.trace_id]), reviews[position.trace_id])
         for position in found
     ]
 
 
-def _is_partial(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> bool:
-    # A trace read from `posthog.ai_events` is read by id without a time bound, so only a shared table read, which is
-    # bounded by the trace's first timestamp, can miss the events before it.
-    return rows.truncated or (rows.from_shared_table and window.may_read_a_suffix_of(position.first_timestamp))
+def _page_trace(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> Trace:
+    completeness = read_completeness(
+        truncated=rows.truncated,
+        first_timestamp=position.first_timestamp,
+        read_start=window.read_bounds().start if rows.from_shared_table else None,
+    )
+    return Trace(position.trace_id, rows.rows, None, completeness=completeness)
 
 
 def load_trace_previews(
@@ -466,6 +542,7 @@ def _to_overview(trace: Trace) -> contracts.TraceOverview:
         has_error=trace.has_error,
         error_count=trace.error_count,
         totals_partial=trace.partial,
+        cost_and_latency_partial=trace.cost_and_latency_partial,
     )
 
 
@@ -898,7 +975,7 @@ def get_evaluations_overview(
         buckets=list(overview.buckets),
         evaluations=rows,
         totals=overview_totals(rows, bucket_count),
-        pass_rate_overview=pass_rate_overview(rows, bucket_count),
+        pass_rate_overview=pass_rate_overview(rows),
     )
 
 
@@ -1151,8 +1228,11 @@ def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:
     )
 
 
-def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str:
-    team = Team.objects.get(id=team_id)
+def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str | None:
+    """None when the team was deleted after its run was queued."""
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return None
     return str(eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id).id)
 
 
@@ -1188,3 +1268,7 @@ def draft_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, dea
 
 def publish_eval_suggestions(team_id: int, run_id: str) -> int:
     return eval_suggestions_pipeline.publish_stage(team_id, run_id)
+
+
+def default_dashboard_template() -> DashboardTemplateDefinition:
+    return get_ai_observability_default_template()

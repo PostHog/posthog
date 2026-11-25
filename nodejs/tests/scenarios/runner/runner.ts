@@ -1,14 +1,5 @@
 import { randomUUID } from 'crypto'
-import {
-    createReadStream,
-    createWriteStream,
-    existsSync,
-    mkdirSync,
-    renameSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
@@ -38,7 +29,7 @@ import {
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
-import { DriveSummary, DrivenStep, SeedState, drive, seed } from '../generator/generator'
+import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
@@ -55,7 +46,7 @@ import {
     measure,
     startSampler,
 } from '../judge/measurements'
-import { Ramp, rampOf, watchRamp } from '../judge/ramp'
+import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
 import { edgeTruth } from '../judge/truth'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
@@ -66,10 +57,13 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { DependencyLoss, watchDependencies } from './dependency-watch'
+import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
+import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
 
+const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -79,6 +73,7 @@ export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentB
     seed(signal: AbortSignal): Promise<SeedState>
     probes(teams: number[]): Promise<Probes>
     offers(): Promise<OfferContext>
+    limit?(window: StepWindow): Promise<string | undefined>
     writeLogTails(evidenceDir: string): Promise<void>
     close(): Promise<void>
 }
@@ -197,23 +192,6 @@ function seedingUrlOf(spec: RoleSpec): string {
     return url.toString()
 }
 
-function watchHealth(environment: Environment): () => Promise<string[]> {
-    const down = new Set<string>()
-    const stopped = new AbortController()
-    const watching = (async () => {
-        while (!stopped.signal.aborted) {
-            const health = await environment.dependencyHealth().catch(() => ({ down: ['health check'] }))
-            health.down.forEach((name) => down.add(name))
-            await sleep(HEALTH_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
-        }
-    })()
-    return async () => {
-        stopped.abort()
-        await watching
-        return [...down]
-    }
-}
-
 function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string) => Promise<void> {
     const sizeOf = (file: string): number => (existsSync(file) ? statSync(file).size : 0)
     const logs = specs.map((spec) => {
@@ -231,18 +209,6 @@ function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string
                 writeFileSync(tail, '')
             }
         }
-    }
-}
-
-function writeJson(evidenceDir: string, name: string, value: unknown): void {
-    const file = path.join(evidenceDir, name)
-    const partial = `${file}.partial`
-    try {
-        writeFileSync(partial, JSON.stringify(value, null, 2))
-        renameSync(partial, file)
-    } catch (error) {
-        rmSync(partial, { force: true })
-        throw error
     }
 }
 
@@ -355,6 +321,22 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
+function cdpApiUrlsOf(environment: Environment): string[] {
+    const urls = environment
+        .roles()
+        .filter(({ name }) => name === 'cdp-api')
+        .map(({ url }) => url)
+    if (urls.length === 0) {
+        throw new Error('no cdp-api replica is running to take the intake offers')
+    }
+    return urls
+}
+
+function roundRobin(urls: readonly string[]): () => string {
+    let next = 0
+    return () => urls[next++ % urls.length]
+}
+
 function localTarget(
     environment: Environment,
     env: NodeJS.ProcessEnv,
@@ -378,13 +360,10 @@ function localTarget(
                 profile.replicas
             )
             const writeLogTails = keepLogTails(stateDir, specs)
-            const cdpApi = {
-                url: environment.role('cdp-api').url,
-                jwt: new ScopedServiceJwt(
-                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
-                    secrets.transactionalEmailJwtSecret
-                ),
-            }
+            const jwt = new ScopedServiceJwt(
+                PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+                secrets.transactionalEmailJwtSecret
+            )
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
@@ -405,6 +384,7 @@ function localTarget(
                     if (!producer) {
                         throw new Error('the load producer is not connected')
                     }
+                    const cdpApi = { nextUrl: roundRobin(cdpApiUrlsOf(environment)), jwt }
                     const sesFeedback = await watchSesFeedback({
                         edgeUrl,
                         lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
@@ -528,7 +508,8 @@ export function createRunner(
                 admissions: [],
                 bars: [],
             }
-            let stopHealth: (() => Promise<string[]>) | undefined
+            let health: { stop(): Promise<DependencyLoss[]> } | undefined
+            let dependencies: DependencyLoss[] = []
             let sampler: Sampler | undefined
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
@@ -537,6 +518,14 @@ export function createRunner(
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
+            const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
+            const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
+                const read = await writerCpuFor(card.bars, window, readSignal)
+                if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
+                    writerCpuReads.push({ startedAt: window.startedAt, endedAt: window.endedAt, read })
+                }
+                return read
+            }
             try {
                 await opened.connect()
                 live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
@@ -568,7 +557,10 @@ export function createRunner(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
                     )
                 }
-                stopHealth = watchHealth(environment)
+                health = watchDependencies(
+                    () => environment.dependencyHealth().then(({ down }) => down),
+                    HEALTH_INTERVAL_MS
+                )
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
@@ -616,7 +608,8 @@ export function createRunner(
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
                               profile,
-                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                              writerCpu: (window) => readWriterCpu(window, liveSignal),
+                              targetLimit: opened.limit,
                           },
                           liveSignal
                       )
@@ -637,20 +630,26 @@ export function createRunner(
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
                 const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
-                const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
+                const driveWindow: DriveWindow = {
+                    startedAt: driveStartedAt,
+                    endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
-                const down = await stopHealth()
+                dependencies = await health.stop()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const checked = await judge.check(card.invariants, card.gates, { janitorResets }, signal)
+                const { unread } = judge.evidence()
+                const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
+                const invariants = judgedInvariantsOf(checked, convergence)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
@@ -663,12 +662,13 @@ export function createRunner(
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
                     profile,
-                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) })
+                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
+                    units.steps[0]?.scale
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
+                    writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
                 })
                 const ramp = card.drive.stopOnBreak
@@ -682,14 +682,23 @@ export function createRunner(
                           gates: card.gates,
                           journal: evidence.journal,
                           admissions,
-                          converged: convergence.converged,
+                          convergence,
+                          rates: stepRatesOf(
+                              units.steps,
+                              evidence,
+                              {
+                                  lost: card.invariants.some(({ name }) => name === 'at_least_once'),
+                                  duplicates: card.invariants.some(({ name }) => name === 'duplicate_sends'),
+                              },
+                              convergence
+                          ),
                       })
                     : undefined
                 const verdict = statusOf({
                     admissions,
                     minOffered: card.drive.minOffered,
                     units,
-                    down,
+                    down: dependencies,
                     convergence,
                     invariants,
                     timeline: valves.timeline(),
@@ -729,7 +738,7 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                await stopHealth?.()
+                dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
                 await live.stop()
@@ -753,7 +762,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
-                ...(recorded ? { topologyHash: recorded.hash } : {}),
+                ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),
@@ -762,14 +771,17 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
-            const host = os.hostname()
+            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
-                writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
+                if (writerCpuReads.length > 0) {
+                    writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
+                }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }

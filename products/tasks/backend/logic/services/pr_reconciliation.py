@@ -40,6 +40,8 @@ class PullRequestSnapshot:
     head_repository: str
     state: Literal["open", "draft", "closed", "merged"]
     merged_at: datetime | None
+    merged_by_login: str | None = None
+    merged_by_github_id: int | None = None
 
     @classmethod
     def from_github(cls, response: dict[str, object]) -> "PullRequestSnapshot | None":
@@ -57,12 +59,17 @@ class PullRequestSnapshot:
         elif response.get("draft") is True:
             state = "draft"
         merged_at = response.get("merged_at")
+        merged_by = response.get("merged_by")
+        merger_login = merged_by.get("login") if isinstance(merged_by, dict) else None
+        merger_id = merged_by.get("id") if isinstance(merged_by, dict) else None
         return cls(
             url=url,
             head_branch=branch,
             head_repository=repository,
             state=state,
             merged_at=parse_datetime(merged_at) if isinstance(merged_at, str) else None,
+            merged_by_login=merger_login if isinstance(merger_login, str) and merger_login else None,
+            merged_by_github_id=merger_id if isinstance(merger_id, int) else None,
         )
 
 
@@ -239,5 +246,7 @@ class PullRequestReconciler:
                 pr_number=parsed.number,
                 pr_state=snapshot.state,
                 merged_at=snapshot.merged_at,
+                merged_by_login=snapshot.merged_by_login,
+                merged_by_github_id=snapshot.merged_by_github_id,
             )
         self._log("verified")

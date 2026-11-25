@@ -27,7 +27,12 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSyncResult,
 )
 from products.warehouse_sources.sources.workos._config import WorkOSSourceConfig
-from products.warehouse_sources.sources.workos.settings import ALL_WEBHOOK_EVENTS, ENDPOINTS, WEBHOOK_SCHEMA_NAMES
+from products.warehouse_sources.sources.workos.settings import (
+    ALL_WEBHOOK_EVENTS,
+    ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
+    WORKOS_ENDPOINTS,
+)
 from products.warehouse_sources.sources.workos.workos import (
     WorkOSResumeConfig,
     create_webhook as create_workos_webhook,
@@ -147,16 +152,17 @@ The key starts with `sk_`.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # WorkOS list endpoints expose no server-side timestamp filter, so a polled sync is
-        # always a full refresh. The tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync
-        # after the initial backfill.
+        # Only `events` has a server-side timestamp filter, so the other tables sync as a full
+        # refresh. The tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync after the initial
+        # backfill. A `range_start` read can repeat the event at the watermark, so `events` merges on
+        # `id` and does not offer append.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(WORKOS_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
-                incremental_fields=[],
+                incremental_fields=WORKOS_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in list(ENDPOINTS)
         ]
@@ -239,4 +245,7 @@ The key starts with `sk_`.
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=self.get_webhook_source_manager(inputs),
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

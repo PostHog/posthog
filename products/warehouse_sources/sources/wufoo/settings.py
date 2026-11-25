@@ -86,6 +86,21 @@ WUFOO_ENDPOINTS: dict[str, WufooEndpointConfig] = {
         paginated=False,
         params={"system": "true"},
     ),
+    "form_comments": WufooEndpointConfig(
+        name="form_comments",
+        path="forms/{hash}/comments.json",
+        data_key="Comments",
+        primary_keys=["form_hash", "CommentId"],
+        fanout=FORM_FANOUT,
+    ),
+    "report_widgets": WufooEndpointConfig(
+        name="report_widgets",
+        path="reports/{hash}/widgets.json",
+        data_key="Widgets",
+        primary_keys=["report_hash", "Hash"],
+        fanout=REPORT_FANOUT,
+        paginated=False,
+    ),
 }
 
 ENDPOINTS = tuple(WUFOO_ENDPOINTS.keys())

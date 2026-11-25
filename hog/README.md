@@ -16,10 +16,11 @@ npm install -g hog                                            # or pnpm add -g, 
 npx hog setup                                                 # run once without installing
 ```
 
-- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
+- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`, with `hog-worker`, the program hog runs for `hog error-tracking`, next to it. It tells you when that folder isn't on your `PATH`.
 - `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0`.
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
-- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
+- On Alpine and other musl systems, hog needs `libstdc++` and `libgcc`. Install them first, as in `apk add libstdc++ libgcc`.
+- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with `hog` and `hog-worker` for your machine.
 
 ### Updates
 
@@ -27,7 +28,7 @@ npx hog setup                                                 # run once without
 
 | Installed with                 | `hog upgrade`                                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces the binary in one rename                                    |
+| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces `hog` and `hog-worker` together                             |
 | Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
 | npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
 
@@ -44,6 +45,60 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
 - `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+
+### Notices
+
+A notice is a message the team sends to hogs that are already installed, such as "hog 1 gets no more fixes after June 1, 2027".
+`CLI_NOTICES` in `posthog/cli_notices.py` is the only list of notices, and it reaches hogs two ways. A notice that comes both ways shows once.
+
+- **The PostHog API** adds an `X-PostHog-CLI-Notice` header to its answers for the hog versions a notice names. hog reads it on every command that talks to PostHog, also with update checks off, as in CI with `PostHog/setup-hog`. A notice goes out once the change deploys to PostHog Cloud, and once a self-hosted instance updates.
+- **The release manifest.** `hogli build:projections` writes the list to `release/notices.generated.json`, and every hog release copies that file into its manifest. hog reads the manifest only when update checks are on.
+
+| Who runs hog                | What they see, on stderr after the output                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| A person at a terminal      | One line that starts with `Warning:`, or `Notice:` for an info notice, and ends with the update command and the link                    |
+| Agents, pipes and `-o json` | One JSON line: `{"notice":{"id","level","message","url","command"}}`                                                                    |
+| A GitHub Actions job        | The JSON line, plus a `::warning` or `::notice` annotation that shows on the run summary and the pull request. Agents get no annotation |
+
+```console
+$ hog config schema > schema.json
+Warning: hog 1 gets no more fixes after June 1, 2027. Move to hog 2. Run `brew upgrade hog`. https://posthog.com/docs/cli/migrating
+```
+
+- A `warning` shows on every command. An `info` notice shows at most once a day, because hog keeps the time it showed one in `~/.posthog/notices-shown.json`. A CI job starts without that file, so it sees an info notice on every run.
+- With `upgrade=True`, the line adds the update command for that install, the same one `hog upgrade` names.
+- hog turns control, bidirectional and zero-width characters into spaces, takes links only to `https://` pages on `posthog.com` written in printable ASCII, and skips a notice it can't read, such as one with a level a newer hog adds. A notice can't hold `##[`, which GitHub Actions reads as a command.
+- hog reads the header only from PostHog API answers, never from object storage, GitHub or an answer redirected to another origin.
+- hog sends `cli notice shown` with the notice ID each time it shows one.
+
+To send a notice, add it to `CLI_NOTICES` and run `hogli build:projections`:
+
+```python
+CLI_NOTICES: tuple[CliNotice, ...] = (
+    CliNotice(
+        id="hog-1-retiring",
+        level="warning",
+        message="hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
+        url="https://posthog.com/docs/cli/migrating",
+        below="2.0.0",
+        until=datetime(2027, 6, 1, tzinfo=UTC),
+        upgrade=True,
+    ),
+)
+```
+
+| Field                   | Means                                                                     |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `id`                    | Lowercase letters, digits and dashes, unique in the list                  |
+| `level`                 | `"warning"` for every command, `"info"` for once a day                    |
+| `message`               | Up to 300 printable characters                                            |
+| `url`                   | Optional. An `https://` page on `posthog.com`                             |
+| `from_version`, `below` | Optional. The versions it's for: `from_version` and up, and below `below` |
+| `until`                 | Optional. A time with a timezone, when the notice stops showing           |
+| `installs`              | Optional. Only these install kinds, such as `("homebrew", "npm-global")`  |
+| `upgrade`               | Optional. Adds the update command for the install                         |
+
+A notice hog would skip fails at import, so its pull request fails CI, and so does a stale `release/notices.generated.json`. `release/release.test.ts` checks the generated file with hog's own rules, and the release stops on a notice hog would skip. To remove a notice, delete it from `CLI_NOTICES`, or let `until` pass.
 
 ## Commands
 
@@ -272,6 +327,7 @@ hog sends usage events to PostHog, so the team can see who uses which commands a
 - `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent, the CI provider and runner (such as GitHub Actions on Depot or Blacksmith), the OS, and counts from the result, such as rows returned or endpoints pushed.
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
+- `cli notice shown`, once for each notice hog shows, with its ID and level, where it came from and whether it was a GitHub Actions annotation.
 - `hog setup started`, with your answer to what you want to use PostHog for, the products picked and the region, `hog setup step completed` with the step, and `hog setup completed`. The question says that hog sends the answer. With telemetry off, hog keeps it on your machine only.
 
 With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
@@ -314,8 +370,8 @@ Point `$schema` at the published schema to get validation in your editor:
 ```
 
 `errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
-`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
-`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path. It must be inside the project.
+`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up. It writes to an `output_path` only inside the project, and refuses a path inside the repository that links out of it. `--file` can name a path outside the repository.
 A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
@@ -332,9 +388,10 @@ posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it d
 - a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
 - any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
-Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files. Each folder there must be inside the project. Pass a folder outside it on the command line.
 `upload` and `process` take `-` to read the paths from stdin, one per line, so a build tool can pass every file it wrote.
 `--kind` skips detection.
+hog skips a bundle whose sourcemap is outside the selected paths and never opens that map, so it never reads, rewrites, uploads or deletes a file elsewhere.
 
 JavaScript releases work in two modes, as in posthog-cli:
 
@@ -350,6 +407,13 @@ hog error-tracking inject android/app/build/generated/assets         # before th
 hog error-tracking clone index.android.bundle.map index.android.bundle.hbc.composed.map
 hog error-tracking upload android/app/build/generated/sourcemaps     # the composed maps
 ```
+
+`inject`, `clone`, `upload` and `process` hand their file work to `hog-worker`, a program that ships next to `hog` in every install.
+hog starts only the `hog-worker` in its own folder, and the two must come from the same release.
+A hog that can't use its worker stops before it changes a file:
+
+- `worker_missing`: no `hog-worker` sits next to `hog`, for example in an image that copied only the `hog` binary. Copy both files, or follow the hint, which names the command for your install, such as `hog upgrade`.
+- `worker_mismatch`: the `hog-worker` next to `hog` comes from another release, or is another program. Follow the hint, which names the command for your install. For a copy the install script put there, `hog upgrade` installs the same version again when the two don't match.
 
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 
@@ -436,10 +500,13 @@ Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
 pnpm --filter hog hog --help  # run hog from source
-pnpm --filter hog unit        # run the tests
+pnpm --filter hog build:worker # build hog-worker, which `hog error-tracking` runs
+pnpm --filter hog unit        # build hog-worker, then run the tests
 pnpm --filter hog typecheck   # check types
 pnpm --filter hog compile     # build dist/hog for this machine
 ```
+
+`hog error-tracking` hands its file work to hog-worker, the Rust program in `worker/`, so those commands and their tests need a Rust toolchain. A run from source starts the worker that `build:worker` leaves in `worker/target/release/`. A compiled hog starts the `hog-worker` next to its own binary, and never looks for one anywhere else.
 
 A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
 
@@ -450,7 +517,18 @@ hog reads credentials only from the sources above. Runs from source keep their k
 hog releases the way posthog-cli does: a sampo changeset says what changed, and a person approves each release.
 The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `release/` holds its scripts.
 
-A pull request that changes code compiled into hog, which the downloadable tool catalog can't deliver, needs a changeset. The `hog changeset` workflow adds one when the pull request has none: a patch, or a minor when the catalog format version changed, with the pull request title as the text. On a fork it fails with the command to run. `release/catalog-gap.ts` decides, from the build metafiles of hog and the CLI library.
+A change to code compiled into hog that the downloadable tool catalog can't deliver, such as a change to the MCP code the CLI library bundles, needs no changeset of its own.
+Every release builds master, so it ships those changes anyway.
+`release/catalog-gap.ts` reads the build metafiles of hog and the CLI library to find the compiled files the catalog can't deliver.
+It also counts every change under `worker/`, because hog-worker ships in every release beside hog.
+A change to the generated API schemas in `services/mcp/src/generated/`, or to the registry of generated tool modules, counts only when it reaches a tool the catalog doesn't carry or hand-written code, because hog builds every tool the catalog carries from its catalog entry.
+
+On a pull request with such a change and no changeset, the `hog release check` workflow comments with the files and the choices below, and deletes the comment once a changeset is added. It runs the pull request's code with no secrets, so it works on forks, and `hog release check comment` posts the comment from the default branch.
+Before each release, and on each weekly run, the release workflow runs `release/catalog-gap.ts` against the last release tag.
+When a pull request changed one of those files and added no changeset, the release adds one changeset that lists every such pull request by number and title: a patch, or a minor when the catalog format version changed.
+That changeset exists only in the release run and never lands on master.
+The weekly run releases for it alone, so those changes reach users within a week.
+The same job fails when the sparse checkout of the release build leaves out a compiled file, since that build would fail after the approval.
 
 To add a changeset yourself, run from `hog/`:
 
@@ -458,7 +536,7 @@ To add a changeset yourself, run from `hog/`:
 sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
-Use `minor` or `major` instead of `patch` when it fits. sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
+sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
 
 The file name says when the changeset releases:
 
@@ -467,31 +545,50 @@ The file name says when the changeset releases:
 | `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC |
 | Any other name     | When its pull request merges                |
 
-Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `hog changeset` workflow names the changesets it adds for MCP and catalog changes `weekly-pr-<number>.md`, so they wait too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+Choose when a change ships:
+
+- No changeset: a change to code compiled into hog ships in the next release, at the latest the weekly one, listed by its pull request title.
+- `weekly-<name>.md`: the same timing, with your own changelog line.
+- `<name>.md`: a release when the pull request merges, which costs one approval. Use it for a new tool or behavior users need now, a fix for a bug users hit, or a security fix.
+
+Use `minor` for a new command, a new capability users can see, or a catalog format change, and `patch` for anything else.
+The file holds one sentence that tells users what changed:
+
+```md
+---
+npm/hog: patch
+---
+
+Describe the change for users.
+```
+
+The `weekly-pr-<number>.md` changesets that CI once added wait for the weekly run too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 
-1. Posts an approval request in the hog releases Slack channel, naming the pull requests whose changesets the release ships and who can't approve it.
-2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it.
-3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
+1. Posts an approval request in the hog releases Slack channel, naming the pull requests the release ships and who can't approve it.
+2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets, or changed anything the release build reads, can approve. `hog/release/check-approvers.sh` holds that list of paths: the trees hog compiles in, all of `hog/` and `services/mcp/`, the dependency files and local actions the build installs with, and the release workflow. A pull request that edits the check or `catalog-gap.ts` owns the release that ships it. The workflow also passes `HOG_SOURCE_PATHS`, and the compiled files once the release builds, as extra paths, which only add owners. So a tree hog starts building from counts before a tag carries a longer list, and the gap job warns until it does. The check runs as the last release tag has it, so a change to the rule applies from the release after the one that ships it. A tag whose copy predates the list runs the copy the workflow names by its git blob in `COMPILED_OWNERS_CHECKER_BLOB` instead, and only when master's history has that blob as the checker.
+3. Adds the changeset for compiled changes when the release needs one, then runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
-4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
-5. Compiles every target, with the version and the release commit's date as the build date.
-6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
-7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on everything since the last release tag, since the changes that merged while the release pull request waited ship in the build too. When an approver owns one of them, nothing publishes: revert the release pull request, which restores the changesets it consumed, and run the `Release hog` workflow by hand so someone else approves a new release.
+5. Compiles hog for every target, with the version and the release commit's date as the build date. A second job cross-compiles `hog-worker`, the Rust program in `worker/` that ships next to hog, for the same targets with the same version. It runs `release/build-worker.sh`, which builds in the Docker image `release/worker-cross.Dockerfile` pins.
+6. Signs and notarizes the macOS builds of hog and `hog-worker` in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it packs both binaries into each archive and npm platform package, and uploads the archives to `releases.posthog.com/hog/v<version>/`.
+7. Runs the signed Apple silicon build in a job without secrets, to check that hog starts and that it runs `error-tracking inject` with its `hog-worker`.
+8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binaries this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
-A release takes two merges, the changeset and then the release pull request, and one approval.
+A release takes two merges, the change and then the release pull request, and one approval.
 
 - Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
 - Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
+- To send a message to installed hogs, such as an end of support, add a notice to `CLI_NOTICES` in `posthog/cli_notices.py`, as [Notices](#notices) describes.
 - Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.0.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
 
 ```bash
 bun release/compile.ts --version 0.1.0 --target darwin-arm64   # a release build for this machine
+release/build-worker.sh --version 0.1.0 --target darwin-arm64  # its hog-worker, built in Docker
 bun test release/                                              # the install script and launcher tests
 ```
