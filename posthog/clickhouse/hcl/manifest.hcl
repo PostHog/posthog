@@ -50,7 +50,7 @@ role "logs" {
 # ingest. Development runs the legacy APM ingest chain too. The production logs
 # nodes still run that legacy chain. The metrics4 ingest chain runs only on the
 # ingestion-metrics nodes, which write to the metrics cluster.
-role "apm" {
+role "ingestion_apm" {
   env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
   env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
@@ -161,8 +161,8 @@ role "data" {
 # tables for its topic class, the MV that reads them, and the writable_* Distributed
 # proxies that write into the data cluster (migration 0157 moved this off the data node).
 # Beyond that they carry only the shared query_log_archive path. Role names are the
-# hostClusterRole macros migrations target: events_ingestion, small, medium.
-role "events_ingestion" {
+# hostClusterRole macros migrations target: ingestion_events, ingestion_small, ingestion_medium.
+role "ingestion_events" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/logs_avro_ingest", "roles/coshared/events_json_write", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/ingestion_events/local"] }
 }
 
@@ -173,11 +173,11 @@ role "events" {
   env "local-multi" { layers = ["roles/shared/qla.hcl"] }
 }
 
-role "small" {
+role "ingestion_small" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/shared/person_group_membership.hcl", "roles/coshared/person_group_membership_config", "roles/coshared/person_group_membership_write", "roles/coshared/named_collections", "roles/coshared/aux_small", "roles/coshared/log_entries_write", "roles/coshared/log_entries_aux_write", "roles/coshared/session_replay_write", "roles/ingestion_small/local"] }
 }
 
-role "medium" {
+role "ingestion_medium" {
   env "local-multi" { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/flag_evaluations_ingest", "roles/ingestion_medium/local"] }
 }
 

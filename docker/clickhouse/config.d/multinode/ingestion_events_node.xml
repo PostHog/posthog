@@ -180,6 +180,6 @@
         <shard>01</shard>
         <replica>events</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>events_ingestion</hostClusterRole>
+        <hostClusterRole>ingestion_events</hostClusterRole>
     </macros>
 </clickhouse>

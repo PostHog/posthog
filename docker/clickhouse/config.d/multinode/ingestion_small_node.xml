@@ -180,6 +180,6 @@
         <shard>01</shard>
         <replica>small</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>small</hostClusterRole>
+        <hostClusterRole>ingestion_small</hostClusterRole>
     </macros>
 </clickhouse>

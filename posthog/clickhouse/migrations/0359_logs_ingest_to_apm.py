@@ -7,7 +7,7 @@ from posthog.run_mode import run_mode
 
 DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
-# The cloud envs run the logs Kafka ingest on the ingestion-apm nodes, as the HCL `apm` role composes
+# The cloud envs run the logs Kafka ingest on the ingestion-apm nodes, as the HCL `ingestion_apm` role composes
 # `coshared/logs_avro_ingest` for dev, prod-us and prod-eu. 0305, 0307 and 0348 put it on the
 # ingestion-events nodes in prod, so a cluster built from the migration history would consume there.
 # On a cluster that already runs the ingest on apm, every statement is a no-op.
@@ -27,11 +27,11 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # The multinode stack keeps the ingest on its ingestion-events node, so this migration is cloud-only.
 operations = (
     [
-        run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
-        run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
+        run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.INGESTION_APM], require_hosts=True),
+        run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.INGESTION_APM], require_hosts=True),
         run_sql_with_exceptions(
             KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False),
-            node_roles=[NodeRole.APM],
+            node_roles=[NodeRole.INGESTION_APM],
             require_hosts=True,
         ),
         run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_logs_avro", node_roles=[NodeRole.INGESTION_EVENTS]),

@@ -180,6 +180,6 @@
         <shard>01</shard>
         <replica>medium</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>medium</hostClusterRole>
+        <hostClusterRole>ingestion_medium</hostClusterRole>
     </macros>
 </clickhouse>
