@@ -264,7 +264,7 @@ describe('EmailTrackingService', () => {
                 [
                     'an anchor that never closes',
                     '<a href="https://example.com/a">a',
-                    '<a href="https://example.com/a">a',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a',
                 ],
                 [
                     'a quoted > in the href',
@@ -451,6 +451,18 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/a"><span title="</a>">a</span><a href="https://example.com/reset">b</a>',
                     sensitiveInvocation,
                     '<a href="https://example.com/a" ses:no-track><span title="</a>">a</span><a href="https://example.com/reset" ses:no-track>b</a>',
+                ],
+                [
+                    'a sensitive template whose last link never closes after a quoted end tag',
+                    '<a href="https://example.com/reset">Reset<span title="</a>"> now</span>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-track>Reset<span title="</a>"> now</span>',
+                ],
+                [
+                    'a sensitive template with a link between self-closed and closed SVG titles',
+                    '<svg><title/></svg><a href="https://example.com/reset">x</a><svg><title>Logo</title></svg>',
+                    sensitiveInvocation,
+                    '<svg><title/></svg><a href="https://example.com/reset" ses:no-track>x</a><svg><title>Logo</title></svg>',
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',
@@ -644,6 +656,15 @@ describe('EmailTrackingService', () => {
 
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe(expected)
+            })
+
+            it('should leave a bare href ahead of the rewritten one, as browsers read the first', () => {
+                const html = addTrackingToEmail(
+                    '<body><a href href="https://example.com/a">x</a></body>',
+                    { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
+                    signer
+                )
+                expect(html).toMatch(/^<body><a href href="[^"]+\/public\/m\/redirect[^"]+">x<\/a>/)
             })
 
             it('should redirect tracked links on a sensitive template that opts in while leaving opted-out links direct', async () => {

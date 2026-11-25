@@ -25,7 +25,7 @@ describe('email link tracking benchmark', () => {
             mode: 'redirect',
             end: pixelEnd,
             body: '<a href="https://example.com/x">'.repeat(64_000),
-            tagged: `${redirected.repeat(63_999)}<a href="https://example.com/x">`,
+            tagged: redirected.repeat(64_000),
         },
         {
             shape: 'anchor tags that never end',
@@ -60,14 +60,14 @@ describe('email link tracking benchmark', () => {
             mode: 'ses',
             end: /^<\/body>$/,
             body: '<a href="https://example.com/x"><!--</a>-->'.repeat(32_000),
-            tagged: `${indexed(31_999, (index) => `<a href="https://example.com/x" ses:tags="phl:${index}"><!--</a>-->`)}<a href="https://example.com/x"><!--</a>-->`,
+            tagged: indexed(32_000, (index) => `<a href="https://example.com/x" ses:tags="phl:${index}"><!--</a>-->`),
         },
         {
             shape: 'anchors that never close before a comment holding an end tag',
             mode: 'ses',
             end: /^<\/body>$/,
             body: `${'<a href="https://example.com/x">'.repeat(64_000)}<!--</a>-->`,
-            tagged: `${indexed(63_999, (index) => `<a href="https://example.com/x" ses:tags="phl:${index}">`)}<a href="https://example.com/x"><!--</a>-->`,
+            tagged: `${indexed(64_000, (index) => `<a href="https://example.com/x" ses:tags="phl:${index}">`)}<!--</a>-->`,
         },
         {
             shape: 'tags with a quoted > before a quote that never closes',

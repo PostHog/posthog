@@ -271,7 +271,7 @@ export const addTrackingToEmail = (
         redirectUrls.set(href, tracked)
 
         // replace just the href in the original tag to preserve other attributes
-        const hrefAttribute = attributes.find(({ name }) => name === 'href')!
+        const hrefAttribute = attributes.find(({ name, value }) => name === 'href' && value !== null)!
         return replaceAttribute(m, hrefAttribute, `href="${tracked}"`)
     })
 

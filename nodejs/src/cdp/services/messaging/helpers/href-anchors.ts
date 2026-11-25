@@ -63,7 +63,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
         }
         const name = tagName[2].toLowerCase()
         const isEndTag = tagName[1] === '/'
-        if (!isEndTag && RAW_TEXT_ELEMENTS.includes(name)) {
+        if (!isEndTag && RAW_TEXT_ELEMENTS.includes(name) && html[tag.end - 1] !== '/') {
             const end = rawTextEnd(name, tag.end + 1)
             position = end === -1 ? tag.end + 1 : end
             continue
@@ -83,6 +83,10 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             open = href === null ? null : { start: position, href }
         }
         position = tag.end + 1
+    }
+    if (open) {
+        pieces.push(html.slice(copiedUpTo, open.start), replace({ html: html.slice(open.start), href: open.href }))
+        copiedUpTo = html.length
     }
     pieces.push(html.slice(copiedUpTo))
     return pieces.join('')
