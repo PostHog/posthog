@@ -121,6 +121,7 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
             snapshots_baseline: ${{ steps.filter.outputs.snapshots_baseline }}
+            reused: ${{ steps.filter.outputs.reused }}
             # Trunk's merge queue opens its PR from trunk-merge/**. Scoped to same-repo
             # heads because github.head_ref is author-controlled: without the scope, any
             # contributor could opt out of the visual gates below by naming their branch
@@ -162,7 +163,11 @@ jobs:
                       run-ci-frontend
                       ci-no-reuse
                   reuse-proof-checks: Build Storybook (depot-ubuntu-24.04)
-                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
+                  # vr-skip reads frontend == false as "no visual change" and posts a passing
+                  # Visual Review gate. After a reuse it only means "unchanged since a head where
+                  # this workflow passed", and with the commit status as the gate this workflow
+                  # passes with unapproved changes, so the new head would turn green unreviewed.
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE == 'true' || vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true' }}
                   filters: |
                       frontend:
                         - 'patches/jest-junit@16.0.0.patch'
@@ -193,7 +198,9 @@ jobs:
 
             - name: Detect Visual Review baseline-only push
               id: baseline_push
-              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              # With the commit status as the gate, Visual Review commits no baseline, and a
+              # bot push of the file alone must not turn a head with pending changes green.
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && vars.VISUAL_REVIEW_REPORT_NO_RUN != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
@@ -648,6 +655,8 @@ jobs:
         needs: [changes, build-storybook, select-stories]
         # !cancelled() stops the skips of build-storybook and select-stories from
         # cascading to this job. Each arm then requires the jobs it reads to have succeeded.
+        # After a reuse, frontend == false proves nothing about visuals: a missing status
+        # blocks the PR where people see it, and a green one would hide unapproved changes.
         if: |
             !cancelled()
             && vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true'
@@ -655,6 +664,7 @@ jobs:
             && github.event_name == 'pull_request'
             && github.event.pull_request.head.repo.full_name == github.repository
             && needs.changes.result == 'success'
+            && needs.changes.outputs.reused != 'true'
             && (
                 needs.changes.outputs.frontend != 'true'
                 || (
