@@ -4,17 +4,17 @@ import { LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui
 
 import { urls } from 'scenes/urls'
 
-import type { ThreadJoinModeEnumApi, UntaggedFollowupModeEnumApi } from '../generated/api.schemas'
+import type { SlackThreadJoinModeEnumApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
 import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
-const UNTAGGED_MODE_OPTIONS: { value: UntaggedFollowupModeEnumApi; label: string }[] = [
+const UNTAGGED_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi; label: string }[] = [
     { value: 'ask', label: 'Ask first' },
     { value: 'auto', label: 'Reply automatically' },
     { value: 'never', label: 'Never' },
 ]
 
-const THREAD_JOIN_OPTIONS: { value: ThreadJoinModeEnumApi; label: string }[] = [
+const THREAD_JOIN_OPTIONS: { value: SlackThreadJoinModeEnumApi; label: string }[] = [
     { value: 'allow', label: 'Let anyone join' },
     { value: 'ask_per_person', label: 'Ask me for each person' },
     { value: 'ask_per_thread', label: 'Ask me once for each thread' },

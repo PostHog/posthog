@@ -34,12 +34,13 @@ class SlackChannelQuestionMode(LabeledStrEnum):
 
 
 class SlackThreadJoinMode(LabeledStrEnum):
-    """What PostHog does when someone else tags it in a thread a person started. The values match the stored mode."""
+    """What PostHog does when someone else tags it in a thread a person started. The values match
+    ``ThreadJoinMode``, and the labels differ from it for the reason ``SlackUntaggedMode`` gives."""
 
-    NEVER = "never", "Ignore them"
-    ASK_PER_PERSON = "ask_per_person", "Ask me for each person"
-    ASK_PER_THREAD = "ask_per_thread", "Ask me once per thread"
-    ALLOW = "allow", "Let anyone join"
+    NEVER = "never", "Ignore others"
+    ASK_PER_PERSON = "ask_per_person", "Ask for each person"
+    ASK_PER_THREAD = "ask_per_thread", "Ask once for each thread"
+    ALLOW = "allow", "Allow anyone"
 
 
 class SlackSetupEntry(LabeledStrEnum):

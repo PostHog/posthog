@@ -113,26 +113,26 @@ export const SlackAppSettingsPersonalPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
     untagged_followup_mode: zod
         .enum(['auto', 'ask', 'never'])
-        .describe('\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up')
+        .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer')
         .optional()
         .describe(
-            'What PostHog does with untagged replies in threads this person started.\n\n\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up'
+            'What PostHog does with untagged replies in threads this person started.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer'
         ),
     untagged_question_mode: zod
         .enum(['auto', 'ask', 'never'])
-        .describe('\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up')
+        .describe('\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer')
         .optional()
         .describe(
-            "What PostHog does with this person's top-level channel questions that do not tag it.\n\n\* `auto` - Always pick it up\n\* `ask` - Ask before picking it up\n\* `never` - Never pick it up"
+            "What PostHog does with this person's top-level channel questions that do not tag it.\n\n\* `auto` - Answer automatically\n\* `ask` - Ask first\n\* `never` - Never answer"
         ),
     thread_join_mode: zod
         .enum(['never', 'ask_per_person', 'ask_per_thread', 'allow'])
         .describe(
-            '\* `never` - Ignore them\n\* `ask_per_person` - Ask me for each person\n\* `ask_per_thread` - Ask me once per thread\n\* `allow` - Let anyone join'
+            '\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
         )
         .optional()
         .describe(
-            'What PostHog does when someone else tags it in a thread this person started.\n\n\* `never` - Ignore them\n\* `ask_per_person` - Ask me for each person\n\* `ask_per_thread` - Ask me once per thread\n\* `allow` - Let anyone join'
+            'What PostHog does when someone else tags it in a thread this person started.\n\n\* `never` - Ignore others\n\* `ask_per_person` - Ask for each person\n\* `ask_per_thread` - Ask once for each thread\n\* `allow` - Allow anyone'
         ),
     auto_model_choice: zod
         .boolean()
