@@ -39,11 +39,7 @@ from products.cohorts.backend.realtime_limits import (
     max_realtime_history_days,
     realtime_cohorts_used,
 )
-from products.cohorts.backend.realtime_state import (
-    CohortRealtimeState,
-    pending_backfill_kinds,
-    resolve_realtime_readiness,
-)
+from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
@@ -173,7 +169,7 @@ def prepare_again(team_id: int, cohort_id: int) -> list[CohortBackfillKind]:
     )
     queued = [
         CohortBackfillKind(kind)
-        for kind in sorted(pending_backfill_kinds(cohort) - active)
+        for kind in sorted(cohort.pending_backfill_kinds() - active)
         if queue_cohort_backfill(cohort, CohortBackfillTrigger.COHORT_CREATED, CohortBackfillKind(kind))
     ]
     if not queued:
