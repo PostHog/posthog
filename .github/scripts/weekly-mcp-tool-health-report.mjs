@@ -113,7 +113,8 @@ const TOOL_HEALTH_QUERY = `
         )
         GROUP BY tool, is_current
     )
-    WHERE tool NOT IN ('', 'exec')
+    WHERE tool NOT IN ('exec', '.', '..')
+        AND match(tool, '^[A-Za-z0-9_.-]{1,128}$')
         AND (
             (errors >= {min_errors} AND errors * 100 >= calls * {min_error_rate_pct} AND users >= {min_users})
             OR (backend_errors >= {min_backend_errors} AND backend_users >= {min_backend_users})
@@ -460,7 +461,10 @@ function ownedTeams(items, ownerFor) {
 
 function toolLine(now, item) {
     const change = item.changeDetail ? `${item.change} (${item.changeDetail})` : item.change
-    return `${change}: [\`${item.tool}\`](${toolQualityUrl(now, item.tool)}) failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. ${errorBreakdown(item)}. Top error: ${item.topError || 'no message captured'}`
+    const message = item.topError?.replace(/\s+/g, ' ').trim() || 'no message captured'
+    const longestRun = Math.max(0, ...(message.match(/`+/g) ?? []).map((run) => run.length))
+    const fence = '`'.repeat(longestRun + 1)
+    return `${change}: [\`${item.tool}\`](${toolQualityUrl(now, item.tool)}) failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. ${errorBreakdown(item)}. Top error: ${fence} ${message} ${fence}`
 }
 
 function signalReport(now, { owner, items, part = 1, parts = 1 }, reviewerUuids) {

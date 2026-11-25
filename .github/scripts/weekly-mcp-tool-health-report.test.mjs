@@ -310,6 +310,12 @@ describe('weekly MCP tool health report', () => {
             )
         })
 
+        it('renders diagnostic punctuation literally in the inbox report', () => {
+            const items = [{ ...TOOL, topError: 'Invalid value for `format`\nExpected [json]' }]
+            const { summary } = signalReport(NOW, { ...SURVEYS, items }, [])
+            assert.ok(summary.includes('Top error: `` Invalid value for `format` Expected [json] ``'))
+        })
+
         it('routes the report to the owning team members, capped at the reviewer limit', () => {
             const uuids = Array.from({ length: MAX_SIGNAL_REVIEWERS + 2 }, (_, i) => `uuid-${i}`)
             assert.equal(signalReport(NOW, SURVEYS, uuids).suggested_reviewers.length, MAX_SIGNAL_REVIEWERS)
