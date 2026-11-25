@@ -44,7 +44,7 @@ export function SourceFilterPreviewRecordRow({ record, noun }: SourceFilterPrevi
                 </Tooltip>
             )}
             {record.created_at && (
-                <span className="hidden shrink-0 text-xs text-muted @min-[28rem]:inline">
+                <span className="hidden shrink-0 text-xs text-muted @md:block">
                     <TZLabel time={record.created_at} />
                 </span>
             )}
