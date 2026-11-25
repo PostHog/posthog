@@ -194,6 +194,12 @@ class TestGitCommit:
             pytest.param("git", f"  {INJECTED_SHA}\n", (INJECTED_SHA, INJECTED_SHA[:10]), id="injected_is_stripped"),
             pytest.param("git", " \n ", FROM_GIT, id="blank_injected_falls_back_to_git"),
             pytest.param("git", None, FROM_GIT, id="unset_falls_back_to_git"),
+            pytest.param(
+                "git",
+                f"{INJECTED_SHA[:7]} head\n{INJECTED_SHA[7:14]} base",
+                FROM_GIT,
+                id="malformed_injected_falls_back_to_git",
+            ),
             pytest.param("nothing", None, ("None", "None"), id="unknown"),
         ],
     )

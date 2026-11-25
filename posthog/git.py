@@ -16,8 +16,16 @@ except FileNotFoundError:
     pass
 
 
+_FULL_COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def _injected_git_commit() -> Optional[str]:
+    injected = os.environ.get("POSTHOG_GIT_COMMIT", "").strip()
+    return injected if _FULL_COMMIT_SHA.fullmatch(injected) else None
+
+
 def _known_git_commit() -> Optional[str]:
-    return _git_commit_baked_in or os.environ.get("POSTHOG_GIT_COMMIT", "").strip() or None
+    return _git_commit_baked_in or _injected_git_commit()
 
 
 @cache
