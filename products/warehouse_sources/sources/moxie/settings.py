@@ -1,7 +1,7 @@
 from dataclasses import field
-from typing import Optional
+from typing import Any, Optional
 
-from products.warehouse_sources.sources.sdk import frozen
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # Moxie's Public API is served from a per-workspace pod host (e.g. `pod00.withmoxie.dev`), captured
 # as the `base_url` credential field rather than hardcoded here. This is the path segment every pod
@@ -24,6 +24,25 @@ class MoxieEndpointConfig:
     wrap_scalar_as: Optional[str] = None
     """Set when the endpoint returns a bare array of strings (e.g. template names) rather than
     objects, naming the single column each string is wrapped into."""
+    params: dict[str, Any] = field(default_factory=dict)
+    fanout: Optional[DependentEndpointConfig] = None
+    # `build_dependent_resource` reads these three fields. No Moxie table is incremental, and the
+    # page size of a fan-out child goes in its `params`.
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
+    page_size: int = 100
+
+
+def _fanout(parent_name: str, resolve_param: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name=parent_name,
+        resolve_param=resolve_param,
+        resolve_field="id",
+        # Child rows already carry their parent id.
+        include_from_parent=[],
+        # A parent deleted between the parent listing and its child fetch returns 404. Skip it.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
 
 
 # Moxie's Public API (https://help.withmoxie.com/en/collections/5482062-public-api-endpoints) exposes
@@ -86,6 +105,34 @@ MOXIE_ENDPOINTS: dict[str, MoxieEndpointConfig] = {
     # `moxie.py`) since a nested field can't be declared as a primary key.
     "workspace_users": MoxieEndpointConfig(
         name="workspace_users", path=f"{MOXIE_API_PATH_PREFIX}/users/list", primary_keys=["user_id"]
+    ),
+    # Without `includeArchived` the search leaves out archived opportunities. Rows carry an
+    # `archive` flag, so the table keeps them and a query can filter them out.
+    "opportunities": MoxieEndpointConfig(
+        name="opportunities",
+        path=f"{MOXIE_API_PATH_PREFIX}/opportunities/search",
+        partition_key="created",
+        params={"includeArchived": "true"},
+    ),
+    # `moxie.py` splits the `timerStart` window when one call reaches the API's row cap.
+    "time_entries": MoxieEndpointConfig(
+        name="time_entries", path=f"{MOXIE_API_PATH_PREFIX}/timeWorked/list", partition_key="timestamp"
+    ),
+    # Without `commentType=ALL` the API returns only public replies and leaves out internal notes.
+    "ticket_comments": MoxieEndpointConfig(
+        name="ticket_comments",
+        path=f"{MOXIE_API_PATH_PREFIX}/tickets/comments/list?ticketId={{ticketId}}",
+        primary_keys=["ticketId", "id"],
+        partition_key="created",
+        params={"commentType": "ALL", "limit": 100},
+        fanout=_fanout("tickets", "ticketId"),
+    ),
+    "project_notes": MoxieEndpointConfig(
+        name="project_notes",
+        path=f"{MOXIE_API_PATH_PREFIX}/projects/notes/search?projectId={{projectId}}",
+        primary_keys=["projectId", "id"],
+        partition_key="timestamp",
+        fanout=_fanout("projects", "projectId"),
     ),
 }
 

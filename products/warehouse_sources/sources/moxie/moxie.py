@@ -5,12 +5,18 @@ per-workspace pod (e.g. `pod00.withmoxie.dev`), so the API base URL is a user-su
 rather than a constant. Auth is a single `X-API-KEY` header
 (https://help.withmoxie.com/en/articles/8154735-public-api-fundamentals).
 
-Every list/search endpoint returns the full collection as one bare JSON array with no pagination and
-no server-side timestamp filter, so every table here is full refresh only. Two endpoint shapes exist:
+Almost every list/search endpoint returns the full collection as one bare JSON array with no
+pagination and no filter on a modification time, so every table here is full refresh only. Two
+endpoint shapes exist:
 most return an array of objects, but `emailTemplates`, `invoiceTemplates`, `vendors`, and `formNames`
 return an array of bare strings (template/vendor/form names). The framework's per-item `data_map` only
 runs on dict items (see `Resource._apply_transforms`), so those four are wrapped into a one-column row
 after the fact in `moxie_source`, not declared as a `data_map` on the resource.
+
+`time_entries` returns at most 10,000 rows per call in no guaranteed order. When a call reaches
+that cap, the source splits the `timerStart` window in half and asks again (see
+`iter_time_entries`). `ticket_comments` and `project_notes` take a parent id, so they fan out over
+`tickets` and `projects`.
 
 Moxie enforces a hard rate limit of 100 Public API requests per 5-minute window per workspace,
 returning HTTP 429 when exceeded; the tracked session's transport-level retry already honors
@@ -18,19 +24,35 @@ returning HTTP 429 when exceeded; the tracked session's transport-level retry al
 """
 
 import re
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from products.warehouse_sources.sources.moxie.settings import MOXIE_API_PATH_PREFIX, MOXIE_ENDPOINTS
+import structlog
+
+from products.warehouse_sources.sources.moxie.settings import (
+    MOXIE_API_PATH_PREFIX,
+    MOXIE_ENDPOINTS,
+    MoxieEndpointConfig,
+)
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    SinglePagePaginator,
     SourceResponse,
     _is_host_safe,
+    build_dependent_resource,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
+
+logger = structlog.get_logger(__name__)
 
 HOST_NOT_ALLOWED_ERROR = "Moxie workspace base URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Moxie workspace base URL must use HTTPS"
@@ -39,6 +61,13 @@ HTTP_NOT_ALLOWED_ERROR = "Moxie workspace base URL must use HTTPS"
 # responds (or trickles bytes) would otherwise hold an import worker for the activity's full runtime
 # budget, since RESTClient passes this straight to `requests` as `timeout=None` when unset.
 REQUEST_TIMEOUT_SECONDS = (10.0, 60.0)
+
+# List Time Entries returns at most this many rows per call.
+TIME_ENTRIES_ROW_CAP = 10_000
+# The lower bound of the first `timerStart` window. Moxie did not exist before this date.
+TIME_ENTRIES_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
+
+TimeWindow = tuple[datetime, datetime]
 
 
 class MoxieHostNotAllowedError(Exception):
@@ -85,17 +114,109 @@ def _flatten_workspace_user(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, "user_id": user.get("userId")}
 
 
-def get_resource(endpoint: str) -> EndpointResource:
+def get_resource(endpoint: str, params: Optional[dict[str, Any]] = None) -> EndpointResource:
     config = MOXIE_ENDPOINTS[endpoint]
+    request_params = {**config.params, **(params or {})}
+    endpoint_config: Endpoint = {"path": config.path}
+    if request_params:
+        endpoint_config["params"] = request_params
     resource: EndpointResource = {
         "name": endpoint,
         "write_disposition": "replace",
-        "endpoint": {"path": config.path},
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
     if endpoint == "workspace_users":
         resource["data_map"] = _flatten_workspace_user
     return resource
+
+
+def _split(window: TimeWindow) -> Optional[tuple[TimeWindow, TimeWindow]]:
+    lower, upper = window
+    half = timedelta(seconds=int((upper - lower).total_seconds()) // 2)
+    if half <= timedelta(0):
+        return None
+    middle = lower + half
+    return (lower, middle), (middle, upper)
+
+
+def iter_time_entries(
+    fetch: Callable[[Optional[TimeWindow]], list[dict[str, Any]]], now: datetime
+) -> Iterator[list[dict[str, Any]]]:
+    """Read every time entry, in `timerStart` windows small enough to stay under the row cap.
+
+    Most workspaces fit in one call with no window. Otherwise a window that reaches the cap is split
+    in half, and the halves are read in order, so adjacent windows share only their bound.
+    """
+    rows = fetch(None)
+    if len(rows) < TIME_ENTRIES_ROW_CAP:
+        if rows:
+            yield rows
+        return
+
+    pending: list[TimeWindow] = [(TIME_ENTRIES_EARLIEST, now + timedelta(days=366))]
+    previous_ids: set[Any] = set()
+    while pending:
+        window = pending.pop()
+        rows = fetch(window)
+        if len(rows) >= TIME_ENTRIES_ROW_CAP:
+            halves = _split(window)
+            if halves is not None:
+                pending.extend(reversed(halves))
+                continue
+            logger.warning(
+                "moxie_time_entries_window_at_row_cap",
+                earliest=window[0].isoformat(),
+                latest=window[1].isoformat(),
+                rows=len(rows),
+            )
+        # Both bounds are inclusive, so an entry that starts on the shared bound of two windows
+        # comes back from both.
+        page = [row for row in rows if row.get("id") is None or row.get("id") not in previous_ids]
+        previous_ids = {row.get("id") for row in rows}
+        if page:
+            yield page
+
+
+def _client_config(resolved_base_url: str, api_key: str) -> ClientConfig:
+    return {
+        "base_url": resolved_base_url,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+        # The list endpoints return the whole collection in one bare array. Ticket comments set
+        # their own cursor paginator.
+        "paginator": "single_page",
+        # Don't follow redirects: a compromised/edited base_url could 3xx to an internal address,
+        # bypassing the host check (SSRF).
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
+def _fanout_resource(
+    config: MoxieEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
+) -> Iterable[Any]:
+    assert config.fanout is not None
+    if config.name == "ticket_comments":
+        child_endpoint_extra: Any = {
+            "data_selector": "comments",
+            "paginator": JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="cursor"),
+        }
+    else:
+        child_endpoint_extra = {"paginator": SinglePagePaginator()}
+    return build_dependent_resource(
+        endpoint_configs=MOXIE_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        child_endpoint_extra=child_endpoint_extra,
+        child_params_extra=dict(config.params),
+        page_size_param=None,
+    )
 
 
 def moxie_source(
@@ -109,25 +230,29 @@ def moxie_source(
     host = _host_of(resolved_base_url)
     config = MOXIE_ENDPOINTS[endpoint]
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": resolved_base_url,
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
-            # No pagination is documented on any endpoint — each table is a single bare-array page.
-            "paginator": "single_page",
-            # Don't follow redirects: a compromised/edited base_url could 3xx to an internal address,
-            # bypassing the host check below (SSRF).
-            "allow_redirects": False,
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-        },
-        "resource_defaults": None,
-        "resources": [get_resource(endpoint)],
-    }
+    client_config = _client_config(resolved_base_url, api_key)
+
+    def rest_config(params: Optional[dict[str, Any]] = None) -> RESTAPIConfig:
+        return {"client": client_config, "resource_defaults": None, "resources": [get_resource(endpoint, params)]}
+
+    def fetch_time_entries(window: Optional[TimeWindow]) -> list[dict[str, Any]]:
+        params = (
+            {"earliest": format_datetime(window[0], "iso_z"), "latest": format_datetime(window[1], "iso_z")}
+            if window
+            else None
+        )
+        return [row for batch in rest_api_resource(rest_config(params), team_id, job_id, None) for row in batch]
 
     wrap_field = config.wrap_scalar_as
 
     def items() -> Any:
+        for batch in rest_api_resource(rest_config(), team_id, job_id, None):
+            if wrap_field:
+                yield [{wrap_field: value} for value in batch]
+            else:
+                yield batch
+
+    def source_items() -> Iterable[Any]:
         # Re-check at run time, not just at source-create: the base_url can be edited later and now
         # resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         host_ok, host_err = _is_host_safe(host, team_id)
@@ -136,16 +261,17 @@ def moxie_source(
         if not _is_https(resolved_base_url):
             raise MoxieHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
-        for batch in rest_api_resource(rest_config, team_id, job_id, None):
-            if wrap_field:
-                yield [{wrap_field: value} for value in batch]
-            else:
-                yield batch
+        if config.fanout is not None:
+            # Returned as is, so the pipeline reads the framework resource directly.
+            return _fanout_resource(config, client_config, team_id, job_id)
+        if endpoint == "time_entries":
+            return iter_time_entries(fetch_time_entries, datetime.now(UTC))
+        return items()
 
     has_partition_key = config.partition_key is not None
     return SourceResponse(
         name=endpoint,
-        items=items,
+        items=source_items,
         primary_keys=config.primary_keys,
         # Full-refresh replace: there's no incremental watermark to checkpoint, but an explicit sort
         # still guards against a page-boundary shuffle on the (single, unpaginated) response.
