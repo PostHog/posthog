@@ -116,6 +116,20 @@ class AlertOwnerAccessError(AlertExtractionError):
 CREATOR_LEFT_DISABLE_REASON = "The alert owner is no longer in the organization."
 CREATOR_LOST_ACCESS_DISABLE_REASON = "The alert owner no longer has access to some of the data it reads."
 
+# An insight can change after its alert is saved. These configs then fail every check, so the
+# extractors raise `AlertExtractionError` with one of these messages: the alert is switched off and
+# its owner receives the text.
+UNSUPPORTED_INSIGHT_TYPE_MESSAGE = (
+    "The insight changed to a type this alert can't check. Change the insight back, or create a new alert on it."
+)
+INSIGHT_TYPE_CHANGED_MESSAGE = (
+    "The insight changed type, so this alert's settings no longer apply. Create a new alert on the insight."
+)
+ONGOING_PERIOD_EXCLUDED_MESSAGE = (
+    "The insight now excludes the ongoing period, so the alert can't check it. "
+    "Edit the alert and turn off Check ongoing period."
+)
+
 
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.

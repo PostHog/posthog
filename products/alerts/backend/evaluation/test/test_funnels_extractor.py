@@ -158,7 +158,7 @@ def test_trends_funnel_anchor_selection(
 def test_check_ongoing_interval_conflicts_with_clipped_query():
     # The clip removes the ongoing interval from the results, so an alert asking to check it can
     # never do what it says — reject the conflicting configuration instead of silently degrading.
-    with pytest.raises(AlertExtractionError, match="excludes incomplete periods"):
+    with pytest.raises(AlertExtractionError, match="turn off Check ongoing period"):
         _extract(
             [_trends_series([10.0, 20.0])],
             viz="trends",

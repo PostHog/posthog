@@ -28,6 +28,9 @@ from posthog.tasks.alerts.trends import (
 )
 
 from products.alerts.backend.evaluation.contract import (
+    INSIGHT_TYPE_CHANGED_MESSAGE,
+    ONGOING_PERIOD_EXCLUDED_MESSAGE,
+    AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -38,6 +41,20 @@ from products.alerts.backend.evaluation.delay import apply_evaluation_delay
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
+
+# The alert is switched off and its owner receives this text, so each message says what to change.
+ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE = (
+    "Check ongoing period needs an upper threshold. "
+    "Edit the alert and add an upper threshold, or turn off Check ongoing period."
+)
+PERCENTAGE_THRESHOLD_ON_ABSOLUTE_VALUE_MESSAGE = (
+    "A percentage threshold only works when the alert compares against the previous period. "
+    "Edit the alert and set an absolute threshold."
+)
+RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE = (
+    "The insight no longer shows values over time, so the alert can't compare against the previous period. "
+    "Edit the alert to check the value itself, or change the insight back to a time series."
+)
 
 
 class TrendsExtractor:
@@ -50,7 +67,7 @@ class TrendsExtractor:
 
     Execution order per condition is significant and must hold: pre-execution config guards,
     run the query, handle empty/None results, post-execution ongoing-interval guard, then
-    normalize. Relative conditions are invalid for non-time-series insights and raise.
+    normalize. A config that no longer fits the insight raises ``AlertExtractionError``.
     """
 
     def extract(
@@ -63,7 +80,7 @@ class TrendsExtractor:
     ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
-            raise ValueError(f"Unsupported alert config type: {alert.config}")
+            raise AlertExtractionError(INSIGHT_TYPE_CHANGED_MESSAGE)
         config = TrendsAlertConfig.model_validate(alert.config)
         condition = AlertCondition.model_validate(alert.condition)
         # Dispatcher short-circuits when threshold/bounds are missing, so both are present here.
@@ -82,10 +99,7 @@ class TrendsExtractor:
         # The query clips the ongoing interval, so the trailing point is complete.
         already_complete = query_excludes_incomplete_periods(query)
         if check_current_interval and already_complete:
-            raise ValueError(
-                "check_ongoing_interval is not supported when the insight excludes incomplete periods "
-                "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results"
-            )
+            raise AlertExtractionError(ONGOING_PERIOD_EXCLUDED_MESSAGE)
         delay = alert.evaluation_delay_intervals
         lookback_intervals = lookback_intervals_for(condition) + delay
         interval_type = None if is_non_time_series else query.interval
@@ -93,7 +107,7 @@ class TrendsExtractor:
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:
                 if threshold.type != InsightThresholdType.ABSOLUTE:
-                    raise ValueError("Absolute threshold not configured for alert condition ABSOLUTE_VALUE")
+                    raise AlertExtractionError(PERCENTAGE_THRESHOLD_ON_ABSOLUTE_VALUE_MESSAGE)
                 # Non-time-series aggregates over the full interval; time-series looks back N intervals.
                 filters_override = (
                     None
@@ -110,14 +124,12 @@ class TrendsExtractor:
                 ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
-                    raise ValueError(
-                        "check_ongoing_interval is only supported for alert condition ABSOLUTE_VALUE when upper threshold is specified"
-                    )
+                    raise AlertExtractionError(ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE)
                 anchor_is_current = check_current_interval or is_non_time_series
 
             case AlertConditionType.RELATIVE_INCREASE:
                 if is_non_time_series:
-                    raise ValueError("Relative alerts not supported for non time series trends")
+                    raise AlertExtractionError(RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE)
                 # When the current interval is incomplete we compare the previous interval
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
@@ -131,14 +143,12 @@ class TrendsExtractor:
                 ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
-                    raise ValueError(
-                        "check_ongoing_interval is only supported for alert condition RELATIVE_INCREASE when upper threshold is specified"
-                    )
+                    raise AlertExtractionError(ONGOING_PERIOD_NEEDS_UPPER_THRESHOLD_MESSAGE)
                 anchor_is_current = check_current_interval
 
             case AlertConditionType.RELATIVE_DECREASE:
                 if is_non_time_series:
-                    raise ValueError("Relative alerts not supported for non time series trends")
+                    raise AlertExtractionError(RELATIVE_CONDITION_ON_NON_TIME_SERIES_MESSAGE)
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(
                     alert, insight, execution_mode, cache_age_seconds, filters_override

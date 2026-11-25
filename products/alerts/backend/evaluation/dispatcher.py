@@ -26,6 +26,7 @@ from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
     CREATOR_LOST_ACCESS_DISABLE_REASON,
+    UNSUPPORTED_INSIGHT_TYPE_MESSAGE,
     AlertExtractionError,
     AlertOwnerAccessError,
     ComparableSeries,
@@ -198,7 +199,7 @@ def check_detector_alert(
     kind = get_from_dict_or_attr(query, "kind")
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
-        raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
+        raise AlertExtractionError(UNSUPPORTED_INSIGHT_TYPE_MESSAGE)
     result = run_extractor(
         detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot
     )
@@ -277,7 +278,7 @@ def _extract_for_threshold(
     """Run a threshold alert's query. None when the alert has no bounds, so there is nothing to breach."""
     extractor = EXTRACTORS.get(kind)
     if extractor is None:
-        raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
+        raise AlertExtractionError(UNSUPPORTED_INSIGHT_TYPE_MESSAGE)
 
     # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None

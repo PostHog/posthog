@@ -22,6 +22,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import (
     evaluate_with_detector,
     extract_detector_series,
@@ -319,7 +320,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         # A detector_config on a kind without a detector extractor (here, funnels) is rejected loudly
         # via the DETECTOR_EXTRACTORS miss, not silently routed to the threshold path.
         alert = _make_alert(MagicMock(), ZSCORE_DETECTOR_CONFIG)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AlertExtractionError, match="type this alert can't check"):
             check_detector_alert(alert, MagicMock(spec=Insight), {"kind": kind})
 
 

@@ -31,6 +31,7 @@ from products.alerts.backend.evaluation.contract import (
 from products.alerts.backend.evaluation.dispatcher import (
     EXTRACTORS,
     PerSeriesEvaluation,
+    _extract_for_threshold,
     check_alert_per_series,
     run_extractor,
 )
@@ -81,6 +82,11 @@ def _breaker_replay() -> Exception:
 def test_a_rejected_insight_becomes_an_extraction_error(detail, expected_message) -> None:
     with pytest.raises(AlertExtractionError, match=expected_message):
         _run(DRFValidationError(detail))
+
+
+def test_an_insight_changed_to_a_type_alerts_cannot_check_is_a_broken_config() -> None:
+    with pytest.raises(AlertExtractionError, match="type this alert can't check"):
+        _extract_for_threshold(MagicMock(), MagicMock(), {"kind": NodeKind.RETENTION_QUERY}, NodeKind.RETENTION_QUERY)
 
 
 def test_a_breaker_replay_keeps_the_ordinary_failure_path() -> None:
