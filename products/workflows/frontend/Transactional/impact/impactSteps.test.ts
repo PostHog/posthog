@@ -60,7 +60,7 @@ describe('impactSteps', () => {
         ],
         [
             'some sends went out with click tracking off',
-            { ...impact, not_clicked: 40, clicks_untracked: 30 },
+            { ...impact, not_clicked: 40, clicks_untracked: 30, without_click: { sends: 30, converted: 1 } },
             "30 sends in this period went out with click tracking off, so their clicks aren't counted.",
         ],
         [
