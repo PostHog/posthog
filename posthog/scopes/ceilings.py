@@ -111,7 +111,8 @@ def scopes_within_ceiling(
 
     `allow_wildcard_under_empty_ceiling` is the only resolution difference between
     the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
-    PostHog Desktop CLI) until wildcard retirement; provisioning leaves it `False`
+    PostHog Desktop CLI) until wildcard retirement, but not for self-registered (DCR
+    or CIMD) clients, which were never part of that; provisioning leaves it `False`
     (the default) since it never granted wildcard, so an unseeded ceiling must not
     silently become one.
     """
@@ -186,6 +187,9 @@ def clamp_scopes_to_ceiling(
       `posthog/permissions.py`.
     - Under an empty ceiling, `*` is kept verbatim when the caller grandfathers it,
       because narrowing it there would strip the legacy client's full access.
+      Otherwise it resolves to the `UNPRIVILEGED_SCOPES` default, as it resolves to
+      an explicit ceiling. A verbatim `*` passes every non-internal scope check, so
+      it would also carry the privileged and hidden scopes that the default excludes.
     """
     always_allowed = set(requested) & oauth.ALWAYS_ALLOWED_SCOPES
     resource_requested = set(requested) - oauth.ALWAYS_ALLOWED_SCOPES
@@ -197,11 +201,12 @@ def clamp_scopes_to_ceiling(
         granted = (
             (ceiling - {"*"}) if "*" in resource_requested else (resource_requested & checks._with_read_halves(ceiling))
         )
+    elif allow_wildcard_under_empty_ceiling:
+        granted = resource_requested & (exposure.UNPRIVILEGED_SCOPES | {"*"})
+    elif "*" in resource_requested:
+        granted = set(exposure.UNPRIVILEGED_SCOPES)
     else:
-        allowed = (
-            exposure.UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else exposure.UNPRIVILEGED_SCOPES
-        )
-        granted = resource_requested & allowed
+        granted = resource_requested & exposure.UNPRIVILEGED_SCOPES
 
     return sorted(granted | always_allowed)
 

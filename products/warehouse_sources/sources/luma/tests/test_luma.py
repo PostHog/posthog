@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.luma import luma
 from products.warehouse_sources.sources.luma._config import LumaSourceConfig
 from products.warehouse_sources.sources.luma.luma import (
     LUMA_BASE_URL,
+    UNSUPPORTED_CHARACTER_MESSAGE,
     LumaResumeConfig,
     LumaRetryableError,
     check_access,
@@ -266,14 +267,25 @@ class TestCheckAccess:
 
     @parameterized.expand(
         [
-            ("missing_key", 400, False, "Invalid Luma API key"),
+            ("missing_key", "luma-key", 400, False, "Invalid Luma API key", "luma-key"),
+            ("copy_debris_is_stripped", "\ufeffluma\u200b-key\u2028", 200, True, None, "luma-key"),
+            ("truncated_key_ellipsis", "luma-ke\u2026", 200, False, UNSUPPORTED_CHARACTER_MESSAGE, None),
+            ("pasted_multiline_snippet", "luma-key\nother=1", 200, False, UNSUPPORTED_CHARACTER_MESSAGE, None),
         ]
     )
     def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
+        self,
+        _name: str,
+        api_key: str,
+        status: int,
+        expected_valid: bool,
+        expected_message: str | None,
+        expected_sent_key: str | None,
     ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("luma-key") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials(api_key) == (expected_valid, expected_message)
+        sent_keys = [request.headers["x-luma-api-key"] for request in network.requests_log]
+        assert sent_keys == ([expected_sent_key] if expected_sent_key else [])
 
 
 class TestLumaSourceResponse:

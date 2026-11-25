@@ -85,6 +85,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_for_task,
+    posthog_code_keeps_bundled_skills,
     unmounted_mcp_installations_log_fields,
     unmounted_mcp_installations_notice,
 )
@@ -542,6 +543,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
         exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
     include_personal = include_personal_mcp_for_task(task, ctx.state)
     user_mcp = get_user_mcp_server_configs(
@@ -633,6 +635,7 @@ def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> N
         },
         remove_keys=["startup_failure", "startup_completed_at", "startup_provider"],
     )
+    TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).update(agent_status=TaskRun.AgentStatus.STARTING)
 
 
 def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
@@ -649,6 +652,9 @@ def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
             run.error_message = None
             update_fields.append("error_message")
         run.save(update_fields=update_fields)
+        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id, agent_status=TaskRun.AgentStatus.STARTING).update(
+            agent_status=TaskRun.AgentStatus.READY
+        )
 
 
 def _invoke_start_agent_server(

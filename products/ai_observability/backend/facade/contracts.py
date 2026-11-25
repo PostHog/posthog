@@ -77,8 +77,13 @@ class TraceOverview(Contract):
     has_error: bool
     error_count: int
     totals_partial: bool = Field(
-        description="Whether the totals, error count and tools were computed from the trace's earliest events only, "
-        "because the trace has more events than were read."
+        description="Whether the token counts, error count and tools were computed from only some of the trace's "
+        "events, because the trace has more events than were read or may have started before the time range read."
+    )
+    cost_and_latency_partial: bool = Field(
+        description="Whether the cost and latency were computed from only some of the trace's events, because the "
+        "trace may have started before the time range read. Otherwise they cover the whole trace, even when the "
+        "token counts are partial."
     )
 
 
@@ -535,6 +540,36 @@ class TraceListItem(TraceOverview):
     )
 
 
+class SessionListItem(Contract):
+    """A session and its facts. The facts cover every trace of the session that the AI events retention still holds,
+    whatever a list's date range, and at most its 1,000 most recent traces. A session the AI events retention does not
+    hold whole is read from the shared events table instead, over fewer of its most recent traces the more such
+    sessions a list page holds: from a week before a list's date range to its end, or for a single session from 10
+    minutes before its timestamp hint to now."""
+
+    id: str = Field(description="The session id, as sent in `$ai_session_id`.")
+    first_seen: datetime = Field(
+        description="When the session's first turn started. Send it as the timestamp hint of links into the session."
+    )
+    last_seen: datetime = Field(description="When the session's last activity ended.")
+    duration_ms: float | None = Field(description="Milliseconds from the first turn's start to the last answer.")
+    turn_count: int = Field(description="How many traces the session holds, one per turn.")
+    totals: TraceNodeStats = Field(
+        description="The sum of the session's trace totals. Latency is the total time the user waited, summed over the "
+        "turns."
+    )
+    errored_turns: int = Field(description="How many of the session's turns have an error.")
+    totals_partial: bool = Field(
+        description="Whether the session holds more traces than were read, so that the first seen time, duration, "
+        "turn count, totals and errored turns were computed from only its most recent traces."
+    )
+
+
+class SessionList(Contract):
+    items: list[SessionListItem] = Field(description="A page of sessions, by latest activity in range, newest first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
 class TraceListCounts(Contract):
     total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
     errors: int = Field(description="How many of them have an error.")
@@ -581,6 +616,55 @@ class TracePreviewList(Contract):
     )
 
 
+class TraceTurnSides(Contract):
+    input: TraceSideContent | None = Field(
+        description="What the trace added to the conversation: the user's message and what followed it, without the "
+        "history earlier turns carry. Null when it could not be read or there is nothing to show."
+    )
+    output: TraceSideContent | None = Field(
+        description="The trace's answer, with the hidden steps that led to it. Null when it could not be read or "
+        "there is nothing to show."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `input` means there is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
+    )
+
+
+class TraceTurn(TraceTurnSides):
+    trace_id: str = Field(description="The trace the turn belongs to.")
+
+
+class SessionTurn(TraceListItem):
+    wait_slow: bool = Field(description="Whether the user waited 10 seconds or more for the turn's answer.")
+    silence_before_ms: int | None = Field(
+        description="Milliseconds from the previous turn's answer to this turn's start, when they are a minute or "
+        "more. Null for a shorter gap and for the session's first turn."
+    )
+
+
+class SessionTurnPage(Contract):
+    items: list[SessionTurn] = Field(
+        description="A page of the session's traces, one per turn, oldest first, each read as the traces list reads "
+        "it. A turn's input and output are read by trace id from the traces' turns."
+    )
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
+    next_cursor: str | None = Field(
+        description="The cursor of the next page, or null on the last one. A page read before a cursor always has one."
+    )
+
+
+class TraceTurnList(Contract):
+    items: list[TraceTurn] = Field(
+        description="One turn per requested trace that was found, in the order requested. A trace that is not found "
+        "is left out."
+    )
+
+
 class TracePersonItem(Contract):
     trace_id: str = Field(description="The trace the person belongs to.")
     person: TracePerson | None = Field(
@@ -591,6 +675,41 @@ class TracePersonItem(Contract):
 
 class TracePeopleList(Contract):
     items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+class SessionPreview(Contract):
+    session_id: str = Field(description="The session the title belongs to.")
+    input: str | None = Field(
+        description="The session's title: the user's message its first trace answered, cut at 200 characters. The "
+        "first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing "
+        "to show, when the AI events retention no longer holds the session, or when the message could not be read and "
+        "`inputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+
+
+class SessionPreviewList(Contract):
+    items: list[SessionPreview] = Field(
+        description="One title per requested session, in the order requested. A session that is not found has a null "
+        "title."
+    )
+
+
+class SessionPersonItem(Contract):
+    session_id: str = Field(description="The session the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the session's first trace ran for, labeled by the project's display name properties or "
+        "else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace "
+        "carries no distinct id."
+    )
+
+
+class SessionPeopleList(Contract):
+    items: list[SessionPersonItem] = Field(description="One item per requested session, in the order requested.")
 
 
 TraceSentimentLabel = Literal["positive", "neutral", "negative"]
@@ -1077,3 +1196,107 @@ class EvalSuggestionAccepted:
 
 class EvalSuggestionNotFoundError(Exception):
     """No suggestion with this id in the team, or it names an evaluation the user cannot read."""
+
+
+class TraceMetricKey(LabeledStrEnum):
+    COST = "cost"
+    USERS = "users"
+    SESSIONS = "sessions"
+    TRACES = "traces"
+    ERROR_RATE = "error_rate"
+    P95_LATENCY = "p95_latency"
+
+
+class TraceMetricChangeUnit(LabeledStrEnum):
+    PERCENT = "percent"
+    POINTS = "points"
+    SECONDS = "seconds"
+
+
+class TraceMetricChangeTone(LabeledStrEnum):
+    GOOD = "good"
+    BAD = "bad"
+    NEUTRAL = "neutral"
+
+
+class TraceMetricStatus(LabeledStrEnum):
+    OK = "ok"
+    NOT_SET_UP = "not_set_up"
+
+
+class TraceMetricBucketSize(LabeledStrEnum):
+    HOUR = "hour"
+    DAY = "day"
+
+
+class TraceMetricLatencyQuantiles(Contract):
+    p50_seconds: float = Field(description="The median trace latency, in seconds.")
+    p99_seconds: float = Field(description="The 99th percentile trace latency, in seconds.")
+
+
+class TraceMetricTile(Contract):
+    key: TraceMetricKey = Field(description="The metric this tile shows.")
+    label: str = Field(description="The metric's display name.")
+    value: float | None = Field(
+        description="The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency "
+        "is in seconds. Null when the range has nothing to compute it from."
+    )
+    previous: float | None = Field(
+        description="The metric over the period of the same length right before the date range, or null."
+    )
+    change: float | None = Field(
+        description="How far the value moved from the previous period, in `changeUnit`. Null when either side is null, "
+        "or when a percent change has a previous value of zero."
+    )
+    change_unit: TraceMetricChangeUnit = Field(description="The unit of `change`.")
+    change_tone: TraceMetricChangeTone = Field(
+        description="Whether the change is good or bad news. A rising error rate or p95 latency is `bad` and a falling "
+        "one `good`. Every other metric, and no change, is `neutral`."
+    )
+    status: TraceMetricStatus = Field(
+        description="`not_set_up` when the project has traces in the range but none carries the data this metric "
+        "needs, such as no cost, no latency, no session or no identified user."
+    )
+    docs_url: str | None = Field(
+        description="The docs page that explains how to capture this metric. Set only when `status` is `not_set_up`."
+    )
+    setup_label: str | None = Field(
+        description="The text of the link to `docsUrl`, such as Identify users. Set only when `status` is `not_set_up`."
+    )
+    detail: str | None = Field(
+        description="One line about the value, such as the number of errored traces. Null on the p95 latency tile, "
+        "which has `latencyQuantiles` instead, and when the range has nothing to compute it from."
+    )
+    latency_quantiles: TraceMetricLatencyQuantiles | None = Field(
+        description="The p50 and p99 trace latency over the date range. Set only on the p95 latency tile, and null "
+        "when the range has no latency."
+    )
+    series: list[float | None] = Field(
+        description="The metric over the traces that started in each bucket, in the order of `bucketStarts`. Null "
+        "where a bucket has nothing to compute it from."
+    )
+    insight_query: str = Field(
+        description="A HogQL query that returns `series`: one row per bucket, with its start in `bucket` and the "
+        "metric in `value`. Run it as an SQL insight to explore the same numbers."
+    )
+
+
+class TraceMetrics(Contract):
+    date_from: datetime = Field(description="The start of the date range.")
+    date_to: datetime = Field(description="The end of the date range.")
+    previous_date_from: datetime = Field(description="The start of the previous period the tiles compare against.")
+    previous_date_to: datetime = Field(description="The end of the previous period, which is `dateFrom`.")
+    bucket_size: TraceMetricBucketSize = Field(description="The width of each bucket.")
+    bucket_starts: list[datetime] = Field(
+        description="The start of each hour or day of the date range in the project's time zone, oldest first, with "
+        "no gaps."
+    )
+    tiles: list[TraceMetricTile] = Field(description="One tile for each metric.")
+
+
+TRACE_METRICS_RANGE_TOO_LONG_DETAIL = "This range is too long to compute. Try a shorter one."
+
+
+class TraceMetricsRangeTooLong(Contract):
+    detail: str = Field(default=TRACE_METRICS_RANGE_TOO_LONG_DETAIL, description="What went wrong, for a person.")
+    code: Literal["range_too_long"] = Field(default="range_too_long", description="A stable code to branch on.")

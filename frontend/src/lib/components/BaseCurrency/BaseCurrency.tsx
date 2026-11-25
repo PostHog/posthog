@@ -11,15 +11,17 @@ import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'
 import { QuillCurrencyDropdown } from './QuillCurrencyDropdown'
 
-const BASE_CURRENCY_DESCRIPTION =
+export const BASE_CURRENCY_DESCRIPTION =
     "PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
 
 interface BaseCurrencyProps {
     hideTitle?: boolean
     disabledReason?: string
+    /** Extra classes for the quill currency picker. */
+    dropdownClassName?: string
 }
 
-export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrencyProps): JSX.Element {
+export function BaseCurrency({ hideTitle = false, disabledReason, dropdownClassName }: BaseCurrencyProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const restrictedReason = useRestrictedArea({
@@ -38,6 +40,7 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
                 value={currentTeam?.base_currency || null}
                 onChange={handleChange}
                 disabledReason={disabledReason ?? restrictedReason ?? undefined}
+                className={dropdownClassName}
             />
         )
 

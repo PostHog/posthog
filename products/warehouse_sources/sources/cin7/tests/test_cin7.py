@@ -122,12 +122,31 @@ def test_incremental_filter_is_sent_only_with_a_watermark(
         ("customers", "CustomerList", "IncludeDeprecated"),
         ("suppliers", "SupplierList", "IncludeDeprecated"),
         ("customer_credits", "CustomerCredits", "ShowUsedCredits"),
+        ("supplier_deposits", "SupplierDeposits", "ShowUsedDeposits"),
     ],
 )
 def test_lists_keep_deprecated_and_used_records(schema: str, key: str, param: str) -> None:
     result = _driver().run(schema, [_page(key, 1, 1)])
 
     assert result.requests[0].param(param) == "true"
+
+
+@pytest.mark.parametrize(
+    ("schema", "path", "key"),
+    [
+        ("supplier_deposits", "/ExternalApi/v2/ref/supplier/deposits", "SupplierDeposits"),
+        ("leads", "/ExternalApi/v2/crm/lead", "LeadList"),
+        ("opportunities", "/ExternalApi/v2/crm/opportunity", "opportunityList"),
+        ("inventory_write_offs", "/ExternalApi/v2/inventoryWriteOffList", "InventoryWriteOffs"),
+    ],
+)
+def test_lists_read_rows_from_the_documented_key(schema: str, path: str, key: str) -> None:
+    result = _driver().run(schema, [_page(key, 1000, 1500), _page(key, 500, 1500, 1000)])
+
+    assert result.raised is None
+    assert result.paths == [path, path]
+    assert result.params("Page") == ["1", "2"]
+    assert len(result.rows) == 1500
 
 
 @pytest.mark.parametrize(

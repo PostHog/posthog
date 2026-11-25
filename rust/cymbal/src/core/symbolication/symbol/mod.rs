@@ -12,6 +12,7 @@ use crate::{
 use tracing::debug;
 use uuid::Uuid;
 pub mod local;
+pub mod miss_breaker;
 pub mod records;
 
 #[async_trait]

@@ -5,7 +5,7 @@ import type { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import { type KeyObject, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { IntegrationKeyLoader } from '@/auth/integration-keys'
 import { IntegrationVerifier, MAX_TOKEN_LIFETIME_SECONDS } from '@/auth/integrations'
@@ -1280,6 +1280,20 @@ describe('by external id', () => {
 
     it('patches the rows of every team, secrets included, and writes nothing for an identical patch', async () => {
         const rows = await seed()
+        // Move the clock between the rows of one patch, so a row that reads the clock itself gets a later time.
+        vi.useFakeTimers({ toFake: ['Date'] })
+        onTestFinished(() => {
+            vi.useRealTimers()
+        })
+        const applyPatch = (IntegrationsService.prototype as any).applyPatch
+        const spy = vi.spyOn(IntegrationsService.prototype as any, 'applyPatch').mockImplementation(function (
+            this: unknown,
+            ...args: unknown[]
+        ) {
+            vi.setSystemTime(Date.now() + 1_000)
+            return applyPatch.apply(this, args)
+        })
+        onTestFinished(() => spy.mockRestore())
         const patch = {
             config_patch: { refreshed_at: 1_800_000_500 },
             sensitive_config_patch: { access_token: 'fake-rotated-token' },
@@ -1313,7 +1327,7 @@ describe('by external id', () => {
 
         const audited = (
             await pool.query(
-                `SELECT outcome, owner_id, fields, user_id FROM audit_log
+                `SELECT outcome, owner_id, fields, user_id, occurred_at FROM audit_log
              WHERE operation = 'write_by_external_id' ORDER BY occurred_at, owner_id`
             )
         ).rows
@@ -1323,6 +1337,8 @@ describe('by external id', () => {
             ['unchanged', String(TEAM_A)],
             ['unchanged', String(TEAM_B)],
         ])
+        expect(audited[0].occurred_at).toEqual(audited[1].occurred_at)
+        expect(audited[2].occurred_at).toEqual(audited[3].occurred_at)
         expect(audited[0].fields).toEqual(['access_token'])
         expect(audited[0].user_id).toBe('9')
     })

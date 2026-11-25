@@ -323,7 +323,7 @@ describe('unlayerToEmailDocument', () => {
             name: 'a line height in pixels and tighter letter spacing',
             block: content('heading', { text: 'Title', fontSize: '32px', lineHeight: '40px', letterSpacing: '-0.5px' }),
             exported: undefined,
-            sent: ['line-height:125%', 'letter-spacing:-0.5px'],
+            sent: ['line-height:1.25', 'letter-spacing:-0.5px'],
         },
         {
             name: 'bold text at its own weight',
@@ -335,14 +335,14 @@ describe('unlayerToEmailDocument', () => {
             name: 'the size of an unsubscribe block',
             block: content('custom', { unsubscribe_link_content: '<div>Bye</div>' }, { slug: 'unsubscribe_link' }),
             exported: undefined,
-            sent: ['font-size:16px;line-height:115%'],
+            sent: ['font-size:16px;line-height:1.15'],
         },
         {
             name: 'the size of text that earlier versions of the old editor left unset',
             block: content('text', { text: '<p>Plain</p>', lineHeight: '140%' }),
             exported:
                 '<html><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="line-height: 140%;"><p>Plain</p></div></td></tr></table></div></body></html>',
-            sent: ['font-size:16px;line-height:140%'],
+            sent: ['font-size:16px;line-height:1.4'],
         },
         {
             name: 'a heading holding another heading, which browsers show at its own default size',

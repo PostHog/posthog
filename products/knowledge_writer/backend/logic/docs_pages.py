@@ -7,6 +7,7 @@ import shutil
 import signal
 import string
 import hashlib
+import tempfile
 import subprocess
 from bisect import bisect_right
 from collections import Counter
@@ -35,7 +36,7 @@ ENFORCER_OUTPUT_TAIL_LINES = 20
 ENFORCER_INSTALL_MARKER_PREFIX = ".git/writer-enforcer-install-"
 PRE_COMMIT_VERSION = "4.7.0"
 PRE_COMMIT_CONFIG_PATH = ".pre-commit-config.yaml"
-COREPACK_VERSION = "0.34.0"
+COREPACK_VERSION = "0.36.0"
 LINT_STAGED_RUN = ("node_modules/.bin/lint-staged", "--no-stash")
 MISSING_TOOL_PATTERN = re.compile(r"Executable `[^`]+` not found|\bENOENT\b|command not found")
 ENFORCER_SECRET_NAME_PATTERN = re.compile(r"TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL", re.IGNORECASE)
@@ -1244,6 +1245,11 @@ def output_tail(output: str) -> str:
 
 
 def run_with_timeout(argv: Sequence[str]) -> tuple[int | None, str]:
+    with tempfile.TemporaryDirectory(prefix="writer-enforcer-corepack-") as corepack_home:
+        return run_in_environment(argv, {**enforcer_environment(), "COREPACK_HOME": corepack_home})
+
+
+def run_in_environment(argv: Sequence[str], environment: Mapping[str, str]) -> tuple[int | None, str]:
     try:
         process = subprocess.Popen(
             list(argv),
@@ -1252,7 +1258,7 @@ def run_with_timeout(argv: Sequence[str]) -> tuple[int | None, str]:
             text=True,
             errors="replace",
             start_new_session=True,
-            env=enforcer_environment(),
+            env=dict(environment),
         )
     except FileNotFoundError:
         return 127, f"{argv[0]} is not installed"
@@ -1275,6 +1281,8 @@ def enforcer_environment() -> dict[str, str]:
         **inherited,
         "CI": "1",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+        "COREPACK_ON_UNVERIFIED_DOWNLOAD": "strict-error",
+        "NODE_USE_ENV_PROXY": "1",
         "PIP_ONLY_BINARY": ":all:",
         "UV_NO_BUILD": "1",
     }

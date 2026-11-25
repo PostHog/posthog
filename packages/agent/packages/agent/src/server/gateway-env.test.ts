@@ -61,6 +61,7 @@ describe("buildGatewayEnv", () => {
     {
       route: "Go without a minted token",
       env: {
+        LLM_GATEWAY_URL: "http://llm-gateway.internal:8080",
         AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com/v1",
         AI_GATEWAY_PRODUCTS: "posthog_code",
         AI_GATEWAY_PRODUCT: "posthog_code",
@@ -70,7 +71,7 @@ describe("buildGatewayEnv", () => {
     {
       route: "the legacy gateway",
       env: {
-        LLM_GATEWAY_URL: "https://gateway.us.posthog.com",
+        LLM_GATEWAY_URL: "http://llm-gateway.internal:8080",
         AI_GATEWAY_TOKEN: "phe_run",
       },
       expected: false,
@@ -85,21 +86,16 @@ describe("buildGatewayEnv", () => {
     );
   });
 
-  it.each([
-    {
-      source: "the server's product over the origin",
-      input: { gatewayProduct: "signals", originProduct: "workflow" },
-      expected: "https://gateway.us.posthog.com/signals",
-    },
-    {
-      source: "the origin without a server product",
-      input: { originProduct: "workflow" },
-      expected: "https://gateway.us.posthog.com/workflows",
-    },
-  ] as const)("routes by $source", ({ input, expected }) => {
-    process.env.LLM_GATEWAY_URL = "https://gateway.us.posthog.com";
-    const gatewayEnv = buildGatewayEnv(config, input, logger());
+  it("routes by the server's product over the internal default", () => {
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
+    const gatewayEnv = buildGatewayEnv(
+      config,
+      { gatewayProduct: "signals", isInternal: true },
+      logger(),
+    );
 
-    expect(gatewayEnv.anthropicBaseUrl).toBe(expected);
+    expect(gatewayEnv.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
   });
 });

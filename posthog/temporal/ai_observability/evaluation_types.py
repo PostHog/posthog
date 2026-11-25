@@ -11,6 +11,8 @@ EVALUATION_WORKFLOW_PREFIXES = {
 
 GENERATION_NOT_FOUND = "generation_not_found"
 
+STOPPED_EVALUATION_ERROR_TYPES = frozenset({"evaluation_disabled", "evaluation_deleted"})
+
 
 class EvaluationActivityResult(TypedDict, total=False):
     """Result produced by evaluation execution activities.

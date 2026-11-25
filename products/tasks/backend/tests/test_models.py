@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, ClassVar
 
+import time_machine
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import OperationalError, connection
+from django.db import DatabaseError, OperationalError, connection
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -40,6 +41,7 @@ from products.tasks.backend.facade.profiles import (
     get_task_profile,
 )
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     LIVE_RUN_STALE_AFTER,
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
@@ -1970,6 +1972,7 @@ class TestTaskRun(TestCase):
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
                 "failure_error_type": "poll_timeout",
+                ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat",
                 "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
                 TASK_RUN_FINISH_REPORT_STATE_KEY: True,
@@ -1998,6 +2001,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
 
         self.assertNotIn("failure_error_type", run.state)
+        self.assertNotIn(ENDED_BY_STALE_SWEEP_STATE_KEY, run.state)
         self.assertNotIn("cancel_requested_at", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
@@ -2707,19 +2711,33 @@ class TestTaskRun(TestCase):
         cache.delete(cache_key)
         handle = mock_connect.return_value.get_workflow_handle.return_value
         handle.signal = AsyncMock()
+        updated_at_before_heartbeats = run.updated_at
+        first_heartbeat_at = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
+        forced_heartbeat_at = first_heartbeat_at + timedelta(seconds=45)
 
-        run.heartbeat_workflow(agent_active=True)
+        with time_machine.travel(first_heartbeat_at, tick=False):
+            run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_called_once()
         handle.signal.assert_called_once()
         self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at, first_heartbeat_at)
+        self.assertEqual(run.updated_at, updated_at_before_heartbeats)
+        self.assertEqual(run.agent_status, TaskRun.AgentStatus.BUSY)
 
         mock_connect.reset_mock()
-        run.heartbeat_workflow(agent_active=True)
+        with time_machine.travel(first_heartbeat_at + timedelta(seconds=30), tick=False):
+            run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at, first_heartbeat_at)
 
-        run.heartbeat_workflow(agent_active=True, force=True)
+        with time_machine.travel(forced_heartbeat_at, tick=False):
+            run.heartbeat_workflow(agent_active=True, force=True)
         mock_connect.assert_called_once()
         handle.signal.assert_called_once()
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at, forced_heartbeat_at)
 
         cache.delete(cache_key)
 
@@ -2740,6 +2758,9 @@ class TestTaskRun(TestCase):
 
         run.heartbeat_workflow(agent_active=False)
         mock_connect.assert_not_called()
+        run.refresh_from_db()
+        self.assertIsNone(run.last_heartbeat_at)
+        self.assertIsNone(run.agent_status)
 
         run.heartbeat_workflow(agent_active=True)
 
@@ -2764,6 +2785,46 @@ class TestTaskRun(TestCase):
 
         self.assertTrue(dispatched)
         handle.signal.assert_awaited_once_with(milestone)
+        run.refresh_from_db()
+        self.assertEqual(run.agent_status, TaskRun.AgentStatus.BUSY)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_a_failed_liveness_write_does_not_stop_the_turn_completed_signal(self, mock_connect):
+        run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        with patch("django.db.models.query.QuerySet.update", side_effect=DatabaseError("connection lost")):
+            run.signal_agent_turn_completed(succeeded=True)
+
+        self.assertEqual(handle.signal.await_count, 2)
+        self.assertIsNone(run.agent_status)
+
+    @parameterized.expand([TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+    def test_a_finished_run_takes_no_liveness(self, status):
+        run = TaskRun.objects.create(task=self.task, team=self.team, status=status)
+
+        run.record_heartbeat()
+
+        run.refresh_from_db()
+        self.assertIsNone(run.last_heartbeat_at)
+        self.assertIsNone(run.agent_status)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_signal_agent_turn_completed_marks_agent_ready(self, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            agent_status=TaskRun.AgentStatus.BUSY,
+        )
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        run.signal_agent_turn_completed(succeeded=True)
+
+        run.refresh_from_db()
+        self.assertEqual(run.agent_status, TaskRun.AgentStatus.READY)
 
 
 class TestSandboxSnapshot(TestCase):

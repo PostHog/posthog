@@ -84,6 +84,7 @@ class TestDeliverRoutes(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         inline: bool = False,
         source: SourceKind = SourceKind.LOGS,
+        event_ids_by_kind: dict[str, str] | None = None,
     ) -> int:
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
             if isinstance(flag, Exception):
@@ -96,6 +97,8 @@ class TestDeliverRoutes(APIBaseTest):
             ),
             source=source,
         )
+        if event_ids_by_kind is not None:
+            request = replace(request, event_ids_by_kind=event_ids_by_kind)
         with (
             patch(
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
@@ -145,6 +148,14 @@ class TestDeliverRoutes(APIBaseTest):
         sent = self._deliver(source=SourceKind.BILLING)
 
         assert (sent, RecordingTransport.sends) == (0, [])
+
+    def test_a_verdict_follow_up_reaches_the_routes_that_hear_the_alert_fire(self) -> None:
+        self._deliver(
+            transitions=(_transition(AlertEventKind.VERDICT_CHANGED),),
+            event_ids_by_kind={"verdict_changed": "$logs_alert_firing"},
+        )
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-infra", "C-all"]
 
     def test_routes_each_group_on_its_own_labels_under_the_rules(self) -> None:
         self._route(

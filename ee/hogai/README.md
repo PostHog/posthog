@@ -70,10 +70,10 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
    }
    ```
 
-For an example, see `ee/hogai/tools`:
+For examples, see:
 
-- `execute_sql` – SQL generation and execution.
-- `upsert_dashboard` – creating and editing dashboards.
+- `ee/hogai/tools/execute_sql` – SQL generation and execution.
+- `upsert_dashboard` in `products/dashboards/backend/max_tools.py` – creating and editing dashboards.
 
 ### Mounting
 

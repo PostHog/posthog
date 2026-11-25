@@ -23,6 +23,7 @@ from products.ai_observability.backend.models.instrumentation_checklist import A
 from products.ai_observability.backend.models.review_queues import ReviewQueue
 
 CHECK_FIELDS = {"key", "status", "title", "detail", "docs_url", "stats"}
+CHECKLIST_FIELDS = {"window_days", "checks", "agent_prompt", "passing", "total"}
 
 
 def endpoint(team_id: int, suffix: str = "") -> str:
@@ -141,12 +142,34 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
             ("user_identity", "ok"),
             ("trace_structure", "warning"),
         ]
+        assert (body["passing"], body["total"]) == (2, 4)
         assert all(set(item) == CHECK_FIELDS for item in body["checks"])
         assert check(body, "sessions")["stats"] == {
             "generations": VOLUME_FLOOR,
             "events_with_session": 1,
             "events_declining_session": 0,
         }
+
+    def test_checklist_response_has_agent_prompt(self) -> None:
+        body = self.client.get(endpoint(self.team.pk)).json()
+
+        assert set(body) == CHECKLIST_FIELDS
+        warnings = [item for item in body["checks"] if item["status"] == "warning"]
+        assert warnings
+        assert body["agent_prompt"].startswith("My PostHog AI observability setup is missing some instrumentation.")
+        assert all(
+            f"- {item['title']}: {item['detail']} Docs: {item['docs_url']}" in body["agent_prompt"] for item in warnings
+        )
+
+    def test_agent_prompt_is_null_once_every_warning_is_dismissed(self) -> None:
+        for key in [
+            item["key"]
+            for item in self.client.get(endpoint(self.team.pk)).json()["checks"]
+            if item["status"] == "warning"
+        ]:
+            self.client.post(endpoint(self.team.pk, "dismiss/"), {"check": key}, format="json")
+
+        assert self.client.get(endpoint(self.team.pk)).json()["agent_prompt"] is None
 
     def test_dismissal_mutes_a_check_until_it_is_restored(self) -> None:
         dismissed = self.client.post(endpoint(self.team.pk, "dismiss/"), {"check": "tool_calls"})

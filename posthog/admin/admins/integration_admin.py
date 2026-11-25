@@ -73,7 +73,8 @@ class OrganizationIntegrationAdmin(admin.ModelAdmin):
     )
     search_fields = ("integration_id", "organization__name", "config")
     ordering = ("-created_at",)
-    readonly_fields = ("id", "organization", "created_by", "created_at", "updated_at")
+    # PostHog requests Vercel tokens for whatever installation this names, so only the install and link flows set it.
+    readonly_fields = ("id", "organization", "integration_id", "created_by", "created_at", "updated_at")
 
     fieldsets = [
         (

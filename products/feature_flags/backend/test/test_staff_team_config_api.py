@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -90,14 +91,20 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         config = get_or_create_team_extension(other_team, TeamFeatureFlagsConfig)
         config.minimal_flag_called_events = True
         config.property_matching_version = PropertyMatchingVersion.EXPLICIT
+        config.null_counts_as_not_set = True
         config.max_feature_flags_override = 5000
         config.save(
-            update_fields=["minimal_flag_called_events", "property_matching_version", "max_feature_flags_override"]
+            update_fields=[
+                "minimal_flag_called_events",
+                "property_matching_version",
+                "null_counts_as_not_set",
+                "max_feature_flags_override",
+            ]
         )
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
-            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keep_writing_flag_calls_to_events=True
         )
 
         missing_id = other_team.id + 9999
@@ -108,9 +115,11 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             row["team_id"]: (
                 row["minimal_flag_called_events"],
                 row["property_matching_version"],
+                row["null_counts_as_not_set"],
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
                 row["flag_evaluations_mode"],
+                row["keep_writing_flag_calls_to_events"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -122,8 +131,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, None, 2000, 1, 0),
-                other_team.id: (True, 2, 5000, 5000, 1, 2),
+                self.team.id: (False, 1, False, None, 2000, 2, True, 0),
+                other_team.id: (True, 2, True, 5000, 5000, 2, True, 2),
             },
         )
 
@@ -143,9 +152,11 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "team_id": self.team.id,
                     "minimal_flag_called_events": False,
                     "property_matching_version": 1,
+                    "null_counts_as_not_set": False,
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
                     "flag_evaluations_mode": 0,
+                    "keep_writing_flag_calls_to_events": False,
                     "feature_flag_count": 0,
                 }
             ],
@@ -162,8 +173,15 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         response = self.client.get(_list_url(team_ids))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand([(True,), (False,)])
-    def test_set_updates_db_value_and_enqueues_cache_refresh_tasks(self, new_value):
+    @parameterized.expand(
+        [
+            ("minimal_flag_called_events", True),
+            ("minimal_flag_called_events", False),
+            ("property_matching_version", 2),
+            ("null_counts_as_not_set", True),
+        ]
+    )
+    def test_set_updates_db_value_and_enqueues_cache_refresh_tasks(self, setting, new_value):
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         )
@@ -172,46 +190,53 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
             patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
         ):
-            response = self.client.post(
-                SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": new_value}, format="json"
-            )
+            response = self.client.post(SET_URL, {"team_id": self.team.id, setting: new_value}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
             {
                 "team_id": self.team.id,
-                "minimal_flag_called_events": new_value,
+                "minimal_flag_called_events": False,
                 "property_matching_version": 1,
+                "null_counts_as_not_set": False,
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
                 "flag_evaluations_mode": 1,
+                "keep_writing_flag_calls_to_events": False,
                 "feature_flag_count": 0,
+                setting: new_value,
             },
         )
 
         config = TeamFeatureFlagsConfig.objects.get(team=self.team)
-        self.assertEqual(config.minimal_flag_called_events, new_value)
+        self.assertEqual(getattr(config, setting), new_value)
         # /flags and /decide read this value out of team_metadata_hypercache, and local-eval
         # SDKs read it out of the flag-definitions blob — a bare DB write has no effect until
         # both caches are rebuilt.
         mock_metadata_task.delay.assert_called_once_with(self.team.id)
         mock_flags_task.delay.assert_called_once_with(self.team.id)
 
-    def test_set_updates_property_matching_version_and_enqueues_cache_refresh_tasks(self):
+    @parameterized.expand(
+        [
+            ("minimal_flag_called_events", False, True, "old_value", "new_value"),
+            ("property_matching_version", 1, 2, "old_property_matching_version", "new_property_matching_version"),
+            ("null_counts_as_not_set", False, True, "old_null_counts_as_not_set", "new_null_counts_as_not_set"),
+        ]
+    )
+    def test_set_logs_the_old_and_new_value(self, setting, old_value, new_value, old_key, new_key):
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(**{setting: old_value})
+
         with (
-            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
-            patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
+            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task"),
+            patch("products.feature_flags.backend.tasks.update_team_flags_cache"),
+            capture_logs() as log_events,
         ):
-            response = self.client.post(
-                SET_URL, {"team_id": self.team.id, "property_matching_version": 2}, format="json"
-            )
+            response = self.client.post(SET_URL, {"team_id": self.team.id, setting: new_value}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["property_matching_version"], 2)
-        self.assertEqual(TeamFeatureFlagsConfig.objects.get(team=self.team).property_matching_version, 2)
-        mock_metadata_task.delay.assert_called_once_with(self.team.id)
-        mock_flags_task.delay.assert_called_once_with(self.team.id)
+        [log_event] = [e for e in log_events if e["event"] == "flags_staff_team_config_updated"]
+        self.assertEqual((log_event[old_key], log_event[new_key]), (old_value, new_value))
 
     def test_set_returns_404_for_unknown_team(self):
         missing_id = self.team.id + 9999

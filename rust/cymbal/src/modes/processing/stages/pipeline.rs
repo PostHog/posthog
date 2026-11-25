@@ -4,7 +4,7 @@ use common_types::ClickHouseEvent;
 
 use crate::{
     app_context::AppContext,
-    error::EventError,
+    error::{EventError, UnhandledError},
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
         adaptive_ingestion::AdaptiveIngestionStage,
@@ -28,11 +28,15 @@ use crate::{
 
 pub struct ExceptionEventPipeline {
     app_context: Arc<AppContext>,
+    isolate_event_failures: bool,
 }
 
 impl ExceptionEventPipeline {
-    pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { app_context }
+    pub fn new(app_context: Arc<AppContext>, isolate_event_failures: bool) -> Self {
+        Self {
+            app_context,
+            isolate_event_failures,
+        }
     }
 }
 
@@ -55,10 +59,22 @@ impl Stage for ExceptionEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
-            // Resolve stack traces and the event-level release
+        // Resolve stack traces and the event-level release
+        let batch = batch
             .apply_stage(ResolutionStage::from(&self.app_context))
-            .await?
+            .await?;
+        if !self.isolate_event_failures {
+            // A caller that cannot take a per-event failure retries the whole batch, so the
+            // other events must not create issues, produce, or charge rate limits first.
+            if let Some(Err(err @ EventError::ProcessingFailed { .. })) = batch
+                .inner_ref()
+                .iter()
+                .find(|item| matches!(item, Err(EventError::ProcessingFailed { .. })))
+            {
+                return Err(UnhandledError::Other(err.to_string()));
+            }
+        }
+        batch
             // Group events by fingerprint
             .apply_stage(GroupingStage::from(&self.app_context))
             .await?
