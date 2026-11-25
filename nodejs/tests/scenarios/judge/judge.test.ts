@@ -674,24 +674,58 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', ...expected })
     })
 
-    it.each<[string, string[], number, string]>([
+    const sendsFrom =
+        (...sends: Array<[flowId: string, invocationId: string]>) =>
+        async (): Promise<void> => {
+            for (const [flowId, invocationId] of sends) {
+                await deliver(UNIT, 'email', flowId, [], invocationId)
+            }
+        }
+
+    it.each<[string, JournalEntry, () => Promise<unknown>, number, string]>([
         [
             'by one job in a run whose janitor reset a job',
-            ['invocation-a', 'invocation-a'],
+            offered(),
+            sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a']),
             1,
-            'one job sent it each time, and the janitor reset 1 job: a lease reclaim',
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset 1 job in the run: a lease reclaim or a retry inside the job)`,
         ],
-        ['by two jobs', ['invocation-a', 'invocation-b'], 0, '2 jobs sent it: a replay before the queue'],
-    ])('no_loss names the path that resent a unit %s', async (_story, invocations, janitorResets, path) => {
-        judge.record(offered())
-        for (const invocationId of invocations) {
-            await deliver(UNIT, 'email', 'flow-1', [], invocationId)
-        }
+        [
+            'by two jobs',
+            offered(),
+            sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
+            0,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
+        ],
+        [
+            'by two jobs, one of them twice',
+            offered(),
+            sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
+            0,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 jobs sent it, one of them more than once: a replay before the queue, and the janitor reset no job: a retry inside the job)`,
+        ],
+        [
+            'never, when one request copies the recipient',
+            offered(),
+            () => deliver(UNIT, 'email', 'flow-1', [ADDRESS]),
+            1,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+        ],
+        [
+            'never, when two flows send once each',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            sendsFrom(['flow-1', 'invocation-a'], ['flow-2', 'invocation-b']),
+            0,
+            `${UNIT} email to ${ADDRESS}: accepted 2 times, expected 1`,
+        ],
+    ])('no_loss names the path that resent a unit %s', async (_story, entry, act, janitorResets, violation) => {
+        judge.record(entry)
+        await act()
         await judge.converge(20, NEVER_ABORTED)
 
         const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, { ...NO_RESETS, janitorResets })
 
-        expect(result.violation).toBe(`${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (${path})`)
+        expect(result.violation).toBe(violation)
     })
 
     const onFinalPages =

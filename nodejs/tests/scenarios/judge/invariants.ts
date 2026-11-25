@@ -369,25 +369,36 @@ function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, 
     return { min: flows, max: flows }
 }
 
-type Effect = { recipient: string; flowId?: string; invocationId?: string }
+type Effect = { recipient: string; flowId?: string; request: DeliveryRecord }
 
-const effectsOf = ({ kind, detail, flowId, invocationId }: DeliveryRecord): Effect[] =>
-    (kind === 'webhook'
-        ? [detail.request?.host ?? '']
-        : addressesOf([...(detail.message?.to ?? []), ...(detail.message?.cc ?? []), ...(detail.message?.bcc ?? [])])
-    ).map((recipient) => ({ recipient, flowId, invocationId }))
+const effectsOf = (request: DeliveryRecord): Effect[] =>
+    (request.kind === 'webhook'
+        ? [request.detail.request?.host ?? '']
+        : addressesOf([
+              ...(request.detail.message?.to ?? []),
+              ...(request.detail.message?.cc ?? []),
+              ...(request.detail.message?.bcc ?? []),
+          ])
+    ).map((recipient) => ({ recipient, flowId: request.flowId, request }))
+
+const repeatOf = (janitorResets: number): string =>
+    janitorResets > 0
+        ? `the janitor reset ${plural(janitorResets, 'job')} in the run: a lease reclaim or a retry inside the job`
+        : 'the janitor reset no job: a retry inside the job'
 
 function resentPathOf(sends: readonly Effect[], janitorResets: number): string | undefined {
-    const jobs = new Set(sends.map(({ invocationId }) => invocationId))
-    if (sends.length < 2 || jobs.has(undefined)) {
+    const requests = [...new Set(sends.map(({ request }) => request))]
+    const byJob = Map.groupBy(requests, ({ invocationId }) => invocationId)
+    if (requests.length < 2 || byJob.has(undefined)) {
         return undefined
     }
-    if (jobs.size > 1) {
-        return `${jobs.size} jobs sent it: a replay before the queue`
+    const repeated = [...byJob.values()].some(({ length }) => length > 1)
+    if (!repeated) {
+        return `${byJob.size} jobs sent it: a replay before the queue`
     }
-    return janitorResets > 0
-        ? `one job sent it each time, and the janitor reset ${plural(janitorResets, 'job')}: a lease reclaim`
-        : 'one job sent it each time, and the janitor reset no job: a retry inside the job'
+    return byJob.size === 1
+        ? `one job sent it each time, and ${repeatOf(janitorResets)}`
+        : `${byJob.size} jobs sent it, one of them more than once: a replay before the queue, and ${repeatOf(janitorResets)}`
 }
 
 type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
@@ -462,7 +473,7 @@ export const noLoss: InvariantDefinition = {
                             actionId,
                             recipient,
                             excess,
-                            path: resentPathOf(resent?.[1] ?? sends, evidence.janitorResets),
+                            path: resent && resentPathOf(resent[1], evidence.janitorResets),
                             ...(resent
                                 ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
                                 : { accepted: sends.length, expected: max }),
