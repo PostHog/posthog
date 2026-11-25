@@ -78,7 +78,9 @@ def _delete_in_batches(
     while True:
         if should_stop is not None and should_stop():
             return False
-        batch = list(keys_from(last_key)[:batch_size])
+        # Every statement runs under the limits, and the stored file deletes run between the two transactions.
+        with transaction_with_timeouts(BATCH_LOCK_TIMEOUT_MS, BATCH_STATEMENT_TIMEOUT_MS):
+            batch = list(keys_from(last_key)[:batch_size])
         if not batch:
             return True
         if before_delete is not None:

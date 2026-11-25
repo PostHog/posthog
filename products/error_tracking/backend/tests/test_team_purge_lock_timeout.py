@@ -13,8 +13,16 @@ pytestmark = [pytest.mark.django_db(transaction=True)]
 
 
 @pytest.mark.timeout(60)
-def test_a_purge_batch_fails_fast_behind_a_transaction_that_holds_a_frame_row(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "holding_statement",
+    [
+        "SELECT id FROM posthog_errortrackingstackframe WHERE id = %s FOR UPDATE",
+        # A migration takes this lock, and it blocks the batch read as well as the batch delete.
+        "LOCK TABLE posthog_errortrackingstackframe IN ACCESS EXCLUSIVE MODE",
+    ],
+)
+def test_a_purge_batch_fails_fast_behind_a_transaction_that_holds_a_frame_lock(
+    monkeypatch: pytest.MonkeyPatch, holding_statement: str
 ) -> None:
     _, _, team = Organization.objects.bootstrap(None)
     frame = ErrorTrackingStackFrame.objects.create(team=team, raw_id="raw", contents={}, resolved=True)
@@ -23,7 +31,7 @@ def test_a_purge_batch_fails_fast_behind_a_transaction_that_holds_a_frame_row(
     try:
         holder.set_autocommit(False)
         with holder.cursor() as cursor:
-            cursor.execute("SELECT id FROM posthog_errortrackingstackframe WHERE id = %s FOR UPDATE", [frame.id])
+            cursor.execute(holding_statement, [frame.id] if "%s" in holding_statement else [])
 
         with pytest.raises(OperationalError, match="lock timeout"):
             delete_team_records([team.id])
