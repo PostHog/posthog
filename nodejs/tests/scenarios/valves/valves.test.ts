@@ -555,6 +555,25 @@ describe('valves', () => {
             },
         })
 
+        const onEdgeHeld = (): { context: ValveContext; held: Promise<void> } => {
+            let actuated = (): void => undefined
+            const held = new Promise<void>((resolve) => (actuated = resolve))
+            const { actuate } = onEdge().environment
+            return {
+                context: {
+                    ...onEdge(),
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await actuate(action)
+                            actuated()
+                            return hold
+                        },
+                    },
+                },
+                held,
+            }
+        }
+
         const send = (abortSignal?: AbortSignal): Promise<string> =>
             ses
                 .send(
@@ -619,14 +638,14 @@ describe('valves', () => {
             'drops the connection of the next SES send with ses.ambiguous accepted %s, recording only what SES took',
             async (accepted, sends) => {
                 const valves = createValves({ pollMs: 5 })
+                const edgeHeld = onEdgeHeld()
 
                 await valves.start(
                     [{ valve: 'ses.ambiguous', target: 'ses', dose: { accepted, count: 1 }, at: '0ms', for: '1m' }],
-                    onEdge()
+                    edgeHeld.context
                 )
-                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                await edgeHeld.held
                 const outcomes = [await send(), await send()]
-                await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
                 const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
                 await valves.releaseAll()
 
@@ -634,7 +653,8 @@ describe('valves', () => {
                     outcomes,
                     sends: truth.records.map(({ status, fault }) => [status, fault]),
                     error: valves.timeline()[0].error,
-                }).toEqual({ outcomes: ['Error', 'sent'], sends, error: undefined })
+                    observed: valves.timeline()[0].observedAt !== undefined,
+                }).toEqual({ outcomes: ['Error', 'sent'], sends, error: undefined, observed: true })
             }
         )
 
