@@ -110,6 +110,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
+from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
     ResolutionResult,
@@ -2643,6 +2644,9 @@ def _route_untagged_question(
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
         return ROUTE_HANDLED_LOCALLY
+    # The channel's mode belongs to the organization of the routed project, so it is read once the target is known.
+    if resolve_channel_untagged_question_mode(target, slack_user_id, channel) == UntaggedFollowupMode.NEVER:
+        return ROUTE_HANDLED_LOCALLY
     # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
     if _message_tags_bot(event, target):
         return ROUTE_HANDLED_LOCALLY
@@ -4168,7 +4172,8 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
     if (
         not isinstance(event, dict)
         or slack.missing_scopes(REQUIRED_SLACK_SCOPES)
-        or resolve_untagged_question_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
+        or resolve_channel_untagged_question_mode(integration, slack_user_id, event.get("channel"))
+        == UntaggedFollowupMode.NEVER
         or (posthog_user := _is_org_member(integration, slack_user_id)) is None
         or not _can_access_team(posthog_user, integration)
     ):

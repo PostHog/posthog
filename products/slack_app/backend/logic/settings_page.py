@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.models import User
+from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.facade.enums import SlackChannelQuestionMode
@@ -22,6 +23,7 @@ from products.slack_app.backend.facade.types import (
     SlackPersonalSettings,
     SlackPersonalSettingsChange,
     SlackReactionChoice,
+    SlackRepositoryOptions,
     SlackSettingsInvalid,
     SlackWorkspaceSettings,
     WorkspaceSettingsError,
@@ -220,6 +222,19 @@ def _channel_settings(row: SlackChannelSettingsRow) -> SlackChannelSettings:
         untagged_question_mode=row.untagged_question_mode,
         updated_by_name=row.updated_by.first_name or None if row.updated_by else None,
         updated_at=row.updated_at,
+    )
+
+
+def list_repository_options(integration: WorkspaceIntegration, user: User) -> SlackRepositoryOptions:
+    from products.slack_app.backend.api import (  # noqa: PLC0415 — api.py imports the services this module uses
+        _get_full_repo_names,
+    )
+
+    return SlackRepositoryOptions(
+        repositories=tuple(sorted(_get_full_repo_names(integration, user_id=user.id), key=str.lower)),
+        github_connected=UserIntegration.objects.filter(
+            user=user, kind=UserIntegration.IntegrationKind.GITHUB
+        ).exists(),
     )
 
 

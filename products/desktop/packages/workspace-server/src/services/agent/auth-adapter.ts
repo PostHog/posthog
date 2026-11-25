@@ -3,7 +3,6 @@ import {
   type McpToolApprovals,
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   isCustomCloudHost,
   type McpServerConnection,
@@ -239,14 +238,12 @@ export class AgentAuthAdapter {
   }
 
   async ensureGatewayProxy(
-    apiHost: string,
     projectId: number | null,
     options: { awaitRecheck?: boolean } = {},
   ): Promise<ResolvedGatewayProxy> {
     return resolveGatewayProxy({
       authProxy: this.authProxy,
       source: this.gatewaySource,
-      legacyGatewayUrl: getLlmGatewayUrl(apiHost),
       projectId,
       awaitRecheck: options.awaitRecheck,
     });
