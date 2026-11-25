@@ -293,8 +293,15 @@ def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> lis
     return result
 
 
-def _is_payment_required(error: Exception) -> bool:
-    return isinstance(error, (anthropic.APIStatusError, openai.APIStatusError)) and error.status_code == 402
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own refusals, such as a deactivated organization, with X-PostHog-Denial. A 402
+    # without that header is the provider refusing the gateway's account, which affects every team, so it
+    # must still reach error tracking.
+    return (
+        isinstance(error, (anthropic.APIStatusError, openai.APIStatusError))
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
@@ -496,7 +503,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
-        if _is_payment_required(e):
+        if _is_gateway_credit_refusal(e):
             # The gateway refused the call for billing, for example because the organization was
             # deactivated after the check above. No retry and no exception report can change that,
             # so it goes into the completion event and not into error tracking.

@@ -99,8 +99,13 @@ def _make_schema(
     return schema, table
 
 
-def _gateway_response(status_code: int) -> httpx.Response:
-    return httpx.Response(status_code, request=httpx.Request("POST", "https://gateway.example.com/v1/messages"))
+def _gateway_response(status_code: int, headers: dict[str, str] | None = None) -> httpx.Response:
+    return httpx.Response(
+        status_code, headers=headers, request=httpx.Request("POST", "https://gateway.example.com/v1/messages")
+    )
+
+
+_GATEWAY_DENIAL = {"X-PostHog-Denial": "credit_bucket_exhausted"}
 
 
 def _annotations(team: Team, table: DataWarehouseTable) -> dict[str, WarehouseColumnAnnotation]:
@@ -852,7 +857,7 @@ class TestEnrichTableSemanticsSync:
             (
                 anthropic.APIStatusError(
                     "Your organization has been deactivated",
-                    response=_gateway_response(402),
+                    response=_gateway_response(402, _GATEWAY_DENIAL),
                     body={"type": "error", "error": {"type": "billing_error"}},
                 ),
                 "llm_payment_required",
@@ -860,10 +865,26 @@ class TestEnrichTableSemanticsSync:
             ),
             (
                 openai.APIStatusError(
-                    "Your organization has been deactivated", response=_gateway_response(402), body=None
+                    "Your organization has been deactivated",
+                    response=_gateway_response(402, _GATEWAY_DENIAL),
+                    body=None,
                 ),
                 "llm_payment_required",
                 False,
+            ),
+            (
+                anthropic.APIStatusError(
+                    "Your credit balance is too low",
+                    response=_gateway_response(402),
+                    body={"type": "error", "error": {"type": "billing_error"}},
+                ),
+                "llm_failed",
+                True,
+            ),
+            (
+                openai.APIStatusError("Payment required", response=_gateway_response(402), body=None),
+                "llm_failed",
+                True,
             ),
             (
                 anthropic.APIStatusError("Internal server error", response=_gateway_response(500), body=None),
