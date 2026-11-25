@@ -5,11 +5,7 @@ export interface ResolvedGatewayProxy {
   proxyUrl: string;
 }
 
-/**
- * The loopback gateway session for a project. With no project selected the
- * session still lists models, and refuses inference with a reason the caller
- * can show.
- */
+/** Loopback gateway session; with no project it lists models but refuses inference. */
 export async function resolveGatewayProxy(input: {
   authProxy: AuthProxyService;
   source: GatewayCredentialSource | undefined;

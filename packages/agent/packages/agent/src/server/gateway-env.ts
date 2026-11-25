@@ -51,8 +51,7 @@ export class AiGatewayNotConfiguredError extends Error {
 
 /**
  * The run's scoped gateway token. The worker routes a product and mints its
- * token together, so a run missing either cannot reach a model and fails here
- * with the setting it lacks.
+ * token together, so a run missing either cannot reach a model.
  */
 function requireGatewayToken(target: GatewayTarget, logger: Logger): string {
   const token = process.env.AI_GATEWAY_TOKEN?.trim();
@@ -119,12 +118,10 @@ export function buildGatewayEnv(
     };
   }
   const llmBearer = requireGatewayToken(target, logger);
-  // Task metadata travels in the X-PostHog-Properties blob, which the gateway
-  // lifts onto the $ai_generation event. The Claude path sends it through the
-  // Anthropic SDK's ANTHROPIC_CUSTOM_HEADERS env var; the codex path sets it as
-  // `model_providers.posthog.http_headers`, so the record form is exposed too.
-  // The gateway has no product route, so `ai_product` rides in the blob, and
-  // `team_id` names the project for both adapters.
+  // Task metadata rides the X-PostHog-Properties blob onto $ai_generation.
+  // Claude sends it via ANTHROPIC_CUSTOM_HEADERS and Codex via
+  // `model_providers.posthog.http_headers`, hence the record form. `ai_product`
+  // and `team_id` ride here because Go has no product route or project header.
   const properties = {
     // Gateway headers live for the session, so correlate with its enclosing run.
     task_run_trace_id: runSpanContext?.traceId,

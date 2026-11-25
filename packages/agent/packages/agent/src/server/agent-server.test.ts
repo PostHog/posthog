@@ -1248,8 +1248,8 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
-    // The worker mints no gateway env for a subscription run, so only the
-    // subscription exemption keeps such a run from the gateway refusal.
+    // The worker mints no gateway env for subscription runs, so the exemption
+    // alone keeps them from the gateway refusal.
     it.each([
       {
         run: "a Claude subscription run",
@@ -1285,8 +1285,7 @@ describe("AgentServer HTTP Mode", () => {
           _doInitializeSession(payload: JwtPayload): Promise<void>;
           openProductSession(): Promise<void>;
         };
-        // Session setup reads the gateway env, then opens the product session;
-        // stopping there keeps the Codex case from spawning the CLI.
+        // Stops at the product session so the Codex case never spawns the CLI.
         const pastGatewayEnv = new Error("reached the product session");
         vi.spyOn(testServer, "openProductSession").mockRejectedValue(
           pastGatewayEnv,

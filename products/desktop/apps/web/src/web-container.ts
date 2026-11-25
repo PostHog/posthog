@@ -779,8 +779,7 @@ container
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(webTitleGeneratorLogger(scoped()));
-// LLM gateway service (task title/summary generation, usage). Usage reads the
-// PostHog API through AuthService; prompts are refused by the token host below.
+// LLM gateway service (task title/summary generation, usage).
 container.load(llmGatewayModule);
 container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(AUTH_SERVICE);
