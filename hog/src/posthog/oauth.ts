@@ -11,7 +11,7 @@ import { itemName, type LoginTarget } from '@/posthog/credential-store/item-name
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
-import { sendRequest, type HttpResponse } from './api'
+import { sendRequest, type HttpRequest, type HttpResponse } from './api'
 import { hostUrl, type Host } from './host'
 import { ProjectIdSchema, type ProjectId } from './ids'
 import type { LoginRecord } from './settings'
@@ -61,13 +61,14 @@ export function oauthPost(
     host: Host,
     path: string,
     form: Record<string, string>,
-    timeoutMs = REQUEST_TIMEOUT_MS
+    { timeoutMs = REQUEST_TIMEOUT_MS, redirect }: Pick<HttpRequest, 'timeoutMs' | 'redirect'> = {}
 ): Promise<HttpResponse> {
     return sendRequest(runtime.fetch, hostUrl(host, path), {
         method: 'POST',
         form,
         timeoutMs,
         posthog: true,
+        redirect,
     })
 }
 
