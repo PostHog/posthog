@@ -66,6 +66,15 @@ def test_paged_walk_stops_on_the_last_page(first_page_headers: dict[str, str], e
         ("contacts", True, datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC), "updated_after:2026-03-04T09:59:59Z"),
         ("contacts", False, None, None),
         ("time_entries", False, None, "state:all,include_nil_contacts:true,include_active:true"),
+        (
+            "typeless_documents",
+            True,
+            datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+            "state:all,updated_after:2026-03-04T09:59:59Z",
+        ),
+        ("typeless_documents", False, None, "state:all"),
+        # Without a filter Moneybird returns only the unbatched purchase transactions.
+        ("purchase_transactions", False, None, "state:all"),
     ],
 )
 def test_filter_param(schema: str, incremental: bool, watermark: Any, expected_filter: str | None) -> None:
@@ -80,11 +89,57 @@ def test_filter_param(schema: str, incremental: bool, watermark: Any, expected_f
     assert result.params("filter") == [expected_filter]
 
 
-def test_contacts_include_archived_contacts() -> None:
-    result = _driver().run("contacts", [ScriptedResponse(json=_rows("a", 1))], should_use_incremental_field=False)
+@pytest.mark.parametrize(
+    ("schema", "path", "param", "value"),
+    [
+        ("contacts", "contacts/filter", "include_archived", "true"),
+        # Without `active=false` Moneybird leaves out the disposed and fully depreciated assets.
+        ("assets", "assets", "active", "false"),
+    ],
+)
+def test_list_includes_inactive_records(schema: str, path: str, param: str, value: str) -> None:
+    result = _driver().run(schema, [ScriptedResponse(json=_rows("a", 1))], should_use_incremental_field=False)
 
-    assert result.paths == [f"{BASE_PATH}/contacts/filter.json"]
-    assert result.params("include_archived") == ["true"]
+    assert result.paths == [f"{BASE_PATH}/{path}.json"]
+    assert result.params(param) == [value]
+
+
+def _aging_rows(prefix: str, count: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "contact_id": f"{prefix}{index}",
+            "amount": "150.0",
+            "aging_buckets": [
+                {"name": "0 - 30 days", "amount": "150.0"},
+                {"name": "30 - 60 days", "amount": "0"},
+                {"name": "Older", "amount": "0.0"},
+                {"name": "Total", "amount": "150.0"},
+            ],
+        }
+        for index in range(count)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("schema", "key"),
+    [("debtors_aging", "debtors"), ("creditors_aging", "creditors")],
+)
+def test_aging_report_reads_the_rows_of_every_page(schema: str, key: str) -> None:
+    script = [
+        ScriptedResponse(json={key: _aging_rows("a", 100)}),
+        ScriptedResponse(json={key: _aging_rows("b", 2)}),
+    ]
+
+    result = _driver().run(schema, script, should_use_incremental_field=False)
+
+    assert result.raised is None
+    assert result.paths == [f"{BASE_PATH}/reports/{schema}.json"] * 2
+    assert result.params("page") == ["1", "2"]
+    assert result.params("filter") == [None, None]
+    assert len(result.rows) == 102
+    assert result.rows[-1]["contact_id"] == "b1"
+    assert result.rows[-1]["aging_buckets"][3]["amount"] == "150.0"
+    assert result.response is not None and result.response.primary_keys == ["contact_id"]
 
 
 def test_paged_walk_saves_the_next_page_and_resumes_from_it() -> None:

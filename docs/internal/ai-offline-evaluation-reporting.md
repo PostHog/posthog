@@ -377,7 +377,7 @@ For example, this upload declares one item and its boolean result:
 
 The version UUID above is a placeholder for a pre-existing boolean scorer version.
 An additional scorer result can reference the same `item_id` without repeating its item declaration or payload.
-Each item declaration is complete and immutable.
+Each upload carries the complete original item declaration. Use the update endpoints below to change an accepted item.
 Missing payload properties and explicitly supplied JSON nulls remain distinct.
 
 Responses acknowledge committed writes and return stable item/result IDs, original acceptance times, and `created` flags.
@@ -453,7 +453,7 @@ Missing inputs reject the whole request. Non-success input statuses propagate in
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
 
-The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
+The server computes during ingestion and saves the result with `input_result_ids` in composition input order.
 Exact retries return the stored acknowledgment, including after closure. Composite requests and retries require current access to the composite scorer and every pinned input scorer, even when all input results are included in the upload.
 Reported-score retries remain available after reference-access changes. New requests require an uploading experiment.
 Results and formulas are never recalculated on read. Formula/input changes create a new composite version; old results keep their original configuration.
@@ -523,7 +523,7 @@ Existing `llma` event names and attributes remain unchanged so saved actions and
 Newly accepted reported Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
 Each upload transaction that inserts reported results writes one entry with a quantity equal to the number of new reported results, including error, skipped, and not-applicable outcomes. Computed composite results add no ledger quantity.
 Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
-Exact retries add no usage, including retries split or regrouped into different requests.
+Retries of retained results add no usage, including retries split or regrouped into different requests.
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
@@ -537,8 +537,45 @@ Independent scalar identifiers prevent product deletion cascades from deleting u
 `editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
 
 Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
-There is no result/experiment deletion endpoint. Privileged deletion of a result followed by reupload while its experiment is still open creates a new result and another usage unit; the ledger cannot identify the old metric after deletion.
-Operators must not delete durable result identities and then replay uploads as a billing-neutral operation. Any future identity cleanup needs an explicit replay policy before deployment.
+While an experiment is uploading, submitting a deleted item or result again creates it anew, even when the submission is an exact retry.
+Each recreated reported result counts as another usage unit. Computed composites add no usage. Once the experiment closes, it rejects uploads that would recreate deleted data.
+
+### Updating and deleting offline evaluation data
+
+Use these paths below `offline_experiments/{experiment_id}/` in the project's AI observability API.
+They work on uploading, completed, and failed experiments.
+
+| Path                           | PATCH                                                                                                                                                            | DELETE                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `items/{item_id}/`             | Change the case key, trial, model version, or application trace ID.                                                                                              | Remove the item, its results, and their payloads.                                                        |
+| `results/{result_id}/`         | Change a reported status, score value, or error code. The server recomputes requested dependent composites in the same transaction, using their pinned formulas. | Remove the result, its payload, and its dependent composites. Deleting a composite preserves its inputs. |
+| `items/{item_id}/payload/`     | Set one or more top-level item payload fields.                                                                                                                   | Remove the stored item payload.                                                                          |
+| `results/{result_id}/payload/` | Set one or more top-level result payload fields.                                                                                                                 | Remove the stored result payload.                                                                        |
+
+Read the item's, result's, or payload's `revision` first. Include it in the PATCH body or the DELETE query string.
+A successful PATCH returns the current revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
+If a reported score already has the requested status, value, and error code, its revision and score timestamp stay the same. This also preserves the timestamps of its dependent composites.
+Correcting only the error code advances the result revision and preserves the score timestamp. Its dependent composites keep their scores, revisions, and timestamps.
+For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
+For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
+An item and its payload share a revision, as do a result and its payload.
+Adding, editing, or deleting a result on an existing item also advances the item revision, as does editing or deleting a result payload. If another writer makes one of these changes after you read the item, read it again before deleting it.
+Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
+
+These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
+MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
+An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
+Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
+
+The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later. Recreating a hard-deleted item or result starts a new window for that record.
+An edit cannot extend the deadline or restore a deleted or expired payload.
+Only a stored payload can be deleted. If it was never provided, already deleted, or removed by retention, DELETE returns HTTP 409 (`payload_unavailable`) and preserves the revision. A first payload can still be added within the original window.
+Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
+Changing an item's input, output, or expected output leaves its reported scores in place. Item results and result cells expose `is_stale`, which the inspector uses to identify scores that predate the change.
+The API compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
+
+Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
+Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.
 
 ### Usage reporting and shared AIO meter
 

@@ -14,6 +14,7 @@ import type {
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
 import { scoutPrecheckLogic } from '../../../logics/scoutPrecheckLogic'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 
 const QUERY_PLACEHOLDER = `SELECT count()
 FROM events
@@ -61,6 +62,8 @@ export function ScoutPrecheckSection({
     // The default the scout's skill ships, when it applies to this project and no query of its own replaces it.
     const inherited =
         config.precheck_query_source === 'skill_default' ? (config.effective_precheck_query ?? null) : null
+    // A skill default with no query is a check the scout runs in code, so there is nothing to show or edit.
+    const builtInCheck = config.precheck_query_source === 'skill_default' && !config.effective_precheck_query
     const turnedOff = config.precheck_disabled
     const baseline = saved ?? inherited ?? ''
     // Null until something is typed, so an untouched editor follows the saved query.
@@ -119,6 +122,10 @@ export function ScoutPrecheckSection({
                                     <LemonTag size="small" type="option">
                                         Default query
                                     </LemonTag>
+                                ) : builtInCheck ? (
+                                    <LemonTag size="small" type="option">
+                                        Built-in check
+                                    </LemonTag>
                                 ) : (
                                     <span className="text-[11.5px] text-muted">Always run</span>
                                 )}
@@ -140,6 +147,12 @@ export function ScoutPrecheckSection({
                                         query instead.
                                     </span>
                                 ) : null}
+                                {builtInCheck && !saved && !turnedOff ? (
+                                    <span className="text-[11.5px] text-muted">
+                                        This scout checks for new data itself and skips runs when nothing changed. Save
+                                        a query to use your own check instead.
+                                    </span>
+                                ) : null}
                                 {turnedOff ? (
                                     <span className="text-[11.5px] text-muted">
                                         The pre-check is off, so every scheduled run starts. Turn it on to use the query
@@ -154,7 +167,7 @@ export function ScoutPrecheckSection({
                                     className="font-mono text-[11.5px]"
                                     disabled={updating}
                                     onChange={setDraft}
-                                    aria-label={`${config.skill_name} pre-check query`}
+                                    aria-label={`${scoutDisplayName(config)} pre-check query`}
                                 />
                                 {testRunFailed ? (
                                     <span role="alert" className="text-[11.5px] text-danger">
@@ -204,7 +217,7 @@ export function ScoutPrecheckSection({
                                         >
                                             Turn on
                                         </LemonButton>
-                                    ) : baseline ? (
+                                    ) : baseline || builtInCheck ? (
                                         <LemonButton
                                             size="small"
                                             type="secondary"

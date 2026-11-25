@@ -65,6 +65,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     MISSING_INTEGRATION_DETAIL,
     DestinationConfigurationError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.key_prefix import (
+    run_object_prefix,
+)
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
 DEFAULT_COMPRESSION: ParquetCompression = "zstd"
@@ -146,7 +149,6 @@ class AzureBlobDestinationWriter:
         self._ctx = ctx
         config = ctx.config or {}
         self._container: str = (config.get("container_name") or config.get("container") or "").strip("/")
-        self._prefix: str = (config.get("prefix") or "").strip("/")
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
         self._max_concurrency: int = settings.BATCH_EXPORT_AZURE_BLOB_MAX_CONCURRENT_UPLOADS
 
@@ -175,8 +177,7 @@ class AzureBlobDestinationWriter:
     # --- names ------------------------------------------------------------------------
 
     def _run_prefix(self) -> str:
-        parts = [p for p in (self._prefix, self._ctx.table_name, self._ctx.run_uuid) if p]
-        return f"{'/'.join(parts)}/"
+        return run_object_prefix(self._ctx)
 
     def _blob_name(self, batch_index: int) -> str:
         return f"{self._run_prefix()}part-{batch_index:04d}.parquet"
@@ -251,7 +252,7 @@ class AzureBlobDestinationWriter:
         if first is None:
             # No record batches at all. An empty blob is not a readable parquet file, so write
             # nothing rather than something a reader would choke on.
-            return BatchWriteOutcome(rows_written=0)
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         stats = _WriteStats()
         compression = None if self._compression == "none" else self._compression

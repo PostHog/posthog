@@ -23,8 +23,9 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team
+from products.logs.backend.platform_ownership import NATIVE_CREATE_FLAG
 from products.logs.backend.platform_source_config import logs_source_config
+from products.logs.backend.test.platform_handover import hand_over_team
 
 _NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
 # The fields the Terraform provider's `posthog_logs_alert` resource reads back after each call.
@@ -225,8 +226,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             )
         with time_machine.travel(_NOW - timedelta(hours=1), tick=False):
             native = self._create_without_logs_row()
-        [cutover] = cut_over_team(self.team.id, now=_NOW)
-        assert cutover.skipped is None
+        hand_over_team(self.team.id, _NOW)
 
         listed = [alert["id"] for alert in self.client.get(self.base_url).json()["results"]]
 
@@ -361,19 +361,22 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         )
         assert relabelled.json()["annotations"] == {"summary": "Checkout errors"}
 
-    def test_a_team_whose_alerts_stay_with_logs_keeps_the_logs_row_with_the_flag_on(self, *_: object) -> None:
-        LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
-        self.native_create = True
-
-        self._create("logs_api")
-
-        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == 2
-
-    def test_an_alert_with_no_logs_row_takes_a_slot_under_the_cap(self, *_: object) -> None:
-        self.native_create = True
+    @parameterized.expand([("native", True), ("copy_whose_logs_row_is_gone", False)])
+    def test_an_alert_with_no_logs_row_takes_a_slot_under_the_cap(
+        # The class's `patch` mocks come before the parameters.
+        self,
+        _cdp_reload: object,
+        _destinations_reload: object,
+        _name: str,
+        native: bool,
+    ) -> None:
+        self.native_create = native
 
         with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", 1):
-            self._create("logs_api")
+            if native:
+                self._create("logs_api")
+            else:
+                self._create_copy_whose_logs_row_is_gone()
             refused = self.client.post(
                 self.base_url, {"name": "Second", "threshold_count": 10, "filters": _FILTERS}, format="json"
             )
@@ -419,8 +422,7 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
             state_after="not_firing",
         )
         LogsAlertEvent.objects.filter(pk=older.pk).update(created_at=_NOW - timedelta(hours=1))
-        [cutover] = cut_over_team(self.team.id, now=_NOW)
-        assert cutover.skipped is None
+        hand_over_team(self.team.id, _NOW)
         with team_scope(self.team.id):
             return str(alert.id), str(platform_testing.copy_of(alert.id).id)
 

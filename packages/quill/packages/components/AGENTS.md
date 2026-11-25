@@ -4,12 +4,42 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 ## Exports
 
+- `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
+
+## Credenza
+
+```tsx
+<Credenza open={open} onOpenChange={setOpen}>
+  <CredenzaTrigger render={<Button variant="outline" />}>Rename dashboard</CredenzaTrigger>
+  <CredenzaContent>
+    <CredenzaHeader>
+      <CredenzaTitle>Rename dashboard</CredenzaTitle>
+      <CredenzaDescription>Everyone in the project sees the new name.</CredenzaDescription>
+    </CredenzaHeader>
+    <CredenzaBody>{/* fields */}</CredenzaBody>
+    <CredenzaFooter>
+      <CredenzaClose render={<Button variant="outline" />}>Cancel</CredenzaClose>
+      <Button variant="primary">Save</Button>
+    </CredenzaFooter>
+  </CredenzaContent>
+</Credenza>
+```
+
+Rules:
+
+- At 768px (`md`) and wider, the parts render the `Dialog` parts. Below that, they render the `Drawer` parts as a bottom sheet. Each mode keeps the look and behavior of its primitive: the dialog has its close button, and the drawer has its handle and swipe to dismiss.
+- The mode follows the viewport only while the credenza is closed. A popup that is open stays in its mode until its close animation ends, so a phone that rotates keeps the drawer and what the user typed.
+- `open`, `defaultOpen` and `onOpenChange` work as on `Dialog`. Leave out `open` to let the credenza keep its own state.
+- Put content in `CredenzaBody`. It scrolls between the header and the footer and gives the side padding. Content placed directly in `CredenzaContent` has no padding. `viewportClassName` and `render` work as on `DialogBody` in both modes.
+- Write the footer as Cancel first, main action last. The dialog shows them in a row, with the main action on the right. The drawer stacks them full width, with the main action on top.
+- A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
+- Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
 
 ## DataTable
 

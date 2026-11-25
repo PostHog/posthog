@@ -200,7 +200,8 @@ A profile with `billing_product="background_agents"` runs on PostHog-funded infe
 Its origin must be in `BACKGROUND_AGENTS_ORIGINS` in `products/tasks/backend/temporal/process_task/ai_gateway_token.py`
 and in `Task.SERVER_ONLY_ORIGIN_PRODUCTS`, so API callers cannot set it.
 Without the first entry the tasks worker refuses the run an AI gateway token, with the reason `no_background_agents_provenance`.
-`test_background_agents_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+`test_server_funded_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+To budget and cap a product's spend on its own, give it a dedicated gateway product instead, as `account_audit` and `autoresearch` do.
 
 Register the profiles from your product's `AppConfig.ready()`:
 

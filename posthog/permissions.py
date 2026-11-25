@@ -1,10 +1,8 @@
 import os
-import time
 import uuid
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
@@ -27,7 +25,6 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
@@ -43,7 +40,7 @@ from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import sensitive_window_is_open, session_allows_sensitive_actions, step_up_required
 from posthog.utils import get_can_create_org
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -269,9 +266,6 @@ class TeamMemberAccessPermission(BasePermission):
                 return view.team.id == psak.team_id
             except (AttributeError, KeyError, Team.DoesNotExist):
                 return False
-
-        if is_authenticated_via_team_secret_token(request):
-            return True
 
         try:
             team = view.team
@@ -505,28 +499,12 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
 
-def is_authenticated_via_team_secret_token(request: Request) -> bool:
-    return isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
-
-
 def is_authenticated_via_project_secret_api_key(request: Request) -> bool:
     return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
 
 
 def is_service_auth(request: Request) -> bool:
-    return is_authenticated_via_team_secret_token(request) or is_authenticated_via_project_secret_api_key(request)
-
-
-def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool:
-    return bool(
-        request.resolver_match
-        and request.resolver_match.view_name
-        in {
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        }
-    )
+    return is_authenticated_via_project_secret_api_key(request)
 
 
 class TeamMemberLightManagementPermission(BasePermission):
@@ -715,15 +693,17 @@ class TimeSensitiveActionPermission(BasePermission):
         if allow_actions and view.action in allow_actions:
             return True
 
-        reference = sensitive_action_reference(request.session)
-        if reference is None:
-            # This should always be covered by the middleware but just in case
-            return False
+        return sensitive_window_is_open(request.session)
 
-        if time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE:
-            return False
 
+def request_allows_sensitive_action(request: Request) -> bool:
+    """The check `TimeSensitiveActionPermission` makes, for a view that gates only some requests or must not 403.
+
+    Personal API keys and OAuth tokens always pass, because only a browser session can go stale.
+    """
+    if not isinstance(request.successful_authenticator, SessionAuthentication):
         return True
+    return session_allows_sensitive_actions(request.session)
 
 
 class ScopeBasePermission(BasePermission):
@@ -1407,7 +1387,7 @@ class AccessControlPermission(ScopeBasePermission):
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
-        # Service credentials (TST, PSAK) are synthetic users UserAccessControl can't evaluate.
+        # Service credentials (PSAK) are synthetic users UserAccessControl can't evaluate.
         # They're gated by API scope + project membership, so scopes grant project-wide access
         # within that resource type and object-level RBAC restrictions don't apply.
         if is_service_auth(request):
@@ -1653,35 +1633,6 @@ class PostHogFeatureFlagPermission(BasePermission):
         return True
 
 
-class TeamSecretTokenPermission(BasePermission):
-    """
-    Controls access to the local_evaluation and remote_config endpoints when authenticated via
-    the legacy team-level Team.secret_api_token (see TeamSecretTokenAuthentication).
-
-    Also validates that the authenticated team matches the resolved team (analogous to
-    TeamMemberAccessPermission for personal keys).
-    """
-
-    def has_permission(self, request, view) -> bool:
-        if not isinstance(request.successful_authenticator, TeamSecretTokenAuthentication):
-            return True
-
-        # Check that the endpoint is allowed for team secret tokens
-        if not _is_request_for_team_secret_token_secured_endpoint(request):
-            return False
-
-        # Check team consistency: authenticated team must match resolved team
-        # This prevents cross-team access when project_api_key is provided in request body
-        authenticated_team = request.user.team  # From TeamSecretTokenUser
-        try:
-            resolved_team = view.team  # From routing logic (may use project_api_key override)
-        except (AttributeError, KeyError, Team.DoesNotExist):
-            # If team resolution fails, let it be handled as a 404 in the viewset
-            return True
-
-        return authenticated_team.id == resolved_team.id
-
-
 class UserCanInvitePermission(BasePermission):
     """
     Only allows Admins+, and Members if members_can_invite flag is True
@@ -1698,15 +1649,10 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
-        members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.effective_level >= OrganizationMembership.Level.ADMIN
-
-        if user_is_admin:
+        if _can_in_required_organization(request, organization, Action.EDIT):
             return True
 
-        return members_can_invite
+        return bool(organization.members_can_invite)
 
 
 class UserCanCreateProjectPermission(BasePermission):

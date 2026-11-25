@@ -237,25 +237,36 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // sub-families to fit. It means a fixed section grew; move it to the exec command
     // reference, which has no such cap.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
-        const ctx: InstructionsContext = {
-            ...STATIC_CTX,
-            tools: Object.keys(getToolDefinitions()).map((name) => ({
-                name,
-                category: getToolCategory(name) ?? 'Other',
-            })),
-        }
-        const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
-        const domains = domainsIn(rendered)
+    it.each([false, true])(
+        'keeps the compact exec instructions under the Claude Code truncation cap (split %s)',
+        (splitWrites) => {
+            const ctx: InstructionsContext = {
+                ...STATIC_CTX,
+                splitWrites,
+                tools: Object.keys(getToolDefinitions()).map((name) => ({
+                    name,
+                    category: getToolCategory(name) ?? 'Other',
+                })),
+            }
+            const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
+            const domains = domainsIn(rendered)
 
-        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Families past the old cutoff point must remain searchable after the index compacts.
-        const toolNames = Object.keys(getToolDefinitions())
-        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            const familyTools = toolNames.filter((name) => name.startsWith(family))
-            expect(familyTools.length).toBeGreaterThan(0)
-            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+            // Families past the old cutoff point must remain searchable after the index compacts.
+            const toolNames = Object.keys(getToolDefinitions())
+            for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+                const familyTools = toolNames.filter((name) => name.startsWith(family))
+                expect(familyTools.length).toBeGreaterThan(0)
+                expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            }
         }
+    )
+
+    it('names the split dispatchers, not the unlisted exec, in split instructions', () => {
+        const rendered = new InstructionsFormatter().buildExecInstructions({ ...STATIC_CTX, splitWrites: true })
+        const toolLines = rendered.split('\n').filter((line) => / – /.test(line))
+
+        expect(toolLines.map((line) => line.split(' – ')[0])).toEqual(['exec-read', 'exec-write', 'render-ui'])
     })
 
     // Exercises the re-render branch, which the live catalog no longer reaches now that it

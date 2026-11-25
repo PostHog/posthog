@@ -120,12 +120,13 @@ class BirdSource(ResumableSource[BirdSourceConfig, BirdResumeConfig]):
             keywords=["messagebird"],
             label="Bird",
             caption=(
-                "Connect your bird.com workspace with an API key to sync contacts, audiences, email, SMS and "
-                "WhatsApp messages, broadcasts, templates, and daily sending stats. Create a key in the Bird "
-                "dashboard under **Platform tools > API keys**. Give it read access to the scopes of the "
-                "tables you want, such as `emails`, `email_marketing`, `email_management`, `sms`, "
-                "`whatsapp`, and `numbers`. Keys from the older Bird Engagement Platform (app.bird.com) "
-                "or MessageBird don't work here."
+                "Connect your bird.com workspace with an API key to sync contacts, audiences, preferences, "
+                "email, SMS, WhatsApp and Apple Messages, broadcasts, templates, suppressions, voice call "
+                "legs, and daily sending stats. Create a key in the Bird dashboard under **Platform tools > "
+                "API keys**. Give it read access to the scopes of the tables you want, such as `emails`, "
+                "`email_marketing`, `email_management`, `sms`, `sms_management`, `whatsapp`, `amb`, "
+                "`voice`, `preferences`, and `numbers`. Keys from the older Bird Engagement Platform "
+                "(app.bird.com) or MessageBird don't work here."
             ),
             iconPath="/static/warehouse-sources/bird/icon.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bird",

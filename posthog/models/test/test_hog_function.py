@@ -438,8 +438,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 read old secret tokens (pre_save), 1 update team. The hog flow and hog function refreshes run on commit.
-        with self.captureOnCommitCallbacks(execute=True), self.assertNumQueries(2):
+        # 1 update team. The hog flow and hog function refreshes run on commit.
+        with self.captureOnCommitCallbacks(execute=True), self.assertNumQueries(1):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

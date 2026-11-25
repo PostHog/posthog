@@ -74,7 +74,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     get_credentials_using_user_aws_role,
     s3_client,
 )
-from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
+from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix, get_manifest_key
 from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError, MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -96,6 +96,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "InvalidKeyError",
     "UnsupportedColumnTypeError",
     # The integration backing this export is missing, of the wrong kind, or
     # misconfigured. Retrying can never recover it.
@@ -1742,10 +1743,19 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             include: connection configuration (e.g. host, user, port), batch export
             query parameters (e.g. team_id, data_interval_start, include_events), and
             the Redshift-specific properties_data_type to indicate the type of JSON-like
-            fields.
+             fields.
     """
     if inputs.batch_export.data_interval_end is None:
         raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
+    manifest_key = get_manifest_key(
+        inputs.copy.s3_key_prefix,
+        inputs.batch_export.data_interval_start,
+        inputs.batch_export.data_interval_end,
+        inputs.batch_export.batch_export_model,
+    )
+    if posixpath.isabs(manifest_key):
+        manifest_key = posixpath.relpath(manifest_key, "/")
 
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
@@ -1931,14 +1941,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     primary_key=primary_key,
                 ) as redshift_stage_table,
             ):
-                manifest_key = posixpath.join(
-                    inputs.copy.s3_key_prefix,
-                    f"{inputs.batch_export.data_interval_start}-{inputs.batch_export.data_interval_end}_manifest.json",
-                )
-
-                if posixpath.isabs(manifest_key):
-                    manifest_key = posixpath.relpath(manifest_key, "/")
-
                 await upload_manifest_file(
                     bucket=inputs.copy.s3_bucket.name,
                     region_name=inputs.copy.s3_bucket.region_name,

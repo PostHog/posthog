@@ -1,5 +1,7 @@
 """Unit tests for logic/runs.py — Run creation, ingestion, completion, supersession, and recompute."""
 
+from contextlib import nullcontext
+
 import pytest
 
 from django.db import connections
@@ -10,16 +12,29 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import (
     BaselineMode,
+    RunGate,
+    RunPurpose,
     RunReviewFilter,
     RunStatus,
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import approvals, artifact_store, errors, github_api, repos, run_queries, runs
+from products.visual_review.backend.logic import (
+    approvals,
+    artifact_store,
+    baseline_approvals,
+    ci_status,
+    errors,
+    gating,
+    github_api,
+    repos,
+    run_queries,
+    runs,
+)
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import button_flow
+from products.visual_review.backend.tests.logic.ledger_fakes import SEED, button_flow, set_baseline_mode
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -932,7 +947,8 @@ class TestRecomputeRun:
         assert result["ci_rerun_triggered"] is False
         assert "CI job ID not available" in result["ci_rerun_error"]
 
-    def test_recompute_run_triggers_ci_rerun(self, repo, team, mocker):
+    @pytest.mark.parametrize(("gate", "reruns"), [(RunGate.CI_JOB, True), (RunGate.COMMIT_STATUS, False)])
+    def test_recompute_run_reruns_the_ci_job_of_a_ci_job_run_only(self, repo, team, mocker, gate, reruns):
         run = self._create_completed_run(
             repo,
             mocker,
@@ -940,15 +956,17 @@ class TestRecomputeRun:
             baseline={"Button": "old1"},
             metadata={"github_check_run_id": "72855643533"},
         )
+        Run.objects.filter(id=run.id).update(gate=gate)
 
-        mocker.patch(
+        rerun = mocker.patch(
             "products.visual_review.backend.logic.ci_status._rerun_github_job",
             return_value=(True, None),
         )
 
         result = runs.recompute_run(run.id, team_id=team.id)
 
-        assert result["ci_rerun_triggered"] is True
+        assert rerun.called is reruns
+        assert result["ci_rerun_triggered"] is reruns
         assert result["ci_rerun_error"] is None
 
     def test_recompute_run_handles_ci_rerun_failure(self, repo, team, mocker):
@@ -992,3 +1010,53 @@ class TestCompleteRunByBaselineMode:
         record = BaselineRecord.from_json(run.metadata[METADATA_KEY])
         assert record is not None and record.mode == BaselineMode.SHADOW
         assert "default branch" in record.unavailable_reason
+
+    @pytest.mark.parametrize("failing_write", ["record_evidence", "record_carried_commits"])
+    @pytest.mark.parametrize(
+        ("mode", "expectation", "expected_status", "expected_post"),
+        [
+            (BaselineMode.SHADOW, nullcontext(), RunStatus.COMPLETED, "success"),
+            (BaselineMode.LEDGER, pytest.raises(RuntimeError), RunStatus.FAILED, "error"),
+        ],
+    )
+    def test_a_run_whose_approval_writes_fail_completes_only_in_shadow_mode(
+        self,
+        team,
+        mocker,
+        django_capture_on_commit_callbacks,
+        mode,
+        expectation,
+        expected_status,
+        expected_post,
+        failing_write,
+    ):
+        repo, git, flow = button_flow(team.id, mode, mocker, external_id=99995)
+        git.commit("q1", SEED)
+        mocker.patch.object(baseline_approvals, failing_write, side_effect=RuntimeError("database went away"))
+
+        with expectation, django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            flow.run("q1", {"Button": "b0"}, branch="trunk-merge/q1", purpose=RunPurpose.OBSERVE)
+
+        run = Run.objects.get(repo=repo, commit_sha="q1")
+        assert run.status == expected_status
+        assert expected_post in [call.kwargs["state"] for call in flow.statuses.call_args_list]
+
+    @pytest.mark.parametrize(
+        ("mode", "posted"),
+        [(BaselineMode.YAML, []), (BaselineMode.LEDGER, ["error"])],
+    )
+    def test_a_failed_recount_publishes_its_error_outside_yaml_mode(
+        self, team, mocker, django_capture_on_commit_callbacks, mode, posted
+    ):
+        repo = repos.create_repo(team_id=team.id, repo_external_id=99994, repo_full_name="org/test-recount-failure")
+        set_baseline_mode(repo, mode)
+        run = Run.objects.create(
+            repo=repo, team_id=repo.team_id, run_type=RunType.STORYBOOK, commit_sha="p1", branch="feat", pr_number=1
+        )
+        sender = mocker.patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED)
+        mocker.patch.object(gating, "_recount", side_effect=RuntimeError("database went away"))
+
+        with pytest.raises(RuntimeError), django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            runs.finish_processing(run.id)
+
+        assert [call.kwargs["state"] for call in sender.call_args_list] == posted

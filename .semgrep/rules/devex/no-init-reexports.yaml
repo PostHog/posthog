@@ -29,7 +29,7 @@ rules:
               # Django flat-namespace model aggregators — idiomatic, load-bearing for admin,
               # migrations, and the app registry
               - '**/models/**'
-              # facade = the enforced public-API boundary (import-linter "presentation must use facade")
+              # facade = the enforced public-API boundary (hoglint `presentation-uses-facade`)
               - '**/facade/**'
               # import-for-side-effect registration: importing the package IS the registration
               - '**/tasks/__init__.py' # Celery autoimport

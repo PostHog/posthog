@@ -6,9 +6,11 @@ ENDPOINTS = (
     "Budgets",
     "Costs",
     "Dimensions",
+    "InsightComments",
     "Insights",
     "RecommendationTypes",
     "Recommendations",
+    "Views",
 )
 
 INCREMENTAL_ENDPOINTS = ("Costs",)
@@ -79,16 +81,29 @@ LIST_ENDPOINTS: dict[str, ListEndpointSettings] = {
         # in-memory page bounded and gives the resumable cursor a checkpoint per page.
         "params": {"limit": 1000},
     },
+    "Views": {
+        "path": "/v2/views",
+        "table_name": "views",
+        "data_selector": "views",
+        "paginated": True,
+        "params": {},
+    },
 }
+
+# Comments hang off each insight, so this table fans out over the `Insights` listing. The endpoint
+# returns every comment of one insight in a single page.
+INSIGHT_COMMENTS_PATH = "/v2/insights/{insight_id}/comments"
 
 # Primary key per endpoint. `Costs` is absent because its key depends on the dimensions the user
 # groups by, so `source_for_pipeline` assembles it.
 PRIMARY_KEYS: dict[str, list[str]] = {
     "Budgets": ["id"],
     "Dimensions": ["id"],
+    "InsightComments": ["insight_id", "id"],
     "Insights": ["id"],
     "RecommendationTypes": ["id"],
     "Recommendations": ["recommendation_id"],
+    "Views": ["id"],
 }
 
 # Partition key per endpoint (stable business dates only — never a `_at`/`lastSeen`-style field).
@@ -96,9 +111,11 @@ PARTITION_KEYS: dict[str, str | None] = {
     "Budgets": None,
     "Costs": "usage_date",
     "Dimensions": None,
+    "InsightComments": None,
     "Insights": None,
     "RecommendationTypes": None,
     "Recommendations": None,
+    "Views": None,
 }
 
 # CloudZero's earliest documented cost data; used as the start_date floor for a full (non-incremental) sync.

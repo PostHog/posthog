@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import itertools
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -20,6 +21,7 @@ from products.warehouse_sources.sources.cursor.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -52,6 +54,10 @@ class CursorResumeConfig:
     window_start: int | None = None
     # 1-based page to resume from within that window (or within the spend listing).
     page: int = 1
+    # Cursor-paginated endpoints: the next page's cursor, and the end (epoch ms) of the window it
+    # belongs to. Cursor rejects a cursor sent with any other range, so a resume must reuse that end.
+    cursor: str | None = None
+    window_end: int | None = None
 
 
 def _to_epoch_ms(value: Any) -> int:
@@ -277,6 +283,15 @@ def _has_next_page(data: dict[str, Any], page: int, items_count: int, page_size:
     return items_count >= page_size
 
 
+def _next_page_cursor(data: dict[str, Any]) -> str | None:
+    """Read `pagination.nextCursor`, or None when `hasMore` says the listing is done."""
+    pagination = data.get("pagination")
+    if not isinstance(pagination, dict) or not pagination.get("hasMore"):
+        return None
+    next_cursor = pagination.get("nextCursor")
+    return next_cursor if isinstance(next_cursor, str) and next_cursor else None
+
+
 def _get_members_rows(
     session: requests.Session,
     config: CursorEndpointConfig,
@@ -405,6 +420,10 @@ _WINDOWED_NORMALIZERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "audit_logs": _make_iso_normalizer("timestamp"),
     "bugbot_reviews": _make_iso_normalizer("timestamp"),
     "conversation_insights": _make_iso_normalizer("date"),
+    "ask_mode": _make_iso_normalizer("event_date"),
+    "plans": _make_iso_normalizer("event_date"),
+    "mcp": _make_iso_normalizer("event_date"),
+    "billing_items": _make_iso_normalizer("eventTime"),
 }
 
 
@@ -496,15 +515,29 @@ def _page_item_count(config: CursorEndpointConfig, data: dict[str, Any], rows: l
 
 
 def _window_request_params(
-    config: CursorEndpointConfig, window_start: int, window_end: int, page: int
+    config: CursorEndpointConfig, window_start: int, window_end: int, page: int, page_cursor: str | None = None
 ) -> dict[str, Any]:
     start_param, end_param = config.date_param_names
+    if config.exclusive_end:
+        window_end += 1
+    params: dict[str, Any]
     if config.date_param_format == "iso_date":
-        params: dict[str, Any] = {start_param: _to_iso_date(window_start), end_param: _to_iso_date(window_end)}
+        params = {start_param: _to_iso_date(window_start), end_param: _to_iso_date(window_end)}
+    elif config.date_param_format == "iso_datetime":
+        # Both bounds truncate to the second, so the end of one window stays equal to the start of
+        # the next and no row falls between them.
+        params = {
+            start_param: format_datetime(_from_epoch_ms(window_start), "iso_z"),
+            end_param: format_datetime(_from_epoch_ms(window_end), "iso_z"),
+        }
     else:
         params = {start_param: window_start, end_param: window_end}
     params |= config.extra_params
-    if config.paginated:
+    if config.paginated and config.pagination == "cursor":
+        params["pageSize"] = config.page_size
+        if page_cursor is not None:
+            params["cursor"] = page_cursor
+    elif config.paginated:
         params |= {"page": page, "pageSize": config.page_size}
     return params
 
@@ -513,6 +546,9 @@ def _window_request_params(
 class WindowStart:
     start_ms: int
     first_page: int
+    first_cursor: str | None = None
+    # End of the window a saved page cursor belongs to.
+    first_window_end: int | None = None
 
 
 def _resolve_window_start(
@@ -531,6 +567,13 @@ def _resolve_window_start(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.window_start is not None:
         logger.debug(f"Cursor: resuming {config.name} from window_start={resume.window_start}, page={resume.page}")
+        if resume.cursor is not None and resume.window_end is not None:
+            return WindowStart(
+                start_ms=resume.window_start,
+                first_page=resume.page,
+                first_cursor=resume.cursor,
+                first_window_end=resume.window_end,
+            )
         return WindowStart(start_ms=resume.window_start, first_page=resume.page)
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -554,10 +597,12 @@ def _paginate_window(
     window_end: int,
     end_ms: int,
     first_page: int,
+    first_cursor: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     page = first_page
+    page_cursor = first_cursor
     while True:
-        request_params = _window_request_params(config, window_start, window_end, page)
+        request_params = _window_request_params(config, window_start, window_end, page, page_cursor)
         url = f"{CURSOR_BASE_URL}{config.path}"
         if config.query_params:
             data = _fetch(session, config.method, url, logger, params=request_params)
@@ -569,11 +614,28 @@ def _paginate_window(
         # A by-user page is sized in users, and a user with no activity in the window contributes
         # no rows — so termination has to read the page's own size, not the row count.
         page_items = _page_item_count(config, data, items)
-        has_next = config.paginated and _has_next_page(data, page, page_items, config.page_size)
+        next_cursor = _next_page_cursor(data) if config.pagination == "cursor" else None
+        if config.pagination == "cursor":
+            has_next = config.paginated and next_cursor is not None
+            pagination = data.get("pagination")
+            if next_cursor is None and isinstance(pagination, dict) and pagination.get("hasMore"):
+                logger.warning(
+                    f"Cursor: {config.name} reported more pages without a usable nextCursor, "
+                    f"ending window {window_start}-{window_end} early"
+                )
+        else:
+            has_next = config.paginated and _has_next_page(data, page, page_items, config.page_size)
         window_done = not page_items or not has_next
 
         if not window_done:
-            resumable_source_manager.save_state(CursorResumeConfig(window_start=window_start, page=page + 1))
+            resumable_source_manager.save_state(
+                CursorResumeConfig(
+                    window_start=window_start,
+                    page=page + 1,
+                    cursor=next_cursor,
+                    window_end=window_end if next_cursor is not None else None,
+                )
+            )
         elif window_end + 1 <= end_ms:
             resumable_source_manager.save_state(CursorResumeConfig(window_start=window_end + 1, page=1))
 
@@ -585,6 +647,7 @@ def _paginate_window(
         if window_done:
             break
         page += 1
+        page_cursor = next_cursor
 
 
 def _get_windowed_rows(
@@ -611,7 +674,17 @@ def _get_windowed_rows(
         raise ValueError(f"No normalizer defined for windowed endpoint: {config.name}")
 
     first_page = window_start.first_page
-    for window in _build_windows(window_start.start_ms, end_ms, config.window_days):
+    first_cursor = window_start.first_cursor
+    windows: Iterator[Window] = _build_windows(window_start.start_ms, end_ms, config.window_days)
+    if window_start.first_window_end is not None:
+        # A saved page cursor only works with the exact range it came from, so finish that window
+        # first, then carry on from its end.
+        resumed_end = window_start.first_window_end
+        windows = itertools.chain(
+            [Window(start_ms=window_start.start_ms, end_ms=resumed_end)],
+            _build_windows(resumed_end + 1, end_ms, config.window_days),
+        )
+    for window in windows:
         yield from _paginate_window(
             session,
             config,
@@ -622,8 +695,11 @@ def _get_windowed_rows(
             window.end_ms,
             end_ms,
             first_page,
+            first_cursor,
         )
-        first_page = 1  # only the resumed-into window starts mid-pagination
+        # Only the resumed-into window starts mid-pagination.
+        first_page = 1
+        first_cursor = None
 
 
 def cursor_source(
@@ -664,5 +740,5 @@ def cursor_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode="asc" if config.rows_ascending else None,
     )

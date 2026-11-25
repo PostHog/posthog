@@ -47,6 +47,19 @@ export const Disabled: Story = {
     ),
 } satisfies Story
 
+export const DisabledReason: Story = {
+    render: () => (
+        <Field data-disabled>
+            <FieldLabel htmlFor="textarea-locked">Message</FieldLabel>
+            <Textarea
+                id="textarea-locked"
+                defaultValue="Thanks for the update."
+                disabledReason="Only the author can edit this message"
+            />
+        </Field>
+    ),
+} satisfies Story
+
 export const Invalid: Story = {
     render: () => (
         <Field data-invalid>

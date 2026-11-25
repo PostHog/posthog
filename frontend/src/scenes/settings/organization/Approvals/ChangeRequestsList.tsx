@@ -5,6 +5,7 @@ import { LemonButton, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-u
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -16,10 +17,33 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import { ChangeRequestTableActions } from './ChangeRequestTableActions'
+import { QuillChangeRequestsTable } from './QuillChangeRequestsTable'
 
 export function ChangeRequestsList(): JSX.Element {
     const { changeRequests, changeRequestsDataLoading, filters, hasMore } = useValues(approvalsLogic)
     const { setFilters, loadMore, approveChangeRequest, rejectChangeRequest } = useActions(approvalsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleStateFilterChange = (value: ChangeRequestState | null): void => {
+        setFilters({ state: value || undefined })
+    }
+
+    if (todayRailNav) {
+        return (
+            <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-change-requests">
+                <QuillChangeRequestsTable
+                    changeRequests={changeRequests}
+                    loading={changeRequestsDataLoading}
+                    stateFilter={filters.state ?? null}
+                    hasMore={hasMore}
+                    onStateFilterChange={handleStateFilterChange}
+                    onLoadMore={loadMore}
+                    onApprove={approveChangeRequest}
+                    onReject={rejectChangeRequest}
+                />
+            </PayGateMini>
+        )
+    }
 
     const columns: LemonTableColumn<ChangeRequest, keyof ChangeRequest | undefined>[] = [
         {
@@ -125,9 +149,7 @@ export function ChangeRequestsList(): JSX.Element {
                         </span>
                         <LemonSelect
                             dropdownMatchSelectWidth={false}
-                            onChange={(value) => {
-                                setFilters({ state: value || undefined })
-                            }}
+                            onChange={handleStateFilterChange}
                             size="small"
                             options={[
                                 { label: 'All', value: null },

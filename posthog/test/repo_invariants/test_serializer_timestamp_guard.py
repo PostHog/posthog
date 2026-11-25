@@ -103,7 +103,6 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.experiments.backend.presentation.serializers.ExperimentSerializer.start_date": "Client launches the experiment by setting this",
     "products.experiments.backend.presentation.serializers.ExperimentWriteSerializer.end_date": "Client stops the experiment by setting this",
     "products.experiments.backend.presentation.serializers.ExperimentWriteSerializer.start_date": "Client launches the experiment by setting this",
-    "products.experiments.backend.presentation.web_experiments.WebExperimentsAPISerializer.created_at": "TODO: server-owned creation timestamp, make read-only",
     "products.feature_flags.backend.api.scheduled_change.ScheduledChangeSerializer.end_date": "Client picks when a recurring schedule stops",
     "products.feature_flags.backend.api.scheduled_change.ScheduledChangeSerializer.scheduled_at": "Client picks when the change is applied",
     "products.groups.backend.presentation.views.GroupTypeSerializer.created_at": "TODO: server-owned, the model sets it on creation itself",

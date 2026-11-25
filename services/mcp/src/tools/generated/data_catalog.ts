@@ -634,9 +634,6 @@ const dataCatalogRelationshipPropose = (): ToolBase<
         if (params.configuration !== undefined) {
             body['configuration'] = params.configuration
         }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }

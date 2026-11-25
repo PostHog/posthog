@@ -20,8 +20,13 @@ from products.warehouse_sources.sources.aws_glue_data_catalog.settings import (
     ERROR_MESSAGES,
     PARENT_ENDPOINTS,
     REQUEST_TIMEOUT_SECONDS,
+    SAFE_AUTHENTICATION_FIELDS,
+    SAFE_CONNECTION_PROPERTIES,
+    SAFE_OAUTH2_FIELDS,
     TABLE_OPTIMIZER_TYPES,
     TARGET_PREFIXES,
+    UNSAFE_CONNECTION_FIELDS,
+    URL_CONNECTION_PROPERTIES,
     GlueEndpoint,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -149,7 +154,7 @@ class AwsGlueClient:
 
     def request_endpoint(self, endpoint: GlueEndpoint, params: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            return self.request(endpoint.operation, params)
+            return self.request(endpoint.operation, {**dict(endpoint.request_params), **params})
         except AwsGlueError as error:
             # ListTableOptimizerRuns fails when the table has no optimizer of the requested type.
             if endpoint.missing_is_empty and error.code == "EntityNotFoundException":
@@ -186,7 +191,79 @@ def endpoint_spec(endpoint: str) -> GlueEndpoint:
     return ENDPOINTS[endpoint] if endpoint in ENDPOINTS else PARENT_ENDPOINTS[endpoint]
 
 
+def without_url_credentials(url: str) -> str | None:
+    url = re.split(r"[?;]", url, maxsplit=1)[0]
+    if "@" not in url:
+        return url
+    prefix, separator, rest = url.partition("//")
+    # Only the scheme://user:password@host form can be cleaned safely; other forms are dropped.
+    if not separator or ("@" in prefix and not prefix.endswith(":@")):
+        return None
+    authority, slash, path = rest.partition("/")
+    if "@" in path:
+        return None
+    return f"{prefix}//{authority.rpartition('@')[2]}{slash}{path}"
+
+
+def without_secrets(properties: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, value in properties.items():
+        if name not in SAFE_CONNECTION_PROPERTIES:
+            continue
+        if name in URL_CONNECTION_PROPERTIES and isinstance(value, str):
+            value = without_url_credentials(value)
+            if value is None:
+                continue
+        result[name] = value
+    return result
+
+
+def safe_authentication(config: dict[str, Any]) -> dict[str, Any]:
+    result = {key: config[key] for key in SAFE_AUTHENTICATION_FIELDS if key in config}
+    oauth2 = config.get("OAuth2Properties")
+    if isinstance(oauth2, dict):
+        safe_oauth2 = {key: oauth2[key] for key in SAFE_OAUTH2_FIELDS if key in oauth2}
+        token_url = safe_oauth2.get("TokenUrl")
+        if isinstance(token_url, str):
+            cleaned = without_url_credentials(token_url)
+            if cleaned is None:
+                del safe_oauth2["TokenUrl"]
+            else:
+                safe_oauth2["TokenUrl"] = cleaned
+        result["OAuth2Properties"] = safe_oauth2
+    return result
+
+
+def safe_connection(item: dict[str, Any]) -> dict[str, Any]:
+    result = {key: value for key, value in item.items() if key not in UNSAFE_CONNECTION_FIELDS}
+    properties = result.get("ConnectionProperties")
+    if isinstance(properties, dict):
+        result["ConnectionProperties"] = without_secrets(properties)
+    authentication = result.get("AuthenticationConfiguration")
+    if isinstance(authentication, dict):
+        result["AuthenticationConfiguration"] = safe_authentication(authentication)
+    return result
+
+
+def safe_trigger(item: dict[str, Any]) -> dict[str, Any]:
+    # Glue job arguments often carry plaintext secrets.
+    actions = item.get("Actions")
+    if not isinstance(actions, list):
+        return item
+    return {
+        **item,
+        "Actions": [
+            {key: value for key, value in action.items() if key != "Arguments"} if isinstance(action, dict) else action
+            for action in actions
+        ],
+    }
+
+
 def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_payload: dict[str, Any]) -> dict[str, Any]:
+    if endpoint == "connections":
+        item = safe_connection(item)
+    elif endpoint == "triggers":
+        item = safe_trigger(item)
     row = {camel_to_snake(key): value for key, value in item.items()}
     row["region"] = region
     for column in endpoint_spec(endpoint).timestamp_columns:
@@ -209,6 +286,8 @@ def parent_payload(endpoint: str, parent: dict[str, Any]) -> dict[str, Any]:
         return {"CrawlerName": parent["name"]}
     if endpoint == "workflow_runs":
         return {"Name": parent["name"], "IncludeGraph": False}
+    if endpoint == "schema_versions":
+        return {"SchemaId": {"SchemaArn": parent["schema_arn"]}}
     payload = {"DatabaseName": parent["name"] if endpoint == "tables" else parent["database_name"]}
     if parent.get("catalog_id"):
         payload["CatalogId"] = parent["catalog_id"]

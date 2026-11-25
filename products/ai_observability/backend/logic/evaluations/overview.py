@@ -426,9 +426,8 @@ def evaluation_result(
     )
 
 
-def pass_rate_overview(rows: Sequence[contracts.EvaluationResult], bucket_count: int) -> contracts.PassRateOverview:
+def pass_rate_overview(rows: Sequence[contracts.EvaluationResult]) -> contracts.PassRateOverview:
     entries: list[contracts.PassRateOverviewEntry] = []
-    measured: list[contracts.EvaluationResult] = []
     compared: list[tuple[float, float]] = []
     for row in rows:
         summary = row.summary
@@ -440,18 +439,9 @@ def pass_rate_overview(rows: Sequence[contracts.EvaluationResult], bucket_count:
         entries.append(contracts.PassRateOverviewEntry(evaluation_id=row.id, rate=rate, low_evidence=row.low_evidence))
         if row.low_evidence:
             continue
-        measured.append(row)
         previous = pass_rate(summary.previous.passed, summary.previous.failed) if summary.previous else None
         if previous is not None:
             compared.append((rate, previous))
-    median_trend = (
-        [
-            _median([value for row in measured if (value := row.trend.values[index]) is not None])
-            for index in range(bucket_count)
-        ]
-        if measured
-        else []
-    )
     # Both medians cover the same evaluations, so a change between them is not a change in which ones ran.
     current_median = _median([current for current, _ in compared])
     previous_median = _median([previous for _, previous in compared])
@@ -464,7 +454,6 @@ def pass_rate_overview(rows: Sequence[contracts.EvaluationResult], bucket_count:
         entries=sorted(entries, key=lambda entry: entry.rate),
         median=_median([entry.rate for entry in entries if not entry.low_evidence]),
         median_comparison=median_comparison,
-        median_trend=median_trend,
     )
 
 

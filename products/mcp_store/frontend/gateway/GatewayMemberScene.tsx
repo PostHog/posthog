@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { GatewayMemberSummaryApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayMemberLogicProps, gatewayMemberLogic } from './gatewayMemberLogic'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
@@ -76,9 +77,7 @@ export function GatewayMemberScene({
         )
     }
 
-    const memberName =
-        [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email
-    const firstName = member.user.first_name?.trim() || memberName.split(' ')[0]
+    const { memberName, firstName } = gatewayMemberNames(member)
 
     return (
         <SceneContent>
@@ -185,6 +184,13 @@ export function GatewayMemberScene({
             </div>
         </SceneContent>
     )
+}
+
+export function gatewayMemberNames(member: GatewayMemberSummaryApi): { memberName: string; firstName: string } {
+    const memberName =
+        [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email
+    const firstName = member.user.first_name?.trim() || memberName.split(' ')[0]
+    return { memberName, firstName }
 }
 
 function BackToTeamButton({ onBack }: { onBack?: () => void }): JSX.Element {

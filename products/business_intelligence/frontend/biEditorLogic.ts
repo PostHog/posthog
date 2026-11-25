@@ -25,6 +25,7 @@ import {
     BIResultFilter,
     BIHierarchy,
 } from '~/queries/schema/schema-business-intelligence'
+import type { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import {
     CompareFilter,
     DatabaseSchemaTable,
@@ -424,7 +425,7 @@ export interface biEditorLogicActions {
         tableNames: string[]
     } // databaseTableListLogic
     loadDatabaseSuccess: (
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null,
+        database: Required<DatabaseSchemaQueryResponse> | null,
         payload?:
             | {
                   force?: boolean
@@ -432,7 +433,7 @@ export interface biEditorLogicActions {
               }
             | undefined
     ) => {
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null
+        database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {
             force?: boolean
             shallow?: boolean

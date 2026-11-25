@@ -42,7 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # Application definition
 
 # TODO: Automatically generate these like we do for the frontend
-# NOTE: Add these definitions here and on `tach.toml`
+# NOTE: `hogli product:bootstrap` adds a new product here; hoglint needs no per-product entry
 PRODUCTS_APPS = [
     "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
@@ -189,6 +189,8 @@ MIDDLEWARE = [
     # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
     # so the build skew counter sees the status of each API response the client receives.
     "posthog.client_build_middleware.ClientBuildSkewMiddleware",
+    # Outside the same middleware, so hog gets its notices on every answer, an early refusal included.
+    "posthog.cli_notices.CliNoticeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -210,6 +212,13 @@ MIDDLEWARE = [
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.csp_middleware.CSPMiddleware",
+    # Above every middleware that can answer without calling the view, so those responses get the
+    # header too. A view that allows framing still opts out with xframe_options_exempt.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware and
+    # XFrameOptionsMiddleware, so that the 404 gets their headers. Above the middleware that loads
+    # the session and the user from the database.
+    "posthog.middleware.MissingStaticFileMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -237,7 +246,6 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "posthog.middleware.NewEventsSchemaCookieMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
@@ -310,6 +318,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
+    "posthog.api.sso.ChatGPTOpenIdConnect",
     "django.contrib.auth.backends.ModelBackend",
     "posthog.auth.WebauthnBackend",
 ]
@@ -376,14 +385,10 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
-LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+SOCIAL_AUTH_CHATGPT_KEY: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_KEY")
+SOCIAL_AUTH_CHATGPT_SECRET: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_SECRET")
 
-# Kill switch for legacy Team.secret_api_token auth (#66179). When False, the legacy
-# verifiers (TeamSecretTokenAuthentication, the conversations/customer-analytics external
-# team-token branches, the widget identity-verification legacy fallback) all go inert, and
-# ProjectSecretAPIKeyAuthentication stops deferring tokens that match a team's legacy
-# token — migrated tokens then authenticate via their backfilled PSAK mirror rows.
-ACCEPT_TEAM_SECRET_TOKENS = get_from_env("ACCEPT_TEAM_SECRET_TOKENS", True, type_cast=str_to_bool)
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_ENGINE = "posthog.session.backend"
@@ -892,7 +897,7 @@ SPECTACULAR_SETTINGS = {
             "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
-            # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
+            # products/dashboards/scripts/build_widget_types.py checks these against WIDGET_SPECS.
             "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
             "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
             "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
@@ -921,6 +926,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/dashboard_v2/query_batch/?$",
             ]
         ),
     )
@@ -1084,7 +1090,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
     "API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR", 20_000_000_000, type_cast=int
 )
-API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
+API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 100.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
 API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
     "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
@@ -1254,6 +1260,11 @@ WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_T
 # tier: this many separate days on which the team sent at least this fraction of its daily cap.
 WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
 WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
+# An established paying customer starts from a floor instead of tier 0, so its first real send is not
+# capped at the probation allowance. A floor tier of 0 disables the floor. Billing scores an organization
+# 7 or more once it has paid an invoice, and an active trial reads as a subscription, so the bar is the score.
+WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER", 3))
+WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE", 7))
 # app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
 # means the signal contributes nothing, so the decision rests on rates and staff suspensions.
 WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
@@ -1403,6 +1414,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "heatmap:write",
     "element:read",
+    "event_definition:read",
+    "event_definition:write",
     "uploaded_media:write",
     "field_note:read",
     "field_note:write",
@@ -1455,6 +1468,9 @@ WIZARD_GATEWAY_CLIENT_IDS = [
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+# How much of a run's cap its token may spend on the gateway's decision route. 0 sends the smallest cap the
+# gateway takes, which refuses the token's decisions. An empty value reads as the default, like every setting here.
+WIZARD_GATEWAY_DECISION_CAP_USD = get_from_env("WIZARD_GATEWAY_DECISION_CAP_USD", "0.25")
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
 # posture's floor in wizard_gateway_token, not to the flat settings above, whose
@@ -1534,9 +1550,6 @@ try:
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
-# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
-# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
-AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
