@@ -689,28 +689,31 @@ class TestMembershipBackfill(BaseTest):
                     properties=properties,
                     timestamp=start + timedelta(days=days),
                 )
-            activity_events: list[tuple[int, str, dict[str, object]]] = [
-                (1, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": False}),
-                (50, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": False}),
-                (50, "example_action", {"$group_0": "suppressed-account", "$update_person_last_seen_at": False}),
-                (5, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": True}),
-                (5, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": "false"}),
-                (5, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": 0}),
-                (5, "example_action", {"$group_0": "account-a", "$update_person_last_seen_at": None}),
-                (1, "$feature_flag_called", {"$group_0": "account-a"}),
-                (50, "$feature_flag_called", {"$group_0": "account-a"}),
-                (50, "$feature_flag_called", {"$group_0": "flag-calls-account"}),
+            activity_events: list[tuple[int, dict[str, object]]] = [
+                (1, {"$group_0": "account-a", "$update_person_last_seen_at": False}),
+                (50, {"$group_0": "account-a", "$update_person_last_seen_at": False}),
+                (50, {"$group_0": "suppressed-account", "$update_person_last_seen_at": False}),
+                (5, {"$group_0": "account-a", "$update_person_last_seen_at": True}),
+                (5, {"$group_0": "account-a", "$update_person_last_seen_at": "false"}),
+                (5, {"$group_0": "account-a", "$update_person_last_seen_at": 0}),
+                (5, {"$group_0": "account-a", "$update_person_last_seen_at": None}),
             ]
-            for minutes, event, properties in activity_events:
-                create_event(
-                    event_uuid=uuid4(),
-                    event=event,
-                    team=self.team,
-                    distinct_id="identified",
-                    person_mode="full",
-                    properties=properties,
-                    timestamp=start + timedelta(minutes=minutes),
-                )
+            flag_calls: list[tuple[int, dict[str, object]]] = [
+                (1, {"$group_0": "account-a"}),
+                (50, {"$group_0": "account-a"}),
+                (50, {"$group_0": "flag-calls-account"}),
+            ]
+            for event, rows in (("example_action", activity_events), ("$feature_flag_called", flag_calls)):
+                for minutes, properties in rows:
+                    create_event(
+                        event_uuid=uuid4(),
+                        event=event,
+                        team=self.team,
+                        distinct_id="identified",
+                        person_mode="full",
+                        properties=properties,
+                        timestamp=start + timedelta(minutes=minutes),
+                    )
             snapshot = timezone.now() + timedelta(minutes=1)
             with patch.object(self.service, "query", wraps=self.service.query) as query:
                 plan = self.service.plan(self.team, 0, snapshot)
