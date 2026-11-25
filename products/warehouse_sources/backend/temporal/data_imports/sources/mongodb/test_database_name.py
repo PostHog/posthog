@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+import dns.resolver
+import dns.exception
 from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     UNSUPPORTED_FILE_OPTION_ERROR,
     UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
+    is_atlas_srv_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_SRV_RECORD_MISSING_MESSAGE,
+    _MONGO_SRV_SCHEME_REQUIRED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
@@ -85,6 +89,61 @@ class TestMongoValidateCredentialsDatabaseName:
 
         assert ok is False
         assert err == _MONGO_NO_COLLECTIONS_MESSAGE
+
+
+_HOST_CHECK_ERROR = "Couldn't resolve the host. Check that it's spelled correctly."
+_OTHER_HOST_CHECK_ERROR = "Enter a single hostname or IP address for the host."
+
+
+class TestMongoValidateCredentialsHostCheck:
+    @pytest.mark.parametrize(
+        "host, host_error, srv_lookup, expected_message, expect_probe",
+        [
+            ("cluster0.abcde.mongodb.net", _HOST_CHECK_ERROR, None, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE, True),
+            ("Cluster0.ABCDE.MongoDB.net", _HOST_CHECK_ERROR, None, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE, True),
+            ("cluster0.abcde.mongodb.net", _HOST_CHECK_ERROR, dns.resolver.NXDOMAIN(), _HOST_CHECK_ERROR, True),
+            ("cluster0.abcde.mongodb.net", _HOST_CHECK_ERROR, dns.exception.Timeout(), _HOST_CHECK_ERROR, True),
+            ("cluster0.abcde.mongodb.net", _OTHER_HOST_CHECK_ERROR, None, _OTHER_HOST_CHECK_ERROR, False),
+            ("cluster0.abcde.mongodb.net", None, None, None, False),
+            ("db.example.com", _HOST_CHECK_ERROR, None, _HOST_CHECK_ERROR, False),
+        ],
+    )
+    def test_failed_host_check_points_atlas_srv_names_at_the_srv_scheme(
+        self, host, host_error, srv_lookup, expected_message, expect_probe
+    ):
+        # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+        config = MongoDBSourceConfig.from_dict({"connection_string": f"mongodb://user:pass@{host}/realdb"})
+
+        with (
+            patch.object(MongoDBSource, "is_database_host_valid", return_value=(False, host_error)),
+            patch("dns.resolver.resolve", side_effect=srv_lookup) as mock_resolve,
+        ):
+            ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        assert mock_resolve.called is expect_probe
+
+
+class TestIsAtlasSrvName:
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "evil.example\\.mongodb.net",
+            "evil.example\\046.mongodb.net",
+            "cluster0.abcde.mongodb.net.",
+            "cluster0.abcde.mongodb.net.example.com",
+            "cluster0.abcde.notmongodb.net",
+            "mongodb.net",
+            "cluster0 .abcde.mongodb.net",
+            "cluster0.abcde.mongodb.net:27017",
+        ],
+    )
+    def test_names_outside_atlas_never_reach_the_resolver(self, host):
+        with patch("dns.resolver.resolve") as mock_resolve:
+            assert is_atlas_srv_name(host) is False
+
+        mock_resolve.assert_not_called()
 
 
 class TestMongoValidateCredentialsServerSelection:
