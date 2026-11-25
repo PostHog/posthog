@@ -97,7 +97,7 @@ class WindowScore:
     # or the exposure query doesn't find it.
     level_1: ProportionTestResult | None
     # In [0, 1]. None without the counts by last value, when nobody is exposed or nobody is unexposed, below the minimum
-    # volume, or for an edit with watched conditions.
+    # volume, with too few unexposed people to compare, or for an edit with watched conditions.
     level_2: float | None
     # In [0, 1]. None without an error rise after an exposure step, or with fewer than two rises in exposure share of at
     # least `min_share_step` between two adjacent hours.
@@ -118,6 +118,14 @@ class _Split:
     exposed: Proportion
     unexposed: Proportion
     unexposed_one_in: int
+
+    @property
+    def sampled_unexposed(self) -> Proportion:
+        """The unexposed people at the size of their sample. The scaled counts would look more certain than it."""
+        return Proportion(
+            trials=self.unexposed.trials // self.unexposed_one_in,
+            successes=self.unexposed.successes // self.unexposed_one_in,
+        )
 
 
 @frozen
@@ -286,12 +294,7 @@ def _level_1_split(edit: WatchedEdit, exposure: ExposureCounts | None, match: Co
 
 
 def _level_1(split: _Split, alpha: float) -> ProportionTestResult | None:
-    # The scaled counts would look more certain than their sample, and the test would find regressions in its noise.
-    sampled_unexposed = Proportion(
-        trials=split.unexposed.trials // split.unexposed_one_in,
-        successes=split.unexposed.successes // split.unexposed_one_in,
-    )
-    groups = (split.exposed, sampled_unexposed)
+    groups = (split.exposed, split.sampled_unexposed)
     if min(group.trials for group in groups) < MIN_GROUP_SIZE:
         return None
     # A group at 0% or 100% has no variance, so five people would look significant and no errors would give no result.
@@ -309,6 +312,9 @@ def _level_2(edit: WatchedEdit, counts: SplitCounts | None, parameters: ScorePar
     unexposed_rate = split.unexposed.successes / split.unexposed.trials
     if not exposed_rate:
         return 0.0
+    # So few unexposed people can have no errors by chance, even at the error rate of the exposed.
+    if exposed_rate * split.sampled_unexposed.trials < parameters.min_with_errors:
+        return None
     # The share of the exposed errors that the flag explains: 0 when the exposed are no worse, 1 when only they err.
     return max(0.0, 1 - unexposed_rate / exposed_rate)
 

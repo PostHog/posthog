@@ -509,6 +509,7 @@ class TestScoreWindow(SimpleTestCase):
                 None,
             ),
             ("nobody_exposed", (50, 10), 0, None),
+            ("too_few_unexposed_people_in_the_sample", (50, 0), PEOPLE, None, EDIT, 16),
             (
                 "an_edit_with_watched_conditions",
                 (50, 10),
@@ -525,8 +526,13 @@ class TestScoreWindow(SimpleTestCase):
         exposed: int,
         expected: float | None,
         edit: WatchedEdit = EDIT,
+        unexposed_one_in: int = 1,
     ) -> None:
-        last_values = _last_values([0.5], *errors_by_last_value, exposed=exposed) if errors_by_last_value else None
+        last_values = None
+        if errors_by_last_value:
+            [bucket] = _last_values([0.5], *errors_by_last_value, exposed=exposed)
+            since_edit = dataclasses.replace(bucket.since_edit, unexposed_one_in=unexposed_one_in)
+            last_values = [dataclasses.replace(bucket, since_edit=since_edit)]
 
         # No event carries the flag, as for a flag that only a backend evaluates.
         result = _score([], _errors(40), [BASELINE_RATE], edit=edit, last_values=last_values)
