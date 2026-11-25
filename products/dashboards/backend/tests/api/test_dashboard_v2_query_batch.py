@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import aclosing
 from threading import Event
 from typing import Any, cast
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import patch
@@ -29,6 +30,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.v2 import query_batch
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.event_definitions.backend.models import PropertyDefinition
 
@@ -204,6 +206,19 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
         self.assertEqual(features, ["query"])
 
+    def test_misses_past_a_users_query_share_are_busy_and_the_share_comes_back(self) -> None:
+        with (
+            patch("products.dashboards.backend.v2.query_batch.MAX_RUN_QUERIES_PER_USER", 2),
+            patch("products.dashboards.backend.v2.query_batch.process_query_dict", return_value={"results": []}),
+        ):
+            lines = self._lines([_insight("$pageview"), _insight("$autocapture"), _insight("$pageleave")])
+
+        self.assertEqual(
+            [line.get("error") for line in lines],
+            [None, None, "Too many dashboards are loading at once. Try again shortly."],
+        )
+        self.assertEqual(query_batch._org_queries, {})
+
     def test_a_disconnect_cancels_running_queries_with_tags_set(self) -> None:
         cancelled = Event()
         seen: list[tuple[str | None, str | None]] = []
@@ -254,7 +269,8 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": i, **too_large} for i in range(7)])
         self.assertEqual(reads.call_count, 1)
 
-    def test_a_client_that_stops_reading_gives_its_place_back_when_the_stream_expires(self) -> None:
+    @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
+    def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
 
         def open_batch(asynchronous: bool) -> Any:
@@ -280,16 +296,16 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             reader.cancel()
             return ended
 
-        with (
-            patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1),
-            patch("products.dashboards.backend.v2.query_batch.MAX_STREAM_SECONDS", 0.0),
-            patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
-        ):
-            ended = asyncio.run(ended_by_the_batch())
+        with patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1):
+            with (
+                patch(f"products.dashboards.backend.v2.query_batch.{deadline}", 0.0),
+                patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
+            ):
+                ended = asyncio.run(ended_by_the_batch())
             next_batch = b"".join(cast(Iterator[bytes], open_batch(asynchronous=False)))
 
         self.assertTrue(ended)
-        self.assertEqual(json.loads(next_batch), {"i": 0, "error": "The dashboard took too long to load. Try again."})
+        self.assertEqual(json.loads(next_batch)["result"]["cache"]["hit"], False)
 
     def test_a_batch_dropped_before_it_streams_stops_its_watchdog(self) -> None:
         batch = QueryBatch(
@@ -329,6 +345,28 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
+
+
+class TestQueryShares(SimpleTestCase):
+    def test_one_users_large_batches_leave_room_for_another_organization(self) -> None:
+        org_a, org_b = uuid4(), uuid4()
+        member, colleague, other_org = (
+            query_batch._share_keys(org, user) for org, user in ((org_a, 1), (org_a, 2), (org_b, 3))
+        )
+        with (
+            patch.object(query_batch, "MAX_RUN_QUERIES", 4),
+            patch.object(query_batch, "MAX_RUN_QUERIES_PER_ORG", 3),
+            patch.object(query_batch, "MAX_RUN_QUERIES_PER_USER", 2),
+            patch.object(query_batch, "_org_queries", {}),
+        ):
+            granted = [
+                query_batch._reserve_queries(member, 500),
+                query_batch._reserve_queries(member, 500),
+                query_batch._reserve_queries(colleague, 500),
+                query_batch._reserve_queries(other_org, 500),
+            ]
+
+        self.assertEqual(granted, [2, 0, 1, 1])
 
 
 class TestResolveQuery(SimpleTestCase):

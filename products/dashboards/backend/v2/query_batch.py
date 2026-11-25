@@ -82,6 +82,9 @@ MAX_STREAM_SECONDS = 600.0
 # A stream that is still reading notices the deadline within a heartbeat and ends with timed-out lines, so only a
 # response still open after this long is cut.
 STALLED_RESPONSE_GRACE_SECONDS = 2 * HEARTBEAT_SECONDS
+# A reader pulls at least a keep-alive line every heartbeat, so a response that has pulled nothing for several
+# heartbeats has a client that stopped reading. It ends then rather than at the stream deadline.
+MAX_IDLE_SECONDS = 6 * HEARTBEAT_SECONDS
 _open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
 _org_open: dict[Any, int] = {}
 _org_batches: dict[Any, int] = {}
@@ -167,6 +170,35 @@ def _release_batch(keys: tuple[Any, ...]) -> None:
     with _org_lock:
         _add_shares(_org_batches, keys, -1)
         _batch_slots.release()
+
+
+# Counted per query a batch will run, not per batch, so a batch of hundreds of misses takes its weight in the
+# budget. Queries past a share's room are answered busy rather than queued behind the rest.
+MAX_RUN_QUERIES = 400
+MAX_RUN_QUERIES_PER_ORG = 150
+MAX_RUN_QUERIES_PER_USER = 100
+_PROCESS_QUERIES = ("process",)
+_org_queries: dict[Any, int] = {}
+
+
+def _reserve_queries(keys: tuple[Any, ...], wanted: int) -> int:
+    with _org_lock:
+        room = MAX_RUN_QUERIES - _org_queries.get(_PROCESS_QUERIES, 0)
+        for key in keys:
+            cap = MAX_RUN_QUERIES_PER_USER if key[0] == "user" else MAX_RUN_QUERIES_PER_ORG
+            room = min(room, cap - _org_queries.get(key, 0))
+        granted = max(0, min(wanted, room))
+        _add_shares(_org_queries, (*keys, _PROCESS_QUERIES), granted)
+        return granted
+
+
+def _release_queries(keys: tuple[Any, ...], count: int) -> None:
+    with _org_lock:
+        _add_shares(_org_queries, (*keys, _PROCESS_QUERIES), -count)
+
+
+def _query_ended(keys: tuple[Any, ...], _future: Future[None]) -> None:
+    _release_queries(keys, 1)
 
 
 REFRESH_WORKERS = 2
@@ -387,10 +419,48 @@ def _release_refreshes(shares: tuple[Any, ...], count: int) -> None:
         _refresh_slots.release()
 
 
-def _expire_if_alive(batch_ref: "weakref.ReferenceType[QueryBatch]") -> None:
-    batch = batch_ref()
-    if batch is not None:
-        batch._expire()
+class _Watchdog:
+    """Checks a batch's stream deadline and idle deadline, re-arming itself until one passes or it is cancelled.
+    It holds the batch weakly, so a response dropped before it is iterated is still collected."""
+
+    def __init__(self, batch: "QueryBatch") -> None:
+        self._batch_ref = weakref.ref(batch)
+        self._lock = Lock()
+        self._stopped = False
+        self._timer: Timer | None = None
+
+    def arm(self, delay: float) -> None:
+        with self._lock:
+            if self._stopped:
+                return
+            self._timer = Timer(max(0.0, delay), self._fire)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._stopped = True
+            timer = self._timer
+        if timer is not None:
+            timer.cancel()
+
+    def join(self, timeout: float) -> None:
+        timer = self._timer
+        if timer is not None:
+            timer.join(timeout)
+
+    def is_alive(self) -> bool:
+        timer = self._timer
+        return timer is not None and timer.is_alive()
+
+    def _fire(self) -> None:
+        batch = self._batch_ref()
+        if batch is None:
+            return
+        delay = batch._check_deadlines()
+        del batch
+        if delay is not None:
+            self.arm(delay)
 
 
 def _render_body(line: dict[str, Any]) -> bytes:
@@ -440,6 +510,7 @@ class QueryBatch:
         self._unread_space = Condition()
         self._closed = False
         self._deadline = monotonic() + MAX_STREAM_SECONDS
+        self._overflow: list[tuple[int, str, ResolvedQuery]] = []
         self._shares = _share_keys(team.organization_id, user.pk)
         self._open = _OpenSlot(self._shares)
         if not self._open.acquire():
@@ -451,13 +522,12 @@ class QueryBatch:
             self._open.release()
             raise
         # A client that stops reading parks the stream inside a send, where no deadline check runs, so a timer
-        # enforces it: it drops the held results, frees the run slot, cancels running queries and, under ASGI,
-        # ends the response.
-        # A weak target, so a response dropped before it is iterated is still collected and its slot released.
-        self._watchdog = Timer(max(0.0, self._deadline - monotonic()), _expire_if_alive, args=(weakref.ref(self),))
-        self._watchdog.daemon = True
+        # enforces both deadlines: it drops the held results, frees the run slot, cancels running queries and, under
+        # ASGI, ends the response.
+        self._last_pull = monotonic()
+        self._watchdog = _Watchdog(self)
         weakref.finalize(self, self._watchdog.cancel)
-        self._watchdog.start()
+        self._watchdog.arm(self._next_check() - monotonic())
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -624,7 +694,24 @@ class QueryBatch:
     def _drop_ready(self) -> None:
         self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
 
+    def _next_check(self) -> float:
+        return min(self._deadline, self._last_pull + MAX_IDLE_SECONDS)
+
+    def _check_deadlines(self) -> Optional[float]:
+        """Expires the batch once either deadline has passed, otherwise returns how long until the next check."""
+        remaining = self._next_check() - monotonic()
+        if remaining > 0:
+            return remaining
+        self._expire()
+        return None
+
+    def _pulled(self) -> None:
+        self._last_pull = monotonic()
+
     def _expire(self) -> None:
+        # Brought forward, so a reader that resumes after an idle expiry gets timed-out lines rather than heartbeats
+        # until the stream deadline.
+        self._deadline = min(self._deadline, monotonic())
         # The open slot stays held until the response closes, because the server can still hold the last line it
         # was given. Dropping every buffered result is what keeps a stalled stream cheap, so a fresh batch admitted
         # later is never added on top of results nobody will read.
@@ -784,12 +871,20 @@ class QueryBatch:
         with self._lock:
             if self._closed:
                 return False
+            granted = _reserve_queries(self._shares, len(self._jobs))
+            if not granted:
+                return False
             self._admitted = _admit_batch(self._shares)
             if not self._admitted:
+                _release_queries(self._shares, granted)
                 return False
+            self._jobs, self._overflow = self._jobs[:granted], self._jobs[granted:]
             self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
             for index, query_id, query in self._jobs:
-                self._futures.append(self._pool.submit(self._context.copy().run, self._work, index, query, query_id))
+                future = self._pool.submit(self._context.copy().run, self._work, index, query, query_id)
+                # Run or cancelled, each query gives its share back as it ends, not when the whole batch does.
+                future.add_done_callback(partial(_query_ended, self._shares))
+                self._futures.append(future)
         return True
 
     def _close(self, complete: bool) -> None:
@@ -855,14 +950,16 @@ class QueryBatch:
         for index in sorted(pending):
             yield self._encode({"i": index, "error": _TIMED_OUT})
 
-    def _busy_lines(self) -> Iterator[bytes]:
+    def _busy_lines(self, jobs: Sequence[tuple[int, str, ResolvedQuery]]) -> Iterator[bytes]:
         message = _TIMED_OUT if self._closed else _BUSY
-        for index, _query_id, _query in self._jobs:
+        for index, _query_id, _query in jobs:
             yield self._encode({"i": index, "error": message})
 
     def stream(self) -> Iterator[bytes]:
         try:
-            yield from self._stream()
+            for chunk in self._stream():
+                yield chunk
+                self._pulled()
         finally:
             self._watchdog.cancel()
             self.ready = []
@@ -881,6 +978,7 @@ class QueryBatch:
         try:
             async for chunk in body:
                 yield chunk
+                self._pulled()
         finally:
             # Cleared first, so a cancel scheduled by the watchdog cannot reach the request task after the stream ends.
             with self._lock:
@@ -894,14 +992,15 @@ class QueryBatch:
         yield from self._ready_lines()
         self._dispatch_refreshes()
         if not self._start():
-            yield from self._busy_lines()
+            yield from self._busy_lines(self._jobs)
             return
         complete = False
-        deadline = self._deadline
         pending = {index for index, _query_id, _query in self._jobs}
         try:
+            # Inside the `try`, so a client that leaves during these lines still frees the run slot.
+            yield from self._busy_lines(self._overflow)
             while pending:
-                if monotonic() >= deadline:
+                if monotonic() >= self._deadline:
                     yield from self._timed_out_lines(pending)
                     return
                 try:
@@ -925,15 +1024,16 @@ class QueryBatch:
         self._loop = asyncio.get_running_loop()
         self._async_queue = asyncio.Queue()
         if not self._start():
-            for chunk in self._busy_lines():
+            for chunk in self._busy_lines(self._jobs):
                 yield chunk
             return
         complete = False
-        deadline = self._deadline
         pending = {index for index, _query_id, _query in self._jobs}
         try:
+            for chunk in self._busy_lines(self._overflow):
+                yield chunk
             while pending:
-                if monotonic() >= deadline:
+                if monotonic() >= self._deadline:
                     for chunk in self._timed_out_lines(pending):
                         yield chunk
                     return
