@@ -177,7 +177,7 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(body["trial"]["expires_at"], "2026-10-01T00:00:00Z")
         self.assertNotIn("id", body["trial"])
         self.assertIsNone(body["free_trial_until"])
-        self.assertTrue(body["billing_portal_url"].endswith("/api/billing/portal"))
+        self.assertTrue(body["billing_portal_url"].endswith(f"/api/billing/{self.organization.id}/portal"))
         self.assertEqual(body["license"]["plan"], self.license.plan)
         self.assertNotIn("invoices_url", body)
         called_url = mock_get.call_args.args[0]

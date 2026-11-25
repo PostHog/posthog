@@ -429,7 +429,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "stripe_portal_url": f"http://localhost:8010/api/billing/{self.organization.id}/portal",
             "current_total_amount_usd": "100.00",
             "current_total_amount_usd_after_discount": "100.00",
             "discount_percent": None,
@@ -635,7 +635,7 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "0.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "stripe_portal_url": f"http://localhost:8010/api/billing/{self.organization.id}/portal",
             "billing_managed_by_partner": None,
         }
 
