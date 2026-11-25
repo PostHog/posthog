@@ -9,10 +9,15 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.emission.linear_issues import EXTRA_FIELDS, LINEAR_ISSUES_CONFIG, linear_issue_emitter
 from products.signals.backend.filter_catalog import SignalFilterSourceDefinition
 from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalSourceConfig
@@ -26,6 +31,7 @@ _COLUMNS: dict[str, dict[str, str | bool]] = {
     "id": _STRING,
     "identifier": _STRING,
     "title": _STRING,
+    "description": _STRING,
     "url": _STRING,
     "created_at": _STRING,
     "priority": _INTEGER,
@@ -46,12 +52,14 @@ def _issue(
     project: str = '{"id": "p1", "name": "Core"}',
     assignee: str = "",
     state_type: str = "unstarted",
+    description: str | None = "Exports time out on large projects",
 ) -> list[object]:
     created_at = (timezone.now() - timedelta(days=days_ago)).isoformat()
     return [
         issue_id,
         f"ENG-{issue_id}",
         f"Issue {issue_id}",
+        description,
         f"https://linear.example.com/issue/{issue_id}",
         created_at,
         2,
@@ -134,6 +142,42 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert passing["field_values"]["assignee_id"] is None
         excluded = {record["id"]: record["malformed"] for record in preview["excluded"]}
         assert excluded == {"assigned": False, "other-project": False, "malformed": True}
+
+    def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
+        # The CSV fixture writes '' and null the same way and trims unquoted whitespace, so the next test
+        # checks those exact values against the expression.
+        self._linear_issues(
+            [_issue("described"), _issue("whitespace", description="\n "), _issue("missing", description=None)]
+        )
+
+        preview = self._preview("")
+
+        assert preview["total_count"] == 2
+        assert {record["id"] for record in preview["passing"] + preview["excluded"]} == {"described", "whitespace"}
+
+    def test_linear_emittable_where_keeps_what_the_emitter_keeps(self) -> None:
+        descriptions = [None, "", " ", "\n", "Exports time out"]
+        assert LINEAR_ISSUES_CONFIG.emittable_where is not None
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT description, {emittable} FROM (SELECT arrayJoin({descriptions}) AS description)",
+                placeholders={
+                    "emittable": parse_expr(LINEAR_ISSUES_CONFIG.emittable_where),
+                    "descriptions": ast.Array(exprs=[ast.Constant(value=description) for description in descriptions]),
+                },
+            ),
+            team=self.team,
+        )
+
+        kept_by_hogql = {description for description, kept in response.results if kept}
+        kept_by_emitter = {
+            description
+            for description in descriptions
+            if linear_issue_emitter(
+                self.team.pk, {**dict.fromkeys(EXTRA_FIELDS), "id": "1", "title": "Issue", "description": description}
+            )
+        }
+        assert kept_by_hogql == kept_by_emitter
 
     def test_preview_runs_with_the_requesters_warehouse_access(self) -> None:
         self._linear_issues([_issue("passes")])
