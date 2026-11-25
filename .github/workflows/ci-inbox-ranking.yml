@@ -58,10 +58,6 @@ jobs:
 
             # The tests need no database, ClickHouse or Redis, so the job starts no services.
             - name: Run the network and nn family tests
-              env:
-                  # Small training fixtures do not benefit from BLAS thread coordination.
-                  OMP_NUM_THREADS: '1'
-                  MKL_NUM_THREADS: '1'
               run: |
                   python -c "import torch, onnxruntime"
                   pytest products/signals/dags/inbox_ranking/tests/test_multihead_network.py \
