@@ -1316,23 +1316,30 @@ def _start_export(client: SendGridClient, target: str) -> str:
 def _check_export_size(
     export: Mapping[str, Any], exported: int, contact_count: int | None, everyone: int | None
 ) -> None:
-    """Refuses an export that isn't the contacts SendGrid counts, because saving it would add or remove people wrongly."""
+    """Refuses an export that isn't the contacts SendGrid counts, because saving it would add or remove people wrongly.
+    `everyone` is how many contacts the account's own export held, or None for that export itself."""
     if not exported:
         if contact_count == 0:
             return
         of = f"none of {contact_count:,} contacts" if contact_count else "no contacts"
         raise _ExportUnusable(f"SendGrid's contact export holds {of}.")
-    # An export of one list that holds the whole account can mean SendGrid ignored which list PostHog asked for.
-    is_everyone = everyone is not None and exported >= everyone and exported > 1.1 * (contact_count or 0) + 1
+    has_own_count = isinstance(export.get("contact_count"), int)
     if contact_count is None:
-        if is_everyone:
-            raise _ExportGone("SendGrid's export of a list holds every contact, and SendGrid doesn't count that list.")
+        # An export of one list that holds the whole account can mean SendGrid ignored which list PostHog asked for.
+        if everyone is not None and (exported >= everyone or not has_own_count):
+            raise _ExportGone(
+                "SendGrid doesn't count a list or its export, so PostHog can't tell if it's the right one."
+            )
         return
-    # A count in the export itself already shows that no contact is missing.
-    is_complete = isinstance(export.get("contact_count"), int)
-    too_few = contact_count > (2 * exported + COUNT_SLACK if is_complete else 1.1 * exported + 1)
-    too_many = exported > 2 * contact_count + COUNT_SLACK
-    if too_few or too_many or is_everyone:
+    if everyone is None:
+        # Nothing but the account's count can show that contacts on no list are missing.
+        is_wrong = contact_count > 1.02 * exported + 5 or exported > 2 * contact_count + COUNT_SLACK
+    else:
+        is_everyone = exported >= everyone and exported > 1.1 * contact_count + 1
+        # An export that counts itself is complete, so only a count far off says it's another list's.
+        factor, slack = (2, COUNT_SLACK) if has_own_count else (1.1, 1)
+        is_wrong = is_everyone or contact_count > factor * exported + slack or exported > factor * contact_count + slack
+    if is_wrong:
         raise _ExportGone(
             f"SendGrid's contact export holds {exported:,} contacts, but SendGrid counts {contact_count:,}."
         )

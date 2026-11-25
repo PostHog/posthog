@@ -757,10 +757,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         ).values_list("identifier", flat=True)
         assert {"ada@example.com", "Ada@example.com"} <= set(opted_out)
 
-    @parameterized.expand([("with_a_count", "stated"), ("without_a_count", "missing")])
-    def test_a_list_sendgrid_wrongly_counts_as_empty_still_fills_its_cohort(self, _name: str, count: str) -> None:
+    def test_a_list_sendgrid_wrongly_counts_as_empty_still_fills_its_cohort(self) -> None:
         self.state.account["lists"][1]["contact_count"] = 0
-        self.state.export_shape = {"count": count}
         run = self._start()
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
@@ -890,6 +888,27 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         self.state.account["contact_count"] = {}
         self.state.export_shape = {"count": stated}
         self._assert_fails_without_saving("but SendGrid counts")
+
+    @parameterized.expand(
+        [
+            ("too_many", {"lists": 3}),
+            ("uncounted_list", {"lists": None}),
+            ("account_slightly_short", {"account": 20}),
+        ]
+    )
+    def test_an_export_near_its_count_is_still_refused_when_nothing_else_vouches_for_it(
+        self, _name: str, counts: dict[str, int | None]
+    ) -> None:
+        if "lists" in counts:
+            self.state.account["lists"][0]["contact_count"] = counts["lists"]
+        else:
+            self.state.account["contact_count"] = {"contact_count": counts["account"]}
+        self.state.export_shape = {"count": "missing"}
+        self._assert_fails_without_saving("SendGrid counts|SendGrid doesn't count")
+
+    def test_an_account_export_below_its_count_is_refused_even_when_it_counts_itself(self) -> None:
+        self.state.account["contact_count"] = {"contact_count": 13}
+        self._assert_fails_without_saving("holds 7 contacts, but SendGrid counts 13")
 
     def test_an_empty_export_of_an_account_without_counts_leaves_every_cohort_alone(self) -> None:
         self.state.account["contact_count"] = {}
