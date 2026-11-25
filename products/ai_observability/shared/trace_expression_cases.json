@@ -1,0 +1,340 @@
+[
+    {
+        "name": "root_with_latency_wins",
+        "events": [
+            { "event": "$ai_trace", "latency": 4.0, "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 4.0,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "root_without_latency_falls_through",
+        "events": [
+            { "event": "$ai_trace", "latency": null, "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 3.0,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "infinite_root_latency_falls_through",
+        "events": [
+            { "event": "$ai_trace", "latency": "Infinity", "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 3.0,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "generations_only_sum",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.5, "parent_id": "span-1" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "span-2" }
+        ],
+        "latency": 3.5,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "spans_use_top_level_sum",
+        "events": [
+            { "event": "$ai_span", "latency": 5.0, "parent_id": "" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "parent_equal_to_trace_id_is_top_level",
+        "events": [
+            { "event": "$ai_span", "latency": 5.0, "parent_id": "trace-a" },
+            { "event": "$ai_span", "latency": 1.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "empty_parent_and_null_parent_are_alike",
+        "events": [
+            { "event": "$ai_span", "latency": 2.0, "parent_id": "" },
+            { "event": "$ai_span", "latency": 3.0, "parent_id": null },
+            { "event": "$ai_span", "latency": 7.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "no_positive_latency_is_null",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null },
+            { "event": "$ai_span", "latency": 0, "parent_id": null }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "rounds_to_two_decimals",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.234, "parent_id": null },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": null }
+        ],
+        "latency": 3.23,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "error_flag_true_errors",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "is_error": true },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null }
+        ],
+        "latency": 2.0,
+        "errored": true,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "error_text_without_flag_does_not_error",
+        "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "error": "rate limited" }],
+        "latency": 1.0,
+        "errored": false,
+        "identified": [true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "trace_id_as_distinct_id_is_not_identified",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "user-1" }
+        ],
+        "latency": 2.0,
+        "errored": false,
+        "identified": [false, true],
+        "cost": null,
+        "person": "trace-a",
+        "session": null
+    },
+    {
+        "name": "otel_is_not_identified",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "ingestion_source": "otel" },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "ingestion_source": "sdk" }
+        ],
+        "latency": 2.0,
+        "errored": false,
+        "identified": [false, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "real_user_is_identified",
+        "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "user-2" }],
+        "latency": 1.0,
+        "errored": false,
+        "identified": [true],
+        "cost": null,
+        "person": "user-2",
+        "session": null
+    },
+    {
+        "name": "root_event_person_wins_over_an_earlier_generation",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-generation" },
+            { "event": "$ai_trace", "latency": null, "parent_id": null, "distinct_id": "user-root" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-root",
+        "session": null
+    },
+    {
+        "name": "earliest_person_wins_without_a_root_event",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-early" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-late" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-early",
+        "session": null
+    },
+    {
+        "name": "same_time_tie_goes_to_the_smallest_distinct_id",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-b", "second": 0 },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-a", "second": 0 }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-a",
+        "session": null
+    },
+    {
+        "name": "empty_distinct_id_is_skipped",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-2" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-2",
+        "session": null
+    },
+    {
+        "name": "feedback_and_metric_events_carry_no_person",
+        "events": [
+            { "event": "$ai_metric", "latency": null, "parent_id": null, "distinct_id": "user-metric" },
+            { "event": "$ai_feedback", "latency": null, "parent_id": null, "distinct_id": "user-feedback" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "user-generation" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-generation",
+        "session": null
+    },
+    {
+        "name": "cost_sums_generations_and_embeddings_only",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": 0.5 },
+            { "event": "$ai_embedding", "latency": null, "parent_id": null, "total_cost": 0.25 },
+            { "event": "$ai_span", "latency": null, "parent_id": null, "total_cost": 9 },
+            { "event": "$ai_generation", "latency": null, "parent_id": null }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true, true],
+        "cost": 0.75,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "infinite_cost_is_skipped",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": 0.5 },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": "Infinity" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": 0.5,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "no_distinct_id_has_no_person",
+        "events": [{ "event": "$ai_generation", "latency": null, "parent_id": null, "distinct_id": "" }],
+        "latency": null,
+        "errored": false,
+        "identified": [true],
+        "cost": null,
+        "person": null,
+        "session": null
+    },
+    {
+        "name": "earliest_session_wins",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "session-early" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "session-late" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": "session-early"
+    },
+    {
+        "name": "empty_session_is_skipped",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "session-2" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": "session-2"
+    },
+    {
+        "name": "same_time_session_tie_goes_to_the_smallest_id",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "session-b", "second": 0 },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "session_id": "session-a", "second": 0 }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": "session-a"
+    },
+    {
+        "name": "feedback_and_metric_events_carry_no_session",
+        "events": [
+            { "event": "$ai_metric", "latency": null, "parent_id": null, "session_id": "session-metric" },
+            { "event": "$ai_feedback", "latency": null, "parent_id": null, "session_id": "session-feedback" },
+            { "event": "$ai_generation", "latency": null, "parent_id": null }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    }
+]

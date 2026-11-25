@@ -3,15 +3,14 @@ import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
-
 import {
     SignalsAnomaliesSearchRetrieveInterval,
-    SignalsAnomaliesSearchRetrieveOrder,
+    SignalsAnomaliesSearchRetrieveViewedWithinDays,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { AnomaliesDashboardPicker } from './AnomaliesDashboardPicker'
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
-import { ANOMALY_RATE_FILTER_OFF, anomaliesTabLogic } from './anomaliesTabLogic'
+import { AnomaliesScope, anomaliesTabLogic } from './anomaliesTabLogic'
 
 const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterval | null> = [
     { value: null, label: 'All intervals' },
@@ -21,23 +20,17 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
     { value: SignalsAnomaliesSearchRetrieveInterval.Month, label: 'Monthly' },
 ]
 
-const ORDER_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveOrder> = [
-    { value: SignalsAnomaliesSearchRetrieveOrder.Recent, label: 'Most recent' },
-    { value: SignalsAnomaliesSearchRetrieveOrder.Rate, label: 'Highest anomaly rate' },
-]
-
-const MAX_ANOMALY_RATE_OPTIONS: LemonSelectOptions<number> = [
-    { value: 0.05, label: 'Anomaly rate up to 5%' },
-    { value: 0.1, label: 'Anomaly rate up to 10%' },
-    { value: 0.25, label: 'Anomaly rate up to 25%' },
-    { value: 0.5, label: 'Anomaly rate up to 50%' },
-    { value: ANOMALY_RATE_FILTER_OFF, label: 'Any anomaly rate' },
+const SCOPE_OPTIONS: LemonSelectOptions<AnomaliesScope> = [
+    ...Object.values(SignalsAnomaliesSearchRetrieveViewedWithinDays).map((days) => ({
+        value: days,
+        label: `Viewed by me, last ${days} days`,
+    })),
+    { value: null, label: 'Whole project' },
 ]
 
 export function AnomaliesFilters(): JSX.Element {
-    const { filters, maxAnomalyRate } = useValues(anomaliesTabLogic)
-    const { setFilters, setMaxAnomalyRate } = useActions(anomaliesTabLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { filters } = useValues(anomaliesTabLogic)
+    const { setFilters } = useActions(anomaliesTabLogic)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -49,6 +42,13 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(search) => setFilters({ search })}
                 className="w-60"
                 data-attr="anomalies-tab-search"
+            />
+            <LemonSelect<AnomaliesScope>
+                size="small"
+                value={filters.viewedWithinDays}
+                options={SCOPE_OPTIONS}
+                onChange={(viewedWithinDays) => setFilters({ viewedWithinDays })}
+                data-attr="anomalies-tab-scope"
             />
             <LemonSelect
                 size="small"
@@ -64,34 +64,7 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(interval) => setFilters({ interval })}
                 data-attr="anomalies-tab-interval"
             />
-            <LemonSelect<number | null>
-                size="small"
-                value={filters.dashboardId}
-                options={[
-                    { value: null, label: 'All dashboards' },
-                    ...nameSortedDashboards.map((dashboard) => ({
-                        value: dashboard.id,
-                        label: dashboard.name || 'Untitled dashboard',
-                    })),
-                ]}
-                onChange={(dashboardId) => setFilters({ dashboardId })}
-                dropdownMatchSelectWidth={false}
-                data-attr="anomalies-tab-dashboard"
-            />
-            <LemonSelect
-                size="small"
-                value={filters.order}
-                options={ORDER_OPTIONS}
-                onChange={(order) => setFilters({ order })}
-                data-attr="anomalies-tab-order"
-            />
-            <LemonSelect<number>
-                size="small"
-                value={maxAnomalyRate}
-                options={MAX_ANOMALY_RATE_OPTIONS}
-                onChange={setMaxAnomalyRate}
-                data-attr="anomalies-tab-max-anomaly-rate"
-            />
+            <AnomaliesDashboardPicker />
         </div>
     )
 }

@@ -163,6 +163,20 @@ class TestCompanycamFanout:
                 "project_id",
             ),
             (
+                "ProjectCollaborators",
+                "/projects",
+                [ScriptedResponse(json=[{"id": "a"}]), ScriptedResponse(json=[{"id": "b"}]), ScriptedResponse(json=[])],
+                "/projects/{}/collaborators",
+                "project_id",
+            ),
+            (
+                "ProjectComments",
+                "/projects",
+                [ScriptedResponse(json=[{"id": "a"}, {"id": "b"}]), ScriptedResponse(json=[])],
+                "/projects/{}/comments",
+                "project_id",
+            ),
+            (
                 "PhotoTags",
                 "/photos",
                 [
@@ -170,6 +184,16 @@ class TestCompanycamFanout:
                     ScriptedResponse(json=[{"id": "b"}], headers={"X-Has-Next": "false", "X-Next-Cursor": ""}),
                 ],
                 "/photos/{}/tags",
+                "photo_id",
+            ),
+            (
+                "PhotoComments",
+                "/photos",
+                [
+                    ScriptedResponse(json=[{"id": "a"}], headers={"X-Has-Next": "true", "X-Next-Cursor": "c1"}),
+                    ScriptedResponse(json=[{"id": "b"}], headers={"X-Has-Next": "false", "X-Next-Cursor": ""}),
+                ],
+                "/photos/{}/comments",
                 "photo_id",
             ),
         ],
@@ -204,6 +228,23 @@ class TestCompanycamFanout:
         ]
         assert child_pages == ["1", "2", "3"]
         assert result.saved_states == []
+
+    def test_collaborator_row_project_id_is_not_duplicated_by_parent_injection(self) -> None:
+        # Collaborator rows already carry project_id, unlike the other project fan-outs.
+        child_row = {"id": "c1", "company_id": "co1", "project_id": "a", "accepted_at": 1700000000}
+        result = self._driver().run(
+            "ProjectCollaborators",
+            route(
+                {
+                    "/projects": [ScriptedResponse(json=[{"id": "a"}]), ScriptedResponse(json=[])],
+                    "/projects/a/collaborators": [ScriptedResponse(json=[child_row]), ScriptedResponse(json=[])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["project_id"], row["id"], row["company_id"]) for row in result.rows] == [("a", "c1", "co1")]
+        assert all("_Projects_id" not in row for row in result.rows)
 
 
 class TestValidateCredentials:

@@ -25,6 +25,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    MaterializationRunTrigger,
     SavedQueryFrequencyBounds,
     UnknownNodeError,
     UnsatisfiableFrequencyError,
@@ -36,6 +37,7 @@ from products.data_modeling.backend.facade.api import (
     clear_legacy_sync_interval,
     delete_node,
     endpoint_link,
+    failing_model_count,
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
@@ -642,12 +644,6 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
-_LAST_RUN_FAILED = models.Q(_latest_job_status=DataModelingJob.Status.FAILED) | models.Q(
-    _latest_job_status__isnull=True, properties__system__last_run_status=DataModelingJob.Status.FAILED
-)
-_SERVING_SUSPENDED = models.Q(properties__system__suspended__has_key=DataModelingJobEngine.CLICKHOUSE)
-
-
 class NodeAttentionCountSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
@@ -982,8 +978,9 @@ class NodeViewSet(
     @action(methods=["GET"], detail=False, pagination_class=None)
     def attention_count(self, req: request.Request, *args, **kwargs) -> response.Response:
         """How many of the models the list shows have failed their last run or are suspended."""
-        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
-        count = self.get_queryset().filter(_LAST_RUN_FAILED | _SERVING_SUSPENDED).count()
+        count = failing_model_count(self.team, self.user_access_control)
+        if count is None:
+            raise PermissionDenied(_READ_DENIED)
         return response.Response(NodeAttentionCountSerializer({"count": count}).data)
 
     @extend_schema(
@@ -1027,7 +1024,7 @@ class NodeViewSet(
             except MaterializationRanRecentlyError as error:
                 raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 
-        start_node_materialization(node, triggered_by_id=req.user.pk)
+        start_node_materialization(node, trigger=MaterializationRunTrigger.MANUAL, triggered_by_id=req.user.pk)
 
         return response.Response(status=status.HTTP_200_OK)
 

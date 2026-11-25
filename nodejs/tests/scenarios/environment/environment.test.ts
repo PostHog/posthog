@@ -34,6 +34,7 @@ import {
 } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
+    ProbeFailure,
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
@@ -555,15 +556,32 @@ describe('scenario environment', () => {
             })
         })
 
-        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs(
-                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
-                { url: 'http://edge' },
-                secretsOf({}),
-                STATE_DIR
-            )
+        it.each([
+            ['KAFKA_CONSUMER_GROUP_ID', 'so the events role joins the group a reset moves', 'dev-group'],
+            [
+                'CDP_RATE_LIMITER_REFILL_RATE',
+                "since a setting the loader's rate check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_CAPACITY',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CONSUMER_BATCH_SIZE',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '10',
+            ],
+        ])('drops an inherited %s, %s', (name, _reason, value) => {
+            const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 
-            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+            expect(specs.filter(({ env }) => name in env)).toEqual([])
         })
 
         it("shares the runner's secrets with the roles", () => {
@@ -699,7 +717,8 @@ describe('scenario environment', () => {
             ['-e', probe],
             { cwd: NODEJS_DIR }
         )
-        const down: string[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
+        const failures: ProbeFailure[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
+        const down = failures.map(({ name }) => name)
         expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
             postgres: true,
             kafka: false,
@@ -1795,7 +1814,7 @@ describe('scenario environment', () => {
             expect({
                 health: Object.fromEntries(health),
                 edge,
-                rolesDown: down.filter((name) => name in ROLE_PORTS),
+                rolesDown: down.filter(({ name }) => name in ROLE_PORTS),
             }).toEqual({
                 health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
                 edge: 200,

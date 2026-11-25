@@ -34,6 +34,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { emailTemplaterLogic, latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,6 +45,8 @@ import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType,
 
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
+import { messagingCategoriesRetrieve, messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
@@ -80,6 +83,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { SENSITIVE_REASON } from '../TemplateLibrary/templateWorkflowDisabledReason'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import {
     EmailSendingPause,
@@ -121,6 +125,7 @@ import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
     prefilledWorkflow,
+    templatePrefilledWorkflow,
     withEmailBrand,
     withEmailSender,
     withSandboxSender,
@@ -136,12 +141,20 @@ export interface WorkflowLogicProps {
     editTemplateId?: string
     triggerPrefill?: string
     emailPrefill?: string
+    messageTemplateId?: string
     draftSource?: string
     entrySource?: string
 }
 
+/** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
+function reportWorkflowName(props: WorkflowLogicProps, workflow: HogFlow): void {
+    if (props.id && props.id !== 'new') {
+        workflowSceneLogic.findMounted({ id: props.id })?.actions.setWorkflowName(workflow.name)
+    }
+}
+
 export function workflowLogicKey(props: WorkflowLogicProps): string {
-    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}-${props.messageTemplateId || 'default'}`
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -232,6 +245,50 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // row, and an internal event are all things no PostHog person is attached to. Keep in sync with
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
+
+type EmailTemplateCopy = {
+    template: MessageTemplateApi | null
+    outcome: 'copied' | 'sensitive' | 'not_transactional' | 'marketing_category' | 'load_failed'
+}
+
+async function loadEmailTemplate(templateId: string | undefined): Promise<MessageTemplateApi | null> {
+    if (!templateId) {
+        return null
+    }
+    const { template, outcome } = await readEmailTemplateCopy(templateId)
+    // pinned: analytics event name
+    posthog.capture('workflow email template link opened', { template_id: templateId, outcome })
+    return template
+}
+
+async function readEmailTemplateCopy(templateId: string): Promise<EmailTemplateCopy> {
+    try {
+        const projectId = String(ApiConfig.getCurrentTeamId())
+        const template = await messagingTemplatesRetrieve(projectId, templateId)
+        if (template.sensitive) {
+            lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
+            return { template: null, outcome: 'sensitive' }
+        }
+        // Only a transactional template may become a step that sends past marketing opt-outs. A template moved to a
+        // marketing category keeps its workflow, so its category is checked too, as the send API does.
+        if (!template.transactional_hog_flow_id || !template.content?.email) {
+            return { template: null, outcome: 'not_transactional' }
+        }
+        const category = template.message_category
+            ? await messagingCategoriesRetrieve(projectId, template.message_category)
+            : null
+        if (category?.category_type === 'marketing') {
+            lemonToast.warning(
+                'The workflow opens without the email. Move the template to a transactional category to copy it.'
+            )
+            return { template: null, outcome: 'marketing_category' }
+        }
+        return { template, outcome: 'copied' }
+    } catch {
+        lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
+        return { template: null, outcome: 'load_failed' }
+    }
+}
 
 async function loadEmailSenders(): Promise<IntegrationConfigApi[]> {
     const teamId = String(ApiConfig.getCurrentTeamId())
@@ -979,6 +1036,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1932,6 +1990,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -2911,6 +2970,7 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -3364,6 +3424,7 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -3902,6 +3963,14 @@ export const workflowLogic = kea<workflowLogicType>([
                             return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        // The card links an event trigger only. The copied email reads the event's properties and sends to its person.
+                        const messageTemplate =
+                            triggerConfig?.type === 'event' ? await loadEmailTemplate(props.messageTemplateId) : null
+                        if (triggerConfig && messageTemplate) {
+                            return await withDefaultEmailSender(
+                                templatePrefilledWorkflow(NEW_WORKFLOW, triggerConfig, messageTemplate)
+                            )
+                        }
                         if (triggerConfig) {
                             const prefilled = prefilledWorkflow(
                                 NEW_WORKFLOW,
@@ -4927,6 +4996,19 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
+            if (emailTemplaterLogic.findMounted()) {
+                actions.setDraftActionPending('publish')
+                let emailEditSaved: boolean
+                try {
+                    emailEditSaved = await latestEmailEditSaved()
+                } finally {
+                    actions.setDraftActionPending(null)
+                }
+                if (!emailEditSaved) {
+                    return
+                }
+            }
             // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
             // check below reads the form, so it describes the staged draft only once the form is saved.
             if (values.publishDisabledReason) {
@@ -5200,6 +5282,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            reportWorkflowName(props, originalWorkflow)
             const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
@@ -5259,6 +5342,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            reportWorkflowName(props, originalWorkflow)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.

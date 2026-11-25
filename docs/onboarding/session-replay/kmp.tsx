@@ -22,7 +22,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     kotlin {
                                         sourceSets {
                                             commonMain.dependencies {
-                                                implementation("com.posthog:posthog-kmp:0.+")
+                                                implementation("com.posthog:posthog-kmp:1.+")
                                             }
                                         }
                                     }
@@ -31,15 +31,14 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         ]}
                     />
                     <Markdown>
-                        `0.+` resolves to the latest `0.x` release. The SDK is a pre-release, so the API can change
-                        between minor versions – pin an exact version from [Maven
+                        `1.+` resolves to the latest `1.x` release. Pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately. The setup below requires `0.8.0` or higher.
+                        upgrade deliberately.
                     </Markdown>
                     <CalloutBox type="fyi" title="Supported targets">
                         <Markdown>
                             Session replay is captured on Android, iOS and the web. It is ignored on the JVM (desktop)
-                            target.
+                            and macOS targets.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -63,7 +62,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             content: (
                 <>
                     <Markdown>
-                        Pass a `SessionRecordingConfig` to `PostHogConfig` from shared code. Here are all the available
+                        Add a `sessionReplay` block to your `PostHogConfig` in shared code. Here are all the available
                         options:
                     </Markdown>
                     <CodeBlock
@@ -72,43 +71,43 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 language: 'kotlin',
                                 file: 'Kotlin',
                                 code: dedent`
+                                    import com.posthog.kmp.IosCaptureMethod
                                     import com.posthog.kmp.PostHog
                                     import com.posthog.kmp.PostHogConfig
                                     import com.posthog.kmp.PostHogContext
-                                    import com.posthog.kmp.SessionRecordingConfig
 
-                                    val config = PostHogConfig(
-                                        projectToken = "<ph_project_token>",
-                                        host = "<ph_client_api_host>",
+                                    val config = PostHogConfig("<ph_project_token>") {
+                                        host = "<ph_client_api_host>"
 
-                                        // Enable session recording. Requires enabling in your project settings as well.
-                                        sessionRecording = SessionRecordingConfig(
-                                            enabled = true,
-
+                                        // Enable session replay. Requires enabling in your project settings as well.
+                                        sessionReplay {
                                             // Whether text input values are masked. Default is true.
-                                            maskAllTextInputs = true,
+                                            maskAllTextInputs = true
 
                                             // Whether images are masked. Default is true.
-                                            maskAllImages = true,
+                                            maskAllImages = true
 
                                             // Whether network requests are included in the recording. Default is true.
-                                            captureNetworkTelemetry = true,
+                                            captureNetworkTelemetry = true
 
                                             // Capture console and system logs (iOS and web). Default is false.
-                                            captureLogs = false,
-
-                                            // Whether replays are created using high quality screenshots instead of
-                                            // wireframes (experimental, Android and iOS). Default is false.
-                                            // Screenshots may contain sensitive information, so use with caution.
-                                            screenshot = false,
+                                            captureLogs = false
 
                                             // Capture Android logcat output (Android only). Default is true.
-                                            captureLogcat = true,
+                                            captureLogcat = true
 
-                                            // Touch event debounce delay in milliseconds (Android only). Default is 1000.
-                                            debouncerDelayMs = 1000L,
-                                        ),
-                                    )
+                                            // Minimum delay in milliseconds between replay snapshots (Android and iOS). Default is 1000.
+                                            throttleDelayMs = 1000L
+
+                                            // Experimental: verify screenshot mask alignment before keeping a capture (Android only). Default is false.
+                                            verifyScreenshotMaskAlignment = false
+
+                                            // How iOS captures screenshots (iOS only). Default is STANDARD, which draws the window
+                                            // on the main thread. GPU (experimental) takes less main-thread time but doesn't capture
+                                            // web view pages, and records Metal content, including Compose Multiplatform, as a placeholder.
+                                            iosCaptureMethod = IosCaptureMethod.STANDARD
+                                        }
+                                    }
                                 `,
                             },
                         ]}
@@ -127,6 +126,8 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             file: 'MyApplication.kt',
                                             code: dedent`
                                                 import android.app.Application
+                                                import com.posthog.kmp.PostHog
+                                                import com.posthog.kmp.PostHogContext
 
                                                 class MyApplication : Application() {
                                                     override fun onCreate() {

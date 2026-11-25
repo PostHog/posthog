@@ -1,10 +1,6 @@
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
@@ -13,7 +9,9 @@ import type { AnomalyRowRating } from './anomaliesTabLogic'
 import { appPath } from './anomalyInsightLinks'
 import { AnomalyRowActions } from './AnomalyRowActions'
 import { AnomalyRowChart } from './AnomalyRowChart'
-import { withAnomalyScoresParam } from './anomalyScoresParam'
+import { resetAnomalySeriesIsolation, withAnomalyScoresParam } from './anomalyScoresParam'
+import { anomalySeriesLabel } from './anomalySeriesLabel'
+import { LastAnomalyLabel } from './LastAnomalyLabel'
 
 const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
     hour: 'Hourly',
@@ -23,14 +21,6 @@ const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
 }
 
 const MAX_DASHBOARD_LINKS = 2
-
-// A rate under half a percent would round to 0%, which reads as nothing flagged.
-function anomalyRateLabel(rate: number | null): string {
-    if (rate == null) {
-        return '0%'
-    }
-    return rate > 0 && rate < 0.005 ? '<1%' : percentage(rate, 0)
-}
 
 export interface AnomalyRowProps {
     series: AnomalySeriesApi
@@ -59,31 +49,23 @@ export function AnomalyRow({
                 <div className="flex flex-col gap-2 min-w-0 @min-[40rem]:w-72 @min-[40rem]:shrink-0">
                     <div className="min-w-0">
                         <Link
-                            to={withAnomalyScoresParam(appPath(series.insight_url))}
-                            onClick={onOpenInsight}
+                            to={withAnomalyScoresParam(appPath(series.insight_url), series.series_key)}
+                            onClick={() => {
+                                resetAnomalySeriesIsolation(series.insight_id, series.series_key)
+                                onOpenInsight()
+                            }}
                             className="font-semibold block truncate"
                             data-attr="anomalies-tab-open-insight"
                         >
                             {series.insight_name || 'Untitled insight'}
                         </Link>
                         <div className="text-secondary text-sm truncate">
-                            {[series.series_label || series.breakdown_value, INTERVAL_LABELS[series.interval]]
-                                .filter(Boolean)
-                                .join(' · ')}
+                            {[anomalySeriesLabel(series), INTERVAL_LABELS[series.interval]].filter(Boolean).join(' · ')}
                         </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <Tooltip
-                            title={`${series.flagged_buckets} of ${pluralize(series.scored_buckets, series.interval)} flagged`}
-                        >
-                            <LemonTag type="danger">{`${anomalyRateLabel(series.anomaly_rate)} anomalous`}</LemonTag>
-                        </Tooltip>
-                        {series.last_flagged_bucket && (
-                            <span className="text-secondary text-xs">
-                                Last flagged <TZLabel time={series.last_flagged_bucket} />
-                            </span>
-                        )}
-                    </div>
+                    {series.last_flagged_bucket && (
+                        <LastAnomalyLabel bucketStart={series.last_flagged_bucket} interval={series.interval} />
+                    )}
                     {series.dashboards.length > 0 && (
                         <div className="text-secondary text-xs truncate" data-attr="anomalies-tab-row-dashboards">
                             <span>On: </span>

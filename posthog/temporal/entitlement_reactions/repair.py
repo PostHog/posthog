@@ -45,6 +45,9 @@ class EntitlementRepairWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=timedelta(minutes=2),
                 retry_policy=common.RetryPolicy(maximum_attempts=3),
             )
+            workflow.metric_meter().create_counter("entitlement_reactions_organizations_behind").add(
+                len(page.organization_ids)
+            )
             for organization_id in page.organization_ids:
                 # Sleep before each dispatch, including page boundaries and continuations.
                 await workflow.sleep(timedelta(milliseconds=100))

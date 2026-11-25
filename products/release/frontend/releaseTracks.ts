@@ -166,6 +166,7 @@ export type Lane =
     | {
           key: string
           kind: 'broadcast'
+          broadcastId: string
           title: string
           status: string
           live: boolean
@@ -291,6 +292,7 @@ export function buildTrack(
         lanes.push({
             key: `broadcast-${broadcast.id}`,
             kind: 'broadcast',
+            broadcastId: broadcast.id,
             title: broadcast.name || 'Untitled broadcast',
             status: broadcast.status,
             live: broadcast.status === 'active',

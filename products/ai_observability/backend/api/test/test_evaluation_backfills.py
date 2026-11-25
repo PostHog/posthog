@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -405,6 +406,27 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    @time_machine.travel("2024-03-01T12:00:00Z", tick=False)
+    def test_a_team_with_extended_retention_backfills_its_whole_retention(self) -> None:
+        with override_settings(AI_EVENTS_RETENTION_DAYS_BY_TEAM={self.team.pk: 90}):
+            reachable = self.client.post(
+                f"{self.url}/estimate/",
+                _body(window_start="2023-11-01T00:00:00+00:00", window_end="2024-02-01T00:00:00+00:00"),
+                format="json",
+            )
+            expired = self.client.post(
+                f"{self.url}/estimate/",
+                _body(window_start="2023-11-01T00:00:00+00:00", window_end="2023-12-01T00:00:00+00:00"),
+                format="json",
+            )
+
+        assert reachable.status_code == status.HTTP_200_OK, reachable.json()
+        assert datetime.fromisoformat(reachable.json()["window_start"]) == datetime.fromisoformat(
+            "2023-12-03T00:00:00+00:00"
+        )
+        assert expired.status_code == status.HTTP_400_BAD_REQUEST
+        assert "within the last 90 days" in expired.json()["detail"]
 
     @parameterized.expand(["evaluation_has_no_conditions", "explicit_empty_list"])
     def test_rejects_a_backfill_with_no_condition_sets(self, case):

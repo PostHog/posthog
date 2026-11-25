@@ -55,7 +55,6 @@ import {
 import {
   buildFinishRunUpdate,
   isCloudRun,
-  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -3359,11 +3358,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
-    const taskOriginProduct =
-      typeof meta?.taskOriginProduct === "string"
-        ? meta.taskOriginProduct
-        : undefined;
-    const endRunWhenDone = meta?.endRunWhenDone === true;
+    const finishTool = meta?.finishTool === true;
+    const finishReportRequired = meta?.finishReportRequired === true;
+    const reportActivityTool = meta?.reportActivityTool === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -3379,19 +3376,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
-          finishReportRequired: isFinishReportRequired({
-            taskOriginProduct,
-            endRunWhenDone,
-          }),
+          finishReportRequired,
         },
         {
           environment,
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
-          taskOriginProduct,
-          endRunWhenDone,
-          callerEndsRun: meta?.callerEndsRun === true,
+          finishTool,
+          reportActivityTool,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -3492,6 +3485,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       onModeChange: this.createOnModeChange(),
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
+      onMemoryRead: (read) => {
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+            sessionId: this.sessionId,
+            ...read,
+          })
+          .catch((error) => {
+            this.logger.warn("Failed to report memory read", { error });
+          });
+      },
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),

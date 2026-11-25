@@ -25,7 +25,7 @@ Reuse useful source cells before creating new ones. Every app cell must referenc
 - **Inputs:** inspect existing variables and use `posthog:notebooks-set-variables` when needed, preserving unrelated variables. Bind each input block's `variable` to its exact name. Use `auto` for the variable's native editor, `select` with string options for a choice, or `slider` with finite min/max/positive step for a numeric range. Choose defaults consistent with the analysis.
 - **Prose:** use app text blocks for headings, explanatory markdown, and instructions. Do not bind to text-derived markdown cell IDs, which change when the prose changes. Dividers separate sections.
 
-Inputs change shared notebook variables. They do not automatically rerun downstream cells. Explain the run action where needed, and do not promise isolated viewer state or automatic reactivity. Use the stale-cell list returned by variable updates to rerun affected analysis before claiming results reflect the new values.
+In a published app, inputs apply to the visitor's browser session. Native HogQL outputs, including downstream SQL dataframes, refresh with the visitor's query permissions. Viewers can switch off automatic updates and apply filters together. A SQL chart can set a published input by using that input's name for its x-axis column. Python, directly connected SQL, saved insights, and generated widgets keep their existing output bindings. In the editor, update shared notebook variables and rerun affected analysis before publishing.
 
 Each input must also be used by the source calculation: a SQL variable placeholder such as `{region}`, or the corresponding Python variable. Verify a different input value changes the intended output after a run, then restore the chosen defaults. A control that only saves a variable is not a working filter.
 
@@ -56,4 +56,4 @@ Save the complete draft with `posthog:notebooks-app-update`, passing the latest 
 
 Read the saved app back and check that referenced cells and variables exist. If browser access is available, open the builder and inspect the rendered result. Fix missing sources, failed runs, and unusable controls before reporting completion.
 
-Return the tool's app builder link and briefly describe what was built. Mention any unfinished generation, approval, or execution step explicitly. Publish only when requested: copy the verified layout into `app_published` with the current revision. Publishing freezes the layout while notebook data and variables remain live; access follows the notebook's existing permissions, and it does not create a public share link.
+Return the tool's app builder link and briefly describe what was built. Mention any unfinished generation, approval, or execution step explicitly. Publish only when requested. Copy the verified layout into `app_published` with the current revision. The release pins the saved notebook source, layout, and input defaults. Opening the app requires access to the notebook.

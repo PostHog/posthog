@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_program
 
 from products.cdp.backend.validation import compile_hog
 
-AIObservabilityHogType = Literal["destination", "tagger"]
+AIObservabilityHogType = Literal["destination"]
 
 
 def compile_ai_observability_hog(source: str, hog_type: AIObservabilityHogType) -> list[Any]:
