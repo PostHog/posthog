@@ -26,7 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -207,6 +207,13 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
 
 
+def set_owner(configuration_id: UUID, owner: PlatformAlertOwner) -> None:
+    """Hand a configuration to an owner without touching its source's row, as a handback that lands
+    after a request read the row leaves it. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(owner=owner)
+
+
 def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:
     """Set a configuration's cadence, as an edit to its source's row leaves it. The caller holds the team scope."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
@@ -233,6 +240,16 @@ def set_snooze_until(configuration_id: UUID, snooze_until: datetime | None) -> N
     caller holds the team scope."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(snooze_until=snooze_until)
+
+
+def mute_group(configuration_id: UUID, *, team_id: int, grouping_key: str, until: datetime) -> None:
+    """Mute one group of a configuration on its own, leaving the configuration and its other groups unmuted."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        defaults={"snooze_until": until},
+    )
 
 
 def forget_source_row(configuration_id: UUID) -> None:

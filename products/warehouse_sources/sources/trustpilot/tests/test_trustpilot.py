@@ -389,3 +389,76 @@ class TestPaginatorQueryCap:
 
         assert paginator.has_next_page is expect_next
         assert any("query cap" in record.message for record in caplog.records) is not expect_next
+
+
+class TestReviewLikes:
+    def test_fetches_likes_only_for_liked_reviews_with_both_credentials(self) -> None:
+        reviews: list[dict[str, Any]] = [
+            {"id": "r1", "numberOfLikes": 2},
+            {"id": "r2", "numberOfLikes": 0},
+            {"id": "r3"},
+            {"id": "r4", "numberOfLikes": 1},
+        ]
+        likes = {
+            "r1": [
+                {"consumer": {"id": "c1", "displayName": "Ada"}},
+                {"consumer": {"id": "c2", "displayName": "Ben"}},
+            ],
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/business-units/find"):
+                return _json({"id": BUSINESS_UNIT_ID})
+            if request.path.endswith("/accesstoken"):
+                return _json({"access_token": "tok", "expires_in": 3600})
+            if request.path.endswith("/reviews"):
+                return _json(_reviews_response(reviews if request.param("page") == "1" else []))
+            if request.path == "/v1/reviews/r1/likes":
+                return _json({"likes": likes["r1"]})
+            if request.path == "/v1/reviews/r4/likes":
+                return _json({"details": "not found"}, status=404)
+            raise UnexpectedRequest(f"unexpected request {request.url}")
+
+        result = _run(respond, endpoint="review_likes")
+
+        assert result.rows == [
+            {"consumer_id": "c1", "consumer_display_name": "Ada", "review_id": "r1"},
+            {"consumer_id": "c2", "consumer_display_name": "Ben", "review_id": "r1"},
+        ]
+        like_requests = [r for r in result.requests if r.path.endswith("/likes")]
+        assert [r.path for r in like_requests] == ["/v1/reviews/r1/likes", "/v1/reviews/r4/likes"]
+        assert like_requests[0].headers["apikey"] == "key"
+        review_request = next(r for r in result.requests if r.path.endswith("/reviews"))
+        assert review_request.path == f"/v1/private/business-units/{BUSINESS_UNIT_ID}/reviews"
+        assert review_request.headers["authorization"] == "Bearer tok"
+        assert review_request.param("orderBy") == "createdat.asc"
+
+
+class TestSinglePagePublicEndpoints:
+    @parameterized.expand(
+        [
+            ("business_unit", f"/v1/business-units/{BUSINESS_UNIT_ID}", {"id": BUSINESS_UNIT_ID}, "id"),
+            (
+                "business_unit_categories",
+                f"/v1/business-units/{BUSINESS_UNIT_ID}/categories",
+                {
+                    "categories": [{"categoryId": "pet_store"}, {"categoryId": "toy_store"}],
+                    "predictedTopCategory": {"categoryId": "pet_store"},
+                },
+                "categoryId",
+            ),
+        ]
+    )
+    def test_reads_one_page_with_api_key_only(
+        self, endpoint: str, expected_path: str, payload: dict[str, Any], id_field: str
+    ) -> None:
+        result = _run(_serve(payload), endpoint=endpoint)
+
+        expected_ids = [c["categoryId"] for c in payload["categories"]] if "categories" in payload else [payload["id"]]
+        assert [r[id_field] for r in result.rows] == expected_ids
+        data_requests = [r for r in result.requests if r.path == expected_path]
+        assert len(data_requests) == 1
+        assert data_requests[0].param("page") is None
+        assert data_requests[0].headers["apikey"] == "key"
+        assert "authorization" not in data_requests[0].headers
+        assert not any(r.path.endswith("/accesstoken") for r in result.requests)

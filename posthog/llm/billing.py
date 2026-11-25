@@ -12,6 +12,7 @@ POSTHOG_AI_PRODUCTS = [
     "surveys",
     "replay_vision",
     "hogql_decide",
+    "error_tracking_issue_summaries",
 ]
 
 # ai_product values billed as PostHog Desktop credits.

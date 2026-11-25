@@ -67,6 +67,7 @@ import {
     PendingApproval,
     SidePanelTab,
 } from '~/types'
+import type { UserType } from '~/types'
 
 import {
     getRandomThinkingMessage,
@@ -81,6 +82,7 @@ import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
+import type { StagedAttachment } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
 import {
@@ -329,13 +331,13 @@ export interface maxThreadLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     } // runStreamLogic
     cancelSandboxRun: (
         run?:
@@ -354,9 +356,9 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     openSandboxSse: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     } // runStreamLogic
     pushSandboxError: (
         errorMessage: string,
@@ -367,14 +369,10 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxHumanMessage: (
         content: string,
-        stagedAttachments?:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
         content: string
-        stagedAttachments:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -448,11 +446,11 @@ export interface maxThreadLogicActions {
         contextualTools?: Record<string, any>
         uiContext?: MaxUIContext
     }) => {
-        agentMode?: AgentMode | null | undefined
-        billingContext?: MaxBillingContext | null | undefined
+        agentMode?: AgentMode | null
+        billingContext?: MaxBillingContext | null
         content: string
-        contextualTools?: Record<string, any> | undefined
-        uiContext?: MaxUIContext | undefined
+        contextualTools?: Record<string, any>
+        uiContext?: MaxUIContext
     }
     executePendingClientToolCall: () => {
         value: true
@@ -605,10 +603,10 @@ export interface maxThreadLogicActions {
         streamData: {
             agent_mode: AgentMode | null
             content: string | null
-            contextual_tools?: Record<string, any> | undefined
-            conversation?: string | undefined
-            is_sandbox?: boolean | undefined
-            resume_payload?: ResumePayload | null | undefined
+            contextual_tools?: Record<string, any>
+            conversation?: string
+            is_sandbox?: boolean
+            resume_payload?: ResumePayload | null
             ui_context?: any
         }
     }
@@ -647,11 +645,11 @@ export interface maxThreadLogicMeta {
                 status: ApprovalDecisionStatus
             }
         >
-        isSharedThread: (conversation: Conversation | null, user: null | import('~/types').UserType) => boolean
+        isSharedThread: (conversation: Conversation | null, user: UserType | null) => boolean
         isImpersonatingExistingConversation: (
             conversation: Conversation | null,
             supportOverrideEnabled: boolean,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => boolean
         threadLoading: (conversationLoading: boolean, streamingActive: boolean) => boolean
         queueingEnabled: (featureFlags: FeatureFlagsSet, isSandboxMode: boolean) => boolean

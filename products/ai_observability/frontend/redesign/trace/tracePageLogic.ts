@@ -25,6 +25,7 @@ import { recordTraceViewed } from './recordTraceViewed'
 import { toBackLink, toFullPageListParams } from './traceBackLink'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import type { LabeledLink } from './types'
+import type { NodeDetailTab, TraceMode, TraceOpeningMode } from './types'
 
 export const TRACE_PAGE_HOST_ID = 'trace-page'
 
@@ -82,14 +83,14 @@ export interface tracePageLogicActions {
         stepId: string | null
         traceId: string | null
     } // traceViewHostLogic
-    setDetailTab: (tab: import('./types').NodeDetailTab) => {
-        tab: import('./types').NodeDetailTab
+    setDetailTab: (tab: NodeDetailTab) => {
+        tab: NodeDetailTab
     } // traceViewHostLogic
-    setMode: (mode: import('./types').TraceMode) => {
-        mode: import('./types').TraceMode
+    setMode: (mode: TraceMode) => {
+        mode: TraceMode
     } // traceViewHostLogic
-    setOpeningMode: (mode: import('./types').TraceOpeningMode) => {
-        mode: import('./types').TraceOpeningMode
+    setOpeningMode: (mode: TraceOpeningMode) => {
+        mode: TraceOpeningMode
     } // traceViewHostLogic
     setSeedQuery: (query: string) => {
         query: string

@@ -97,7 +97,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
-            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keep_writing_flag_calls_to_events=True
         )
 
         missing_id = other_team.id + 9999
@@ -111,6 +111,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
                 row["flag_evaluations_mode"],
+                row["keep_writing_flag_calls_to_events"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -122,8 +123,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, None, 2000, 1, 0),
-                other_team.id: (True, 2, 5000, 5000, 1, 2),
+                self.team.id: (False, 1, None, 2000, 2, True, 0),
+                other_team.id: (True, 2, 5000, 5000, 2, True, 2),
             },
         )
 
@@ -146,6 +147,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
                     "flag_evaluations_mode": 0,
+                    "keep_writing_flag_calls_to_events": False,
                     "feature_flag_count": 0,
                 }
             ],
@@ -186,6 +188,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
                 "flag_evaluations_mode": 1,
+                "keep_writing_flag_calls_to_events": False,
                 "feature_flag_count": 0,
             },
         )
@@ -455,6 +458,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "running_experiments_needing_flag_calls_in_events": 1,
                         "current_mode": FlagEvaluationsMode.EVENTS,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "current_keeps_events_writes": False,
+                        "target_keeps_events_writes": False,
                         "changed": expected_changed[0],
                         "left_above_mode": expected_left_above_mode[0],
                     },
@@ -465,6 +470,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "running_experiments_needing_flag_calls_in_events": 0,
                         "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        "current_keeps_events_writes": False,
+                        "target_keeps_events_writes": False,
                         "changed": expected_changed[1],
                         "left_above_mode": expected_left_above_mode[1],
                     },
@@ -472,25 +479,47 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             },
         )
 
+    def test_set_flag_evaluations_mode_passes_keep_writing_flag_calls_to_events_to_the_setter(self):
+        response = self.client.post(
+            SET_FLAG_EVALUATIONS_MODE_URL,
+            {
+                "flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                "team_ids": [self.team.id],
+                "keep_writing_flag_calls_to_events": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [change] = response.json()["organizations"]
+        self.assertEqual((change["current_keeps_events_writes"], change["target_keeps_events_writes"]), (False, True))
+        self.assertTrue(
+            OrganizationFeatureFlagsConfig.objects.get(organization=self.organization).keep_writing_flag_calls_to_events
+        )
+
     def test_set_flag_evaluations_mode_writes_no_organization_when_a_later_one_fails(self):
-        # The helper opens no transaction, so only the view's transaction keeps an earlier
-        # organization from staying written after a later one fails.
+        # The helper opens no transaction and counts experiments after its write, so only the view's
+        # transaction undoes the write when a later count fails.
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
         newer_organization = Organization.objects.create(name="Newer organization")
         newer_team = Team.objects.create(organization=newer_organization, name="Newer team")
         OrganizationFeatureFlagsConfig.objects.filter(organization=newer_organization).delete()
-        original_upsert = flag_evaluations_mode._upsert_mode
-        upserts = 0
+        original_count = flag_evaluations_mode.count_running_experiments_needing_flag_calls_in_events
+        counts = 0
 
-        # Organizations are written oldest first, so the second upsert belongs to the newer one.
-        def fail_on_second_upsert(*args, **kwargs) -> bool:
-            nonlocal upserts
-            upserts += 1
-            if upserts == 2:
-                raise RuntimeError("write failed")
-            return original_upsert(*args, **kwargs)
+        # Organizations are reported oldest first, so the second count belongs to the newer one.
+        def fail_on_second_count(*args, **kwargs) -> int:
+            nonlocal counts
+            counts += 1
+            if counts == 2:
+                raise RuntimeError("count failed")
+            return original_count(*args, **kwargs)
 
-        with patch.object(flag_evaluations_mode, "_upsert_mode", side_effect=fail_on_second_upsert):
+        with patch.object(
+            flag_evaluations_mode,
+            "count_running_experiments_needing_flag_calls_in_events",
+            side_effect=fail_on_second_count,
+        ):
             response = self.client.post(
                 SET_FLAG_EVALUATIONS_MODE_URL,
                 {
@@ -501,7 +530,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(upserts, 2)
+        self.assertEqual(counts, 2)
         self.assertEqual(self._stored_modes(self.organization, newer_organization), [None, None])
 
     def test_set_flag_evaluations_mode_rejects_an_unknown_id_before_writing(self):

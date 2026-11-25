@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 import {
     VALID_FILE_MARKETING_SOURCES,
@@ -19,6 +20,7 @@ import {
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { newAdSourcesLogic } from './newAdSourcesLogic'
+import { QuillAddIntegrationButton } from './QuillAddIntegrationButton'
 
 interface AddIntegrationButtonProps {
     onIntegrationSelect?: (integrationId: string) => void
@@ -34,6 +36,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     })
     const [showPopover, setShowPopover] = useState(false)
     const [showNoticeInMenu, setShowNoticeInMenu] = useState(false)
+    const quillSurface = useQuillSurface()
     const showNewSources = showNotice && !restrictedReason
     const showNewSourcesInMenu = showNoticeInMenu && newSources.length > 0 && !restrictedReason
 
@@ -58,6 +61,43 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         { title: 'External sources', sources: VALID_WAREHOUSE_MARKETING_SOURCES },
         { title: 'Files', sources: VALID_FILE_MARKETING_SOURCES },
     ]
+    const visibleGroups = groups.filter(({ sources }) => sources.length > 0)
+    const newSourcesNotice = `Connect ${newSources.map(nativeSourceDisplayLabel).join(', ')} to compare spend and conversions.`
+
+    const integrationLabel = (integrationId: string): string =>
+        integrationId === 'GoogleSearchConsole' ? 'Google Search Console' : marketingSourceDisplayLabel(integrationId)
+
+    const isNewSource = (integrationId: string): boolean =>
+        showNewSourcesInMenu && newSources.some((source) => source === integrationId)
+
+    const integrationUrl = (integrationId: string): string | undefined =>
+        onIntegrationSelect
+            ? undefined
+            : urls.dataWarehouseSourceNew(
+                  integrationId,
+                  urls.marketingAnalyticsApp(),
+                  'Marketing analytics',
+                  undefined,
+                  'marketing_analytics_integration_menu'
+              )
+
+    if (quillSurface) {
+        return (
+            <QuillAddIntegrationButton
+                open={showPopover}
+                onOpenChange={handleVisibilityChange}
+                groups={visibleGroups}
+                newSourcesNotice={showNewSourcesInMenu ? newSourcesNotice : null}
+                showNewSources={showNewSources}
+                restrictedReason={restrictedReason}
+                integrationLabel={integrationLabel}
+                isNewSource={isNewSource}
+                integrationUrl={integrationUrl}
+                onIntegrate={handleIntegrateClick}
+            />
+        )
+    }
+
     const items: LemonMenuItems = [
         ...(showNewSourcesInMenu
             ? [
@@ -66,43 +106,25 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                       title: (
                           <div className="w-72 max-w-full p-2 space-y-2">
                               <div className="font-semibold">New ad sources</div>
-                              <p className="m-0 text-muted text-sm">
-                                  {`Connect ${newSources.map(nativeSourceDisplayLabel).join(', ')} to compare spend and conversions.`}
-                              </p>
+                              <p className="m-0 text-muted text-sm">{newSourcesNotice}</p>
                           </div>
                       ),
                       items: [],
                   },
               ]
             : []),
-        ...groups
-            .filter(({ sources }) => sources.length > 0)
-            .map(({ title, sources }) => ({
-                title,
-                items: sources.map((integrationId) => ({
-                    key: integrationId,
-                    label:
-                        integrationId === 'GoogleSearchConsole'
-                            ? 'Google Search Console'
-                            : marketingSourceDisplayLabel(integrationId),
-                    icon: <SourceIcon type={integrationId} size="xsmall" disableTooltip />,
-                    tag:
-                        showNewSourcesInMenu && newSources.some((source) => source === integrationId)
-                            ? ('new' as const)
-                            : undefined,
-                    disabledReason: restrictedReason,
-                    to: onIntegrationSelect
-                        ? undefined
-                        : urls.dataWarehouseSourceNew(
-                              integrationId,
-                              urls.marketingAnalyticsApp(),
-                              'Marketing analytics',
-                              undefined,
-                              'marketing_analytics_integration_menu'
-                          ),
-                    onClick: () => handleIntegrateClick(integrationId),
-                })),
+        ...visibleGroups.map(({ title, sources }) => ({
+            title,
+            items: sources.map((integrationId) => ({
+                key: integrationId,
+                label: integrationLabel(integrationId),
+                icon: <SourceIcon type={integrationId} size="xsmall" disableTooltip />,
+                tag: isNewSource(integrationId) ? ('new' as const) : undefined,
+                disabledReason: restrictedReason,
+                to: integrationUrl(integrationId),
+                onClick: () => handleIntegrateClick(integrationId),
             })),
+        })),
     ]
 
     return (
@@ -126,11 +148,6 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 tooltipForceMount={restrictedReason || (showNewSources && !showPopover) ? undefined : false}
             >
                 <span>Add source</span>
-                {showNewSources && (
-                    <LemonTag type="option" size="small" className="ml-2">
-                        New
-                    </LemonTag>
-                )}
             </LemonButton>
         </LemonMenu>
     )

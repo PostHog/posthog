@@ -178,6 +178,8 @@ class TestEnrichmentScoreApplication(BaseTest):
         clients = []
         session = MagicMock()
         session.post.return_value.status_code = 200
+        session.post.return_value.headers = {}
+        session.post.return_value.json.return_value = {"results": {}}
         if timed_out:
             session.post.side_effect = Timeout("synthetic delivery timeout")
 
@@ -198,7 +200,7 @@ class TestEnrichmentScoreApplication(BaseTest):
                 "products.growth.backend.enrichment.fit_recomputation.read_organization_bridge_inputs",
                 return_value=OrganizationBridgeInputs(),
             ),
-            patch("posthoganalytics.request._get_session", return_value=session),
+            patch("posthoganalytics.capture_send._get_capture_session", return_value=session),
         ):
             if timed_out:
                 with self.assertRaises(RuntimeError):

@@ -19,7 +19,6 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -195,6 +194,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
+    // The toolbar sign-in error page, where the app shows why the server refused to open the toolbar.
+    '/toolbar_oauth',
     // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
     // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
     // /onboarding swallows the click and the email is never updated.
@@ -511,11 +512,6 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
-        cache.disposables.add(() =>
-            listenForGoldRingsKeys(
-                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
-            )
-        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something

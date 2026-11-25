@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
@@ -17,6 +18,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TAG_NAME_MAX_LENGTH, BulkUpdateTagsAction
 from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.paging import Page, PageRequest
@@ -24,7 +26,11 @@ from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
+    CUSTOMER_TASK_MAX_TAGS,
+)
+from products.customer_analytics.backend.presentation.customer_task_tags import create_customer_task_tags_field
 
 _ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, a project member ID, or role:<role UUID>."
 # pinned: the frontend writes the same prefix into links and API calls
@@ -86,6 +92,9 @@ class CustomerTaskSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the task was last updated.")
     can_edit = serializers.BooleanField(read_only=True, help_text="Whether the current user can edit this task.")
     can_restore = serializers.BooleanField(read_only=True, help_text="Whether the current user can restore this task.")
+    tags = serializers.ListField(
+        child=serializers.CharField(), read_only=True, help_text="Tag names on the task, sorted alphabetically."
+    )
 
 
 class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
@@ -113,6 +122,7 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         required=False, default="open", choices=api.CUSTOMER_TASK_STATUS_CHOICES, help_text="Initial task status."
     )
+    tags = create_customer_task_tags_field("Tag names for the task, up to 100.")
 
     def validate_name(self, value: str) -> str:
         value = value.strip()
@@ -143,6 +153,7 @@ class CustomerTaskUpdateFieldsSerializer(serializers.Serializer):
         choices=api.CUSTOMER_TASK_STATUS_CHOICES,
         help_text="Replacement task status.",
     )
+    tags = create_customer_task_tags_field("Replacement tag names, up to 100. An empty list removes every tag.")
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, dict):
@@ -174,6 +185,11 @@ class CustomerTaskBulkPatchSerializer(CustomerTaskUpdateFieldsSerializer):
     archived = serializers.BooleanField(
         required=False, help_text="Archive tasks when true, or restore them when false."
     )
+    tags_mode = serializers.ChoiceField(
+        required=False,
+        choices=BulkUpdateTagsAction.choices,
+        help_text="How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
@@ -181,6 +197,10 @@ class CustomerTaskBulkPatchSerializer(CustomerTaskUpdateFieldsSerializer):
             raise serializers.ValidationError("Change at least one task field.")
         if "archived" in attrs and len(attrs) != 1:
             raise serializers.ValidationError("Change archive state separately from other task fields.")
+        if "tags_mode" in attrs and "tags" not in attrs:
+            raise serializers.ValidationError({"tags_mode": "Send tags with tags_mode."})
+        if "tags" in attrs and not attrs["tags"] and attrs.get("tags_mode", "add") != "set":
+            raise serializers.ValidationError({"tags": "Enter at least one tag to add or remove."})
         return attrs
 
 
@@ -207,7 +227,17 @@ class CustomerTaskBulkUpdateErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(read_only=True, help_text="Reason the batch could not be updated.")
 
 
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "object"}]})
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "object"},
+            {"type": "array", "items": {"type": "string"}},
+        ]
+    }
+)
 class CustomerTaskChangeValueField(serializers.JSONField):
     pass
 
@@ -249,6 +279,11 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     due_after = serializers.DateTimeField(required=False, help_text="Inclusive lower deadline bound.")
     due_before = serializers.DateTimeField(required=False, help_text="Exclusive upper deadline bound.")
     has_due_at = serializers.BooleanField(required=False, help_text="Filter tasks by whether a deadline exists.")
+    tags = serializers.CharField(
+        required=False,
+        max_length=CUSTOMER_TASK_MAX_TAGS * (12 * TAG_NAME_MAX_LENGTH + 4) + 2,
+        help_text='JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.',
+    )
     ordering = serializers.ChoiceField(
         required=False,
         choices=[(value, value) for value in _ORDERING_CHOICES],
@@ -277,6 +312,15 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
         if not 1 <= member_id <= INTEGER_FIELD_MAX:
             raise serializers.ValidationError(_ASSIGNED_TO_ERROR)
         return str(member_id)
+
+    def validate_tags(self, value: str) -> tuple[str, ...]:
+        try:
+            tags = json.loads(value)
+        except (ValueError, RecursionError):
+            raise serializers.ValidationError("Must be a JSON-encoded list of strings.") from None
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise serializers.ValidationError("Must be a JSON-encoded list of strings.")
+        return tuple(create_customer_task_tags_field(allow_blank=True).run_validation(tags))
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(part.strip() for part in value.split(","))
@@ -398,6 +442,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             due_before=data.get("due_before"),
             has_due_at=data.get("has_due_at") if "has_due_at" in request.query_params else None,
             ordering=data.get("ordering"),
+            tags=data.get("tags", ()),
         )
         return CustomerTaskPagination().get_paginated_facade_response(
             request,
@@ -451,6 +496,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 assigned_to_id_provided="assigned_to_id" in request.data,
                 due_at_provided="due_at" in request.data,
                 status_provided="status" in request.data,
+                tags_provided="tags" in request.data,
             ),
             actor=cast(User, request.user),
             user_access_control=self.user_access_control,
@@ -480,6 +526,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def bulk_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         updates = dict(request.validated_data["updates"])
         archived = updates.pop("archived", None)
+        tags_mode = updates.pop("tags_mode", BulkUpdateTagsAction.ADD)
         count = api.bulk_update_customer_tasks(
             team=self.canonical_team,
             task_ids=request.validated_data["task_ids"],
@@ -489,6 +536,8 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 assigned_to_id_provided="assigned_to_id" in updates,
                 due_at_provided="due_at" in updates,
                 status_provided="status" in updates,
+                tags_provided="tags" in updates,
+                tags_mode=tags_mode,
             ),
             archived=archived,
             actor=cast(User, request.user),
@@ -578,6 +627,11 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if isinstance(exc, contracts.CustomerTaskArchived):
             return Response({"detail": "Restore this task before editing it."}, status=status.HTTP_409_CONFLICT)
+        if isinstance(exc, contracts.CustomerTaskTagLimitExceeded):
+            return Response(
+                {"detail": f"Tasks can have up to {CUSTOMER_TASK_MAX_TAGS} tags. Remove a tag before adding more."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if isinstance(exc, contracts.CustomerTaskBulkUpdateConflict):
             return Response(
                 {"detail": "Could not update the tasks. No tasks changed. Refresh the page and try again."},

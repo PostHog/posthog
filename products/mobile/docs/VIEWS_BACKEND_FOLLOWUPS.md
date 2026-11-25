@@ -37,15 +37,11 @@ The app can force a refresh when a view comes back into focus, not only when the
 A check on the server makes that safe: a forced read inside the window returns the cache, whatever the client sends.
 
 **Why it matters to users:**
-People open a view on the phone to see the latest number.
-Today, on focus, the phone shows the cached number until the server's staleness window passes.
-For daily data that window is 6 hours.
-People often refresh right after they open a view, so today they must pull to refresh each time.
-With a server-side check, the app can do that refresh for them.
+Dashboards already refresh on open. A server-side check would honor the refresh window across devices.
 
 **What the app does today:**
 
-- Open, focus and foreground never force. They send `refresh=blocking`, which computes only past `cache_target_age`.
+- [Dashboards refresh on open, return, and app resume](VIEWS.md#refresh). Other automatic reads use `blocking`.
 - Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
 - Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
 - One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.
@@ -83,7 +79,7 @@ Skills and tests:
 
 **App change when it lands:**
 
-- `useViewRefresh` can send `force_blocking` on focus for each visible item that `isEligible` accepts ("force when the server allows").
+- Extend automatic refresh on focus to other Views screens.
 - Keep `isEligible`, the queue and the token buckets. They keep the app inside the limits on older deploys and on self-hosted instances.
 
 **Size:** M.
@@ -326,7 +322,7 @@ The badge helps them find what the agent made.
   Run `hogli build:openapi`.
 - Migration: two nullable `AddField` operations, with no default and no backfill.
   Old dashboards stay null and get no badge.
-  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hogli product:lint` for the `products/dashboards` isolation rules.
+  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hoglint check` for the `products/dashboards` isolation rules.
 - Tests: one parameterized create test over event sources, in the dashboards API tests.
   Invoke `/writing-tests`.
 

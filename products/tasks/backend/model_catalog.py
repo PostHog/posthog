@@ -274,7 +274,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
     CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST),
-    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    # Only ReviewHog's arm-set trial and the first-report model experiment pin it. `retired` is the catalog's state for a model no picker offers
     # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
     CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),

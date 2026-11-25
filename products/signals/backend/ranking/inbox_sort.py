@@ -1,136 +1,20 @@
-"""Resolve the `recommended` inbox sort to an arm, and give each row a merge key.
+"""The order of the ranked inbox sorts, and the merge key of each row.
 
-A multivariate flag keyed by the requesting user picks the arm. An arm is a ranker and a pill setting:
-
-| Variant        | Ranker   | Pill |
-|----------------|----------|------|
-| `control`      | priority | no   |
-| `pills`        | priority | yes  |
-| `action_pills` | action   | yes  |
-
-An unknown variant, or a flag that is off or fails to evaluate, gives `control`.
-
-A second flag tests the person's stored personal list as the recommended order:
-
-| Variant    | Order                                   | Pill |
-|------------|-----------------------------------------|------|
-| `control`  | priority                                | no   |
-| `personal` | the stored personal list, then priority | yes  |
-
-Only a person whose stored list has at least `PERSONAL_ARM_MIN_ENTRIES` entries records an exposure. A rebuild can
-make the list of an exposed person shorter, so a person with a shorter list that is not empty also gets the arm of
-their variant, with no exposure. For a person with no stored list, and when the second flag gives no known variant,
-the first flag picks the arm.
-
-A head ranker sorts by the served score of its outcome, highest first, then in priority order. A report edited after
-its last score still sorts by that score. Unscored reports come after every scored report, in priority order. The merge
-key follows the same order, so a client can merge rows from different state requests: `1 - score` for a scored report,
-`2 + priority rank` for an unscored report, and the priority rank alone for the priority ranker.
+`sort=recommended` and `sort=personal` put the stored personal list first, then every other report in priority
+order. Without a stored list, they give the priority order. The merge key of a row outside the list is its priority
+rank, so a client can merge rows from different state requests.
 """
 
-from typing import Literal, get_args
+from typing import Literal
 
 from django.db.models import Case, CharField, F, FloatField, Func, JSONField, OuterRef, Subquery, Value, When
 from django.db.models.functions import Cast
 
-import structlog
-import posthoganalytics
-
-from posthog.dataclasses import frozen
-from posthog.models.team import Team
-from posthog.models.user import User
-
 from products.signals.backend.models import AutonomyPriority, SignalReportArtefact
-from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
-
-logger = structlog.get_logger(__name__)
-
-RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-ranking-pills"
-PERSONAL_RECOMMENDED_FLAG = "signals-inbox-recommended-personal"
-# A shorter list is close to the priority order, so its owner adds only noise to the personal test.
-PERSONAL_ARM_MIN_ENTRIES = 5
-
-HeadRanker = PublicOutcomeName
-InboxRanker = Literal["priority", HeadRanker]
-
-HEAD_RANKERS: tuple[HeadRanker, ...] = get_args(HeadRanker)
 
 PRIORITY_ORDERING = "priority,status,-updated_at"
-RANKER_ORDERINGS: dict[InboxRanker, str] = {
-    "priority": PRIORITY_ORDERING,
-    **{head: f"-ranking_{head},{PRIORITY_ORDERING}" for head in HEAD_RANKERS},
-}
 
 _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
-_UNSCORED_MERGE_KEY_BASE = 2.0
-
-
-@frozen
-class RecommendedArm:
-    ranker: InboxRanker
-    ranking_pill: bool
-    # The stored personal list orders its reports first, and `ranker` orders every other report.
-    personal: bool = False
-
-
-CONTROL_ARM = RecommendedArm(ranker="priority", ranking_pill=False)
-RECOMMENDED_ARMS: dict[str, RecommendedArm] = {
-    "control": CONTROL_ARM,
-    "pills": RecommendedArm(ranker="priority", ranking_pill=True),
-    "action_pills": RecommendedArm(ranker="action", ranking_pill=True),
-}
-PERSONAL_ARM = RecommendedArm(ranker="priority", ranking_pill=True, personal=True)
-PERSONAL_RECOMMENDED_ARMS: dict[str, RecommendedArm] = {
-    "control": CONTROL_ARM,
-    "personal": PERSONAL_ARM,
-}
-
-
-def resolve_recommended_arm(
-    team: Team, user: User, *, personal_list_size: int = 0, send_feature_flag_events: bool = True
-) -> RecommendedArm:
-    """`send_feature_flag_events=False` reads the variant without an exposure, for a caller that does not show the inbox.
-
-    `personal_list_size` is the number of entries in the person's stored personal list. The caller reads it before
-    any flag call, so the eligibility for the personal test does not depend on the arm.
-    """
-    distinct_id = user.distinct_id
-    if not distinct_id:
-        return CONTROL_ARM
-    if personal_list_size > 0:
-        arm = _flag_arm(
-            PERSONAL_RECOMMENDED_FLAG,
-            PERSONAL_RECOMMENDED_ARMS,
-            team,
-            distinct_id,
-            send_feature_flag_events and personal_list_size >= PERSONAL_ARM_MIN_ENTRIES,
-        )
-        if arm is not None:
-            return arm
-    return (
-        _flag_arm(RECOMMENDED_INBOX_SORT_FLAG, RECOMMENDED_ARMS, team, distinct_id, send_feature_flag_events)
-        or CONTROL_ARM
-    )
-
-
-def _flag_arm(
-    flag: str, arms: dict[str, RecommendedArm], team: Team, distinct_id: str, send_feature_flag_events: bool
-) -> RecommendedArm | None:
-    """The arm of the user's variant. None when the flag is off, fails to evaluate, or gives an unknown variant."""
-    try:
-        variant = posthoganalytics.get_feature_flag(
-            flag,
-            # Keyed by user so the exposure joins to the user's inbox events in the experiment.
-            distinct_id,
-            # The web and desktop clients register the project group by uuid, so all clients get the same variant.
-            groups={"project": str(team.uuid)},
-            group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
-            send_feature_flag_events=send_feature_flag_events,
-        )
-    except Exception:
-        logger.exception("signals.inbox_sort.flag_failed", flag=flag, team_id=team.id, distinct_id=distinct_id)
-        return None
-    return arms.get(variant) if isinstance(variant, str) else None
 
 
 def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -178,15 +62,6 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
     )
 
 
-def _clamped_priority_rank(priority_rank: int | None) -> int:
-    return _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
-
-
-def inbox_merge_key(ranker: InboxRanker, score: float | None, priority_rank: int | None) -> float:
-    """Lower keys rank first. For a head ranker, a report without a score sorts after every scored report."""
-    priority = _clamped_priority_rank(priority_rank)
-    if ranker == "priority":
-        return float(priority)
-    if score is None:
-        return _UNSCORED_MERGE_KEY_BASE + priority
-    return 1.0 - min(max(score, 0.0), 1.0)
+def inbox_merge_key(priority_rank: int | None) -> float:
+    """Lower keys rank first. A report with no priority rank sorts last."""
+    return float(_PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1))

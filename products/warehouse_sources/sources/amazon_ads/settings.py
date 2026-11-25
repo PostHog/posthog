@@ -15,8 +15,11 @@ class AmazonAdsReportConfig:
     time_unit: str = "DAILY"
     # Amazon rejects a report whose requested range is wider than this.
     max_window_days: int = 31
-    # Amazon keeps report data for this long, so a first sync cannot reach further back.
+    # How far back a first sync reaches. Amazon keeps report data at least this long.
     retention_days: int = 95
+    # Report rows carry no id, and some grouping columns can be null. When set, `_row_id` is a hash
+    # of these columns, so it identifies a row together with the profile and the date.
+    key_columns: tuple[str, ...] = ()
 
 
 # Page size for the list endpoints that accept one. Amazon caps it per endpoint, so an endpoint
@@ -25,6 +28,11 @@ PAGE_SIZE = 500
 # The unified Ads API caps an entity query at 100 results, except for targets.
 ADS_API_PAGE_SIZE = 100
 ADS_API_TARGET_PAGE_SIZE = 5000
+
+# `GET /sp/budgetRules` and its campaigns caps `pageSize` at 30, and requires it on every page.
+BUDGET_RULES_PAGE_SIZE = 30
+# The Sponsored TV list endpoints cap `maxResults` at 100.
+ST_PAGE_SIZE = 100
 
 SPONSORED_BRANDS = "SPONSORED_BRANDS"
 SPONSORED_DISPLAY = "SPONSORED_DISPLAY"
@@ -62,6 +70,12 @@ class AmazonAdsEndpointConfig:
     # `/v2/profiles` query that finds the profiles this table can read. Without one, Amazon lists
     # only the profiles with view-and-edit campaign permission.
     profile_discovery_params: Optional[dict[str, str]] = None
+    # False for an endpoint that refuses a page size next to a page token.
+    page_size_with_token: bool = True
+    # A child table read once per row of its parent table, in each profile. `path` holds a
+    # `{parent_id}` placeholder, and each child row carries the parent id under `fan_out_parent_key`.
+    fan_out_parent: Optional[str] = None
+    fan_out_parent_key: Optional[str] = None
 
 
 def ads_api_query(
@@ -78,6 +92,28 @@ def ads_api_query(
         page_size=page_size,
         filters={"adProductFilter": {"include": [ad_product]}},
         ads_api=True,
+    )
+
+
+def report_endpoint(name: str, report: AmazonAdsReportConfig) -> AmazonAdsEndpointConfig:
+    return AmazonAdsEndpointConfig(
+        name=name,
+        path="/reporting/reports",
+        primary_keys=["_profile_id", "date", "_row_id"],
+        profile_scoped=True,
+        report=report,
+    )
+
+
+def sponsored_tv_list(name: str, entity: str, data_key: str, media_type: str, id_field: str) -> AmazonAdsEndpointConfig:
+    return AmazonAdsEndpointConfig(
+        name=name,
+        path=f"/st/{entity}/list",
+        primary_keys=["_profile_id", id_field],
+        profile_scoped=True,
+        media_type=media_type,
+        data_key=data_key,
+        page_size=ST_PAGE_SIZE,
     )
 
 
@@ -136,6 +172,181 @@ SP_CAMPAIGN_REPORT = AmazonAdsReportConfig(
         "kindleEditionNormalizedPagesRead14d",
         "kindleEditionNormalizedPagesRoyalties14d",
     ),
+)
+
+_SP_REPORT_DIMENSIONS = (
+    "date",
+    "campaignId",
+    "campaignName",
+    "campaignStatus",
+    "campaignBudgetAmount",
+    "campaignBudgetType",
+    "campaignBudgetCurrencyCode",
+    "portfolioId",
+    "adGroupId",
+    "adGroupName",
+)
+
+_SP_REPORT_METRICS = (
+    "impressions",
+    "clicks",
+    "clickThroughRate",
+    "cost",
+    "costPerClick",
+    "addToList",
+    "qualifiedBorrows",
+    "royaltyQualifiedBorrows",
+    "purchases1d",
+    "purchases7d",
+    "purchases14d",
+    "purchases30d",
+    "purchasesSameSku1d",
+    "purchasesSameSku7d",
+    "purchasesSameSku14d",
+    "purchasesSameSku30d",
+    "sales1d",
+    "sales7d",
+    "sales14d",
+    "sales30d",
+    "attributedSalesSameSku1d",
+    "attributedSalesSameSku7d",
+    "attributedSalesSameSku14d",
+    "attributedSalesSameSku30d",
+    "unitsSoldClicks1d",
+    "unitsSoldClicks7d",
+    "unitsSoldClicks14d",
+    "unitsSoldClicks30d",
+    "unitsSoldSameSku1d",
+    "unitsSoldSameSku7d",
+    "unitsSoldSameSku14d",
+    "unitsSoldSameSku30d",
+    "salesOtherSku7d",
+    "unitsSoldOtherSku7d",
+    "acosClicks7d",
+    "acosClicks14d",
+    "roasClicks7d",
+    "roasClicks14d",
+    "kindleEditionNormalizedPagesRead14d",
+    "kindleEditionNormalizedPagesRoyalties14d",
+)
+
+_SP_KEYWORD_COLUMNS = ("keywordId", "keyword", "keywordType", "keywordBid", "matchType", "targeting", "adKeywordStatus")
+
+# Only searches that led to at least one click appear. `keywordId` holds the keyword or the
+# targeting clause that matched the search.
+SP_SEARCH_TERM_REPORT = AmazonAdsReportConfig(
+    report_type_id="spSearchTerm",
+    ad_product="SPONSORED_PRODUCTS",
+    group_by=("searchTerm",),
+    columns=(*_SP_REPORT_DIMENSIONS, *_SP_KEYWORD_COLUMNS, "searchTerm", *_SP_REPORT_METRICS),
+    retention_days=65,
+    key_columns=("campaignId", "adGroupId", "keywordId", "targeting", "searchTerm"),
+)
+
+SP_ADVERTISED_PRODUCT_REPORT = AmazonAdsReportConfig(
+    report_type_id="spAdvertisedProduct",
+    ad_product="SPONSORED_PRODUCTS",
+    group_by=("advertiser",),
+    columns=(*_SP_REPORT_DIMENSIONS, "adId", "advertisedAsin", "advertisedSku", "spend", *_SP_REPORT_METRICS),
+    key_columns=("campaignId", "adGroupId", "adId", "advertisedAsin", "advertisedSku"),
+)
+
+SP_TARGETING_REPORT = AmazonAdsReportConfig(
+    report_type_id="spTargeting",
+    ad_product="SPONSORED_PRODUCTS",
+    group_by=("targeting",),
+    columns=(*_SP_REPORT_DIMENSIONS, *_SP_KEYWORD_COLUMNS, *_SP_REPORT_METRICS),
+    key_columns=("campaignId", "adGroupId", "keywordId", "targeting"),
+)
+
+# Sales of products other than the advertised one, attributed to the ad that was clicked.
+SP_PURCHASED_PRODUCT_REPORT = AmazonAdsReportConfig(
+    report_type_id="spPurchasedProduct",
+    ad_product="SPONSORED_PRODUCTS",
+    group_by=("asin",),
+    columns=(
+        "date",
+        "campaignId",
+        "campaignName",
+        "campaignBudgetCurrencyCode",
+        "portfolioId",
+        "adGroupId",
+        "adGroupName",
+        "keywordId",
+        "keyword",
+        "keywordType",
+        "matchType",
+        "advertisedAsin",
+        "advertisedSku",
+        "purchasedAsin",
+        "marketplace",
+        "addToList",
+        "qualifiedBorrows",
+        "royaltyQualifiedBorrows",
+        "purchases1d",
+        "purchases7d",
+        "purchases14d",
+        "purchases30d",
+        "purchasesOtherSku1d",
+        "purchasesOtherSku7d",
+        "purchasesOtherSku14d",
+        "purchasesOtherSku30d",
+        "sales1d",
+        "sales7d",
+        "sales14d",
+        "sales30d",
+        "salesOtherSku1d",
+        "salesOtherSku7d",
+        "salesOtherSku14d",
+        "salesOtherSku30d",
+        "unitsSoldClicks1d",
+        "unitsSoldClicks7d",
+        "unitsSoldClicks14d",
+        "unitsSoldClicks30d",
+        "unitsSoldOtherSku1d",
+        "unitsSoldOtherSku7d",
+        "unitsSoldOtherSku14d",
+        "unitsSoldOtherSku30d",
+        "kindleEditionNormalizedPagesRead14d",
+        "kindleEditionNormalizedPagesRoyalties14d",
+    ),
+    key_columns=("campaignId", "adGroupId", "keywordId", "advertisedAsin", "advertisedSku", "purchasedAsin"),
+)
+
+# Amazon keeps this report for 731 days, but a first sync reads the same 95 days as the other
+# report tables, so it stays a few reports per profile.
+SB_PURCHASED_PRODUCT_REPORT = AmazonAdsReportConfig(
+    report_type_id="sbPurchasedProduct",
+    ad_product="SPONSORED_BRANDS",
+    group_by=("purchasedAsin",),
+    columns=(
+        "date",
+        "campaignId",
+        "campaignName",
+        "campaignBudgetCurrencyCode",
+        "campaignPriceTypeCode",
+        "adGroupId",
+        "adGroupName",
+        "attributionType",
+        "purchasedAsin",
+        "productName",
+        "productCategory",
+        "orders14d",
+        "ordersClicks14d",
+        "sales14d",
+        "salesClicks14d",
+        "unitsSold14d",
+        "unitsSoldClicks14d",
+        "newToBrandPurchases14d",
+        "newToBrandPurchasesPercentage14d",
+        "newToBrandSales14d",
+        "newToBrandSalesPercentage14d",
+        "newToBrandUnitsSold14d",
+        "newToBrandUnitsSoldPercentage14d",
+        "kindleEditionNormalizedPagesRead14d",
+        "kindleEditionNormalizedPagesRoyalties14d",
+    ),
+    key_columns=("campaignId", "adGroupId", "attributionType", "purchasedAsin"),
 )
 
 # Amazon restates a day's metrics for as long as its widest attribution window (30 days), and the
@@ -297,6 +508,7 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         page_size_key="count",
         next_token_key="cursor",
         next_token_response_key="nextCursor",
+        page_size_with_token=False,
         profile_discovery_params={"apiProgram": "billing", "accessLevel": "view"},
     ),
     # A history event has no id of its own, so `_event_id` is a hash of the event.
@@ -317,6 +529,43 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         primary_keys=["_profile_id", "campaignId", "date"],
         profile_scoped=True,
         report=SP_CAMPAIGN_REPORT,
+    ),
+    "sp_search_term_reports": report_endpoint("sp_search_term_reports", SP_SEARCH_TERM_REPORT),
+    "sp_advertised_product_reports": report_endpoint("sp_advertised_product_reports", SP_ADVERTISED_PRODUCT_REPORT),
+    "sp_targeting_reports": report_endpoint("sp_targeting_reports", SP_TARGETING_REPORT),
+    "sp_purchased_product_reports": report_endpoint("sp_purchased_product_reports", SP_PURCHASED_PRODUCT_REPORT),
+    "sb_purchased_product_reports": report_endpoint("sb_purchased_product_reports", SB_PURCHASED_PRODUCT_REPORT),
+    "sp_budget_rules": AmazonAdsEndpointConfig(
+        name="sp_budget_rules",
+        path="/sp/budgetRules",
+        primary_keys=["_profile_id", "ruleId"],
+        profile_scoped=True,
+        data_key="budgetRulesForAdvertiserResponse",
+        page_size=BUDGET_RULES_PAGE_SIZE,
+        method="GET",
+        page_size_key="pageSize",
+    ),
+    "sp_budget_rule_campaigns": AmazonAdsEndpointConfig(
+        name="sp_budget_rule_campaigns",
+        path="/sp/budgetRules/{parent_id}/campaigns",
+        primary_keys=["_profile_id", "ruleId", "campaignId"],
+        profile_scoped=True,
+        data_key="associatedCampaigns",
+        page_size=BUDGET_RULES_PAGE_SIZE,
+        method="GET",
+        page_size_key="pageSize",
+        fan_out_parent="sp_budget_rules",
+        fan_out_parent_key="ruleId",
+    ),
+    "st_campaigns": sponsored_tv_list(
+        "st_campaigns", "campaigns", "campaigns", "application/vnd.stCampaign.v1+json", "campaignId"
+    ),
+    "st_ad_groups": sponsored_tv_list(
+        "st_ad_groups", "adGroups", "adGroups", "application/vnd.stAdGroup.v1+json", "adGroupId"
+    ),
+    "st_ads": sponsored_tv_list("st_ads", "ads", "ads", "application/vnd.stAd.v1+json", "adId"),
+    "st_targets": sponsored_tv_list(
+        "st_targets", "targets", "targetingClauses", "application/vnd.stTargetingClause.v1+json", "targetId"
     ),
 }
 

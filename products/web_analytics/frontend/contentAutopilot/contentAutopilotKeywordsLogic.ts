@@ -19,8 +19,10 @@ import type {
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
+import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { type AiVisibilityFilters, filtersToQueryParams } from './aiVisibilityFilters'
+import type { AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotPromptsError, promptsErrorFrom } from './contentAutopilotPromptsLogic'
 import { MAX_KEYWORDS, keywordLines, keywordsAddedMessage } from './keywordsReport'
@@ -42,6 +44,7 @@ export interface contentAutopilotKeywordsLogicValues {
     keywordsError: ContentAutopilotPromptsError | null
     keywordsLeft: number
     keywordsLoading: boolean
+    keywordsModalOpen: boolean
     modifierKeyword: string | null
     modifiers: AEOKeywordModifierReportApi | null
     modifiersError: ContentAutopilotPromptsError | null
@@ -58,31 +61,33 @@ export interface contentAutopilotKeywordsLogicActions {
         filters: Partial<AiVisibilityFilters>
     } // contentAutopilotFiltersLogic
     setBrandedSegment: (
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi,
+        tab: AiVisibilityFilterTab
     ) => {
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
-    setDays: (
-        days: 7 | 14 | 30 | 90,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+    setDates: (
+        dateFrom: string,
+        dateTo: string | null,
+        tab: AiVisibilityFilterTab
     ) => {
-        days: 7 | 14 | 30 | 90
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        dateFrom: string
+        dateTo: string | null
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
         engine: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
         engine: string | null
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setTopic: (
         topic: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
         topic: string | null
     } // contentAutopilotFiltersLogic
     addKeywords: () => {
@@ -93,6 +98,9 @@ export interface contentAutopilotKeywordsLogicActions {
     }
     addKeywordsSuccess: (result: AEOKeywordCreateResultApi) => {
         result: AEOKeywordCreateResultApi
+    }
+    closeKeywordsModal: () => {
+        value: true
     }
     loadKeywords: () => {
         value: true
@@ -157,6 +165,9 @@ export interface contentAutopilotKeywordsLogicActions {
             value: true
         }
     }
+    openKeywordsModal: () => {
+        value: true
+    }
     removeKeyword: (keyword: AEOKeywordApi) => {
         keyword: AEOKeywordApi
     }
@@ -196,7 +207,7 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         values: [teamLogic, ['currentTeamIdStrict'], contentAutopilotFiltersLogic, ['filters']],
         actions: [
             contentAutopilotFiltersLogic,
-            ['setDays', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
+            ['setDates', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
         ],
     })),
     actions({
@@ -211,6 +222,8 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         removeKeywordSuccess: (keyword: AEOKeywordApi) => ({ keyword }),
         removeKeywordFailure: (keyword: AEOKeywordApi) => ({ keyword }),
         setModifierKeyword: (modifierKeyword: string | null) => ({ modifierKeyword }),
+        openKeywordsModal: true,
+        closeKeywordsModal: true,
     }),
     loaders(({ values }) => ({
         keywords: [
@@ -302,6 +315,13 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 setModifierKeyword: (_, { modifierKeyword }) => modifierKeyword,
             },
         ],
+        keywordsModalOpen: [
+            false,
+            {
+                openKeywordsModal: () => true,
+                closeKeywordsModal: () => false,
+            },
+        ],
         keywordsError: [
             null as ContentAutopilotPromptsError | null,
             {
@@ -384,6 +404,10 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 if (values.modifierKeyword === keyword.keyword) {
                     actions.setModifierKeyword(null)
                 }
+                // The empty state unmounts the editor, so it would reopen on its own once a keyword is added back.
+                if (values.keywords?.length === 0) {
+                    actions.closeKeywordsModal()
+                }
             },
             setModifierKeyword: ({ modifierKeyword }) => {
                 // pinned: analytics event name, renaming it breaks dashboards
@@ -392,7 +416,7 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 })
                 actions.loadModifiers()
             },
-            setDays: () => reloadReports(),
+            setDates: () => reloadReports(),
             setEngine: () => reloadReports(),
             setTopic: () => reloadReports(),
             setBrandedSegment: () => reloadReports(),

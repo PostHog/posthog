@@ -1,10 +1,45 @@
 # serializer version: 1
+# name: TestTraceListViewSet.test_the_two_reads_match_their_snapshots[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArraySortedIf(51)(tuple(negate(toUnixTimestamp64Milli(first_timestamp)), trace_id, first_timestamp),
+                                1) AS page,
+         count() AS total,
+         countIf(has_error) AS errors,
+         countIf(has_feedback) AS feedback
+  FROM
+    (SELECT CAST(events.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_timestamp,
+            greater(countIf(equals(CAST(events.properties.`$ai_is_error`, 'Nullable(String)'), 'true')), 0) AS has_error,
+            greater(countIf(in(events.event, tuple('$ai_metric', '$ai_feedback'))), 0) AS has_feedback
+     FROM events_json AS events
+     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')), greaterOrEquals(events.timestamp, toDateTime64('2026-08-26 09:50:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), isNotNull(events.properties.`$ai_trace_id`), notEquals(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), or(isNull(events.properties.ai_support_impersonated), ifNull(notEquals(CAST(events.properties.ai_support_impersonated, 'Nullable(String)'), 'true'), 1)))
+     GROUP BY trace_id
+     HAVING and(greater(countIf(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding'))), 0), greater(countIf(ifNull(equals(CAST(events.properties.plan, 'Nullable(String)'), 'pro'), 0)), 0), lessOrEquals(first_timestamp, toDateTime64('today', 6, 'UTC')), greaterOrEquals(last_timestamp, toDateTime64('2026-08-26 10:00:00.000000', 6, 'UTC'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=30,
+                     timeout_overflow_mode='throw',
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
+  '''
+# ---
 # name: TestTraceViewSet.test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project[new_events_schema.1]
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id
   FROM events_json AS __ai_events_fallback
-  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['missing', 'other-trace']), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['missing', 'other-trace']), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
   LIMIT 2 SETTINGS readonly=2,
                    max_execution_time=2,
                    timeout_before_checking_execution_speed=0,
@@ -28,7 +63,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id
   FROM events_json AS __ai_events_fallback
-  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['evaluator/trace']), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['evaluator/trace']), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=2,
                    timeout_before_checking_execution_speed=0,

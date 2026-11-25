@@ -33,54 +33,44 @@ from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
+_DEEPSEEK = ("pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None, None)
+_TERRA = ("acp", "codex", "gpt-6.1-terra", "medium", None)
+
 
 class TestFirstReportExperiment(SimpleTestCase):
     @parameterized.expand(
         [
-            ("test-sol", "acp", "codex", "gpt-6.1-sol", "high", "priority"),
-            ("test-deepseek", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None, None),
+            ("control", "control", _DEEPSEEK),
+            ("terra", "test-terra", _TERRA),
+            ("flag_off", False, _DEEPSEEK),
+            ("flag_missing", None, _DEEPSEEK),
+            ("boolean_flag", True, _DEEPSEEK),
+            ("retired_arm", "test-sol", _DEEPSEEK),
         ]
     )
     def test_variant_selects_the_whole_runtime(
-        self, variant: str, runtime: str, adapter: str | None, model: str, effort: str | None, tier: str | None
+        self, _name: str, variant: object, expected: tuple[str, str | None, str, str | None, str | None]
     ) -> None:
         team = Mock(id=123, uuid="project-uuid")
         with patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag", return_value=variant
         ) as flag:
             assignment = resolve_first_report_experiment(team)
-        assert assignment is not None
-        assert assignment.variant == variant
+        enrolled = variant in ("control", "test-terra")
+        assert assignment.variant == (variant if enrolled else None)
         agent_runtime = assignment.agent_runtime
-        assert agent_runtime is not None
         assert (
             agent_runtime.runtime,
             agent_runtime.runtime_adapter,
             agent_runtime.model,
             agent_runtime.reasoning_effort,
             agent_runtime.service_tier,
-        ) == (runtime, adapter, model, effort, tier)
+        ) == expected
+        assert ("experiment_variant" in assignment.properties()) is enrolled
         assert flag.call_args.kwargs["groups"] == {"project": "project-uuid"}
         assert flag.call_args.kwargs["send_feature_flag_events"] is False
 
-    def test_control_is_enrolled_without_a_scout(self) -> None:
-        with patch(
-            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag", return_value="control"
-        ):
-            assignment = resolve_first_report_experiment(Mock(id=123, uuid="project-uuid"))
-        assert assignment is not None
-        assert assignment.variant == "control"
-        assert not assignment.runs_scout
-        assert "runtime" not in assignment.properties()
-
-    @parameterized.expand([(False,), (None,), (True,), ("unknown",), ("deepseek-fast",)])
-    def test_unenrolled_or_invalid_variant_does_not_enroll(self, variant: object) -> None:
-        with patch(
-            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag", return_value=variant
-        ):
-            assert resolve_first_report_experiment(Mock(id=123, uuid="project-uuid")) is None
-
-    def test_flag_outage_does_not_enroll(self) -> None:
+    def test_flag_outage_runs_the_default_model_unless_dispatch_can_retry(self) -> None:
         with (
             patch(
                 "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
@@ -88,7 +78,11 @@ class TestFirstReportExperiment(SimpleTestCase):
             ),
             patch("products.signals.backend.first_report_experiment.capture_exception"),
         ):
-            assert resolve_first_report_experiment(Mock(id=123, uuid="project-uuid")) is None
+            assignment = resolve_first_report_experiment(Mock(id=123, uuid="project-uuid"))
+            with self.assertRaises(RuntimeError):
+                resolve_first_report_experiment(Mock(id=123, uuid="project-uuid"), raise_on_error=True)
+        assert assignment.variant is None
+        assert assignment.agent_runtime.model == "deepseek-ai/deepseek-v4.1-flash-1017-fast"
 
 
 class TestFirstReportScout(BaseTest):

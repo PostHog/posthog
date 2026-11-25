@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.contrib.sessions.backends.base import UpdateError
+from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -23,6 +23,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from social_core.exceptions import AuthFailed
+from social_django.models import Partial
 
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -53,6 +54,15 @@ MOCK_GITLAB_SSO_RESPONSE = {
 }
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+
+
+def _store_social_signup_partial(session: SessionBase) -> None:
+    partial = Partial.objects.create(
+        token=uuid.uuid4().hex,
+        backend=session["backend"],
+        data={"kwargs": {"details": {"email": session["email"]}}},
+    )
+    session["partial_pipeline_token"] = partial.token
 
 
 class TestSignupAPI(APIBaseTest):
@@ -430,6 +440,7 @@ class TestSignupAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social+alias@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -450,6 +461,7 @@ class TestSignupAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social.referral@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -1812,6 +1824,7 @@ class TestSignupAPI(APIBaseTest):
             session = self.client.session
             session["backend"] = "google-oauth2"
             session["email"] = email
+            _store_social_signup_partial(session)
             session.save()
             response = self.client.post(
                 "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org"}
@@ -2044,6 +2057,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3275,6 +3289,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test_api_social_invite_sign_up@posthog.com",
             }
         )
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3306,6 +3321,7 @@ class TestInviteSignupAPI(APIBaseTest):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "blank_role@posthog.com"})
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3332,6 +3348,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test_api_social_invite_sign_up_with_verification@posthog.com",
             }
         )
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3359,6 +3376,26 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [("missing_partial", "missing"), ("different_backend", "backend"), ("different_email", "email")]
+    )
+    def test_social_signup_rejects_session_fields_from_another_flow(self, _name: str, mismatch: str):
+        Organization.objects.all().delete()
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "member@example.com"})
+        _store_social_signup_partial(session)
+        if mismatch == "missing":
+            session.pop("partial_pipeline_token")
+        elif mismatch == "backend":
+            session["backend"] = "github"
+        else:
+            session["email"] = "other@example.com"
+        session.save()
+        response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(email__in=["member@example.com", "other@example.com"]).exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances

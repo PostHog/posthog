@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
+}
+
+export interface CatalogAttentionApi {
+    /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+    pending_review: PendingReviewCountsApi | null
+    /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+    failing_models: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -770,15 +786,6 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
-export interface PendingReviewCountsApi {
-    /** Proposed metrics you can see that wait for approval. */
-    metrics: number
-    /** Proposed joins that wait to be accepted or rejected. */
-    relationships: number
-    /** Proposed certifications that wait for review. */
-    certifications: number
-}
-
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
@@ -808,13 +815,6 @@ export interface DataCatalogRelationshipProposalApi {
     field_name: string
     /** Extra join configuration, e.g. a field mapping. */
     configuration?: unknown
-    /**
-     * Discovery confidence in this join, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why this join is proposed. */
     reasoning?: string
     /** Sampling evidence: match rates, sample values. */
@@ -912,13 +912,6 @@ export interface TopicClusterApi {
     coverage: TopicCoverageApi
 }
 
-export interface TopicDefinitionApi {
-    /** Short name of the subject. */
-    title: string
-    /** One sentence on what the topic covers. */
-    description: string
-}
-
 export interface TopicSessionCountsApi {
     /** Sampled sessions that calculated or compared data. */
     analysis: number
@@ -997,6 +990,8 @@ export interface UncoveredGroupApi {
     draft_definition: string | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity and the people who built or viewed the measure. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface ChartSourceApi {
@@ -1061,6 +1056,8 @@ export interface ProposedMetricApi {
     agents: AgentSourceApi | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity, the people who built or viewed the measures, and how many measures the proposal merges. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface UsageSnapshotPayloadApi {
@@ -1079,11 +1076,6 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     topics: TopicClusterApi[] | null
-    /**
-     * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-     * @nullable
-     */
-    topic_definitions: TopicDefinitionApi[] | null
     /** What the sampled sessions were about, by kind. Null until grouped. */
     topic_sessions: TopicSessionCountsApi | null
     /**
@@ -1131,6 +1123,8 @@ export interface UsageSnapshotApi {
     created_at: string
     /** The scan result, one key per section. */
     payload: UsageSnapshotPayloadApi
+    /** How many of the scan's topics the payload leaves out for this reader. A topic is left out when its sessions read a table or view the reader is denied, or read data the scan could not trace to tables. */
+    hidden_topics: number
 }
 
 export type DataCatalogCertificationsListParams = {

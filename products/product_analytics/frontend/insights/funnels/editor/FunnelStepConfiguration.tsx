@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { Field, FieldTitle } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'

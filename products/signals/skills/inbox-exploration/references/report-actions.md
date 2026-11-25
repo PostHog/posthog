@@ -70,8 +70,10 @@ Every refusal carries a `code`. Do not retry any of them unchanged.
 | 400    | `report_action_unavailable`         | The action is not available now. Tell the person the `detail`.                                  |
 | 403    | `report_action_unavailable`         | The organization has not approved AI data processing. An admin turns it on in settings.         |
 | 403    | `report_action_sandbox_refused`     | A task sandbox cannot start report actions. Ask a person to start it from their own session.    |
+| 403    | `report_action_not_granted`         | The scout lacks the grant or sent a `message`. Leave a note on the report for a person instead. |
 | 409    | `report_action_run_active`          | A pull request run is already working on the report. Follow the `task_id` and `run_id` in it.   |
 | 429    | `signal_report_task_cap`            | The report reached its task limit. Work with the runs it already has.                           |
+| 429    | `report_action_scout_daily_cap`     | This scout started all the report actions it may in 24 hours. Leave a note for a person.        |
 | 429    | `throttled`, `usage_limit_exceeded` | A per-user or organization usage limit fired. Wait until it clears.                             |
 | 402    | `self_driving_free_trial`           | The organization is on a Self-driving free trial, which cannot open pull requests.              |
 | 404    | none                                | The report has no suggested prompt at that index. List the actions again and use a fresh index. |

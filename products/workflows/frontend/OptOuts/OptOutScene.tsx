@@ -9,14 +9,13 @@ import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
 import { optOutSceneLogic } from './optOutSceneLogic'
 import { providerImportLogic } from './providerImportLogic'
-import { ProviderImportModal } from './ProviderImportModal'
 
 export function OptOutScene(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const { preferencesUrlLoading } = useValues(optOutSceneLogic)
     const { openPreferencesPage } = useActions(optOutSceneLogic)
-    const { hasSeveralProviders } = useValues(providerImportLogic)
+    const { hasSeveralProviders, importButtonLabel } = useValues(providerImportLogic)
     const { openImportModal } = useActions(providerImportLogic)
 
     return (
@@ -37,7 +36,7 @@ export function OptOutScene(): JSX.Element {
                             }
                             data-attr="open-provider-import"
                         >
-                            {hasSeveralProviders ? 'Import from another tool' : 'Import from Customer.io'}
+                            {importButtonLabel}
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -64,8 +63,6 @@ export function OptOutScene(): JSX.Element {
                 <p className="mt-2">Message recipients who have opted out of all marketing messages</p>
                 <OptOutList />
             </div>
-
-            <ProviderImportModal />
         </div>
     )
 }

@@ -8,6 +8,11 @@ export const triggersOnEvents = (
     flow: HogFlow
 ): flow is HogFlow & { trigger: Extract<HogFlow['trigger'], { type: 'event' }> } => flow.trigger.type === 'event'
 
+export const filteredFlowMetric = (flow: HogFlow): MinimalAppMetric => ({
+    ...filteredMetric(flow),
+    app_source_version: { id: flow.id, version: flow.version },
+})
+
 export type EventNameGate = {
     admits: (eventName: string) => boolean
     /** The metrics the pre-filter records for an event no source admits, so skipping it records the same. */
@@ -32,10 +37,7 @@ export function buildEventNameGate({
             alsoAdmitted.includes(eventName) || filters.some((filter) => !rejectsEventName(filter, eventName)),
         filteredMetrics: () => ({
             hogFunctions: eventFunctions.map(filteredMetric),
-            hogFlows: eventFlows.map((flow) => ({
-                ...filteredMetric(flow),
-                app_source_version: { id: flow.id, version: flow.version },
-            })),
+            hogFlows: eventFlows.map(filteredFlowMetric),
         }),
     }
 }

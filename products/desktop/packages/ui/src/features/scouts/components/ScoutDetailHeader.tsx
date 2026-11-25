@@ -224,6 +224,7 @@ function ScoutDetailHeading({
           </Button>
           <ScoutChatButton
             skillName={config.skill_name}
+            displayName={displayName}
             surface="scout_detail"
             label="Discuss"
           />

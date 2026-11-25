@@ -51,6 +51,7 @@ import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsView
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { logsViewsRetrieve } from 'products/logs/frontend/generated/api'
 import { LogsGroupBySourceEnumApi, LogsViewApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsQueryTriggerEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { DEFAULT_ANOMALIES_DATE_RANGE, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
 import type { DateRange, LogMessage } from '../../../frontend/src/queries/schema/schema-general'
@@ -255,10 +256,10 @@ export interface logsSceneLogicActions {
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
         logs: LogMessage[],
-        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi | undefined
+        payload?: LogsQueryTriggerEnumApi | undefined
     ) => {
         logs: LogMessage[]
-        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi
+        payload?: LogsQueryTriggerEnumApi
     } // logsViewerDataLogic
     handleQueryChange: (
         filterType: string,

@@ -8,7 +8,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.dialpad._config import DialpadSourceConfig
 from products.warehouse_sources.sources.dialpad.dialpad import DialpadResumeConfig, to_epoch_millis
 from products.warehouse_sources.sources.dialpad.source import DialpadSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, route
 
 # 2026-07-21T12:00:00Z, and the same moment less the three-hour lookback.
 WATERMARK = datetime(2026, 7, 21, 12, tzinfo=UTC)
@@ -153,3 +153,108 @@ def test_call_labels_become_one_row_per_label(_name: str, body: dict[str, Any], 
 )
 def test_to_epoch_millis_applies_the_lookback(_name: str, value: Any, expected: int | None) -> None:
     assert to_epoch_millis(value) == expected
+
+
+@parameterized.expand(
+    [
+        ("call_center_operators", "/api/v2/callcenters", "call_center_id"),
+        ("office_operators", "/api/v2/offices", "parent_office_id"),
+    ]
+)
+def test_operators_become_one_row_per_user_and_room(_name: str, parent_path: str, parent_column: str) -> None:
+    result = _driver().run(
+        _name,
+        route(
+            {
+                parent_path: [_page([{"id": "10"}], cursor="p2"), _page([{"id": "20"}, {"id": "30"}])],
+                f"{parent_path}/10/operators": [
+                    ScriptedResponse(json={"users": [{"id": "u1", "office_id": "99"}], "rooms": [{"id": "r1"}]})
+                ],
+                # A deleted parent has no operators left.
+                f"{parent_path}/20/operators": [ScriptedResponse(status=404, json={})],
+                f"{parent_path}/30/operators": [ScriptedResponse(json={"users": None})],
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert [r.param("cursor") for r in result.requests if r.path == parent_path] == [None, "p2"]
+    assert result.rows == [
+        {"id": "u1", "office_id": "99", "operator_type": "user", parent_column: "10"},
+        {"id": "r1", "operator_type": "room", parent_column: "10"},
+    ]
+
+
+def test_channel_members_walk_each_channel_and_resume_from_the_saved_fanout_state() -> None:
+    script = {
+        "/api/v2/channels": [_page([{"id": "1"}, {"id": "2"}])],
+        "/api/v2/channels/1/members": [_page([{"id": 5, "name": "Ada"}], cursor="m2"), _page([{"id": 6}])],
+        "/api/v2/channels/2/members": [_page([{"id": 5, "name": "Ada"}])],
+    }
+    result = _driver().run("channel_members", route(script))
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": 5, "name": "Ada", "channel_id": "1"},
+        {"id": 6, "channel_id": "1"},
+        {"id": 5, "name": "Ada", "channel_id": "2"},
+    ]
+    saved = result.committed_states[0]
+    assert isinstance(saved, DialpadResumeConfig) and saved.cursor is None and saved.fanout_state
+
+    resumed = _driver().run(
+        "channel_members",
+        route(
+            {
+                "/api/v2/channels": [_page([{"id": "1"}, {"id": "2"}])],
+                "/api/v2/channels/1/members": [_page([{"id": 6}])],
+                "/api/v2/channels/2/members": [_page([{"id": 5, "name": "Ada"}])],
+            }
+        ),
+        resume_state=saved,
+    )
+
+    assert resumed.raised is None
+    assert [(r.path, r.param("cursor")) for r in resumed.requests if r.path.endswith("/members")] == [
+        ("/api/v2/channels/1/members", "m2"),
+        ("/api/v2/channels/2/members", None),
+    ]
+
+
+def test_scorecards_fan_out_over_each_target_type_and_state() -> None:
+    targets = {
+        "/api/v2/offices": [{"id": "o1"}],
+        "/api/v2/callcenters": [{"id": "c1"}],
+        "/api/v2/coachingteams": [],
+    }
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path in targets:
+            return _page(targets[request.path])
+        if (request.param("target_id"), request.param("state")) == ("c1", "archived"):
+            if request.param("cursor") is None:
+                return _page([{"id": 1, "state": "archived"}], cursor="s2")
+            return _page([{"id": 2, "state": "archived"}])
+        return _page(None)
+
+    result = _driver().run("scorecards", answer)
+
+    assert result.raised is None
+    scorecard_requests = [
+        (r.param("target_type"), r.param("target_id"), r.param("state"), r.param("cursor"))
+        for r in result.requests
+        if r.path == "/api/v2/scorecards"
+    ]
+    assert scorecard_requests == [
+        ("office", "o1", "active", None),
+        ("office", "o1", "archived", None),
+        ("office", "o1", "draft", None),
+        ("callcenter", "c1", "active", None),
+        ("callcenter", "c1", "archived", None),
+        ("callcenter", "c1", "archived", "s2"),
+        ("callcenter", "c1", "draft", None),
+    ]
+    assert result.rows == [
+        {"id": 1, "state": "archived", "target_type": "callcenter", "target_id": "c1"},
+        {"id": 2, "state": "archived", "target_type": "callcenter", "target_id": "c1"},
+    ]

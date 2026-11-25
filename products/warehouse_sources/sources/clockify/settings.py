@@ -183,6 +183,32 @@ CLOCKIFY_ENDPOINTS: dict[str, ClockifyEndpointConfig] = {
         primary_keys=["workspace_id", "id"],
         extra_params={"sort-column": "ID", "sort-order": "ASCENDING", "includeTeamManagers": "true"},
     ),
+    # Policy lookup for the policy ids on time off requests and balances. `status=ALL` keeps archived
+    # policies, which old requests and balances still reference.
+    "time_off_policies": ClockifyEndpointConfig(
+        name="time_off_policies",
+        path="/workspaces/{workspace_id}/time-off/policies",
+        primary_keys=["workspace_id", "id"],
+        page_size=200,
+        extra_params={"status": "ALL"},
+    ),
+    # Two-level fan-out: workspace -> user -> balances, one row per user and policy.
+    "time_off_balances": ClockifyEndpointConfig(
+        name="time_off_balances",
+        path="/workspaces/{workspace_id}/time-off/balance/user/{user_id}",
+        primary_keys=["workspace_id", "user_id", "id"],
+        page_size=200,
+        fan_out_parent="users",
+        parent_id_placeholder="user_id",
+        data_selector="balances",
+    ),
+    # The endpoint accepts no paging params and returns every holiday in one response.
+    "holidays": ClockifyEndpointConfig(
+        name="holidays",
+        path="/workspaces/{workspace_id}/holidays",
+        primary_keys=["workspace_id", "id"],
+        paginated=False,
+    ),
 }
 
 ENDPOINTS = tuple(CLOCKIFY_ENDPOINTS.keys())

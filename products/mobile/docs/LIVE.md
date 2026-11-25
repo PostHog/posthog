@@ -1,13 +1,17 @@
 # Live
 
-Live defaults to All (globe icon), with Web and Mobile options beside More. Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online follows the selected audience; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
+Live defaults to All traffic. Open Filters beside More to choose an audience (All, Web, or Mobile), exclude likely bots, and filter by hostname, path, channel type, country, device type, or referring domain. Filters combine and apply to the entire view, including Users online, mobile metrics, events, and Visitors by country.
+
+Tap **Hide** on the filter banner to dismiss it while keeping filters active. The header's Filters button still shows the active count. To bring the banner back, open Live filters, turn on **Show filter banner** at the bottom, and tap **Apply filters**. The app saves your filters and banner visibility on the device for each account and project.
+
+Mobile adds screen views, DAU/WAU (24 hours/7 days), sessions, installs (24 hours/7 days), top screens and iOS/Android. All combines project activity with separate mobile metrics. Users online follows the selected audience; daily and weekly metrics refresh hourly. Empty location results hide the map; pending or failed reads retain its loading or retry state.
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.
 Views has no Browse row for Live, because Live is Home.
 Live also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Live chip on Web analytics (`from=web_analytics`) and from deep links.
 More has "Open on web", which opens `/web/live`. Live is not a navigation pin, because it is Home.
-`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and the All/Web/Mobile selector left of More, the content starts with the cards, and the tabs menu has Open on web.
+`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and the Filters button left of More, the content starts with the cards, and the tabs menu has Open on web.
 Home has no dot or status line while updates succeed.
 When polling keeps failing, the header shows "Reconnecting…" until updates recover.
 The warning waits for the check in **Failures** below.
@@ -39,7 +43,7 @@ Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess(
 ## Requests
 
 Each read sends these jobs through `POST query/` with `refresh: blocking` and no status polls, two at a time.
-The HogQL text follows `loadQueryData` in `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsLogic.tsx`, in its unfiltered form: the window goes in `values` (`dateFrom`, `dateTo`), not in `{filters}`.
+The HogQL text follows `loadQueryData` in `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsLogic.tsx`. The window goes in `values` (`dateFrom`, `dateTo`). Traffic and internal-user predicates are passed together through query filters.
 
 | Job              | Query                                                                        | Card                             |
 | ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
@@ -58,7 +62,7 @@ The activity chart and breakdown queries stop at the end of the current minute s
 HogQL counts visitors by their first minute in the window and deduplicates across the full window for each breakdown category.
 These jobs return counts to the app.
 
-**Exclude internal users** applies the project's filters in Live and its country drill-down. Filtered online counts use HogQL.
+**Exclude internal users** applies the project's filters in Live and its country drill-down. Filtered online counts use HogQL. Bot exclusion uses the same likely-bot classifier as web analytics. Hostname matches an exact host. Path supports an exact pathname and a case-sensitive prefix. Country and device type filter the event. Channel type and referring domain filter the event’s session by its acquisition channel and entry referrer. Direct traffic uses the `$direct` referring domain. Events without the requested property or session fall outside the selection.
 
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
@@ -71,7 +75,7 @@ Two more reads, outside the query budget:
 - `GET api/projects/{id}/` once per project and session, for `live_events_token`, `path_cleaning_filters` and `ingested_event`. The server sends the token only when the grant covers `query:read`. While `ingested_event` is false, Live reads it again (see [No web traffic](#no-web-traffic)).
 - `GET {live host}/stats` with `Authorization: Bearer <live_events_token>`, every 10 seconds, on US Cloud (`live.us.posthog.com`) and EU Cloud (`live.eu.posthog.com`). It is a plain `fetch` with an 8-second timeout. It answers `users_on_product`.
 
-Users online uses audience-filtered HogQL in Web and Mobile. In All, it uses the HogQL `usersOnline` job when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
+Users online uses audience-filtered HogQL in Web and Mobile. In All, it uses the HogQL `usersOnline` job when a traffic or internal-user filter is active, the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
 
 The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. After a failed read, the chip keeps its last count for 10 seconds, then retries once before showing “Reconnecting…”. It waits up to 5 more seconds for that check, joining a read already in progress. A successful check updates the count without showing a warning. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
 
@@ -90,7 +94,7 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 Visitors by country does not run Live's read. Pushing it takes the focus from Live, so Live's poller stops at once, and the screen runs its own poller (`useLiveWorld`) with the `geo` job alone and the same rules: 30 seconds, 60 after 10 minutes, focus, background grace and backoff.
-The map card writes Live's countries and Pause state to `liveWorldStore` as it pushes the screen. Pause cannot change while the screen covers Live. The screen paints those countries first, then reads `geo` at once and every interval after, and clears the store when it closes.
+The map card writes Live's countries, traffic filters, and Pause state to `liveWorldStore` as it pushes the screen. Pause cannot change while the screen covers Live. The screen shows the countries for the current filters immediately, then reads `geo` at once and every interval after if Live is running. It clears the store when it closes.
 It follows Live's Pause: while Live is paused it reads nothing and says "Paused". It has no Pause button or pull to refresh of its own.
 Back on Live, the focus rule above applies: Live reads at once only when its data is older than 30 seconds.
 
@@ -105,7 +109,7 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 
 ## Screen
 
-1. Title. Home and pushed Live show the All/Web/Mobile selector beside More. The pushed screen retains its live dot and status line. There is no Pause control.
+1. Title. Home and pushed Live show the Filters button beside More. The pushed screen retains its live dot and status line. There is no Pause control.
 2. Mobile activity shows DAU, WAU, sessions and installs; information buttons explain each metric.
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with metric explanations in a toast when a label is tapped. All, Web and Mobile explanations fit one or two lines at the default text size. Toasts wrap without truncation, including at larger accessibility text sizes. A changed number counts to its new value in 300 ms and flashes blue.
 4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country.
@@ -115,7 +119,7 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 8. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", "View person on web", and Custom properties. Properties load on demand from the event detail API and exclude PostHog system properties (`$` prefixes, `distinct_id`, and `token`). Values are selectable, with lists and objects formatted as JSON. The sheet opens partway up the screen. A placeholder marks the first property while loading. Properties appear in the scrollable area below the event details, keeping the sheet at its opening height. Empty events and failed requests show an empty message or a retry action. Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
 
 Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card or headline metric whose job has not answered yet shows a loading indicator.
-On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile.
+On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile. Results with traffic filters are kept in memory per combination. A filter change cancels the previous read and refreshes the selected traffic while Live is active.
 The PostHog icon in the Home header animates while fresh data loads, and successful reads replace the saved values.
 Live opened from Web analytics uses the same animated logo beside its title during reads.
 Pull-to-refresh keeps the native spinner hidden and uses the logo animation while fresh data loads.
@@ -194,11 +198,11 @@ Visitors come and go, page weights drift so ranks swap now and then, and an even
 Events are written up to the moment of each read, so nothing moves while paused, and the next read catches up.
 One simulator lives for the app session, so reopening Live continues the same traffic.
 Users online comes from the HogQL count in demo mode. Watch recording and View person on web are not available in the demo.
-The demo defaults to combined traffic. All, Web and Mobile select deterministic fixtures without network access. Development builds accept `EXPO_PUBLIC_DEMO_LIVE_STATE=quiet|not_set_up` for empty-state checks.
+The demo defaults to combined traffic. All, Web and Mobile filter the same seeded events without network access. The demo includes likely bots and separate website, app, and docs hostnames. Development builds accept `EXPO_PUBLIC_DEMO_LIVE_STATE=quiet|not_set_up` for empty-state checks.
 
 ## Not in v1
 
-- The web's domain and device filters, the city, bot and recent visitor queries, and the visitor drill-down from a breakdown row.
+- The city, bot and recent visitor queries, and the visitor drill-down from a breakdown row.
 - The event stream (`/events` on the live host). The screen's layout does not depend on the transport.
 - The project's time zone on the chart: times are in the device's time zone, like the app's other charts.
 - Referrer favicons.

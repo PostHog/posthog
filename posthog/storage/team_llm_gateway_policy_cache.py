@@ -17,6 +17,10 @@ flags-pipeline consumers of team_metadata are not affected by additions here.
 The gateway admits a team only when enabled_at is set and revoked_at is null;
 revoke wins over enable. Null enabled_at = not enrolled (default-deny); null
 revoked_at = not revoked. Nullable defaults mean no backfill on schema add.
+
+The cache is Redis-only. An object-storage copy has no TTL, and on a cold Redis it
+would bring back a policy that a revocation or token rotation already cleared.
+A Redis miss reads the current Team row instead. Clears never depend on S3.
 """
 
 import os
@@ -100,6 +104,7 @@ team_llm_gateway_policy_hypercache = HyperCache(
     cache_miss_ttl=LLM_GATEWAY_POLICY_CACHE_MISS_TTL,
     cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
     expiry_sorted_set_key=LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET,
+    s3_enabled=False,
 )
 
 
@@ -127,8 +132,8 @@ def update_team_llm_gateway_policy_cache(team: Team | str | int, ttl: int | None
     return success
 
 
-def clear_team_llm_gateway_policy_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
-    team_llm_gateway_policy_hypercache.clear_cache(team, kinds=kinds)
+def clear_team_llm_gateway_policy_cache(team: Team | str | int) -> None:
+    team_llm_gateway_policy_hypercache.clear_cache(team)
 
 
 LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(

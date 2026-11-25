@@ -25,7 +25,7 @@ import { LineageGraph } from '../lineage/LineageGraph'
 import { LINEAGE_FIT_VIEW_OPTIONS, nodeLineageUrl } from './NodeDetailLineage'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { DATA_WAREHOUSE_ICON_COLOR } from './quillNodeDetailBadges'
-import { QuillNodeDetailLineageTypeFilter } from './QuillNodeDetailLineageTypeFilter'
+import { QuillNodeDetailLineageToolbar } from './QuillNodeDetailLineageToolbar'
 
 export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
@@ -78,7 +78,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <QuillNodeDetailLineageTypeFilter id={id} />
+            <QuillNodeDetailLineageToolbar id={id} />
             <div className="h-[calc(100vh-20rem)] min-h-100 w-full overflow-hidden rounded-lg border border-border">
                 <LineageGraph
                     nodes={nodes}

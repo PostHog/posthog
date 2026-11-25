@@ -5,21 +5,29 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.access_control.backend.facade.api import list_user_role_ids, list_user_roles
+from products.access_control.backend.facade.contracts import UserRole
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, TaskDigestCadence
-from products.customer_analytics.backend.logic.account_property_pins import validate_pinned_properties
+from products.customer_analytics.backend.logic.account_property_pins import (
+    MAX_PINNED_PROPERTIES,
+    validate_pinned_properties,
+)
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig, UserCustomerAnalyticsConfig
 
 PINNED_PROPERTIES_KEY = "pinned_properties"
 PINNED_PROPERTIES_OVERRIDE_KEY = "pinned_properties_override"
+FOLLOWED_DEFAULT_KEY = "followed_default_pinned_properties"
 TASK_DIGEST_KEY = "task_digest"
 DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
 
 ACCOUNT_DETAIL_TABS_KEY = "account_detail_tabs"
 ACCOUNT_DETAIL_SYSTEM_TAB_IDS = {
     "system:notes",
+    "system:context",
     "system:automations",
     "system:tasks",
     "system:users",
@@ -78,6 +86,7 @@ def update_pinned_properties(
         ],
         PINNED_PROPERTIES_OVERRIDE_KEY: True,
     }
+    config.properties.pop(FOLLOWED_DEFAULT_KEY, None)
     config.pinned_custom_property_definition_ids = [
         UUID(reference_id)
         for kind, reference_id in validated_references
@@ -87,20 +96,199 @@ def update_pinned_properties(
     return config
 
 
-def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> list[dict[str, str]]:
+@transaction.atomic
+def follow_default_pinned_properties(
+    *, team_id: int, user_id: int, kind: contracts.DefaultPinnedAccountPropertiesSourceKindValue, role_id: UUID | None
+) -> UserCustomerAnalyticsConfig:
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    followed: dict[str, str] = {"kind": kind}
+    if kind == "role":
+        organization_id = (
+            TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
+            .values_list("team__organization_id", flat=True)
+            .first()
+        )
+        if (
+            role_id is None
+            or organization_id is None
+            or role_id not in list_user_role_ids(user_id=user_id, organization_id=organization_id)
+        ):
+            raise contracts.InvalidPinnedAccountProperties(
+                ["You can only follow the defaults of a role you belong to."]
+            )
+        followed["role_id"] = str(role_id)
+    # Clearing the personal list means that if the followed role later disappears, the user falls
+    # back to the automatic defaults rather than to pins they replaced.
+    config.properties = {
+        **{
+            key: value
+            for key, value in config.properties.items()
+            if key not in (PINNED_PROPERTIES_KEY, PINNED_PROPERTIES_OVERRIDE_KEY)
+        },
+        FOLLOWED_DEFAULT_KEY: followed,
+    }
+    config.pinned_custom_property_definition_ids = []
+    config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
+    return config
+
+
+@frozen
+class ResolvedPinnedProperties:
+    pinned_properties: list[contracts.PinnedAccountProperty]
+    source: contracts.PinnedAccountPropertiesSource
+    available_defaults: list[contracts.AvailableDefaultPinnedAccountProperties]
+
+
+@frozen
+class _MergedRoleDefaults:
+    pinned_properties: list[contracts.PinnedAccountProperty]
+    contributing_roles: list[contracts.PinnedAccountPropertiesRole]
+
+
+def _to_pinned_properties(raw_references: Any) -> list[contracts.PinnedAccountProperty]:
+    if not isinstance(raw_references, list):
+        return []
+    return [
+        contracts.PinnedAccountProperty(
+            kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+            id=str(reference["id"]),
+        )
+        for reference in raw_references
+    ]
+
+
+def _merge_role_default_pinned_properties(
+    *, role_defaults: list[dict[str, Any]], user_roles: Sequence[UserRole]
+) -> _MergedRoleDefaults:
+    references_by_role_id = {entry["role_id"]: entry["pinned_properties"] for entry in role_defaults}
+    merged: dict[tuple[str, str], contracts.PinnedAccountProperty] = {}
+    contributing_roles: list[contracts.PinnedAccountPropertiesRole] = []
+    for role in user_roles:
+        role_added = False
+        for reference in references_by_role_id.get(str(role.id), []):
+            key = (reference["kind"], str(reference["id"]))
+            if key not in merged:
+                if len(merged) >= MAX_PINNED_PROPERTIES:
+                    break
+                merged[key] = contracts.PinnedAccountProperty(
+                    kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+                    id=str(reference["id"]),
+                )
+                role_added = True
+        if role_added:
+            contributing_roles.append(contracts.PinnedAccountPropertiesRole(id=role.id, name=role.name))
+    return _MergedRoleDefaults(
+        pinned_properties=list(merged.values()),
+        contributing_roles=contributing_roles,
+    )
+
+
+def _build_available_defaults(
+    *,
+    project_defaults: list[contracts.PinnedAccountProperty],
+    role_defaults: list[dict[str, Any]],
+    user_roles: Sequence[UserRole],
+) -> list[contracts.AvailableDefaultPinnedAccountProperties]:
+    references_by_role_id = {entry["role_id"]: entry["pinned_properties"] for entry in role_defaults}
+    available: list[contracts.AvailableDefaultPinnedAccountProperties] = [
+        contracts.AvailableDefaultPinnedAccountProperties(
+            source=contracts.DefaultPinnedAccountPropertiesSource(kind="project", role=None),
+            pinned_properties=project_defaults,
+        )
+    ]
+    for role in user_roles:
+        pins = _to_pinned_properties(references_by_role_id.get(str(role.id)))
+        if pins:
+            available.append(
+                contracts.AvailableDefaultPinnedAccountProperties(
+                    source=contracts.DefaultPinnedAccountPropertiesSource(
+                        kind="role",
+                        role=contracts.PinnedAccountPropertiesRole(id=role.id, name=role.name),
+                    ),
+                    pinned_properties=pins,
+                )
+            )
+    return available
+
+
+def _resolve_followed_default(
+    followed: Any, available_defaults: list[contracts.AvailableDefaultPinnedAccountProperties]
+) -> contracts.AvailableDefaultPinnedAccountProperties | None:
+    if not isinstance(followed, dict):
+        return None
+    for available in available_defaults:
+        if available.source.kind != followed.get("kind"):
+            continue
+        if available.source.role is None or str(available.source.role.id) == followed.get("role_id"):
+            return available
+    return None
+
+
+def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> ResolvedPinnedProperties:
+    team_config = (
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
+        .values("default_pinned_properties", "role_default_pinned_properties", "team__organization_id")
+        .first()
+    )
+    project_defaults = _to_pinned_properties(team_config["default_pinned_properties"]) if team_config else []
+    role_defaults: list[dict[str, Any]] = (
+        team_config["role_default_pinned_properties"]
+        if team_config and isinstance(team_config["role_default_pinned_properties"], list)
+        else []
+    )
+    user_roles = (
+        list_user_roles(user_id=config.user_id, organization_id=team_config["team__organization_id"])
+        if team_config is not None and role_defaults
+        else []
+    )
+    available_defaults = _build_available_defaults(
+        project_defaults=project_defaults,
+        role_defaults=role_defaults,
+        user_roles=user_roles,
+    )
+
+    followed = _resolve_followed_default(config.properties.get(FOLLOWED_DEFAULT_KEY), available_defaults)
+    if followed is not None:
+        return ResolvedPinnedProperties(
+            pinned_properties=followed.pinned_properties,
+            source=contracts.PinnedAccountPropertiesSource(
+                kind=followed.source.kind,
+                roles=[followed.source.role] if followed.source.role else [],
+            ),
+            available_defaults=available_defaults,
+        )
+
     stored = config.properties.get(PINNED_PROPERTIES_KEY)
     if isinstance(stored, list) and (
         stored
         or config.properties.get(PINNED_PROPERTIES_OVERRIDE_KEY) is True
         or config.pinned_custom_property_definition_ids
     ):
-        return cast(list[dict[str, str]], stored)
-    defaults = (
-        TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
-        .values_list("default_pinned_properties", flat=True)
-        .first()
+        return ResolvedPinnedProperties(
+            pinned_properties=_to_pinned_properties(stored),
+            source=contracts.PinnedAccountPropertiesSource(kind="personal", roles=[]),
+            available_defaults=available_defaults,
+        )
+
+    merged_role_defaults = _merge_role_default_pinned_properties(
+        role_defaults=role_defaults,
+        user_roles=user_roles,
     )
-    return cast(list[dict[str, str]], defaults) if isinstance(defaults, list) else []
+    if merged_role_defaults.pinned_properties:
+        return ResolvedPinnedProperties(
+            pinned_properties=merged_role_defaults.pinned_properties,
+            source=contracts.PinnedAccountPropertiesSource(
+                kind="role",
+                roles=merged_role_defaults.contributing_roles,
+            ),
+            available_defaults=available_defaults,
+        )
+
+    return ResolvedPinnedProperties(
+        pinned_properties=project_defaults,
+        source=contracts.PinnedAccountPropertiesSource(kind="project", roles=[]),
+        available_defaults=available_defaults,
+    )
 
 
 def read_task_digest(config: UserCustomerAnalyticsConfig) -> contracts.TaskDigestPreferences:

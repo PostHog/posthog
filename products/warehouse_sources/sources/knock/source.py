@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
     NO_FEED_CHANNEL_IDS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
+    NO_SERVICE_TOKEN_ERROR,
     KnockResumeConfig,
     knock_source,
     parse_key_list,
@@ -61,16 +62,26 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
     api_docs_url = "https://docs.knock.app/api-reference/overview"
 
     @property
+    def credential_auth_type(self) -> str:
+        # Integration rows store the "token" frozen for the single API key. The optional service
+        # token would derive "credentials", and both types hold the keys the same way.
+        return "token"
+
+    @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KNOCK
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # A Management API failure also matches the generic 401 and 403 keys below, so these come first.
+            "401 Client Error: Unauthorized for url: https://control.knock.app": "Your Knock service token is invalid or has been revoked. Please generate a new service token in the Knock dashboard and update the source.",
+            "403 Client Error: Forbidden for url: https://control.knock.app": "Your Knock service token does not have access to this resource. Please generate the token as an account owner or admin.",
             "401 Client Error: Unauthorized for url": "Your Knock API key is invalid or has been revoked. Please generate a new secret key in the Knock dashboard and reconnect.",
             "403 Client Error: Forbidden for url": "Your Knock API key does not have access to this resource. Please check the key belongs to the right environment.",
             NO_OBJECT_COLLECTIONS_ERROR: None,
             NO_AUDIENCE_KEYS_ERROR: None,
             NO_FEED_CHANNEL_IDS_ERROR: None,
+            NO_SERVICE_TOKEN_ERROR: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -91,6 +102,9 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
         should_sync_default["objects"] = bool(parse_key_list(config.object_collections))
         should_sync_default["audience_members"] = bool(parse_key_list(config.audience_keys))
         should_sync_default["user_feed_items"] = bool(parse_key_list(config.in_app_feed_channel_ids))
+        for name, endpoint in ENDPOINTS_CONFIG.items():
+            if endpoint.management_api:
+                should_sync_default[name] = bool(config.service_token)
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
@@ -102,7 +116,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
     def validate_credentials(
         self, config: KnockSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        return validate_knock_credentials(config.api_key)
+        return validate_knock_credentials(config.api_key, config.service_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KnockResumeConfig]:
         return ResumableSourceManager[KnockResumeConfig](inputs, KnockResumeConfig)
@@ -123,6 +137,8 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             object_collections=config.object_collections,
             audience_keys=config.audience_keys,
             in_app_feed_channel_ids=config.in_app_feed_channel_ids,
+            service_token=config.service_token,
+            environment=config.management_environment,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -179,6 +195,25 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
                         placeholder="a1b2c3d4-...",
                         secret=False,
                         caption="Comma-separated in-app feed channel IDs to sync into the `user_feed_items` table. Find them in the Knock dashboard under **Settings → Channels and sources**. Knock can't list channels with a secret key, so the `user_feed_items` table only syncs the channels you enter here.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="service_token",
+                        label="Service token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="knock_st_...",
+                        secret=True,
+                        caption="Optional. Needed for the `workflows`, `channels`, `audiences` and `audit_logs` tables, which come from the Knock Management API. An account owner or admin can generate one in the Knock dashboard under **Settings → Service tokens**.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="management_environment",
+                        sync_setting=True,
+                        label="Management API environment",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="production",
+                        secret=False,
+                        caption="The slug of the environment to read workflows and audiences from. Use the environment of your secret API key. If you leave it empty, Knock uses your account's default environment.",
                     ),
                 ],
             ),

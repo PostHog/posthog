@@ -10,6 +10,7 @@ import {
   signalCardSourceLine,
 } from "@posthog/ui/features/inbox/components/detail/SignalCard";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
+import { useScoutNamesBySkill } from "@posthog/ui/features/scouts/hooks/useScoutNamesBySkill";
 import { useState } from "react";
 
 interface SignalsListProps {
@@ -44,9 +45,10 @@ function SignalSourceGroupSection({ group }: { group: SignalSourceGroup }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getSourceProductMeta(group.sourceProduct);
   const Icon = meta?.Icon;
+  const scoutNames = useScoutNamesBySkill();
   // The same "Error tracking · New issue" line the cards themselves carry, so
   // the section header and its cards can't disagree on the source's name.
-  const label = signalCardSourceLine(group.signals[0]);
+  const label = signalCardSourceLine(group.signals[0], scoutNames);
   const shown = expanded
     ? group.signals
     : group.signals.slice(0, GROUP_PREVIEW_COUNT);

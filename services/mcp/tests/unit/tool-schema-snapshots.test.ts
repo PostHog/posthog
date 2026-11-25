@@ -90,6 +90,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'notebook-app-builder': true,
         'workflows-resend-import': true,
         'self-driving-usage-display': true,
         'today-rail-nav': true,
@@ -105,11 +106,10 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
+        'inbox-plan-edits-mcp': true,
         'workflows-bulk-suppressions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
-        'ai-observability-offline-evaluations': true,
         'ai-observability-composite-validation': true,
-        'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
         'workflows-destination-suggestion': true,
         'scouts-tool-access': true,
@@ -125,7 +125,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'activity-summary-search': true,
         'inbox-reports-search': true,
         'personal-inbox-ranking': true,
-        'aeo-citation-tracking': true,
+        'web-analytics-content-autopilot': true,
         'mcp-session-recording-console-logs': true,
         'anomalies-search': true,
         'warehouse-multi-destination': true,
@@ -137,6 +137,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'logs-agent-tools': true,
         'signals-source-filters': true,
         'release-objects': true,
+        'workflows-email-activity': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

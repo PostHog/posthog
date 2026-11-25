@@ -789,16 +789,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("internal", True, None, False),
-            ("user_created", False, None, True),
-            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+            ("internal", True, None, None, False),
+            ("user_created", False, None, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, None, False),
+            ("agent_started_run_of_a_user_created_task", False, None, {"agent_parent_task_id": "task-id"}, False),
         ]
     )
     def test_include_personal_mcp_for_task(
-        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+        self, _name: str, internal: bool, profile: TaskProfile | None, state: dict | None, expected: bool
     ) -> None:
         task = MagicMock(internal=internal, stored_profile=profile)
-        assert include_personal_mcp_for_task(task) is expected
+        assert include_personal_mcp_for_task(task, state) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)

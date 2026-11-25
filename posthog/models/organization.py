@@ -217,6 +217,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Access revoked due to terms of service violation.",
             "Terms of service violation",
         )
+        TERMS_OF_SERVICE_VIOLATION_SECURITY = (
+            "Account deactivated due to activity violating our Terms of Service. If you believe this is in error, "
+            "contact security-reports@posthog.com",
+            "Terms of service violation (security)",
+        )
         DESKTOP_ABUSE = (
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
@@ -271,6 +276,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also checked by agents before they query production data, see
     # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_data_processing_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.",
+    )
     is_ai_training_opted_in = models.BooleanField(
         default=True,
         null=True,

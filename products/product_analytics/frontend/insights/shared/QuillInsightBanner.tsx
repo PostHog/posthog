@@ -1,7 +1,15 @@
 import { ReactNode } from 'react'
 
 import { IconInfo, IconWarning, IconX } from '@posthog/icons'
-import { Button, Item, ItemActions, ItemContent, ItemMedia, Text } from '@posthog/quill'
+import {
+    Button,
+    Callout,
+    CalloutActions,
+    CalloutClose,
+    CalloutContent,
+    CalloutDescription,
+    CalloutIcon,
+} from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -23,33 +31,23 @@ export function QuillInsightBanner({
     'data-attr': dataAttr,
 }: QuillInsightBannerProps): JSX.Element {
     return (
-        <Item variant="outline" size="sm" tone={tone} className={className} data-attr={dataAttr}>
-            <ItemMedia variant="icon" aria-hidden>
-                {tone === 'warning' ? <IconWarning /> : <IconInfo />}
-            </ItemMedia>
-            <ItemContent className="min-w-0">
-                <Text size="xs" render={<div />}>
-                    {children}
-                </Text>
-            </ItemContent>
-            {(action || onClose) && (
-                <ItemActions>
-                    {action && (
-                        <Button
-                            variant="outline"
-                            render={<LinkPrimitive to={action.to} />}
-                            data-attr={action['data-attr']}
-                        >
-                            {action.children}
-                        </Button>
-                    )}
-                    {onClose && (
-                        <Button size="icon" aria-label="Close" tooltip="Close" onClick={onClose}>
-                            <IconX />
-                        </Button>
-                    )}
-                </ItemActions>
+        <Callout tone={tone} className={className} data-attr={dataAttr}>
+            <CalloutIcon>{tone === 'warning' ? <IconWarning /> : <IconInfo />}</CalloutIcon>
+            <CalloutContent>
+                <CalloutDescription className="text-xs">{children}</CalloutDescription>
+            </CalloutContent>
+            {action && (
+                <CalloutActions>
+                    <Button variant="outline" render={<LinkPrimitive to={action.to} />} data-attr={action['data-attr']}>
+                        {action.children}
+                    </Button>
+                </CalloutActions>
             )}
-        </Item>
+            {onClose && (
+                <CalloutClose tooltip="Dismiss" onClick={onClose}>
+                    <IconX />
+                </CalloutClose>
+            )}
+        </Callout>
     )
 }
