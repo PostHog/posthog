@@ -233,15 +233,18 @@ class TestFanout:
     def test_subscription_history_filters_children_on_occurred_at(
         self, inputs: dict[str, Any], expected_filter: str | None
     ) -> None:
-        result = _driver().run(
-            "subscription_history", _fanout_network("/subscriptions", "/subscriptions/{}/history"), **inputs
-        )
+        with time_machine.travel("2026-11-25T12:00:00Z", tick=False):
+            result = _driver().run(
+                "subscription_history", _fanout_network("/subscriptions", "/subscriptions/{}/history"), **inputs
+            )
 
         assert result.raised is None
         parent_requests = [r for r in result.requests if r.path == "/subscriptions"]
         child_first_pages = [r for r in result.requests if r.path.endswith("/history") and r.param("after") is None]
         assert [r.param("occurred_at[GTE]") for r in child_first_pages] == [expected_filter, expected_filter]
-        assert all(r.param("occurred_at[GTE]") is None for r in parent_requests)
+        # Every child read stops at the sync start, so the watermark cannot pass entries written during the walk.
+        assert [r.param("occurred_at[LTE]") for r in child_first_pages] == ["2026-11-25T12:00:00Z"] * 2
+        assert all(r.param("occurred_at[GTE]") is None and r.param("occurred_at[LTE]") is None for r in parent_requests)
 
     def test_resume_continues_the_saved_child_page(self) -> None:
         saved_child_url = f"{PADDLE_BASE_URL}/customers/p_1/addresses?after=c_1"
@@ -262,6 +265,30 @@ class TestFanout:
         # c_1 was already written before the interruption, so only the rows after it are read again.
         assert [(row["parent"], row["id"]) for row in result.rows] == [("p_1", "c_2"), ("p_2", "c_3")]
         assert result.requests[1].query == {"after": ("c_1",)}
+
+    def test_resumed_history_read_keeps_the_first_attempt_upper_bound(self) -> None:
+        resume_state = PaddleResumeConfig(
+            fanout_state={
+                "completed": ["subscriptions/p_1/history"],
+                "current": None,
+                "child_state": None,
+                "parent": None,
+            },
+            fanout_read_until="2026-11-25T11:00:00Z",
+        )
+
+        with time_machine.travel("2026-11-25T12:00:00Z", tick=False):
+            result = _driver().run(
+                "subscription_history",
+                _fanout_network("/subscriptions", "/subscriptions/{}/history"),
+                resume_state=resume_state,
+            )
+
+        assert result.raised is None
+        child_requests = [r for r in result.requests if r.path.endswith("/history")]
+        assert [r.path for r in child_requests] == ["/subscriptions/p_2/history"]
+        assert child_requests[0].param("occurred_at[LTE]") == "2026-11-25T11:00:00Z"
+        assert result.saved_states[-1].fanout_read_until == "2026-11-25T11:00:00Z"
 
 
 class TestEndpointRows:

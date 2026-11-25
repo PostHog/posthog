@@ -66,6 +66,8 @@ class PaddleResumeConfig:
     explore_entity: str = ""
     # Fan-out tables: the state `build_dependent_resource` saves over the parent listing.
     fanout_state: Optional[dict[str, Any]] = None
+    # Subscription history: the upper bound of the run, kept so a resumed attempt reads up to the same time.
+    fanout_read_until: str = ""
 
 
 class PaddlePermissionError(Exception):
@@ -283,9 +285,11 @@ def paddle_explore_metrics_source(
     )
 
 
-def _save_fanout_state(manager: ResumableSourceManager[PaddleResumeConfig], state: Optional[dict[str, Any]]) -> None:
+def _save_fanout_state(
+    manager: ResumableSourceManager[PaddleResumeConfig], state: Optional[dict[str, Any]], read_until: str
+) -> None:
     if state:
-        manager.save_state(PaddleResumeConfig(fanout_state=state))
+        manager.save_state(PaddleResumeConfig(fanout_state=state, fanout_read_until=read_until))
 
 
 def paddle_fanout_source(
@@ -301,12 +305,24 @@ def paddle_fanout_source(
     if config.fanout is None:
         raise ValueError(f"Paddle endpoint {endpoint} is not a fan-out endpoint")
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
     child_params_extra: dict[str, Any] = {}
+    read_until = ""
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    if incremental_field_config and should_use_incremental_field and db_incremental_field_last_value is not None:
+    if incremental_field_config:
         field_name = incremental_field_config[0]["field"]
-        # Paddle offers only [GTE] here. The rows on the watermark come back again, and the merge dedupes them.
-        child_params_extra[f"{field_name}[GTE]"] = _format_paddle_datetime_query_value(db_incremental_field_last_value)
+        # The run reads one parent at a time, and the watermark is the largest value read anywhere. Without this cap,
+        # an entry written to an already-read parent before a newer entry read later would fall below the watermark.
+        read_until = (resume.fanout_read_until if resume else "") or _format_paddle_datetime_query_value(
+            datetime.now(UTC)
+        )
+        child_params_extra[f"{field_name}[LTE]"] = read_until
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            # Paddle offers only [GTE] here. The rows on the watermark come back again, and the merge dedupes them.
+            child_params_extra[f"{field_name}[GTE]"] = _format_paddle_datetime_query_value(
+                db_incremental_field_last_value
+            )
 
     client_config: ClientConfig = {
         "base_url": PADDLE_BASE_URL,
@@ -314,8 +330,6 @@ def paddle_fanout_source(
         "auth": {"type": "bearer", "token": api_key},
         "paginator": PaddlePaginator(next_url_path="meta.pagination.next"),
     }
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     child = build_dependent_resource(
         endpoint_configs=FANOUT_ENDPOINTS,
@@ -330,7 +344,7 @@ def paddle_fanout_source(
         child_params_extra=child_params_extra or None,
         parent_endpoint_extra={"data_selector": "data"},
         child_endpoint_extra={"data_selector": "data"},
-        resume_hook=lambda state: _save_fanout_state(resumable_source_manager, state),
+        resume_hook=lambda state: _save_fanout_state(resumable_source_manager, state, read_until),
         initial_paginator_state=resume.fanout_state if resume else None,
         resume_parent_pagination=True,
     )
