@@ -232,7 +232,12 @@ export async function containerStarts(
         (result) => result.stdout,
         (error: Error & { code?: unknown; stdout?: string; stderr?: string }) => {
             const errors = (error.stderr ?? '').split('\n').filter((line) => line !== '')
-            const gone = errors.length > 0 && errors.every((line) => /No such (object|container)/.test(line))
+            const gone =
+                errors.length > 0 &&
+                errors.every((line) => {
+                    const missing = /^Error(?: response from daemon)?: No such (?:object|container): (\S+)$/.exec(line)
+                    return missing !== null && containers.includes(missing[1])
+                })
             if (error.code !== 1 || signal?.aborted || !gone) {
                 throw error
             }

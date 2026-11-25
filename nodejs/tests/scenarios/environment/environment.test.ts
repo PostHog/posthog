@@ -1268,7 +1268,13 @@ describe('scenario environment', () => {
                 }
                 fs.writeFileSync(
                     stateFile,
-                    JSON.stringify({ running: true, ready: true, services: stack.services, restarted: stack.restarted })
+                    JSON.stringify({
+                        running: true,
+                        ready: true,
+                        services: stack.services,
+                        restarted: stack.restarted,
+                        inspectFails: stack.inspectFails,
+                    })
                 )
             } else if (verb === 'dev:generate') {
                 const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
@@ -1313,6 +1319,7 @@ describe('scenario environment', () => {
                         ignoresTerm: stack.ignoresTerm,
                         services: stack.services,
                         restarted: stack.restartsDuringStart,
+                        inspectFails: stack.inspectFailsAfterStart,
                     })
                 )
             } else if (verb === 'dev:sync-hog-templates') {
@@ -1356,6 +1363,10 @@ describe('scenario environment', () => {
                 process.exit(0)
             }
             if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}') {
+                if (stack.inspectFails) {
+                    process.stderr.write(stack.inspectFails + '\\n')
+                    process.exit(1)
+                }
                 const row = (c) => [c.id + '0000', c.service, c.policy, c.state, c.code, c.restarted ? 'restarted' : 'first']
                 const asked = args.slice(3).map((id) => [id, containers.find((c) => id === c.id || id === c.id + '0000')])
                 process.stdout.write(asked.filter(([, c]) => c).map(([, c]) => row(c).join(' ') + '\\n').join(''))
@@ -1544,6 +1555,7 @@ describe('scenario environment', () => {
             services?: string[]
             volumes?: string[]
             restartsDuringStart?: string[]
+            inspectFailsAfterStart?: string
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1821,22 +1833,38 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('refuses a stack whose kept containers started again while hogli started it', async () => {
-            writeStack({
-                running: false,
-                ready: false,
-                services: ['kafka running', 'db running', 'temporal-ui running no 0'],
-                restartsDuringStart: ['kafka', 'temporal-ui'],
-            })
-            environment = environmentOf()
+        it.each([
+            [
+                'started again',
+                {},
+                'The dev services kafka, temporal-ui started again while the runner started the stack',
+            ],
+            [
+                'cannot be read again',
+                {
+                    inspectFailsAfterStart:
+                        'Cannot connect to the Docker daemon at unix:///tmp/No such container/docker.sock. Is the docker daemon running?',
+                },
+                'Cannot connect to the Docker daemon',
+            ],
+        ])(
+            'refuses a stack whose kept containers %s after hogli started it',
+            async (_case, stack, message) => {
+                writeStack({
+                    running: false,
+                    ready: false,
+                    services: ['kafka running', 'db running', 'temporal-ui running no 0'],
+                    restartsDuringStart: ['kafka', 'temporal-ui'],
+                    ...stack,
+                })
+                environment = environmentOf()
 
-            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
-                name: 'StackNotReadyError',
-                message: expect.stringContaining(
-                    'The dev services kafka, temporal-ui started again while the runner started the stack'
-                ),
-            })
-        }, 30_000)
+                await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                    message: expect.stringContaining(message),
+                })
+            },
+            30_000
+        )
 
         it.each([
             ['stop on SIGTERM', false],
