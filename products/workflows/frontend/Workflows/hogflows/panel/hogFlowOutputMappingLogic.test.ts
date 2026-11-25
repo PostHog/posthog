@@ -588,14 +588,15 @@ describe('hogFlowOutputMappingLogic', () => {
                 ['a name another field already uses', 'summary'],
                 ['an empty name on a saved field', ''],
             ])('refuses %s and leaves every variable alone', async (_case, name) => {
+                // Field names differ from their variables, so the check has to compare field names.
                 const variables = [
-                    { key: 'summary', label: 'summary', type: 'string', default: '' },
-                    { key: 'score', label: 'score', type: 'number', default: '' },
+                    { key: 'triage_summary', label: 'triage_summary', type: 'string', default: '' },
+                    { key: 'risk_score', label: 'risk_score', type: 'number', default: '' },
                 ]
                 selectStep('action-collision', variables)
                 const mappings = [
-                    { key: 'summary', result_path: 'output.summary' },
-                    { key: 'score', result_path: 'output.score' },
+                    { key: 'triage_summary', result_path: 'output.summary' },
+                    { key: 'risk_score', result_path: 'output.score' },
                 ]
                 logic.actions.initMappings(mappings)
 
