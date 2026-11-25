@@ -311,6 +311,9 @@ function check(
         card,
         profile: loaded.profile,
         profileHash,
-        cardHash: sha256({ card: { ...card, gates: undefined }, profileHash }),
+        cardHash: cardHashOf(card, profileHash),
     }
 }
+
+export const cardHashOf = (card: Card, profileHash: string): string =>
+    sha256({ card: { ...card, gates: undefined }, profileHash })

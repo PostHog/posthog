@@ -1,14 +1,23 @@
-import type { LoadedCard } from '../cards'
+import { type LoadedCard, cardHashOf } from '../cards'
+import type { DriveSummary } from '../generator/generator'
 import { noLoss } from '../judge/invariants'
 import type { DriveWindow, QueueSample } from '../judge/measurements'
 import type { RunVerdict } from './runner'
-import { type Admission, type Status, unobservedValvesOf } from './status'
+import { type Admission, type Status, unobservedValvesOf, withEvidenceError } from './status'
 
 export type PairRole = 'control' | 'faulted'
 
 export type Attribution = 'fault' | 'open' | 'unjudged' | 'none'
 
-export type JudgedRun = { verdict: RunVerdict; queue: readonly QueueSample[]; drive?: DriveWindow }
+export type Offered = Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
+
+export type JudgedRun = {
+    verdict: RunVerdict
+    queue: readonly QueueSample[]
+    drive?: DriveWindow
+    units?: Offered
+    evidenceError?: string
+}
 
 export type QueueCourse = { dueAtStart: number; peakDue: number; growth: number; peakOldestDueSeconds: number }
 
@@ -29,6 +38,7 @@ export type PairedRun = {
     status: Status
     statusReason: string
     admissions: Admission[]
+    offered: Offered | null
     queue: QueueCourse | null
     drainSeconds: number | null
     faultDose: FaultDose[]
@@ -47,11 +57,30 @@ export type FaultedRun = JudgedRun | { missing: string }
 
 export type ScorecardPair = Pair & { role: PairRole }
 
-export const controlOf = (loaded: LoadedCard): LoadedCard => ({ ...loaded, card: { ...loaded.card, valves: [] } })
+// The control judges only no_loss: checks such as bounced_suppressed need the fault to have happened.
+export function controlOf(loaded: LoadedCard): LoadedCard {
+    const { card, profileHash } = loaded
+    const control = {
+        ...card,
+        valves: [],
+        invariants: card.invariants.filter(({ name }) => name === noLoss.name),
+        gates: Object.fromEntries(Object.entries(card.gates).filter(([name]) => name === noLoss.name)),
+    }
+    return { ...loaded, card: control, cardHash: cardHashOf(control, profileHash) }
+}
+
+export const pairProblemsOf = ({ card }: LoadedCard): string[] =>
+    card.valves.length > 0 && card.invariants.some(({ name }) => name === noLoss.name)
+        ? []
+        : [`${card.id}: --pair needs a card that applies valves and judges no_loss, or both runs end unjudged.`]
 
 function queueCourseOf({ queue, drive }: JudgedRun): QueueCourse | null {
     const counted = queue
-        .filter((sample) => !('error' in sample) && (drive === undefined || sample.at >= drive.startedAt))
+        .filter(
+            (sample) =>
+                !('error' in sample) &&
+                (drive === undefined || (sample.at >= drive.startedAt && sample.at <= drive.endedAt))
+        )
         .sort((a, b) => a.at - b.at) as Exclude<QueueSample, { error: string }>[]
     if (counted.length === 0) {
         return null
@@ -87,6 +116,7 @@ function pairedRunOf(role: PairRole, run: JudgedRun, card: LoadedCard['card']): 
         status: verdict.status,
         statusReason: verdict.statusReason,
         admissions: verdict.admissions,
+        offered: run.units ?? null,
         queue: queueCourseOf(run),
         drainSeconds: convergence?.converged ? convergence.tookMs / 1000 : null,
         faultDose: verdict.timeline.map(({ valve, target, observedAt, releasedAt, error }, i) => ({
@@ -103,13 +133,23 @@ function pairedRunOf(role: PairRole, run: JudgedRun, card: LoadedCard['card']): 
 
 function unjudgedRunOf(name: string, { verdict }: JudgedRun): string | undefined {
     const result = noLossOf(verdict)
-    if (result === null) {
-        return `the ${name} run judged no no_loss`
-    }
-    if (result.unjudged !== null) {
+    if (result?.unjudged) {
         return `the ${name} run's no_loss was not judged: ${result.unjudged}`
     }
-    return verdict.status === 'invalid' ? `the ${name} run is invalid: ${verdict.statusReason}` : undefined
+    if (verdict.status === 'invalid') {
+        return `the ${name} run is invalid: ${verdict.statusReason}`
+    }
+    return result === null ? `the ${name} run judged no no_loss` : undefined
+}
+
+function uncarriedLoadOf(control: JudgedRun, faulted: JudgedRun): string | undefined {
+    if (control.units === undefined || faulted.units === undefined) {
+        return 'the offered load of a run was not recorded'
+    }
+    const [carried, offered] = [control.units.offeredUnits, faulted.units.offeredUnits]
+    return carried < offered
+        ? `the control offered ${carried} units and the faulted run ${offered}, so the control did not carry the faulted run's load`
+        : undefined
 }
 
 function unobservedFaultOf({ verdict, drive }: JudgedRun): string | undefined {
@@ -134,7 +174,8 @@ function attributionOf(control: JudgedRun, faulted: FaultedRun): Pick<Pair, 'att
     if ('missing' in faulted) {
         return { attribution: 'unjudged', reason: `the faulted run did not run: ${faulted.missing}` }
     }
-    const unjudgedFaulted = unobservedFaultOf(faulted) ?? unjudgedRunOf('faulted', faulted)
+    const unjudgedFaulted =
+        unobservedFaultOf(faulted) ?? unjudgedRunOf('faulted', faulted) ?? uncarriedLoadOf(control, faulted)
     if (unjudgedFaulted !== undefined) {
         return { attribution: 'unjudged', reason: unjudgedFaulted }
     }
@@ -147,7 +188,14 @@ function attributionOf(control: JudgedRun, faulted: FaultedRun): Pick<Pair, 'att
           }
 }
 
-export function pairOf(loaded: LoadedCard, control: JudgedRun, faulted: FaultedRun): Pair {
+const withEvidenceOf = (run: JudgedRun): JudgedRun => ({
+    ...run,
+    verdict: withEvidenceError(run.verdict, run.evidenceError),
+})
+
+export function pairOf(loaded: LoadedCard, judgedControl: JudgedRun, judgedFaulted: FaultedRun): Pair {
+    const control = withEvidenceOf(judgedControl)
+    const faulted = 'missing' in judgedFaulted ? judgedFaulted : withEvidenceOf(judgedFaulted)
     return {
         ...attributionOf(control, faulted),
         controlRunId: control.verdict.runId,

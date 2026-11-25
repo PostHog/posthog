@@ -1,12 +1,20 @@
 import path from 'path'
 
-import { load } from '../cards'
+import { cardHashOf, load } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { FaultedRun, JudgedRun, pairOf } from './pair'
+import { FaultedRun, JudgedRun, controlOf, pairOf } from './pair'
 import type { RunVerdict } from './runner'
 
-const CARD = load(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'))
+const VALVED = load(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'))
+const CARD = {
+    ...VALVED,
+    card: {
+        ...VALVED.card,
+        invariants: [...VALVED.card.invariants, { name: 'no_loss', params: {} }],
+        gates: { ...VALVED.card.gates, no_loss: 0 },
+    },
+}
 const DRIVE = { startedAt: 1_000, endedAt: 61_000 }
 
 const held: InvariantResult = { name: 'no_loss', passed: true, observed: 0, unitIds: [] }
@@ -52,6 +60,7 @@ const run = (runId: string, verdict: Partial<RunVerdict> = {}): JudgedRun => ({
     },
     queue: [],
     drive: DRIVE,
+    units: { targetUnits: 100, offeredUnits: 100 },
 })
 
 const CLEAN = run('control')
@@ -131,6 +140,27 @@ describe('pairOf', () => {
             /^the faulted run applied no fault$/,
         ],
         [
+            'a control whose evidence could not be written',
+            { ...CLEAN, evidenceError: 'journal.json: disk full' },
+            BREACHED,
+            'unjudged',
+            /^the control run is invalid: every invariant held; the evidence could not be written: journal\.json: disk full$/,
+        ],
+        [
+            'a faulted run whose evidence could not be written',
+            CLEAN,
+            { ...BREACHED, evidenceError: 'journal.json: disk full' },
+            'unjudged',
+            /^the faulted run is invalid: no_loss failed: .*; the evidence could not be written: journal\.json: disk full$/,
+        ],
+        [
+            'a control that offered fewer units than the faulted run',
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
+            BREACHED,
+            'unjudged',
+            /^the control offered 92 units and the faulted run 100, so the control did not carry the faulted run's load$/,
+        ],
+        [
             'a faulted run that held no_loss',
             CLEAN,
             run('faulted', { timeline: FAULTS }),
@@ -154,6 +184,7 @@ describe('pairOf', () => {
                 { at: DRIVE.startedAt + 6_000, error: 'the probe timed out' },
                 { at: DRIVE.startedAt + 11_000, due: 41, running: 4, oldestDueSeconds: 12, inserted: 80 },
                 { at: DRIVE.startedAt + 16_000, due: 7, running: 2, oldestDueSeconds: 2, inserted: 120 },
+                { at: DRIVE.endedAt + 5_000, due: 400, running: 0, oldestDueSeconds: 90, inserted: 120 },
             ],
         }
 
@@ -169,6 +200,7 @@ describe('pairOf', () => {
                     status: 'passed',
                     statusReason: 'every invariant held',
                     admissions,
+                    offered: { targetUnits: 100, offeredUnits: 100 },
                     queue: null,
                     drainSeconds: 4.5,
                     faultDose: [],
@@ -180,6 +212,7 @@ describe('pairOf', () => {
                     status: 'failed',
                     statusReason: BREACHED.verdict.statusReason,
                     admissions: [],
+                    offered: { targetUnits: 100, offeredUnits: 100 },
                     queue: { dueAtStart: 3, peakDue: 41, growth: 38, peakOldestDueSeconds: 12 },
                     drainSeconds: 4.5,
                     faultDose: CARD.card.valves.map(({ valve, target, dose }, i) => ({
@@ -194,5 +227,17 @@ describe('pairOf', () => {
                 },
             ],
         })
+    })
+
+    it('removes the valves and every invariant but no_loss from the control, and hashes the card it runs', () => {
+        const { card, cardHash, profileHash } = controlOf(CARD)
+
+        expect({ valves: card.valves, invariants: card.invariants, gates: card.gates }).toEqual({
+            valves: [],
+            invariants: [{ name: 'no_loss', params: {} }],
+            gates: { no_loss: 0 },
+        })
+        expect(cardHash).toEqual(cardHashOf(card, profileHash))
+        expect(cardHash).not.toEqual(CARD.cardHash)
     })
 })

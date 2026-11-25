@@ -10,6 +10,7 @@ import { createEnvironment, defaultStateDir } from './environment/environment'
 import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
+import { pairProblemsOf } from './runner/pair'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { readSavedRun, savedRunPathOf } from './runner/saved-run'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
@@ -85,9 +86,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
+    if (pair && (target !== 'local' || env.SCENARIO_RUN_MANIFEST)) {
+        process.stderr.write(
+            '--pair runs on the local target only: dev cards apply no valves, and a run host runs one card per manifest.\n'
+        )
+        return EXIT_CODE.invalid
+    }
     const checked = preflight(cards, values.profile, target, env)
-    if ('problems' in checked) {
-        process.stderr.write(`${checked.problems.join('\n\n')}\n`)
+    const problems = 'problems' in checked ? checked.problems : pair ? checked.loaded.flatMap(pairProblemsOf) : []
+    if (problems.length > 0 || 'problems' in checked) {
+        process.stderr.write(`${problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid
     }
 

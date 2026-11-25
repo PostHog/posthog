@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
@@ -18,6 +18,13 @@ import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from './stor
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
 const DESTINATION_ERRORS = load(path.join(__dirname, 'cards', 'destination-errors.yaml'))
+const PAIRABLE = {
+    ...DESTINATION_ERRORS,
+    card: {
+        ...DESTINATION_ERRORS.card,
+        invariants: [...DESTINATION_ERRORS.card.invariants, { name: 'no_loss', params: {} }],
+    },
+}
 
 const passed = (cardId: string): RunResult => ({
     runId: 'run-a',
@@ -47,7 +54,7 @@ const runnerEnv = (cacheHome: string, credentials: NodeJS.ProcessEnv = {}): Node
     ...credentials,
 })
 
-function environmentWhoseResetFails({ resetFails = true } = {}): Environment {
+function fakeEnvironment({ resetFails = true } = {}): Environment {
     let edgeUrl: string | undefined = 'http://127.0.0.1:1'
     return {
         up: () => Promise.resolve(),
@@ -204,8 +211,47 @@ describe('runCards', () => {
         expect(stderr.filter((text) => text.includes('The preflight test reached'))).toEqual([])
     })
 
+    it.each<[string, string[], NodeJS.ProcessEnv, RegExp]>([
+        [
+            'a card without valves',
+            ['run', 'smoke', '--pair'],
+            {},
+            /^smoke: --pair needs a card that applies valves and judges no_loss/,
+        ],
+        [
+            'a card that judges no no_loss',
+            ['run', 'destination-errors', '--pair'],
+            {},
+            /^destination-errors: --pair needs a card that applies valves and judges no_loss/,
+        ],
+        [
+            'the dev target',
+            ['run', 'dev-smoke', '--target', 'dev', '--pair'],
+            {},
+            /^--pair runs on the local target only/,
+        ],
+        [
+            'a run host',
+            ['run', 'smoke', '--pair'],
+            { SCENARIO_RUN_MANIFEST: '/nonexistent/manifest.json' },
+            /^--pair runs on the local target only/,
+        ],
+    ])('refuses --pair for %s before it starts the stack', async (_story, argv, env, refusal) => {
+        jest.spyOn(processes, 'terminate').mockRejectedValue(new Error('The preflight test reached process cleanup.'))
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
+        expect(await main(argv, env)).toBe(EXIT_CODE.invalid)
+
+        expect(
+            jest
+                .mocked(process.stderr.write)
+                .mock.calls.map(([text]) => String(text))
+                .join('')
+        ).toMatch(refusal)
+    })
+
     it('names the failed reset for the cards it skips once a reset stopped the environment', async () => {
-        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome))
+        const runner = createRunner(fakeEnvironment(), runnerEnv(cacheHome))
 
         const exitCode = await runCards(runner, [SMOKE, SMOKE], new AbortController().signal)
 
@@ -217,18 +263,24 @@ describe('runCards', () => {
         })
     })
 
-    it('publishes the control and the faulted run of a paired card, each with the pair', async () => {
+    it('saves both scorecards of a paired card, then publishes each with the pair', async () => {
         const api = await startFakeProjectApi()
         const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
-        const runner = createRunner(environmentWhoseResetFails({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+        const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+        const stateDir = path.join(cacheHome, 'posthog-scenarios')
+        const savedAtCapture: number[] = []
+        api.onCapture = () =>
+            savedAtCapture.push(
+                readdirSync(stateDir).filter((run) => existsSync(path.join(stateDir, run, 'scorecard.json'))).length
+            )
 
         try {
-            const exitCode = await runCards(runner, [DESTINATION_ERRORS], new AbortController().signal, { pair: true })
+            const exitCode = await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
 
             const [control, faulted] = api.captured.map(({ properties }) => properties)
             const pair = {
                 pair_attribution: 'unjudged',
-                pair_reason: 'the control run judged no no_loss',
+                pair_reason: expect.stringMatching(/^the control run is invalid: /),
                 pair_control_run_id: control.run_id,
                 pair_faulted_run_id: faulted.run_id,
             }
@@ -239,6 +291,8 @@ describe('runCards', () => {
                 faulted: expect.objectContaining({ ...pair, pair_role: 'faulted', card_id: 'destination-errors' }),
             })
             expect(control.run_id).not.toEqual(faulted.run_id)
+            expect(control.card_hash).not.toEqual(faulted.card_hash)
+            expect(savedAtCapture).toEqual([2, 2])
         } finally {
             await api.close()
         }
@@ -249,7 +303,7 @@ describe('runCards', () => {
         const interrupt = new AbortController()
         api.hideForQueries = Infinity
         api.onCapture = () => interrupt.abort()
-        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome, api.credentials))
+        const runner = createRunner(fakeEnvironment(), runnerEnv(cacheHome, api.credentials))
 
         try {
             const exitCode = await runCards(runner, [SMOKE], interrupt.signal)

@@ -53,14 +53,14 @@ import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { WEBHOOK_HOST } from '../provider-edge'
 import { provenanceOf } from '../scorecard/provenance'
-import { scorecardOf } from '../scorecard/scorecard'
+import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
-import { JudgedRun, ScorecardPair, controlOf, pairOf } from './pair'
+import { JudgedRun, Offered, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -70,6 +70,7 @@ import {
     statusOf,
     unobservedReasonOf,
     unobservedValvesOf,
+    withEvidenceError,
 } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
@@ -129,7 +130,9 @@ export interface Runner {
     down(): Promise<void>
 }
 
-type Judged = JudgedRun & { loaded: LoadedCard; live: ReturnType<typeof openLiveLog>; evidenceError?: string }
+type Judged = JudgedRun & { loaded: LoadedCard; live: ReturnType<typeof openLiveLog> }
+
+type Saved = { result: RunVerdict; scorecard: ScorecardProperties; pair?: ScorecardPair }
 
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
@@ -232,16 +235,6 @@ async function errorOf(write: () => Promise<void> | void): Promise<string | unde
     } catch (error) {
         return messageOf(error)
     }
-}
-
-function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunVerdict {
-    return error === undefined
-        ? verdict
-        : {
-              ...verdict,
-              status: 'invalid',
-              statusReason: `${verdict.statusReason}; the evidence could not be written: ${error}`,
-          }
 }
 
 type OpenPool = {
@@ -435,6 +428,7 @@ export function createRunner(
     const runTarget = target ?? localTarget(environment, env, stateDir, seedWithinMs, manifest !== undefined)
     let restartRequired: Error | undefined
     let ranManifest = false
+    const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
 
     const settledWiring = async (
         targets: string[],
@@ -526,6 +520,7 @@ export function createRunner(
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
+            let offered: Offered | undefined
             let recorded: Wiring | undefined
             const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
             const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
@@ -644,6 +639,7 @@ export function createRunner(
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
                 }
                 driven = driveWindow
+                offered = { targetUnits: units.targetUnits, offeredUnits: units.offeredUnits }
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
                 const converged = await judge.converge(durationMs(card.convergeWithin), signal)
@@ -798,14 +794,13 @@ export function createRunner(
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
             })
-            return { verdict, queue: probed.queue, drive: driven, loaded, live, evidenceError }
+            return { verdict, queue: probed.queue, drive: driven, units: offered, loaded, live, evidenceError }
         },
 
-        async report(judged: Judged, signal: AbortSignal, pair?: ScorecardPair): Promise<RunResult> {
+        async save(judged: Judged, pair?: ScorecardPair): Promise<Saved> {
             using live = judged.live
             const { loaded, verdict } = judged
             const provenance = provenanceOf()
-            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError =
                 judged.evidenceError ??
                 (await errorOf(() =>
@@ -817,7 +812,10 @@ export function createRunner(
                 ))
             const result = withEvidenceError(verdict, evidenceError)
             live.write({ type: 'end', at: Date.now(), status: result.status, statusReason: result.statusReason })
-            const scorecard = scorecardOf(result, loaded, provenance, pair)
+            return { result, scorecard: scorecardOf(result, loaded, provenance, pair), pair }
+        },
+
+        async publish({ result, scorecard, pair }: Saved, signal: AbortSignal): Promise<RunResult> {
             const written = await publish(scorecard, env, signal)
             const reported = await reportToStore({ scorecard, host }, env)
             return {
@@ -838,18 +836,22 @@ export function createRunner(
         },
 
         async run(loaded, signal) {
-            return stage.report(await stage.judge(loaded, signal), signal)
+            return stage.publish(await stage.save(await stage.judge(loaded, signal)), signal)
         },
 
         async runPair(loaded, signal) {
             const control = await stage.judge(controlOf(loaded), signal)
             const faulted = signal.aborted
-                ? { missing: 'the run was interrupted before it' }
+                ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))
             const pair = pairOf(loaded, control, faulted)
-            const results = [await stage.report(control, signal, { ...pair, role: 'control' })]
+            const saved = [await stage.save(control, { ...pair, role: 'control' })]
             if (!('missing' in faulted)) {
-                results.push(await stage.report(faulted, signal, { ...pair, role: 'faulted' }))
+                saved.push(await stage.save(faulted, { ...pair, role: 'faulted' }))
+            }
+            const results = []
+            for (const run of saved) {
+                results.push(await stage.publish(run, signal))
             }
             return results
         },
