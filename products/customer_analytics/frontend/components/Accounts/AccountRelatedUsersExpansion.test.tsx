@@ -72,7 +72,7 @@ describe('AccountRelatedUsersExpansion', () => {
         cleanup()
     })
 
-    it('shows the EU member access level and opens them in the current admin', async () => {
+    it('shows the EU member access level and asks for a reason before logging in as them here', async () => {
         render(
             <Provider>
                 <AccountRelatedUsersExpansion externalId="organization-1" />
@@ -90,7 +90,10 @@ describe('AccountRelatedUsersExpansion', () => {
             screen.getByText('Access level').closest('th')!.querySelector('[data-attr="table-header-more"]')
         ).not.toBeNull()
         const [impersonateButton] = await screen.findAllByText('Impersonate')
-        expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
+        expect(impersonateButton.closest('a')).toBeNull()
+        fireEvent.click(impersonateButton)
+        expect(await screen.findByText('Log in as Alex Mercer')).toBeInTheDocument()
+        expect(screen.getByRole('checkbox', { name: 'Read-only mode (recommended)' })).toBeChecked()
     })
 
     it('copies selected emails across pages and excludes users without an email address', async () => {

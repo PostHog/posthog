@@ -13,17 +13,33 @@ const POSTHOG_CLOUD_HOSTNAMES = new Set([CLOUD_HOSTNAMES[Region.US], CLOUD_HOSTN
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
 const EU_ORG_MEMBERS_VIEW = 'eu_org_members'
 
+function getAdminOrigin(region: Region.US | Region.EU, currentOrigin: string): string {
+    const currentUrl = new URL(currentOrigin)
+    return POSTHOG_CLOUD_HOSTNAMES.has(currentUrl.hostname) ? `https://${CLOUD_HOSTNAMES[region]}` : currentUrl.origin
+}
+
 export function getUserAdminUrl(
     region: Region.US | Region.EU,
     userId: number,
     currentOrigin: string = window.location.origin
 ): string {
-    const currentUrl = new URL(currentOrigin)
-    const adminOrigin = POSTHOG_CLOUD_HOSTNAMES.has(currentUrl.hostname)
-        ? `https://${CLOUD_HOSTNAMES[region]}`
-        : currentUrl.origin
+    return `${getAdminOrigin(region, currentOrigin)}/admin/posthog/user/${userId}/change/`
+}
 
-    return `${adminOrigin}/admin/posthog/user/${userId}/change/`
+export function getUserLogInAsUrl(
+    region: Region.US | Region.EU,
+    userId: number,
+    currentOrigin: string = window.location.origin
+): string {
+    return `${getAdminOrigin(region, currentOrigin)}/admin/console/users/${userId}/log-in-as/log-in/`
+}
+
+// The in-app log in as flow posts with this origin's session and CSRF cookie, so it only reaches this origin's users.
+export function canLogInAsFromCurrentOrigin(
+    region: Region.US | Region.EU,
+    currentOrigin: string = window.location.origin
+): boolean {
+    return getAdminOrigin(region, currentOrigin) === new URL(currentOrigin).origin
 }
 
 export function isEuOrgMembersViewMissingError(error: unknown): boolean {
