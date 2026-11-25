@@ -71,10 +71,6 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
-function normalizeContent(content: TemplateContent | null): TemplateContent | null {
-    return content?.email ? { ...content, email: omitNullDesign(content.email) } : content
-}
-
 // Reconcile non-setting fields before advancing updated_at so a deferred realtime event
 // for an intervening edit (such as a publish or sensitive change) is never silently masked.
 function applySettingUpdate(
@@ -83,12 +79,13 @@ function applySettingUpdate(
         originalTemplate: MessageTemplate
         template: MessageTemplate
         publishedContent: TemplateContent | null
-        savedDraft: TemplateContent | null
+        serverDraft: TemplateContent | null
         hasUnsavedChanges: boolean
         externallyEdited: boolean
         templateChanged: boolean
         isDiscardingDraft: boolean
         isTemplateSubmitting: boolean
+        templateLoading: boolean
     },
     actions: {
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => void
@@ -112,7 +109,7 @@ function applySettingUpdate(
         return
     }
 
-    if (values.isDiscardingDraft || values.isTemplateSubmitting) {
+    if (values.isDiscardingDraft || values.templateLoading || values.isTemplateSubmitting) {
         const settingChanges = {
             sensitive: updated.sensitive,
             click_tracking_enabled: updated.click_tracking_enabled,
@@ -131,14 +128,15 @@ function applySettingUpdate(
         draft: serverDraft,
         published: serverPublished,
     } = splitDraft(updated as unknown as MessageTemplate)
+    // Tags save independently and are stripped on publish, so ignore tag diffs here to avoid
+    // conflicting with an overlapping tag save. Compare drafts against the last server-normalized copy.
     const hasExternalChanges =
         serverForm.name !== values.originalTemplate.name ||
         (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
-        !objectsEqual(serverForm.tags ?? [], values.originalTemplate.tags ?? []) ||
         (serverForm.transactional_hog_flow_id ?? null) !==
             (values.originalTemplate.transactional_hog_flow_id ?? null) ||
-        !objectsEqual(normalizeContent(serverPublished ?? null), normalizeContent(values.publishedContent)) ||
-        !objectsEqual(normalizeContent(serverDraft), normalizeContent(values.savedDraft))
+        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
+        !objectsEqual(serverDraft, values.serverDraft)
 
     if (hasExternalChanges && !values.hasUnsavedChanges && !values.externallyEdited) {
         actions.setDraftState(serverDraft, serverPublished)
@@ -197,6 +195,7 @@ export interface messageTemplateLogicValues {
     publishedContent: TemplateContent | null
     savedDraft: TemplateContent | null
     section: TemplateSection
+    serverDraft: TemplateContent | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -356,12 +355,17 @@ export interface messageTemplateLogicActions {
     }
     saveDraftDone: (
         draft: TemplateContent,
-        updatedAt: string
+        updatedAt: string,
+        serverDraft: TemplateContent | null
     ) => {
         draft: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
         }
+        serverDraft: {
+            email: EmailTemplate
+            templating: 'hog' | 'liquid'
+        } | null
         updatedAt: string
     }
     saveDraftFailed: () => {
@@ -652,7 +656,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
         saveDraft: true,
-        saveDraftDone: (draft: TemplateContent, updatedAt: string) => ({ draft, updatedAt }),
+        saveDraftDone: (draft: TemplateContent, updatedAt: string, serverDraft: TemplateContent | null) => ({
+            draft,
+            updatedAt,
+            serverDraft,
+        }),
         saveDraftFailed: true,
         discardDraft: true,
         confirmDiscardDraft: true,
@@ -732,6 +740,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 setDraftState: (_, { draft }) => draft,
                 saveDraftDone: (_, { draft }) => draft,
+            },
+        ],
+        // The server-normalized copy of draft_content, kept separate from savedDraft so form-side
+        // unnormalized edits do not trigger false external-edit conflicts during setting saves.
+        serverDraft: [
+            null as TemplateContent | null,
+            {
+                setDraftState: (_, { draft }) => draft,
+                saveDraftDone: (_, { serverDraft }) => serverDraft,
             },
         ],
         publishedContent: [
@@ -990,6 +1007,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (
                 !values.draftOutOfDate ||
                 values.externallyEdited ||
+                values.templateLoading ||
                 values.isTemplateSubmitting ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft ||
@@ -1007,7 +1025,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // The form type still allows the legacy 'hog' templating, which templates never use.
                     draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
-                actions.saveDraftDone(content, updated.updated_at)
+                actions.saveDraftDone(
+                    content,
+                    updated.updated_at,
+                    (updated.draft_content as TemplateContent | null | undefined) ?? null
+                )
             } catch {
                 actions.saveDraftFailed()
                 lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
@@ -1099,8 +1121,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         setSensitive: async ({ sensitive }, breakpoint) => {
-            // Wait for an in-flight draft save so savedDraft matches the server before we reconcile.
-            while (values.isSavingDraft) {
+            // Wait for an in-flight draft or publish save so the loaded snapshot matches the server before reconciling.
+            while (values.isSavingDraft || values.templateLoading) {
                 await breakpoint(100)
             }
             try {
@@ -1118,7 +1140,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setClickTrackingEnabled: async ({ clickTrackingEnabled }, breakpoint) => {
-            while (values.isSavingDraft) {
+            while (values.isSavingDraft || values.templateLoading) {
                 await breakpoint(100)
             }
             try {
@@ -1190,6 +1212,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             )
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
+            actions.setExternallyEdited(false)
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
             if (values.transactionalHogFlowId) {

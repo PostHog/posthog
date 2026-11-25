@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -446,7 +447,8 @@ describe('messageTemplateLogic', () => {
             })
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.hasDraft).toBe(true)
 
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
@@ -538,7 +540,7 @@ describe('messageTemplateLogic', () => {
             }
             const firstEdit = {
                 templating: 'liquid' as const,
-                email: { subject: 'Plain text edit', html: '', design: null },
+                email: { subject: 'Plain text edit ', html: '', design: null },
             } as any
             const secondEdit = {
                 templating: 'liquid' as const,
@@ -558,9 +560,23 @@ describe('messageTemplateLogic', () => {
                         if ('draft_content' in body && tick === 1) {
                             await draftSaveGate
                         }
+                        // Simulate DRF trimming trailing whitespace on saved draft_content.
+                        const normalizedBody =
+                            'draft_content' in body && body.draft_content
+                                ? {
+                                      ...body,
+                                      draft_content: {
+                                          ...(body.draft_content as Record<string, any>),
+                                          email: {
+                                              ...(body.draft_content as Record<string, any>).email,
+                                              subject: (body.draft_content as Record<string, any>).email.subject.trim(),
+                                          },
+                                      },
+                                  }
+                                : body
                         currentServer = {
                             ...currentServer,
-                            ...body,
+                            ...normalizedBody,
                             updated_at: `2026-01-01T00:0${tick++}:00Z`,
                         }
                         return [200, currentServer]
@@ -572,11 +588,11 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             jest.useFakeTimers()
 
-            // Trigger autosave with design: null so the server stores the stripped draft_content.
+            // Trigger autosave with trailing whitespace and design: null so server returns normalized draft_content.
             logic.actions.setTemplateValue('content', firstEdit)
             await jest.advanceTimersByTimeAsync(1500)
             expect(bodies).toEqual([
-                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit', html: '' } } },
+                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit ', html: '' } } },
             ])
 
             // Toggle click tracking while that draft save is still pending.
@@ -586,13 +602,13 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(bodies).toEqual([
-                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit', html: '' } } },
+                { draft_content: { templating: 'liquid', email: { subject: 'Plain text edit ', html: '' } } },
                 { click_tracking_enabled: true },
             ])
             expect(logic.values.externallyEdited).toBe(false)
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
 
-            // Another edit followed by toggling again before autosave should still not conflict on design: null.
+            // Another edit followed by toggling again before autosave should not conflict on server normalization.
             logic.actions.setTemplateValue('content', secondEdit)
             logic.actions.setClickTrackingEnabled(false)
             await jest.advanceTimersByTimeAsync(200)
@@ -654,46 +670,76 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
         })
 
-        it('ignores a stale out-of-order setting response instead of restoring a discarded draft', async () => {
+        it('ignores a stale out-of-order setting response after a newer publish completes first', async () => {
             logic.unmount()
-            const latestServer = {
+            let currentServer: Record<string, unknown> = {
                 ...serverTemplate,
                 sensitive: true,
-                click_tracking_enabled: true,
-                draft_content: null,
-                updated_at: '2026-01-01T00:02:00Z',
+                click_tracking_enabled: null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            let releaseStaleSetting!: () => void
+            const staleSettingGate = new Promise<void>((resolve) => {
+                releaseStaleSetting = resolve
+            })
+            let settingRequestSent!: () => void
+            const settingRequestArrived = new Promise<void>((resolve) => {
+                settingRequestSent = resolve
+            })
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                if ('click_tracking_enabled' in body) {
+                    // Setting PATCH commits at 00:01 (before publish cleared the draft), but its HTTP response arrives late.
+                    const earlierSnapshot = {
+                        ...currentServer,
+                        ...body,
+                        draft_content: draft,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    }
+                    settingRequestSent()
+                    await staleSettingGate
+                    return [200, earlierSnapshot]
+                }
+                // Publish commits at 00:02 and returns before the earlier setting response arrives.
+                currentServer = {
+                    ...currentServer,
+                    ...body,
+                    click_tracking_enabled: true,
+                    draft_content: null,
+                    updated_at: '2026-01-01T00:02:00Z',
+                }
+                return [200, currentServer]
             }
             useMocks({
-                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, latestServer] },
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, currentServer] },
                 patch: {
-                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
-                        const body = (await request.json()) as Record<string, unknown>
-                        bodies.push(body)
-                        // Return an older response (00:01) that still carries the discarded draft.
-                        return [
-                            200,
-                            {
-                                ...serverTemplate,
-                                ...body,
-                                sensitive: true,
-                                draft_content: draft,
-                                updated_at: '2026-01-01T00:01:00Z',
-                            },
-                        ]
-                    },
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
                 },
             })
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.hasDraft).toBe(true)
 
-            await expectLogic(logic, () => {
-                logic.actions.setClickTrackingEnabled(true)
-            }).toFinishAllListeners()
+            // Start the click tracking save (held at HTTP boundary), then publish and let publish return first.
+            logic.actions.setClickTrackingEnabled(true)
+            await settingRequestArrived
+            logic.actions.submitTemplate()
+            await waitFor(() => {
+                expect(logic.values.hasDraft).toBe(false)
+                expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z')
+            })
+
+            // Now release the stale 00:01 response that still carried the cleared draft.
+            releaseStaleSetting()
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.hasDraft).toBe(false)
-            expect(logic.values.template.content).toEqual(live)
+            expect(logic.values.template.content).toEqual(draft)
             expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z')
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
         })
     })
 

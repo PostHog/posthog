@@ -4,8 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -305,7 +306,6 @@ describe('MessageTemplate', () => {
     })
 
     it('hides Track link clicks and shows a notice if another tab turned sensitive off before saving', async () => {
-        const toastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
         const serverState = {
             ...PASSWORD_RESET_WITH_DRAFT,
             sensitive: true,
@@ -338,6 +338,7 @@ describe('MessageTemplate', () => {
                 },
             },
         })
+        const infoToast = jest.spyOn(lemonToast, 'info')
         try {
             await renderAs(AccessControlLevel.Editor, serverState.name)
 
@@ -347,11 +348,12 @@ describe('MessageTemplate', () => {
 
             await waitFor(() => expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument())
             expect(screen.getByLabelText('Protect sensitive data')).toHaveAttribute('aria-checked', 'false')
-            expect(toastInfoSpy).toHaveBeenCalledWith(
+            expect(infoToast).toHaveBeenCalledWith(
                 'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
             )
         } finally {
-            toastInfoSpy.mockRestore()
+            infoToast.mockRestore()
+            lemonToast.dismiss()
         }
     })
 
