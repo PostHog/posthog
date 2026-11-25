@@ -353,7 +353,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -585,7 +585,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -1507,14 +1507,11 @@ class Resolver(CloningVisitor):
             return clone_expr(cached)
 
         def resolve(
-            query: ast.SelectQuery | ast.SelectSetQuery,
-            *,
-            join_sources: JoinSources | None = None,
-            scopes: list[ast.SelectQueryType] | None = None,
+            query: ast.SelectQuery | ast.SelectSetQuery, *, join_sources: JoinSources | None = None
         ) -> ast.SelectQuery | ast.SelectSetQuery:
             # The swap catches a resolution error and keeps the original body. A visit that raises leaves its scope
             # and CTEs on this resolver, so this function restores them.
-            outer_scopes, ctes, view_depth, cte_counter, outer_join_sources = (
+            scopes, ctes, view_depth, cte_counter, outer_join_sources = (
                 list(self.scopes),
                 self.ctes,
                 self.current_view_depth,
@@ -1528,16 +1525,11 @@ class Resolver(CloningVisitor):
             # The swap's check reads `join_sources` for the joins of this body. A trial tree is not part of the
             # enclosing query, so the enclosing query's record does not get its joins.
             self.join_sources = join_sources
-            # The swap gives `scopes` to resolve a moved persons filter as the lazy-table pass does. That pass uses
-            # a new resolver, which holds none of the CTEs of this one.
-            if scopes is not None:
-                self.scopes[:] = scopes
-                self.ctes = {}
             try:
                 resolved = self.visit(self._copy(query))
             finally:
                 self._resolving_saved_views.remove(view_name)
-                self.scopes[:] = outer_scopes
+                self.scopes[:] = scopes
                 self.ctes, self.current_view_depth, self.cte_counter = ctes, view_depth, cte_counter
                 self.join_sources = outer_join_sources
             return resolved
@@ -1668,11 +1660,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:

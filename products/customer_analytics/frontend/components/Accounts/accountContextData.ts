@@ -1,3 +1,7 @@
+import type { DataColorToken } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { hashCodeForString } from 'lib/utils/strings'
+
 import type { EndpointRunResponseApi } from 'products/endpoints/frontend/generated/api.schemas'
 
 export interface AccountContextSource {
@@ -26,10 +30,13 @@ export interface AccountContextSignal {
     id: string
     title: string
     open: boolean
+    scheduled: boolean
     onset: string
     closedOn: string
+    openDays: number | null
     arrAtStake: number | null
     reason: AccountContextReason | null
+    notes: string[]
 }
 
 export interface AccountContextThread {
@@ -44,16 +51,6 @@ export interface AccountContext {
     threads: AccountContextThread[]
     expiredFacts: number
     truncated: boolean
-}
-
-export interface AccountContextSummary {
-    factCount: number
-    inferredCount: number
-    lastCapturedOn: string | null
-    writerCount: number
-    openSignalCount: number
-    unexplainedSignalCount: number
-    recheckCount: number
 }
 
 export type FactConfidence = 'confirmed' | 'inferred'
@@ -126,6 +123,10 @@ const SIGNAL_TITLES: Record<string, (parts: TitleParts) => string> = {
     champion_change: () => 'Champion changed',
 }
 
+const SCHEDULED_SIGNALS = new Set(['renewal_window', 'credit_runway'])
+
+const TOPIC_COLOR_COUNT = 15
+
 function text(value: unknown): string {
     return typeof value === 'string' ? value : ''
 }
@@ -160,6 +161,10 @@ export function parseContextSource(payload: unknown): AccountContextSource | nul
     return { projectId, endpoint: text(endpoint), accountVariable: text(account_variable) }
 }
 
+export function topicColor(topic: string): DataColorToken {
+    return `preset-${(hashCodeForString(topic) % TOPIC_COLOR_COUNT) + 1}` as DataColorToken
+}
+
 export function sourceLabel(source: string): string {
     return SOURCE_LABELS[source] ?? ''
 }
@@ -187,6 +192,23 @@ function signalReason(signalLinks: Row[], factText: Map<string, string>): Accoun
         return null
     }
     return { text: factText.get(text(reason.to_id)) ?? '', likely: reason.link_source !== 'distiller' }
+}
+
+function signalNotes(signalLinks: Row[], factText: Map<string, string>, reason: AccountContextReason | null): string[] {
+    const notes = signalLinks
+        .filter((link) => link.relation === 'acts_on')
+        .map((link) => factText.get(text(link.to_id)) ?? '')
+        .filter((note) => note && note !== reason?.text)
+    return [...new Set(notes)]
+}
+
+function openDays(onset: string, closedOn: string): number | null {
+    if (!onset || !closedOn) {
+        return null
+    }
+    const start = dayjs.utc(onset.slice(0, 10))
+    const end = dayjs.utc(closedOn.slice(0, 10))
+    return start.isValid() && end.isValid() ? Math.max(0, end.diff(start, 'day')) : null
 }
 
 export function missingContextColumns(response: EndpointRunResponseApi): string[] {
@@ -248,14 +270,21 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
                 .filter((link) => link.relation === 'on')
                 .map((link) => nodeName(text(link.to_id)))
                 .find((name): name is string => name !== null)
+            const reason = signalReason(signalLinks, factText)
+            const open = row.signal_state === 'open'
+            const onset = text(row.onset)
+            const closedOn = text(row.closed_on)
             return {
                 id,
                 title: signalTitle(text(row.signal_type), text(row.direction), amount(row.change), product ?? null),
-                open: row.signal_state === 'open',
-                onset: text(row.onset),
-                closedOn: text(row.closed_on),
+                open,
+                scheduled: SCHEDULED_SIGNALS.has(text(row.signal_type)),
+                onset,
+                closedOn,
+                openDays: open ? null : openDays(onset, closedOn),
                 arrAtStake: amount(row.arr_at_stake),
-                reason: signalReason(signalLinks, factText),
+                reason,
+                notes: signalNotes(signalLinks, factText, reason),
             }
         })
         .sort((a, b) => signalDate(b).localeCompare(signalDate(a)))
@@ -271,20 +300,6 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
         threads,
         expiredFacts: amount(meta?.expired_facts) ?? 0,
         truncated: response.hasMore === true,
-    }
-}
-
-export function summarizeContext(context: AccountContext): AccountContextSummary {
-    const openSignals = context.signals.filter((signal) => signal.open)
-    const captured = context.facts.map((fact) => fact.capturedOn).filter(Boolean)
-    return {
-        factCount: context.facts.length,
-        inferredCount: context.facts.filter((fact) => !fact.confirmed).length,
-        lastCapturedOn: captured.length ? captured.reduce((a, b) => (a > b ? a : b)) : null,
-        writerCount: new Set(context.facts.map((fact) => fact.author).filter(Boolean)).size,
-        openSignalCount: openSignals.length,
-        unexplainedSignalCount: openSignals.filter((signal) => !signal.reason).length,
-        recheckCount: context.facts.filter((fact) => fact.needsRecheck).length,
     }
 }
 

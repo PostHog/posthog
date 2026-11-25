@@ -8,7 +8,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
     onEvent,
     template: {
         free: false,
-        status: 'deprecated',
+        status: 'hidden',
         type: 'destination',
         id: 'plugin-pubsub-plugin',
         name: 'Pub/Sub Export',

@@ -12,12 +12,13 @@ from redis.exceptions import (
 )
 
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.aeo.backend import keyword_suggestions
 from products.aeo.backend.facade.api import get_prompt_set_overview
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.tasks import tasks
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
@@ -29,13 +30,50 @@ from products.aeo.backend.test.factories import create_citation_check, create_ow
 
 @pytest.fixture
 def team(db: None) -> Team:
-    organization = Organization.objects.create(name="aeo test org")
+    organization = Organization.objects.create(name="aeo test org", is_ai_data_processing_approved=True)
     return Team.objects.create(organization=organization, name="aeo test team")
 
 
+def _add_prompt(team: Team, *, active: bool) -> None:
+    with team_scope(team.pk):
+        AEOPrompt.objects.create(
+            team=team, prompt="Q?", prompt_hash="q", prompt_source=AEOPrompt.Source.MANUAL, active=active
+        )
+
+
+@pytest.mark.parametrize(
+    "state, kill_switch_on, dispatched, gate_passes",
+    [
+        ("active_prompts", True, True, True),
+        ("only_inactive_prompts", True, False, True),
+        ("kill_switch_off", False, False, False),
+        ("ai_not_approved", True, False, False),
+        ("org_deactivated", True, False, False),
+    ],
+)
+def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
+    team: Team, state: str, kill_switch_on: bool, dispatched: bool, gate_passes: bool
+) -> None:
+    _add_prompt(team, active=state != "only_inactive_prompts")
+    if state == "ai_not_approved":
+        Organization.objects.filter(id=team.organization_id).update(is_ai_data_processing_approved=False)
+    elif state == "org_deactivated":
+        Organization.objects.filter(id=team.organization_id).update(is_active=False)
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),
+        patch.object(tasks.run_aeo_citation_checks_for_team_task, "delay") as dispatch,
+        patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,
+    ):
+        tasks.run_aeo_citation_checks_task()
+        run_aeo_citation_checks_for_team_task(team.id)
+
+    assert [call.args for call in dispatch.call_args_list] == ([(team.id,)] if dispatched else [])
+    assert run.call_count == (1 if gate_passes else 0)
+
+
 @pytest.mark.parametrize("run_in_progress", [False, True])
-def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
+def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
     lease = get_client().lock(f"aeo_citation_run:{team.id}", timeout=60)
     if run_in_progress:
         assert lease.acquire(blocking=False)
@@ -52,9 +90,7 @@ def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool)
     lease.release()
 
 
-def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settings) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
-
+def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team) -> None:
     def expire_lease(*args: object, **kwargs: object) -> tuple[Mock, list]:
         get_client().delete(f"aeo_citation_run:{team.id}")
         return Mock(run_id=None), []
@@ -69,11 +105,7 @@ def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settin
 
 
 @pytest.mark.parametrize("enqueue_fails", [False, True])
-def test_a_recorded_run_queues_an_own_citation_reconcile_without_failing_on_it(
-    team: Team, settings, enqueue_fails: bool
-) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
-
+def test_a_recorded_run_queues_an_own_citation_reconcile_without_failing_on_it(team: Team, enqueue_fails: bool) -> None:
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id="run-1"), [])),
@@ -166,10 +198,8 @@ def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Tea
 
 
 @pytest.mark.parametrize("flag_on, expected_starts", [(True, 1), (False, 0)], ids=["enabled", "flag_off"])
-def test_sentiment_backlog_pass_scores_each_enabled_team(
-    team: Team, settings, flag_on: bool, expected_starts: int
-) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id), "not-a-team"]
+def test_sentiment_backlog_pass_scores_each_enabled_team(team: Team, flag_on: bool, expected_starts: int) -> None:
+    _add_prompt(team, active=True)
 
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=flag_on),

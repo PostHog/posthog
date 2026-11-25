@@ -101,6 +101,11 @@ def update_experiment(*, team_id: int, experiment_id: int, **fields: Any) -> Non
     experiment.save()
 
 
+def clear_experiment_status(*, team_id: int, experiment_id: int) -> None:
+    """Set `status` to NULL, as on a row saved before the column existed. `save()` always sets it."""
+    Experiment.objects.filter(team_id=team_id, id=experiment_id).update(status=None)
+
+
 def delete_experiment(*, team_id: int, experiment_id: int) -> None:
     """Remove the experiment row, which fires the delete signals."""
     Experiment.objects.get(team_id=team_id, id=experiment_id).delete()

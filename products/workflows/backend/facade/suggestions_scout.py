@@ -6,6 +6,7 @@ from products.workflows.backend.services.suggestions_scout import (
     suggestions_scout_no_input_reason,
     suggestions_scout_refusal,
     suggestions_scout_run_reason,
+    suggestions_scout_schedule,
     suggestions_scout_status,
     sync_suggestions_scout,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "suggestions_scout_no_input_reason",
     "suggestions_scout_refusal",
     "suggestions_scout_run_reason",
+    "suggestions_scout_schedule",
     "suggestions_scout_status",
     "sync_suggestions_scout",
 ]

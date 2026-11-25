@@ -778,7 +778,7 @@ def postgres_default_fields() -> list[BatchExportField]:
     batch_export_fields = default_fields()
     batch_export_fields.append(
         {
-            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "expression": "ip",
             "alias": "ip",
         }
     )
@@ -815,6 +815,9 @@ def get_postgres_fields_from_record_schema(
                 pg_type = "JSONB"
             else:
                 pg_type = "TEXT"
+
+        elif isinstance(pa_field.type, pa.UuidType):
+            pg_type = "UUID"
 
         elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
@@ -1105,6 +1108,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     escape_char=None,
                     line_terminator="\n",
                     quoting=csv.QUOTE_STRINGS,
+                    single_null_as_blank_line=True,
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
                 )

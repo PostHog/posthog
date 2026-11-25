@@ -36,7 +36,11 @@ def _driver() -> SourceDriver:
 
 def _search_response(endpoint: str, edges: list[dict[str, Any]], has_next: bool = False) -> ScriptedResponse:
     config = BRAINTREE_ENDPOINTS[endpoint]
-    payload: Any = {config.connection_field: {"pageInfo": {"hasNextPage": has_next}, "edges": edges}}
+    payload: Any = (
+        {config.connection_field: {"pageInfo": {"hasNextPage": has_next}, "edges": edges}}
+        if config.paginated
+        else {config.connection_field: [edge["node"] for edge in edges]}
+    )
     for wrapper in reversed(config.query_path):
         payload = {wrapper: payload}
 
@@ -62,6 +66,7 @@ class TestBuildQuery:
             ("disputes", "DisputeSearchInput"),
             ("customers", "CustomerSearchInput"),
             ("recurring_billing_subscriptions", "RecurringBillingSubscriptionSearchInput"),
+            ("verifications", "VerificationSearchInput"),
         ],
     )
     def test_query_uses_correct_input_type(self, endpoint, input_type):
@@ -71,11 +76,19 @@ class TestBuildQuery:
         assert f"$input: {input_type}!" in query
         assert BRAINTREE_ENDPOINTS[endpoint].connection_field in query
 
-    @pytest.mark.parametrize("field", ["price", "balance", "nextBillingPeriodAmount"])
-    def test_subscription_amounts_are_selected_as_leaves(self, field):
+    @pytest.mark.parametrize(
+        "endpoint, field",
+        [
+            ("recurring_billing_subscriptions", "price"),
+            ("recurring_billing_subscriptions", "balance"),
+            ("recurring_billing_subscriptions", "nextBillingPeriodAmount"),
+            ("recurring_billing_subscription_plans", "amount"),
+        ],
+    )
+    def test_amount_scalars_are_selected_as_leaves(self, endpoint, field):
         # These are Braintree's `Amount` scalar; a subselection fails validation
         # (SubselectionNotAllowed) and rejects the whole query.
-        query = _build_query(BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"])
+        query = _build_query(BRAINTREE_ENDPOINTS[endpoint])
         assert re.search(rf"\b{field}\b", query)
         assert not re.search(rf"\b{field}\s*{{", query)
 
@@ -155,7 +168,9 @@ class TestGetRows:
             requested = request.json()["variables"]["first"]
             assert 0 < requested <= MAX_PAGE_SIZE
 
-    @pytest.mark.parametrize("endpoint", ["transactions", "refunds", "customers", "recurring_billing_subscriptions"])
+    @pytest.mark.parametrize(
+        "endpoint", ["transactions", "refunds", "customers", "recurring_billing_subscriptions", "verifications"]
+    )
     def test_incremental_search_input_has_gte_filter(self, endpoint: str) -> None:
         result = _driver().run(
             endpoint,
@@ -181,6 +196,35 @@ class TestGetRows:
         # A connection taking no search input must not send an `input` variable the
         # query never declares.
         assert "input" not in result.requests[0].json()["variables"]
+
+    @pytest.mark.parametrize(
+        "plans, expected_ids",
+        [
+            (
+                [{"id": "p1", "createdAt": "2024-01-01T00:00:00Z"}, {"id": "p2", "createdAt": "2024-02-01T00:00:00Z"}],
+                ["p1", "p2"],
+            ),
+            ([], []),
+            (None, []),
+        ],
+    )
+    def test_reads_plans_from_one_unpaginated_list(self, plans: Any, expected_ids: list[str]) -> None:
+        result = _driver().run(
+            "recurring_billing_subscription_plans",
+            [ScriptedResponse(json={"data": {"recurringBillingSubscriptionPlans": {"plans": plans}}})],
+            api_version=_VERSION,
+        )
+
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == expected_ids
+        assert len(result.requests) == 1
+        assert result.saved_states == []
+        # The plans field takes no pagination arguments, so declaring `$first` or
+        # `$after` fails validation for the whole query.
+        body = result.requests[0].json()
+        assert body["variables"] == {}
+        assert "$first" not in body["query"]
+        assert "recurringBillingSubscriptionPlans {" in body["query"]
 
     def test_yields_subscriptions_with_a_root_level_created_at(self) -> None:
         result = _driver().run(

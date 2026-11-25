@@ -27,7 +27,11 @@ from posthog.storage import object_storage
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import DocsRequest, MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
-from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
+from products.knowledge_writer.backend.feature_flags import (
+    AGENT_LAUNCH_FLAG,
+    OPEN_PULL_REQUESTS_AUTHORS_FLAG,
+    OPEN_PULL_REQUESTS_FLAG,
+)
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
     MISSING_TOOL_PATTERN,
@@ -42,6 +46,8 @@ from products.knowledge_writer.backend.logic.launch import (
     change_check_script,
 )
 from products.knowledge_writer.backend.logic.pull_requests import (
+    AUTHOR_FLAG_UNREADABLE,
+    AUTHOR_NOT_OPTED_IN,
     DRAFT_EVENT,
     LINK_BACK_START,
     OPEN_PULL_REQUESTS_OFF,
@@ -124,8 +130,28 @@ SOURCE_DIFF = (
     "diff --git a/posthog/session_recordings/retention.py b/posthog/session_recordings/retention.py\n"
     '+    """Retention presets keep recordings for 90 days."""\n'
 )
+SOURCE_FILE_TEXT = 'RETENTION_PRESETS = ("30 days", "90 days")  # Presets apply to every project in the team.\n'
+UNCHANGED_SOURCE_LINE_CLAIM = "Presets apply to every project in the team."
 GROUNDING_DID_NOT_RUN = "Grounding did not run"
-SUPPORTED_QUOTES = {NEW_PAGE_HEADING: "Retention presets keep", NEW_PAGE_LINE: "keep recordings for 90 days"}
+NUMBERED_HEADING = "## Keep recordings for 90 days"
+SUPPORTED_QUOTES = {
+    NEW_PAGE_LINE: "keep recordings for 90 days",
+    UNCHANGED_SOURCE_LINE_CLAIM: "Presets apply to every project",
+}
+STRUCTURED_NEW_PAGE_PATCH = "\n".join(
+    [
+        "@@ -0,0 +1,9 @@",
+        "+---",
+        "+title: Retention presets",
+        "+sidebar: Docs",
+        "+---",
+        '+import { CalloutBox } from "components/Docs/CalloutBox"',
+        "+<RetentionPresetsIntro />",
+        "+## Pick a preset",
+        f"+{NUMBERED_HEADING}",
+        f"+{NEW_PAGE_LINE}",
+    ]
+)
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 OPENED_PULL_REQUEST_NUMBER = 9
@@ -312,6 +338,8 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if path.startswith("/repos/PostHog/posthog/contents/"):
+            return MagicMock(status_code=200, text=SOURCE_FILE_TEXT)
         if path.endswith(f"/pulls/{OPENED_PULL_REQUEST_NUMBER}"):
             return _replied(
                 {"number": OPENED_PULL_REQUEST_NUMBER, "requested_reviewers": self.requested_logins_payload()}
@@ -435,7 +463,12 @@ def writer_env(team, user):
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(GITHUB_REQUEST, side_effect=DocsGitHub()),
         patch(READ_ARTIFACT, side_effect=_read_uploaded_artifact),
-        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
+        patch(
+            FLAG_CHECK,
+            side_effect=lambda flag, *args, **kwargs: (
+                flag in (OPEN_PULL_REQUESTS_FLAG, OPEN_PULL_REQUESTS_AUTHORS_FLAG)
+            ),
+        ),
         patch(GROUNDING_GATEWAY, side_effect=_grounding_gateway(None)),
     ):
         yield
@@ -767,17 +800,17 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             id="human_author_is_asked_to_review_a_grounded_change_ready_for_review",
         ),
         pytest.param(
-            None,
+            "octo-person",
             {},
             OPENED,
-            (None, "no_human_author", None),
+            ("octo-person", None, None),
             NEW_PAGE_FILES,
             None,
             None,
             True,
             [GROUNDING_DID_NOT_RUN],
             (False, [], [], []),
-            id="bot_author_is_asked_nothing_and_a_failed_grounding_call_opens_a_draft",
+            id="a_failed_grounding_call_opens_a_draft",
         ),
         pytest.param(
             "octo-person",
@@ -786,10 +819,10 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             (None, "review_request_failed", 422),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
             None,
-            {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
+            {NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
             True,
-            [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
-            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
+            [NEW_PAGE_LINE, SHARING_PAGE_PATH],
+            (True, [NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
             id="failed_request_is_recorded_and_unquoted_lines_and_an_unrouted_page_open_a_draft",
         ),
         pytest.param(
@@ -1016,19 +1049,26 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     ) == expected_review
 
 
+@pytest.mark.parametrize(
+    "page_patch, expected_unsupported_lines",
+    [
+        pytest.param(STRUCTURED_NEW_PAGE_PATCH, (NUMBERED_HEADING,), id="without_sending_page_structure"),
+        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", (), id="against_unchanged_lines_of_touched_files"),
+    ],
+)
 @pytest.mark.django_db
-def test_a_source_owner_without_a_github_integration_is_grounded_through_the_docs_repository_integration(
-    team, monkeypatch
+def test_a_source_owner_without_a_github_integration_is_grounded(
+    team, monkeypatch, page_patch: str, expected_unsupported_lines: tuple[str, ...]
 ) -> None:
     Integration.objects.create(
         team=team, kind="github", integration_id="31338", config={"account": {"name": "posthog-docs"}}
     )
     monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(SUPPORTED_QUOTES))
     source = SourceChange(repository="PostHog/posthog", commit_sha="a" * 40)
-    added_page = {"filename": NEW_PAGE_PATH, "patch": f"+{NEW_PAGE_HEADING}\n+{NEW_PAGE_LINE}"}
+    added_page = {"filename": NEW_PAGE_PATH, "patch": page_patch}
     with patch(GITHUB_REQUEST, side_effect=DocsGitHub()):
         grounding = ground_draft(source_github(team.id, source, "posthog-docs/posthog.com"), source, [added_page])
-    assert (grounding.ran, grounding.unsupported_lines) == (True, ())
+    assert (grounding.ran, grounding.unsupported_lines) == (True, expected_unsupported_lines)
 
 
 @pytest.mark.django_db
@@ -1056,16 +1096,27 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "open_pull_requests_reply, expected_outcomes",
-    [(False, ["logged"]), (None, [])],
+    "open_pull_requests_reply, author_login, author_reply, expected_outcomes, expected_failure",
+    [
+        pytest.param(False, "octo-person", True, ["logged"], OPEN_PULL_REQUESTS_OFF, id="pull_requests_off"),
+        pytest.param(None, "octo-person", True, [], None, id="pull_requests_flag_unreadable"),
+        pytest.param(True, "octo-person", False, ["logged"], AUTHOR_NOT_OPTED_IN, id="author_not_opted_in"),
+        pytest.param(True, None, True, ["logged"], AUTHOR_NOT_OPTED_IN, id="no_human_author"),
+        pytest.param(
+            True, "octo-person", None, ["logged"], AUTHOR_FLAG_UNREADABLE, id="author_flag_unreadable_on_last_attempt"
+        ),
+    ],
 )
-def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
+def test_without_an_opted_in_author_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
     team,
     writer_env,
     django_capture_on_commit_callbacks,
     monkeypatch,
     open_pull_requests_reply,
+    author_login,
+    author_reply,
     expected_outcomes,
+    expected_failure,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
@@ -1074,15 +1125,13 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
+        started = intake.submit(
+            _verdict(suggested_page_urls=(RETENTION_PAGE,), author_login=author_login), team_id=team.id
+        )
     assert started.task_id is not None
+    flag_replies = {OPEN_PULL_REQUESTS_FLAG: open_pull_requests_reply, OPEN_PULL_REQUESTS_AUTHORS_FLAG: author_reply}
     with (
-        patch(
-            FLAG_CHECK,
-            side_effect=lambda flag, *args, **kwargs: (
-                open_pull_requests_reply if flag == OPEN_PULL_REQUESTS_FLAG else True
-            ),
-        ),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag_replies.get(flag, True)),
         patch(CREATE_PULL_REQUEST) as create_pull_request,
         patch(CAPTURE_DRAFT) as scoped_capture,
     ):
@@ -1092,11 +1141,10 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
     assert (docs_github.created_branches, docs_github.commits) == ([], [])
     capture = scoped_capture.return_value.__enter__.return_value
     assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
-    if open_pull_requests_reply is None:
+    if expected_failure is None:
         return
     assert (
-        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
-        == OPEN_PULL_REQUESTS_OFF
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == expected_failure
     )
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
     assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [RETENTION_PAGE])

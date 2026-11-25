@@ -19,10 +19,13 @@ import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
+import type { ReleaseAllType } from './releaseAllLogic'
+import { RELEASE_ALL_TYPE_INFO } from './releaseAllTypeInfo'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseSidebarRecordPreview, releaseSidebarIcon } from './ReleaseSidebarRecordPreview'
 import { releaseSidebarEntryName, STAGE_COLOR_VARS } from './releaseUtils'
 
-const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 'release']
+const RELEASE_TYPES = Object.keys(RELEASE_ALL_TYPE_INFO)
 const RECENTS_LIMIT = 6
 
 export function ReleaseSidebar(): JSX.Element {
@@ -130,34 +133,34 @@ export function ReleaseSidebar(): JSX.Element {
         RECENTS_LIMIT
     )
 
-    const entryRow = (entry: FileSystemEntry, kind: 'pinned' | 'recent'): JSX.Element => (
-        <SidebarRow
-            key={`${kind}:${entry.id}`}
-            value={`${kind}:${entry.id}`}
-            label={entryName(entry)}
-            icon={
-                entry.type === 'release' ? (
-                    <IconFlag />
-                ) : (
-                    iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)
-                )
-            }
-            to={entry.href ?? '#'}
-            active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
-            action={
-                <SidebarPinButton
-                    target={{
-                        type: entry.type ?? '',
-                        ref: entry.ref,
-                        name: entry.type === 'release' ? 'Release' : entryName(entry),
-                        href: entry.href,
-                    }}
-                    dataAttr={`release-sidebar-${kind}-pin`}
+    // Only entries of a release type reach these rows, since `pinned` and `recent` filter on `releaseTypes`.
+    const entryRow = (entry: FileSystemEntry, kind: 'pinned' | 'recent'): JSX.Element => {
+        const type = entry.type as ReleaseAllType
+        return (
+            <ReleaseSidebarRecordPreview key={`${kind}:${entry.id}`} name={entryName(entry)} type={type}>
+                <SidebarRow
+                    value={`${kind}:${entry.id}`}
+                    label={entryName(entry)}
+                    meta={RELEASE_ALL_TYPE_INFO[type].label}
+                    icon={releaseSidebarIcon(type)}
+                    to={entry.href ?? '#'}
+                    active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
+                    action={
+                        <SidebarPinButton
+                            target={{
+                                type: entry.type ?? '',
+                                ref: entry.ref,
+                                name: entry.type === 'release' ? 'Release' : entryName(entry),
+                                href: entry.href,
+                            }}
+                            dataAttr={`release-sidebar-${kind}-pin`}
+                        />
+                    }
+                    dataAttr={`release-sidebar-${kind}`}
                 />
-            }
-            dataAttr={`release-sidebar-${kind}`}
-        />
-    )
+            </ReleaseSidebarRecordPreview>
+        )
+    }
 
     return (
         <div

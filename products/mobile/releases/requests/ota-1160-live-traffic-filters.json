@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-live-traffic-filters",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-replay-feed",
+    "notes": "Filter Live traffic by audience, hostname, page path, channel, referring domain, country, or device type, and exclude bots. Open pasted links directly from chat messages."
+}

@@ -19,6 +19,8 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.sources.firebase.settings import (
     AUTH_TENANT_USERS_PRIMARY_KEY,
     AUTH_TENANT_USERS_TABLE,
+    AUTH_TENANTS_PRIMARY_KEY,
+    AUTH_TENANTS_TABLE,
     AUTH_USERS_PAGE_SIZE,
     AUTH_USERS_PRIMARY_KEY,
     AUTH_USERS_TABLE,
@@ -57,6 +59,7 @@ from products.warehouse_sources.sources.firebase.settings import (
     REALTIME_DATABASE_PATH_COLUMN,
     REALTIME_DATABASE_VALUE_COLUMN,
     REDACTED_AUTH_USER_FIELDS,
+    REDACTED_TENANT_FIELDS,
     REQUEST_TIMEOUT_SECONDS,
     RESPONSE_TOO_LARGE_ERROR,
     TENANTS_PAGE_SIZE,
@@ -883,14 +886,23 @@ def _list_tenants_page(
     credentials: FirebaseCredentials,
     page_size: int,
     page_token: Optional[str],
-) -> tuple[list[str], Optional[str]]:
+) -> tuple[list[dict[str, Any]], Optional[str]]:
     url = f"{IDENTITY_TOOLKIT_ADMIN_API_ROOT}/projects/{credentials.project_id}/tenants"
     params: dict[str, Any] = {"pageSize": page_size}
     if page_token:
         params["pageToken"] = page_token
     payload = _request(session, tokens, "GET", url, params=params) or {}
-    tenant_ids = [tenant_id for tenant in payload.get("tenants") or [] if (tenant_id := _tenant_id(tenant))]
-    return tenant_ids, payload.get("nextPageToken") or None
+    tenants = [tenant for tenant in payload.get("tenants") or [] if isinstance(tenant, dict)]
+    return tenants, payload.get("nextPageToken") or None
+
+
+def flatten_tenant(tenant: dict[str, Any]) -> Optional[dict[str, Any]]:
+    tenant_id = _tenant_id(tenant)
+    if tenant_id is None:
+        return None
+    row = {key: _as_column(value) for key, value in tenant.items() if key not in REDACTED_TENANT_FIELDS}
+    row["tenantId"] = tenant_id
+    return row
 
 
 def list_tenant_ids(
@@ -900,7 +912,7 @@ def list_tenant_ids(
     page_token: Optional[str] = None
     for _ in range(MAX_PAGES):
         page, page_token = _list_tenants_page(session, tokens, credentials, TENANTS_PAGE_SIZE, page_token)
-        tenant_ids.update(page)
+        tenant_ids.update(tenant_id for tenant in page if (tenant_id := _tenant_id(tenant)))
         if not page_token or not page:
             break
     # Sorted so that a resumed read knows which tenants it already finished.
@@ -908,8 +920,35 @@ def list_tenant_ids(
 
 
 def has_tenants(session: requests.Session, tokens: AccessTokenProvider, credentials: FirebaseCredentials) -> bool:
-    tenant_ids, _ = _list_tenants_page(session, tokens, credentials, 1, None)
-    return bool(tenant_ids)
+    tenants, _ = _list_tenants_page(session, tokens, credentials, 1, None)
+    return any(_tenant_id(tenant) for tenant in tenants)
+
+
+def iter_tenants(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    page_token = _resume_cursor(resumable_source_manager, logger, "Identity Platform tenants")
+
+    for _ in range(MAX_PAGES):
+        tenants, page_token = _list_tenants_page(session, tokens, credentials, TENANTS_PAGE_SIZE, page_token)
+        has_next_page = bool(page_token and tenants)
+        if has_next_page:
+            resumable_source_manager.save_state(FirebaseResumeConfig(cursor=str(page_token)))
+
+        rows = [row for tenant in tenants if (row := flatten_tenant(tenant)) is not None]
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+        if not has_next_page:
+            break
+
+    resumable_source_manager.clear_state()
 
 
 def _resume_tenant_cursor(
@@ -1079,6 +1118,12 @@ def get_rows(
         # Same password material as above, and a tenant listing also carries the tenant's hash signer key.
         auth_session = _api_session(credentials, capture=False)
         yield from iter_tenant_auth_users(auth_session, tokens, credentials, resumable_source_manager, logger)
+        return
+
+    if table_name == AUTH_TENANTS_TABLE:
+        # A tenant listing carries the tenant's hash signer key, which `flatten_tenant` drops only afterwards.
+        auth_session = _api_session(credentials, capture=False)
+        yield from iter_tenants(auth_session, tokens, credentials, resumable_source_manager, logger)
         return
 
     api_session = _api_session(credentials)
@@ -1322,11 +1367,11 @@ def get_tables(credentials: FirebaseCredentials, force_refresh: bool = False) ->
             raise
         LOGGER.warning(f"Skipping Firestore collections for Firebase project {credentials.project_id}: {status}")
 
-    # Most projects never use Identity Platform tenants, so the table is listed only when one exists.
+    # Most projects never use Identity Platform tenants, so the tenant tables are listed only when one exists.
     auth_tables = [AUTH_USERS_TABLE]
     try:
         if has_tenants(_api_session(credentials, capture=False), tokens, credentials):
-            auth_tables.append(AUTH_TENANT_USERS_TABLE)
+            auth_tables += [AUTH_TENANTS_TABLE, AUTH_TENANT_USERS_TABLE]
     except requests.HTTPError as e:
         # A project without Identity Platform, or a service account that can't list tenants, gets
         # one of these statuses. Neither should hide the tables the source can still read. Anything
@@ -1424,6 +1469,8 @@ def firebase_source(
         primary_keys = AUTH_USERS_PRIMARY_KEY
     elif table_name == AUTH_TENANT_USERS_TABLE:
         primary_keys = AUTH_TENANT_USERS_PRIMARY_KEY
+    elif table_name == AUTH_TENANTS_TABLE:
+        primary_keys = AUTH_TENANTS_PRIMARY_KEY
     elif collection_group_id is not None:
         # A collection group can hold documents with the same id under different parents, so the
         # full document path is the only unique key.
