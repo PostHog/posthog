@@ -3,6 +3,7 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 
 SETUP_CHECK = "Create Visual Review run"
+REPORT_CHECK = "Report no Visual Review run needed"
 
 
 @frozen

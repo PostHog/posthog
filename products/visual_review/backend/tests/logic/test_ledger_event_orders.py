@@ -23,6 +23,7 @@ from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ci_workflow import (
     FIXED_WORKFLOW,
     MASTER_WORKFLOW,
+    REPORT_CHECK,
     SETUP_CHECK,
     CiInputs,
     CiOutcome,
@@ -330,7 +331,7 @@ class OrderPlayer:
         decision = self.workflow.decide(inputs)
         finished_at = self._tick()
         self.actions.finish(sha, SETUP_CHECK, decision.setup_conclusion, finished_at)
-        self.actions.finish(sha, commit_status.NO_RUN_REPORT_CHECK, decision.report_conclusion, finished_at)
+        self.actions.finish(sha, REPORT_CHECK, decision.report_conclusion, finished_at)
         result = WorkflowResult.RAN if decision.outcome == CiOutcome.CREATE_RUN else WorkflowResult.SKIPPED
         self.workflows[name].append(Workflow(frontend_diff=frontend_diff, base=self._open_base(name), result=result))
         decided = f"{decision.outcome}{' after a reuse' if decision.reused else ''}"
@@ -345,7 +346,7 @@ class OrderPlayer:
         finished_at = self._tick()
         # vr-setup and vr-skip both need a successful build on a frontend head, so both are skipped.
         self.actions.finish(sha, SETUP_CHECK, "skipped", finished_at)
-        self.actions.finish(sha, commit_status.NO_RUN_REPORT_CHECK, "skipped", finished_at)
+        self.actions.finish(sha, REPORT_CHECK, "skipped", finished_at)
         self.workflows[name].append(
             Workflow(
                 frontend_diff=self._frontend_diff(name, sha),
@@ -396,6 +397,7 @@ class OrderPlayer:
                 sha,
                 RunType.STORYBOOK,
                 SETUP_CHECK,
+                REPORT_CHECK,
                 current={},
                 only_success=False,
                 wait=lambda: None,
