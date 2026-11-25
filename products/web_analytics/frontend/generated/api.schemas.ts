@@ -529,7 +529,7 @@ export interface PaginatedAEOPromptListApi {
 
 export interface PatchedAEOPromptUpdateRequestApi {
     /**
-     * Turn the prompt on or off for future runs.
+     * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
      * @nullable
      */
     active?: boolean | null
@@ -1434,7 +1434,7 @@ export interface AEOSetupRequestApi {
     run_first_check?: boolean
     /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
     only_first_run?: boolean
-    /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+    /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
     activate_paused_prompts?: boolean
 }
 
@@ -1488,7 +1488,7 @@ export interface AEOSetupStepApi {
     status: SetupStepStatusEnumApi
     /** How many brands, prompts or keywords the step added. */
     added?: number
-    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
     detail?: string
 }
 
@@ -1555,6 +1555,8 @@ export interface AEOSetupContextApi {
     own_domains: string[]
     /** Active, unarchived prompts the project tracks. */
     active_prompts: number
+    /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+    max_active_prompts: number
     /** Unarchived prompts that are turned off. No run checks them. */
     paused_prompts: number
     /** Keywords in the project's keyword list. */

@@ -370,8 +370,8 @@ Point `$schema` at the published schema to get validation in your editor:
 ```
 
 `errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
-`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
-`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path. It must be inside the project.
+`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up. It writes to an `output_path` only inside the project, and refuses a path inside the repository that links out of it. `--file` can name a path outside the repository.
 A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
@@ -388,9 +388,10 @@ posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it d
 - a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
 - any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
-Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files. Each folder there must be inside the project. Pass a folder outside it on the command line.
 `upload` and `process` take `-` to read the paths from stdin, one per line, so a build tool can pass every file it wrote.
 `--kind` skips detection.
+hog skips a bundle whose sourcemap is outside the selected paths and never opens that map, so it never reads, rewrites, uploads or deletes a file elsewhere.
 
 JavaScript releases work in two modes, as in posthog-cli:
 
@@ -562,6 +563,9 @@ Describe the change for users.
 ```
 
 The `weekly-pr-<number>.md` changesets that CI once added wait for the weekly run too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+
+> [!NOTE]
+> The approver check is off for now: the workflow still needs one approval in `hog-release`, but it doesn't check who gave it. Steps 2 and 4 describe the check as it runs when it is on.
 
 When a release starts, the workflow:
 

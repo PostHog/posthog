@@ -34,8 +34,8 @@ const POSITION_CONFIG: TimeSeriesLineChartConfig = {
 }
 
 const TITLES: Record<PromptVisibilityMetric, string> = {
-    mentioned: 'Share of answers that mention you',
-    cited: 'Share of answers that cite you',
+    mentioned: 'Visibility',
+    cited: 'Cited as a source',
     position: 'Average position when cited',
 }
 
@@ -72,7 +72,7 @@ export const ContentAutopilotVisibilityChart = ({
                             value={metric}
                             onChange={onMetricChange}
                             options={[
-                                { value: 'mentioned', label: 'Mentioned' },
+                                { value: 'mentioned', label: 'Visibility' },
                                 { value: 'cited', label: 'Cited' },
                                 { value: 'position', label: 'Position' },
                             ]}

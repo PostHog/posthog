@@ -5,7 +5,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconRedo, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -21,6 +21,7 @@ import { EmailDocumentPreview } from './components/EmailDocumentPreview'
 import { imageNode, insertBlockOption } from './components/emailEditorActions'
 import { EmailEditorFeedback } from './components/EmailEditorFeedback'
 import { EmailEditorSwitch } from './components/EmailEditorSwitch'
+import { EmailHtmlView } from './components/EmailHtmlView'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
 import { EmailOwnPlainTextNotice } from './components/EmailOwnPlainTextNotice'
@@ -45,7 +46,7 @@ const NARROW_WIDTH = 900
 // The little padding keeps the selected outline in view.
 const PAGE_FOR_HTML_AS_WRITTEN = resolvePageStyle({ bodyPadding: { top: 4, right: 0, bottom: 4, left: 0 } })
 
-type Mode = 'edit' | 'preview'
+type Mode = 'edit' | 'preview' | 'html'
 
 function firstImageFile(files: FileList | null | undefined): File | null {
     return Array.from(files ?? []).find((file) => file.type.startsWith('image/')) ?? null
@@ -83,6 +84,7 @@ export function EmailDocumentEditor(): JSX.Element {
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
     const [rootWidth, setRootWidth] = useState(1200)
     const rootRef = useRef<HTMLDivElement>(null)
+    const canvasScrollTop = useRef(0)
     const suggestionsOpenRef = useRef(false)
 
     const [linkEditorRequest, setLinkEditorRequest] = useState(0)
@@ -330,6 +332,13 @@ export function EmailDocumentEditor(): JSX.Element {
         return () => observer.disconnect()
     }, [])
 
+    // Preview unmounts the canvas.
+    useLayoutEffect(() => {
+        if (canvas) {
+            canvas.scrollTop = canvasScrollTop.current
+        }
+    }, [canvas])
+
     const narrow = rootWidth < NARROW_WIDTH
     useEffect(() => {
         setPanelOpen(!narrow)
@@ -352,6 +361,9 @@ export function EmailDocumentEditor(): JSX.Element {
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [variableContext, variableOptions, sentAsWritten]
     )
+
+    // A modal that only saves on Save holds its edits in the canvas, so its stored html is behind what it would save.
+    const commitsLive = logicProps.liveChanges || logicProps.layout === 'inline'
 
     return (
         <EmailEditorContext.Provider value={context}>
@@ -391,6 +403,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         options={[
                             { value: 'edit', label: 'Edit', 'data-attr': 'email-editor-mode-edit' },
                             { value: 'preview', label: 'Preview', 'data-attr': 'email-editor-mode-preview' },
+                            ...(commitsLive
+                                ? [{ value: 'html' as const, label: 'HTML', 'data-attr': 'email-editor-mode-html' }]
+                                : []),
                         ]}
                     />
                     {mode === 'edit' ? (
@@ -433,7 +448,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                {mode === 'preview' ? (
+                {mode === 'html' ? (
+                    <EmailHtmlView />
+                ) : mode === 'preview' ? (
                     <EmailDocumentPreview
                         html={html}
                         liquid={
@@ -455,6 +472,7 @@ export function EmailDocumentEditor(): JSX.Element {
                     <div className="flex flex-1 min-h-0 relative">
                         <div
                             ref={setCanvas}
+                            onScroll={(event) => (canvasScrollTop.current = event.currentTarget.scrollTop)}
                             className="EmailDocumentEditor__scroll relative flex-1 min-w-0 overflow-auto"
                             style={{
                                 backgroundColor: page.backgroundColor,

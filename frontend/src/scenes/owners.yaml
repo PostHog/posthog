@@ -61,6 +61,8 @@ rules:
       owners: team-surfaces
     - match: '/settings/aiSubscriptions.test.ts'
       owners: team-surfaces
+    - match: '/settings/organization/oauthApp*.test.ts'
+      owners: team-growth
     # The topic list the AI homepage renders, so growth reviews it alongside Max.
     - match: '/max/suggestionTopics.tsx'
       owners: [team-surfaces, team-growth]

@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
+from django.db.models import QuerySet
 from django.http import QueryDict
 from django.test import SimpleTestCase
 
@@ -96,6 +97,24 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(definition.kind, payload["kind"])
         self.assertEqual(current_version.version, 1)
         self.assertEqual(current_version.config, payload["config"])
+
+    def test_metadata_edit_rechecks_visibility_after_locking(self) -> None:
+        definition = self._create_definition(name="Original")
+        select_for_update = QuerySet.select_for_update
+
+        def archive_before_lock(queryset, *args, **kwargs):
+            if queryset.model is ScoreDefinition:
+                ScoreDefinition.objects.filter(pk=definition.pk).update(archived=True)
+            return select_for_update(queryset, *args, **kwargs)
+
+        with patch.object(QuerySet, "select_for_update", archive_before_lock):
+            response = self.client.patch(
+                f"{self._endpoint()}{definition.pk}/?archived=false", {"name": "Renamed"}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        definition.refresh_from_db()
+        self.assertEqual(definition.name, "Original")
 
     def test_patch_updates_metadata_without_creating_a_new_version(self):
         definition = self._create_definition()

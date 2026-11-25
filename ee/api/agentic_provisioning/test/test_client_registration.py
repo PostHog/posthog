@@ -345,6 +345,8 @@ class TestClientRegistration(ProvisioningTestBase):
         [
             ("pending", False, False, "PostHog is reviewing this client", 1),
             ("needs_human", False, False, "PostHog staff are reviewing this client", 0),
+            ("declined", False, False, "PostHog declined this client for provisioning. An admin", 0),
+            ("changes_requested", False, False, "PostHog needs changes or more information", 0),
             ("rejected", True, False, "Provisioning is blocked for this client", 0),
             # Accepted, but staff now require an organization behind every self-registered partner.
             ("accepted", False, True, "Link this client to a PostHog organization", 0),

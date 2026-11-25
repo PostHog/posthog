@@ -19,6 +19,7 @@ class TestLightfieldSourceResponse:
         [
             ("accounts", ["id"], ["createdAt"], "datetime"),
             ("custom_objects", ["objectType", "id"], ["createdAt"], "datetime"),
+            ("sequence_enrollments", ["sequenceId", "id"], ["enrolledAt"], "datetime"),
             ("field_definitions", ["ownerObjectType", "key"], None, None),
             ("relationship_definitions", ["ownerObjectType", "key"], None, None),
         ]
@@ -38,6 +39,111 @@ class TestLightfieldSourceResponse:
         assert result.response.primary_keys == primary_keys
         assert result.response.partition_keys == partition_keys
         assert result.response.partition_mode == partition_mode
+
+
+def _rows(prefix: str, count: int) -> list[dict[str, Any]]:
+    return [{"id": f"{prefix}{i}", "createdAt": "2026-01-01T00:00:00Z"} for i in range(count)]
+
+
+def _list(list_id: str, object_type: str | None) -> dict[str, Any]:
+    fields = {"$name": {"value": list_id, "valueType": "TEXT"}}
+    if object_type is not None:
+        fields["$objectType"] = {"value": object_type, "valueType": "TEXT"}
+    return {"id": list_id, "fields": fields}
+
+
+class TestTotalCountPaging:
+    @parameterized.expand(
+        [
+            # Access filtering can shorten or empty a page while records remain.
+            ("short_and_empty_pages_before_total", [(20, 60), (0, 60), (3, 60)], ["0", "25", "50"], 23),
+            ("total_reached_on_full_page", [(25, 50), (25, 50)], ["0", "25"], 50),
+            ("no_total_stops_at_short_page", [(25, None), (4, None)], ["0", "25"], 29),
+            ("no_total_stops_at_empty_page", [(0, None)], ["0"], 0),
+        ]
+    )
+    def test_messages_page_until_total_count(
+        self, _name: str, pages: list[tuple[int, int | None]], expected_offsets: list[str], expected_rows: int
+    ) -> None:
+        answers = [
+            ScriptedResponse(
+                json={"data": _rows(f"m{index}_", count), **({"totalCount": total} if total is not None else {})}
+            )
+            for index, (count, total) in enumerate(pages)
+        ]
+        result = _driver().run("messages", answers)
+
+        assert result.raised is None
+        assert len(result.rows) == expected_rows
+        assert set(result.paths) == {"/v1/messages"}
+        assert result.params("offset") == expected_offsets
+        assert set(result.params("limit")) == {"25"}
+
+
+class TestSequenceEnrollments:
+    def test_walks_each_sequence_and_tags_rows_with_its_id(self) -> None:
+        result = _driver().run(
+            "sequence_enrollments",
+            [
+                ScriptedResponse(json={"data": [{"id": "seq_a"}, {"id": "seq_gone"}], "totalCount": 27}),
+                ScriptedResponse(json={"data": [{"id": "seq b"}], "totalCount": 27}),
+                ScriptedResponse(json={"data": _rows("e", 25), "totalCount": 26}),
+                ScriptedResponse(json={"data": [{"id": "e25"}], "totalCount": 26}),
+                ScriptedResponse(status=404, json={"error": "not_found"}),
+                ScriptedResponse(json={"data": [{"id": "e0"}], "totalCount": 1}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["sequenceId"], row["id"]) for row in result.rows] == [
+            *[("seq_a", f"e{i}") for i in range(26)],
+            ("seq b", "e0"),
+        ]
+        assert result.paths == [
+            "/v1/sequences",
+            "/v1/sequences",
+            "/v1/sequences/seq_a/enrollments",
+            "/v1/sequences/seq_a/enrollments",
+            "/v1/sequences/seq_gone/enrollments",
+            "/v1/sequences/seq%20b/enrollments",
+        ]
+        assert result.params("offset") == ["0", "25", "0", "25", "0", "0"]
+
+    def test_denied_scope_fails_the_table(self) -> None:
+        result = _driver().run("sequence_enrollments", [ScriptedResponse(status=403, json={"error": "forbidden"})])
+
+        assert isinstance(result.raised, HTTPError)
+
+
+class TestListMembers:
+    @parameterized.expand(
+        [
+            ("list_accounts", "accounts", ["acc_list", "acc_list_plain"]),
+            ("list_contacts", "contacts", ["con_list"]),
+            ("list_opportunities", "opportunities", []),
+        ]
+    )
+    def test_reads_only_lists_of_its_object_type(
+        self, endpoint: str, member_path: str, expected_lists: list[str]
+    ) -> None:
+        lists = [
+            _list("acc_list", "$account"),
+            _list("con_list", "$contact"),
+            _list("acc_list_plain", "account"),
+            _list("untyped_list", None),
+        ]
+        answers = [ScriptedResponse(json={"data": lists, "totalCount": len(lists)})]
+        answers += [
+            ScriptedResponse(json={"data": [{"id": f"{list_id}_member"}], "totalCount": 1})
+            for list_id in expected_lists
+        ]
+        result = _driver().run(endpoint, answers)
+
+        assert result.raised is None
+        assert result.paths == ["/v1/lists", *[f"/v1/lists/{list_id}/{member_path}" for list_id in expected_lists]]
+        assert [(row["listId"], row["id"]) for row in result.rows] == [
+            (list_id, f"{list_id}_member") for list_id in expected_lists
+        ]
 
 
 class TestCustomObjects:

@@ -190,6 +190,7 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     text: z.string().optional(),
     html: z.string(),
     attachments: z.array(EmailAttachmentMetadataSchema).max(MAX_EMAIL_ATTACHMENTS).optional(),
+    thread: z.object({ inReplyTo: z.string(), references: z.array(z.string()) }).optional(),
     template: z.object({ template_uuid: z.string().optional(), template_key: z.string().optional() }).optional(),
 })
 

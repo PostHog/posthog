@@ -104,7 +104,8 @@ export function QuillSurveyContainerAppearance({
                             </SelectContent>
                         </Select>
                         <FieldDescription>
-                            Custom font selection requires at least version 1.223.4 of posthog-js
+                            Custom font selection requires at least posthog-js 1.223.4, posthog-ios 4.0.6,
+                            posthog-android-surveys-compose 1.1.0, or posthog_flutter 5.56.0
                         </FieldDescription>
                     </Field>
                     <QuillSurveyAppearanceInput

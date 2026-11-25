@@ -78,7 +78,7 @@ describe('dashboardEdits', () => {
 
     it('sets the parts of a tile inside a section and leaves its siblings alone', () => {
         const parts = { header: false, footer: false }
-        const board = applyEdit(nested, { edit: 'setTileParts', id: 'a', parts }, sizeOf)
+        const board = applyEdit(nested, { edit: 'setTilesParts', ids: ['a'], parts }, sizeOf)
 
         expect(findTile(board, 'a')?.widget).toMatchObject({ parts })
         expect(findTile(board, 'below')?.widget).not.toHaveProperty('parts')
@@ -154,14 +154,22 @@ describe('dashboardEdits', () => {
     })
 
     it.each([
-        { name: 'keeps a section at the height it was resized to', h: 18, expected: 18 },
-        { name: 'never lets a section be shorter than its tiles need', h: 4, expected: 11 },
-    ])('$name', ({ h, expected }) => {
+        { name: 'keeps a section at the height it was resized to', h: 18, expected: 18, collapsed: false },
+        { name: 'never lets a section be shorter than its tiles need', h: 4, expected: 11, collapsed: false },
+        {
+            name: 'keeps the height of a closed section that the person opened and resized',
+            h: 18,
+            expected: 18,
+            collapsed: true,
+        },
+    ])('$name', ({ h, expected, collapsed }) => {
+        const saved = section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)])
         const board = dashboard([
-            section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)]),
+            { ...saved, widget: { ...saved.widget, collapsed } } as Tile,
             text('below', 0, 12, 24, 4),
         ])
-        const group = findTile(board, 'group')!
+        const view = (shown: Dashboard): Dashboard => withFolds(shown, { group: false }, sizeOf)
+        const group = findTile(view(board), 'group')!
         const edit = {
             edit: 'placeTiles',
             grid: 'first',
@@ -169,10 +177,74 @@ describe('dashboardEdits', () => {
             resized: 'group',
         } as const
 
-        const resized = applyEdit(board, edit, sizeOf)
-        const later = applyEdit(resized, { edit: 'moveTile', id: 'below', grid: 'first', x: 0, y: 40 }, sizeOf)
+        const resized = applyEdit(board, edit, sizeOf, view)
+        const later = applyEdit(resized, { edit: 'moveTile', id: 'below', grid: 'first', x: 0, y: 40 }, sizeOf, view)
 
-        expect(findTile(later, 'group')!.place.h).toEqual(expected)
+        expect(findTile(view(later), 'group')!.place.h).toEqual(expected)
+    })
+
+    it('scales the tiles in a section made narrower, nested sections included, keeping each at its minimum width', () => {
+        const board = dashboard([
+            section('s', 0, 0, 24, [
+                text('a', 0, 0, 12, 8),
+                text('b', 12, 0, 6, 8),
+                text('c', 18, 0, 6, 8),
+                section('n', 0, 8, 24, [text('d', 0, 0, 12, 8)]),
+            ]),
+        ])
+        const narrowed = applyEdit(
+            board,
+            { edit: 'placeTiles', grid: 'first', places: { s: { x: 0, y: 0, w: 8, h: 11 } }, resized: 's' },
+            sizeOf
+        )
+        expect(places(gridTabs(narrowed)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,4,8',
+            'b@s: 4,0,3,8',
+            'c@s: 5,8,3,8',
+            'n@s: 0,16,8,11',
+            'd@n: 0,0,4,8',
+        ])
+    })
+
+    it('auto-lays out a section in equal columns in reading order, giving spare columns to the left', () => {
+        const board = dashboard([
+            section('s', 0, 0, 10, [
+                text('b', 5, 0, 5, 4),
+                text('a', 0, 0, 5, 8),
+                text('c', 0, 8, 10, 6),
+                text('d', 0, 14, 4, 4),
+            ]),
+        ])
+        const arranged = applyEdit(board, { edit: 'autoLayout', grid: 's', columns: 3 }, sizeOf)
+        expect(places(gridTabs(arranged)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,4,8',
+            'b@s: 4,0,3,4',
+            'c@s: 7,0,3,6',
+            'd@s: 0,8,4,4',
+        ])
+    })
+
+    it('keeps a tile at its minimum width when auto layout gives it a narrower column', () => {
+        const board = dashboard([
+            section('s', 0, 0, 8, [text('a', 0, 0, 3, 4), text('b', 3, 0, 3, 4), text('c', 6, 0, 2, 4)]),
+        ])
+        const arranged = applyEdit(board, { edit: 'autoLayout', grid: 's', columns: 3 }, sizeOf)
+        expect(places(gridTabs(arranged)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,3,4',
+            'b@s: 3,0,3,4',
+            'c@s: 5,4,3,4',
+        ])
+    })
+
+    it('shows a tile on another tab, and a config change on either tile reaches both', () => {
+        const board = dashboard([text('a', 0, 0, 8, 8)])
+        const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
+        const copy = gridTabs(shared)[1].tiles[0]
+        const edited = applyEdit(shared, { edit: 'setWidgetConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
+        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.widget)).toEqual([
+            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
+            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
+        ])
     })
 
     it('keeps the last tab with tiles when only link tabs would be left', () => {

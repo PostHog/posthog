@@ -3,6 +3,7 @@ from typing import Any
 from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import get_direct_connection_source
@@ -10,7 +11,9 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import is_filters_placeholder
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import CloningVisitor
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
@@ -182,6 +185,19 @@ def _get_user_prompt(schema_description: str) -> str:
     )
 
 
+class _NeutralizePlaceholders(CloningVisitor):
+    """Replaces `{...}` placeholders with constants so the printer can validate the query.
+
+    The fixer has no variable values or filters to resolve placeholders with, and the printer
+    fails on an unresolved placeholder. The returned query text keeps the original placeholders.
+    """
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        # {filters} is a WHERE predicate, so it must stay boolean.
+        value = True if is_filters_placeholder(node) else None
+        return ast.Constant(value=value, start=node.start, end=node.end)
+
+
 class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
@@ -268,7 +284,8 @@ The newly updated query gave us this error:
             return result.query
         # We also ensure the generated SQL is valid
         try:
-            prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
+            select = _NeutralizePlaceholders().visit(parse_select(result.query))
+            prepare_and_print_ast(select, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             raise PydanticOutputParserException(
                 llm_output=result.query, validation_message=hogql_validation_message(err, result.query)

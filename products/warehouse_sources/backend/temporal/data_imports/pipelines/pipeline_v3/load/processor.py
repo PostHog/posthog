@@ -3,7 +3,7 @@ import socket
 import dataclasses
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from django.conf import settings
@@ -28,7 +28,11 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, attempt_of
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    attempt_of,
+    sync_frequency_interval_to_sync_frequency,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
@@ -582,6 +586,13 @@ def _oldest_cdc_commit_time(pa_table: pa.Table) -> datetime | None:
     return oldest.replace(tzinfo=UTC) if oldest.tzinfo is None else oldest
 
 
+def _sync_frequency_label(interval: timedelta | None) -> str:
+    try:
+        return sync_frequency_interval_to_sync_frequency(interval) or "never"
+    except ValueError:
+        return "other"
+
+
 def _record_cdc_load_metrics(
     *,
     schema: ExternalDataSchema,
@@ -593,14 +604,18 @@ def _record_cdc_load_metrics(
 ) -> None:
     # The create payload can store any string as the table mode, so an unknown one must not add series.
     table_mode = schema.cdc_table_mode if schema.cdc_table_mode in CDC_TABLE_MODES else "unknown"
-    labels = {"table_mode": table_mode, "write_mode": cdc_write_mode or "none"}
+    # A streaming table loads on its own sync schedule, which sets most of its freshness.
+    labels = {
+        "table_mode": table_mode,
+        "write_mode": cdc_write_mode or "none",
+        "sync_frequency": _sync_frequency_label(schema.sync_frequency_interval),
+    }
     CDC_BATCH_ROWS.labels(**labels).observe(rows)
     if write_seconds is not None:
         CDC_MERGE_DURATION_SECONDS.labels(**labels).observe(write_seconds)
     if file_count is not None:
         CDC_TABLE_FILE_COUNT.labels(**labels).observe(file_count)
     if oldest_commit_time is not None:
-        # A source clock ahead of ours would read as a negative age.
         CDC_FRESHNESS_SECONDS.labels(**labels).observe(
             max(0.0, (datetime.now(UTC) - oldest_commit_time).total_seconds())
         )

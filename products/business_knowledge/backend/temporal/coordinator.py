@@ -46,7 +46,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from .. import llm_telemetry, logic, safety
+from .. import llm_telemetry, logic, safety, safety_shadow
 from ..constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
@@ -132,6 +132,10 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
                 content_hash=result.content_hash,
                 attempt_already_recorded=recorded,
             )
+        # The shadow runs after the verdict writes, so a slow decision model cannot cost a pass its verdicts.
+        await safety_shadow.evaluate_shadow(
+            docs, {result.document_id: result.verdict for result in results}, safety.GEMINI_MODEL
+        )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
     return {
         "classified": len(results),
