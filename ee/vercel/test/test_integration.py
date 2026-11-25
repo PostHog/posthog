@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -19,6 +19,7 @@ from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.email_verification import VERIFICATION_DISABLED_FLAG
+from posthog.constants import AvailableFeature
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
@@ -29,6 +30,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
 from posthog.tasks.email import send_email_verification_code
 from posthog.utils import absolute_uri
 
@@ -37,6 +39,7 @@ from products.experiments.backend.facade.testing import create_experiment, delet
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
+from ee.models.license import License, LicenseManager
 from ee.vercel.integration import (
     RequiresExistingUserLogin,
     SSOParams,
@@ -45,6 +48,8 @@ from ee.vercel.integration import (
     get_or_create_connectable_resource,
 )
 
+SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
 BILLING_NEXT = "%2Forganization%2Fbilling%2Foverview"
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
@@ -946,6 +951,78 @@ class TestVercelIntegration(TestCase):
         assert resource.config == expected_config
         assert resource.team.organization == self.organization
         assert resource.created_by == self.installation.created_by
+
+    @parameterized.expand(
+        [
+            ("billing_grants_more_projects", [], [SIX_PROJECTS_FEATURE], None, None),
+            ("billing_grants_no_more_projects", [], [], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], [], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+        ]
+    )
+    def test_create_resource_checks_project_limit(
+        self,
+        _name: str,
+        stored_features: list[dict],
+        billing_features: list[dict],
+        organization_maximum: int | None,
+        refusal: str | None,
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = stored_features
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+            patch("posthog.project_creation_limits.MAX_ALLOWED_PROJECTS_PER_ORG", organization_maximum or 2000),
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": billing_features}
+            if refusal is None:
+                VercelIntegration.create_resource(self.installation_id, resource_data)
+            else:
+                with self.assertRaises(exceptions.PermissionDenied) as refused:
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+                assert refused.exception.detail == refusal
+
+        expected_project_count = 2 if refusal is None else 1
+        assert Team.objects.filter(organization=self.organization).count() == expected_project_count
+
+    def test_repeated_plan_limit_refusals_read_billing_once_per_cooldown(self) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": []}
+            for _ in range(3):
+                with self.assertRaises(exceptions.PermissionDenied):
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert billing_get.call_count == 1
+        assert Team.objects.filter(organization=self.organization).count() == 1
 
     def test_get_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)

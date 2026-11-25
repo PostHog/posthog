@@ -21,23 +21,34 @@ import structlog
 
 from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.project_creation_limits import (
+    PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
+    PROJECT_LIMIT_MESSAGES,
+    ProjectLimit,
+    member_can_create_projects,
+    organization_project_limit_reached,
+)
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from ee.billing.billing_manager import BillingManager
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
+from ee.partners.stripe.api.provisioning.billing import try_activate_billing_with_spt
 from ee.partners.stripe.api.provisioning.constants import (
     ANALYTICS_SERVICE_ID,
     AUTH_CODE_TTL_SECONDS,
@@ -179,6 +190,34 @@ def mint_auth_code(
     return code
 
 
+PROJECT_CREATION_FORBIDDEN_CODE = "forbidden"
+PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
+
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+
+
+class ProjectCreationRefusedError(Exception):
+    """Raised instead of creating a project that the user may not create, or that the organization has no room for."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _assert_user_can_create_project(user: User, organization: Organization) -> None:
+    membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
+    if membership is None or not member_can_create_projects(user, organization):
+        raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
+
+
+def _assert_organization_can_add_project(organization: Organization) -> None:
+    reached_limit = organization_project_limit_reached(organization)
+    if reached_limit is not None:
+        raise ProjectCreationRefusedError(PROJECT_LIMIT_REACHED_CODE, PROJECT_LIMIT_MESSAGES[reached_limit])
+
+
 def resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
     """Pick a team for an existing user during email-based account linking.
 
@@ -209,6 +248,8 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
     # TODO: latent bug - memberships is unordered, so which organization hosts
     # the new project is arbitrary for multi-org users.
     organization = memberships[0].organization
+    _assert_user_can_create_project(user, organization)
+    _assert_organization_can_add_project(organization)
     return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
 
@@ -236,7 +277,11 @@ def handle_existing_user(
         )
         raise SpecError("forbidden", ACCOUNT_NOT_LINKABLE_MESSAGE, request_id=request_id, status=403)
 
-    team = resolve_team_for_existing_user(user, requested_team_id)
+    try:
+        team = resolve_team_for_existing_user(user, requested_team_id)
+    except ProjectCreationRefusedError as refused:
+        capture_provisioning_event("account_request", "error", error_code=refused.code)
+        raise SpecError(refused.code, refused.message, request_id=request_id, status=403)
     if team is None:
         capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
         raise SpecError("team_resolution_failed", "Could not resolve a project for this user", request_id=request_id)
@@ -549,12 +594,37 @@ def _ensure_team_in_token_scopes(
     return team, [*scoped_teams, team.id]
 
 
+def _activate_billing_for_new_project(base_team: Team, user: User, payment_credentials: Any) -> None:
+    """Start the paid plan from the request's payment token before the project limit is checked.
+
+    The resource view activates billing only after it resolves the team, so without this a new
+    organization with a payment token is refused on the free plan's one-project limit.
+    """
+    organization = base_team.organization
+    if organization_project_limit_reached(organization) != ProjectLimit.PLAN:
+        return
+    if not try_activate_billing_with_spt(payment_credentials, base_team, user):
+        return
+
+    # Activation does not store the paid plan's features on the organization, so read them.
+    license = get_cached_instance_license()
+    if not license:
+        return
+    try:
+        BillingManager(license).update_available_product_features(
+            organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+        )
+    except Exception:
+        capture_exception(additional_properties={"organization_id": str(organization.id)})
+
+
 def resolve_or_create_project_team(
     project_id: str,
     scoped_teams: list[int],
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
+    payment_credentials: Any = None,
 ) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
@@ -580,9 +650,24 @@ def resolve_or_create_project_team(
             return None, scoped_teams
         return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
-    base_team = Team.objects.get(id=scoped_teams[0])
+    base_team = Team.objects.select_related("organization").get(id=scoped_teams[0])
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
+
+    try:
+        # The role check runs first so that a refused user does not start a paid plan.
+        _assert_user_can_create_project(user, base_team.organization)
+        _activate_billing_for_new_project(base_team, user, payment_credentials)
+        _assert_organization_can_add_project(base_team.organization)
+    except ProjectCreationRefusedError as refused:
+        capture_provisioning_event(
+            "resource_created",
+            "error",
+            partner=access_token.application,
+            error_code=refused.code,
+            project_id=project_id,
+        )
+        raise SpecError(refused.code, refused.message, status=403)
 
     # TODO: latent bug - project_name is unvalidated; a non-string or over-long
     # value fails at the DB layer (500) where the spec calls for a 400
