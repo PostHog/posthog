@@ -56,6 +56,9 @@ class TestReleaseAPI(APIBaseTest):
 
         lifecycle = [call for call in report.call_args_list if call.args[1] in ("release created", "release deleted")]
         assert [call.args[1] for call in lifecycle] == expected, response.json()
+        assert all(
+            call.kwargs["team"] == self.team and call.kwargs["organization"] == self.organization for call in lifecycle
+        )
         if expected:
             assert retried is not None and retried.status_code == status.HTTP_404_NOT_FOUND
             release_id = response.json()["id"]

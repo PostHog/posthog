@@ -267,6 +267,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request.user,
             "release created",
             {"release_id": str(dto.id), "creation_source": "manual", "feature_flag_count": len(dto.feature_flag_ids)},
+            team=self.team,
+            organization=self.organization,
             request=request,
         )
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
@@ -341,6 +343,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request.user,
             "releases merged",
             {"release_id": str(target_id), "merged_count": len(set(source_ids) - {target_id})},
+            team=self.team,
+            organization=self.organization,
             request=request,
         )
         return Response(ReleaseSerializer(dto).data)
@@ -411,6 +415,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request.user,
             "release suggestions served",
             {"suggestion_count": len(result.suggestions), "in_release": bool(result.current)},
+            team=self.team,
+            organization=self.organization,
             request=request,
         )
         return Response(FlagReleasesSerializer(result).data)
@@ -420,7 +426,14 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def import_all(self, request: Request, **kwargs) -> Response:
         """Set up releases for the whole project once: one per active flag. Later calls create nothing."""
         created_count = api.import_all(self.team_id, self._import_flags)
-        report_user_action(request.user, "release import completed", {"created_count": created_count}, request=request)
+        report_user_action(
+            request.user,
+            "release import completed",
+            {"created_count": created_count},
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
         return Response(
             ImportAllResponseSerializer({"created_count": created_count}).data, status=status.HTTP_201_CREATED
         )
@@ -440,5 +453,12 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             api.delete(self.team_id, pk)
         except api.ReleaseNotFoundError:
             raise NotFound("Release not found.")
-        report_user_action(request.user, "release deleted", {"release_id": str(pk)}, request=request)
+        report_user_action(
+            request.user,
+            "release deleted",
+            {"release_id": str(pk)},
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
