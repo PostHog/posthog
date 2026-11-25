@@ -2,7 +2,7 @@
 
 A frame is Dash's `DataFrame` (packages/schema/src/frame.ts in PostHog/dash): a name, labels, a time field in epoch
 milliseconds, one or more value fields and meta. Each language's result has one converter here. A result whose kind has
-no frame shape (funnels, retention, paths...) gets None, and its line keeps the raw result.
+no frame shape (paths, events tables...) gets None, and its line keeps the raw result.
 
 The frame types are the cached tiles' (`facade.contracts`), which also have the string, boolean and other fields a table
 needs. The trends and metrics converters are ported from the cached tiles converters in `logic/frames.py`.
@@ -107,6 +107,14 @@ def _frames(
             return trends_frames(TrendsQuery.model_validate(source), result)
         except ValidationError:
             return None
+    if kind == "StickinessQuery":
+        return stickiness_frames(result)
+    if kind == "LifecycleQuery":
+        return lifecycle_frames(source, result)
+    if kind == "FunnelsQuery":
+        return funnels_frames(source, result)
+    if kind == "RetentionQuery":
+        return retention_frames(result)
     return None
 
 
@@ -184,11 +192,11 @@ def frame_json(frame: Frame) -> dict[str, Any]:
 
 
 def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[list[Frame]]:
-    if (query.trendsFilter.display if query.trendsFilter else None) not in _TIME_SERIES_DISPLAYS:
-        return None
     rows = result.get("results")
     if not isinstance(rows, list):
         return None
+    if (query.trendsFilter.display if query.trendsFilter else None) not in _TIME_SERIES_DISPLAYS:
+        return trends_aggregated_frames(query, result)
     timezone = ZoneInfo(result.get("timezone") or "UTC")
     interval = query.interval.value if query.interval else "day"
     current = _meta(result.get("resolved_date_range"), interval, previous=False)
@@ -261,6 +269,222 @@ def _readable_breakdown(label: str) -> str:
     for token, readable in _BREAKDOWN_LABELS.items():
         label = label.replace(token, readable)
     return label
+
+
+def trends_aggregated_frames(query: TrendsQuery, result: Mapping[str, Any]) -> list[Frame]:
+    """A number, pie, table, bar-value or map display: one frame per series and breakdown value, holding one number."""
+    trends_filter = query.trendsFilter
+    has_formula = bool(
+        trends_filter and (trends_filter.formula or trends_filter.formulas or trends_filter.formulaNodes)
+    )
+    action_names = {int(key): name for key, name in (result.get("action_names") or {}).items() if str(key).isdigit()}
+    current = _meta(result.get("resolved_date_range"), None, previous=False)
+    previous = _meta(result.get("resolved_compare_date_range"), None, previous=True)
+    frames: list[Frame] = []
+    for index, series in enumerate(result["results"]):
+        is_previous = series.get("compare_label") == "previous"
+        name = _trends_series_name(series, query, action_names, has_formula)
+        frames.append(
+            Frame(
+                name=f"{name} (previous)" if is_previous else name,
+                labels=_trends_series_labels(series, index),
+                fields=[FrameField(name="value", type="number", values=[series.get("aggregated_value")])],
+                meta=previous if is_previous else current,
+            )
+        )
+    return frames
+
+
+# Stickiness, lifecycle, funnels and retention, with the numbers their insight charts draw.
+
+
+def stickiness_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """One frame per series: how many actors did it on exactly N intervals, so the x field is a count, not a time."""
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return None
+    frames: list[Frame] = []
+    for index, series in enumerate(rows):
+        is_previous = series.get("compare_label") == "previous"
+        name = series.get("custom_name") or _readable_breakdown(str(series.get("label") or ""))
+        frames.append(
+            Frame(
+                name=f"{name} (previous)" if is_previous else name,
+                labels=_trends_series_labels(series, index),
+                fields=[
+                    FrameField(name="intervals", type="number", values=list(series.get("days") or [])),
+                    FrameField(name="value", type="number", values=list(series.get("data") or [])),
+                ],
+                meta=FrameMeta(previous=is_previous),
+            )
+        )
+    return frames
+
+
+def lifecycle_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """One time series per status (new, returning, resurrecting, dormant). Dormant counts are negative, as charted."""
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return None
+    timezone = ZoneInfo(result.get("timezone") or "UTC")
+    meta = _meta(result.get("resolved_date_range"), source.get("interval") or "day", previous=False)
+    frames: list[Frame] = []
+    for index, series in enumerate(rows):
+        labels = _trends_series_labels(series, index)
+        if series.get("status"):
+            labels["status"] = str(series["status"])
+        frames.append(
+            Frame(
+                name=series.get("label"),
+                labels=labels,
+                fields=[
+                    FrameField(name="time", type="time", values=_wall_clock_ms(series.get("days") or [], timezone)),
+                    FrameField(name="value", type="number", values=list(series.get("data") or [])),
+                ],
+                meta=meta,
+            )
+        )
+    return frames
+
+
+def funnels_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    rows = result.get("results")
+    if isinstance(rows, Mapping):
+        return _funnel_time_to_convert_frames(rows)
+    if not isinstance(rows, list):
+        return None
+    if not rows:
+        return []
+    if isinstance(rows[0], list):
+        return [_funnel_steps_frame(steps) for steps in rows]
+    if isinstance(rows[0], Mapping) and "days" in rows[0]:
+        return _funnel_trends_frames(source, result, rows)
+    return [_funnel_steps_frame(rows)]
+
+
+def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
+    """One row per step, with the conversion rates the funnel chart shows: from the first step and from the previous."""
+    counts = [step.get("count") or 0 for step in steps]
+    first = counts[0] if counts else 0
+    labels: dict[str, str] = {}
+    breakdown_value = steps[0].get("breakdown_value") if steps else None
+    if breakdown_value is not None:
+        labels["breakdown_value"] = _breakdown_label(breakdown_value)
+    return Frame(
+        name=labels.get("breakdown_value"),
+        labels=labels,
+        fields=[
+            FrameField(
+                name="step", type="string", values=[step.get("custom_name") or step.get("name") for step in steps]
+            ),
+            FrameField(name="count", type="number", values=counts),
+            FrameField(name="conversion_rate", type="number", values=[_percent(count, first) for count in counts]),
+            FrameField(
+                name="step_conversion_rate",
+                type="number",
+                values=[_percent(count, counts[index - 1] if index else count) for index, count in enumerate(counts)],
+            ),
+            FrameField(
+                name="average_conversion_time",
+                type="number",
+                values=[step.get("average_conversion_time") for step in steps],
+                unit="s",
+            ),
+            FrameField(
+                name="median_conversion_time",
+                type="number",
+                values=[step.get("median_conversion_time") for step in steps],
+                unit="s",
+            ),
+        ],
+        meta=FrameMeta(),
+    )
+
+
+def _percent(part: float, whole: float) -> Optional[float]:
+    return part / whole * 100 if whole else None
+
+
+def _funnel_trends_frames(
+    source: Mapping[str, Any], result: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+) -> list[Frame]:
+    # The runner already gives each day's conversion as a percentage.
+    timezone = ZoneInfo(result.get("timezone") or "UTC")
+    meta = _meta(result.get("resolved_date_range"), source.get("interval") or "day", previous=False)
+    frames: list[Frame] = []
+    for row in rows:
+        breakdown_value = row.get("breakdown_value")
+        labels = {} if breakdown_value is None else {"breakdown_value": _breakdown_label(breakdown_value)}
+        frames.append(
+            Frame(
+                name=labels.get("breakdown_value", "conversion"),
+                labels=labels,
+                fields=[
+                    FrameField(name="time", type="time", values=_wall_clock_ms(row.get("days") or [], timezone)),
+                    FrameField(name="conversion_rate", type="number", values=list(row.get("data") or [])),
+                ],
+                meta=meta,
+            )
+        )
+    return frames
+
+
+def _funnel_time_to_convert_frames(histogram: Mapping[str, Any]) -> Optional[list[Frame]]:
+    bins = histogram.get("bins")
+    if not isinstance(bins, list):
+        return None
+    return [
+        Frame(
+            name="time to convert",
+            labels={},
+            fields=[
+                FrameField(name="seconds", type="number", values=[bin[0] for bin in bins], unit="s"),
+                FrameField(name="count", type="number", values=[bin[1] for bin in bins]),
+            ],
+            meta=FrameMeta(),
+        )
+    ]
+
+
+def retention_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """The retention table: one row per cohort, its start time and one count per period. One frame per breakdown value."""
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return None
+    groups: dict[Optional[str], list[Mapping[str, Any]]] = {}
+    for row in rows:
+        breakdown_value = row.get("breakdown_value")
+        groups.setdefault(None if breakdown_value is None else _breakdown_label(breakdown_value), []).append(row)
+    frames: list[Frame] = []
+    for breakdown_value, cohorts in groups.items():
+        periods = max((len(cohort.get("values") or []) for cohort in cohorts), default=0)
+        widest = max(cohorts, key=lambda cohort: len(cohort.get("values") or []))
+        period_names = [value.get("label") or f"Period {index}" for index, value in enumerate(widest["values"] or [])]
+        labels = {} if breakdown_value is None else {"breakdown_value": breakdown_value}
+        frames.append(
+            Frame(
+                name=breakdown_value,
+                labels=labels,
+                fields=[
+                    FrameField(name="cohort", type="time", values=[_time_ms(cohort.get("date")) for cohort in cohorts]),
+                    *(
+                        FrameField(
+                            name=period_names[period],
+                            type="number",
+                            values=[_period_count(cohort, period) for cohort in cohorts],
+                        )
+                        for period in range(periods)
+                    ),
+                ],
+                meta=FrameMeta(),
+            )
+        )
+    return frames
+
+
+def _period_count(cohort: Mapping[str, Any], period: int) -> Optional[float]:
+    values = cohort.get("values") or []
+    return values[period].get("count") if period < len(values) else None
 
 
 # Metrics (builder, SQL and PromQL), ported from PR #138426.

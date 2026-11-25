@@ -1,5 +1,7 @@
+import json
 import datetime as dt
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import time_machine
@@ -32,6 +34,11 @@ NOW = "2026-09-19T12:00:00Z"
 
 def _ms(iso: str) -> int:
     return int(dt.datetime.fromisoformat(iso).timestamp() * 1000)
+
+
+_FUNNEL_STEPS = [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "signup"}]
+_RUNNER_RESPONSES = json.loads((Path(__file__).parent / "runner_responses.json").read_text())
+_LIFECYCLE_DAYS = [_ms(f"2026-09-{day}T00:00:00+00:00") for day in range(12, 20)]
 
 
 def _shape(frames: list[dict[str, Any]] | None) -> list[tuple[Any, dict, list]]:
@@ -398,8 +405,77 @@ class TestFrameConverters(SimpleTestCase):
             ["time", "other", "string", "string", "number"]
         ]
 
+    @parameterized.expand(
+        [
+            (
+                "trends_number_with_compare",
+                [
+                    ("$pageview", {"series_index": "0"}, [[5]]),
+                    ("$pageview (previous)", {"series_index": "0"}, [[0]]),
+                ],
+            ),
+            (
+                "trends_pie_by_breakdown",
+                [
+                    ("Safari", {"series_index": "0", "breakdown_value": "Safari"}, [[3]]),
+                    ("Chrome", {"series_index": "0", "breakdown_value": "Chrome"}, [[2]]),
+                ],
+            ),
+            (
+                "funnel_steps",
+                [
+                    (
+                        None,
+                        {},
+                        [["$pageview", "signup"], [2, 1], [100.0, 50.0], [100.0, 50.0], [None, 3600.0], [None, 3600.0]],
+                    )
+                ],
+            ),
+            ("funnel_time_to_convert", [("time to convert", {}, [[3600, 3660], [1, 0]])]),
+            (
+                "retention_cohorts_by_period",
+                [
+                    (
+                        None,
+                        {},
+                        [
+                            [_ms(f"2026-09-{day}T00:00:00+00:00") for day in (16, 17, 18, 19)],
+                            [0, 2, 2, 0],
+                            [0, 2, 0, 0],
+                            [0, 0, 0, 0],
+                        ],
+                    )
+                ],
+            ),
+            (
+                "stickiness_counts_by_interval",
+                [("$pageview", {"series_index": "0"}, [[1, 2, 3, 4, 5, 6, 7, 8], [0, 2, 0, 0, 0, 0, 0, 0]])],
+            ),
+            (
+                "lifecycle_status_series",
+                [
+                    (f"$pageview - {status}", {"series_index": "0", "status": status}, [_LIFECYCLE_DAYS, data])
+                    for status, data in (
+                        ("new", [0.0] * 8),
+                        ("returning", [0.0] * 6 + [2.0, 0.0]),
+                        ("resurrecting", [0.0] * 5 + [2.0, 0.0, 0.0]),
+                        ("dormant", [0.0] * 7 + [-2.0]),
+                    )
+                ],
+            ),
+        ]
+    )
+    def test_insight_kinds_become_frames(self, name: str, expected: list) -> None:
+        # Responses recorded from the real runners over two people's pageviews and one signup, since a dashboards test
+        # may not run another product's runner.
+        case = _RUNNER_RESPONSES[name]
+
+        frames = frames_for(QueryBatchLanguage.QUERY, case["query"], case["response"])
+
+        assert _shape(frames) == expected
+
     def test_kinds_without_frames_return_none(self) -> None:
-        assert frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery", "series": []}, {"results": []}) is None
+        assert frames_for(QueryBatchLanguage.QUERY, {"kind": "PathsQuery"}, {"results": []}) is None
 
     def test_hash_changes_with_content_and_end_is_the_last_time(self) -> None:
         def frame(values: list[Any]) -> Frame:
