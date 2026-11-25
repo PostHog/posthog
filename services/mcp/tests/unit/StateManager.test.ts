@@ -1480,6 +1480,42 @@ describe('StateManager', () => {
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
         })
+
+        describe('with an empty answer cached', () => {
+            const empty = { hasSources: false, hasRepositories: false }
+            let request: ReturnType<typeof vi.fn>
+
+            beforeEach(async () => {
+                vi.useFakeTimers()
+                request = vi
+                    .fn()
+                    .mockResolvedValueOnce({ has_sources: false, has_repositories: false })
+                    .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+                ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+            })
+
+            afterEach(() => {
+                vi.useRealTimers()
+            })
+
+            it('keeps it for 59 minutes', async () => {
+                vi.advanceTimersByTime(59 * 60 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+                expect(request).toHaveBeenCalledOnce()
+            })
+
+            it('reads it again once it is cleared', async () => {
+                await stateManager.clearBusinessKnowledgeContent('42')
+                const nextRequest = new StateManager(cache, (stateManager as any)._api)
+
+                expect(await nextRequest.getOrFetchBusinessKnowledgeContent('42')).toEqual({
+                    hasSources: true,
+                    hasRepositories: false,
+                })
+            })
+        })
     })
 
     describe('getOrFetchMetricCatalog', () => {
