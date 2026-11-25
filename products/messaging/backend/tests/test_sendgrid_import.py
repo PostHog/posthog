@@ -725,9 +725,14 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
                 "notifications": {"email": False},
                 "list_ids": ["11111111-0000-4000-8000-000000000002"],
             },
+            {
+                "file_type": "csv",
+                "notifications": {"email": False},
+                "list_ids": ["11111111-0000-4000-8000-000000000003"],
+            },
         ]
         downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
-        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 3
+        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 4
 
     def test_someone_who_leaves_after_the_opt_out_steps_is_not_mailable(self) -> None:
         run = self._start()
@@ -751,6 +756,27 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         ).values_list("identifier", flat=True)
         assert {"ada@example.com", "Ada@example.com"} <= set(opted_out)
 
+    @parameterized.expand([("with_a_count", "stated"), ("without_a_count", "missing")])
+    def test_a_list_sendgrid_wrongly_counts_as_empty_still_fills_its_cohort(self, _name: str, count: str) -> None:
+        self.state.account["lists"][1]["contact_count"] = 0
+        self.state.export_shape = {"count": count}
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self._cohorts(run)["Bêta testeurs (from SendGrid)"]["members"] == ["ada@example.com"]
+
+    def test_an_account_without_contacts_keeps_every_cohort(self) -> None:
+        self.state.account["contact_count"] = {"contact_count": 0}
+        for row in self.state.account["lists"]:
+            row["contact_count"] = 0
+        self.state.export_status = "failure"
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "every cohort stays as it was" in run.progress["contacts"]["warnings"][0]
+        assert not self.people.stored
+
     def test_an_empty_export_of_an_account_whose_count_lags_empties_nothing(self) -> None:
         run = self._start()
         self.state.account["contact_count"] = {"contact_count": 0}
@@ -770,7 +796,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         self.state.fail_after.clear()
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert (started, len(self.state.exports)) == (2, 3)
+        assert (started, len(self.state.exports)) == (2, 4)
         assert len(self._cohorts(run)) == 3
 
     @parameterized.expand(
@@ -878,7 +904,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
 
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self.state.exports) == 3 + new_exports
+        assert len(self.state.exports) == 4 + new_exports
         assert len(self._cohorts(run)) == 3
 
     def test_an_export_past_the_size_limit_stops_the_step_without_a_retry(self) -> None:
@@ -899,7 +925,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
 
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self.state.exports) == 3
+        assert len(self.state.exports) == 4
 
     @parameterized.expand(
         [
