@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiRequest } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -33,6 +33,8 @@ import {
     LocalExportContext,
     SidePanelTab,
 } from '~/types'
+
+import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
 
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
@@ -415,13 +417,14 @@ export const exportsLogic = kea<exportsLogicType>([
                     }
                 )
                 // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-                const cohort: CohortType = await new ApiRequest().cohorts().create({
-                    data: {
+                const cohort: CohortType = await api.create(
+                    getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())),
+                    {
                         is_static: true,
                         name: name || 'Query cohort',
                         query: query,
-                    },
-                })
+                    }
+                )
                 cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)

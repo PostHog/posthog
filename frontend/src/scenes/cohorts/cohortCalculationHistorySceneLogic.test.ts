@@ -53,7 +53,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
 
     useMocks({
         get: {
-            '/api/projects/:team_id/cohorts/:id/calculation_history': () => [200, mockHistoryResponse],
+            '/api/projects/:team_id/cohorts/:id/calculation_history/': () => [200, mockHistoryResponse],
             '/api/projects/:team_id/cohorts/:id/': () => [200, mockCohort],
         },
     })
@@ -85,7 +85,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
 
             expect(api.get).toHaveBeenCalledTimes(2)
             expect(api.get).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history?limit=100&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=0`
             )
             expect(logic.values.calculationHistory).toEqual([mockHistoryRecord])
             expect(logic.values.totalRecords).toBe(1)
@@ -127,7 +127,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history?limit=100&offset=100`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=100&offset=100`
             )
         })
 
@@ -140,7 +140,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
                 .toFinishAllListeners()
 
             expect(api.get).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history?limit=50&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=50&offset=0`
             )
         })
 
@@ -164,7 +164,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
                     .toFinishAllListeners()
 
                 expect(api.get).toHaveBeenLastCalledWith(
-                    `api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history?limit=${limit}&offset=${expectedOffset}`
+                    `/api/projects/${MOCK_TEAM_ID}/cohorts/123/calculation_history/?limit=${limit}&offset=${expectedOffset}`
                 )
             })
         })
@@ -269,7 +269,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
             await initLogic({ cohortId: 456 })
 
             expect(api.get).toHaveBeenCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/cohorts/456/calculation_history?limit=100&offset=0`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/456/calculation_history/?limit=100&offset=0`
             )
         })
 
@@ -288,7 +288,7 @@ describe('cohortCalculationHistorySceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.get).toHaveBeenLastCalledWith(
-                `api/projects/${MOCK_TEAM_ID}/cohorts/789/calculation_history?limit=25&offset=50`
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/789/calculation_history/?limit=25&offset=50`
             )
         })
     })

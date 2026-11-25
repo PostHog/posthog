@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { ApiRequest } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -35,6 +35,7 @@ import type { PathsV2Query } from '~/queries/schema/schema-general'
 import { isInsightActorsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
+import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import { retentionToActorsQuery } from './queries'
@@ -383,9 +384,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 name: cohortName,
             }
             // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-            const cohort = await new ApiRequest()
-                .cohorts()
-                .create({ data: { ...cohortParams, query: values.actorsQuery } })
+            const cohort = await api.create(getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())), {
+                ...cohortParams,
+                query: values.actorsQuery,
+            })
             cohortsModel.actions.cohortCreated(cohort)
             cohortSavedToast(cohort, 'retention_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)

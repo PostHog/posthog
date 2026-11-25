@@ -2,12 +2,13 @@ import { MakeLogicType, actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiRequest } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 
 import { PersonType } from '~/types'
 
+import { getPersonsRetrieveUrl } from '../generated/api'
 import { asDisplay } from '../person-utils'
 
 export interface PersonDeleteModalLogicProps {
@@ -125,10 +126,9 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                         params.delete_recordings = true
                     }
 
-                    // The persons delete endpoint has no generated function.
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                    // nosemgrep: prefer-codegen-api -- The schema excludes person destroy, so no generated function covers it. Destroy deletes synchronously, unlike the queued bulk_delete, and shares its URL with retrieve.
                     await api.delete(
-                        new ApiRequest().person(String(person.id)).withQueryString(toParams(params)).assembleFullUrl()
+                        `${getPersonsRetrieveUrl(String(ApiConfig.getCurrentTeamId()), String(person.id))}?${toParams(params)}`
                     )
                     posthog.capture('delete person', params)
 

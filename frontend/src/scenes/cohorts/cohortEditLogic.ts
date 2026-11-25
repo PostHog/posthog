@@ -20,7 +20,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
-import api, { ApiRequest } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -76,7 +76,11 @@ import {
     PropertyType,
 } from '~/types'
 
-import { cohortsRealtimeCreate, cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import {
+    cohortsRealtimeCreate,
+    cohortsUsedInRetrieve,
+    getCohortsCreateUrl,
+} from 'products/cohorts/frontend/generated/api'
 import type {
     CohortApi,
     CohortRealtimeReadinessApi,
@@ -1245,12 +1249,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
                             // nosemgrep: prefer-codegen-api -- cohortsCreate() from 'products/cohorts/frontend/generated/api' returns CohortApi, and the cohort model and saved-cohort toast still take the handwritten CohortType.
-                            cohort = await new ApiRequest().cohorts().create({
-                                data: {
-                                    is_static: true,
-                                    name: `${values.cohort.name} (static copy)`,
-                                    query,
-                                },
+                            cohort = await api.create(getCohortsCreateUrl(String(ApiConfig.getCurrentProjectId())), {
+                                is_static: true,
+                                name: `${values.cohort.name} (static copy)`,
+                                query,
                             })
                         } else {
                             const data = { ...values.cohort }

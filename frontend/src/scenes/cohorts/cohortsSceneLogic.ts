@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -17,6 +17,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ActivityScope, Breadcrumb, CohortType, ExporterFormat } from '~/types'
 
+import { getCohortsPersonsRetrieveUrl } from 'products/cohorts/frontend/generated/api'
 import type { RealtimeCohortsJoinStateEnumApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { realtimeCohortsJoinLogic } from 'products/cohorts/frontend/realtime/realtimeCohortsJoinLogic'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
@@ -320,11 +321,15 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             })
         },
         exportCohortPersons: async ({ id, columns }) => {
+            if (id === 'new') {
+                return
+            }
+
             const cohort = values.cohorts.results.find((c) => c.id === id)
             const exportCommand = {
                 export_format: ExporterFormat.CSV,
                 export_context: {
-                    path: api.cohorts.determineListUrl(id, {}),
+                    path: getCohortsPersonsRetrieveUrl(String(ApiConfig.getCurrentProjectId()), id),
                     columns,
                     filename: cohort?.name ? `cohort-${cohort.name}` : 'cohort',
                 } as { path: string; columns?: string[]; filename?: string },

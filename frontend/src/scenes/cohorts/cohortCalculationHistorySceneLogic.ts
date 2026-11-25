@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiRequest } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+
+import { getCohortsCalculationHistoryRetrieveUrl } from 'products/cohorts/frontend/generated/api'
 
 import type { CohortType } from '../../types'
 
@@ -137,12 +139,13 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
                     breakpoint()
                     try {
                         const offset = (values.page - 1) * values.limit
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. cohortsCalculationHistoryRetrieve() from 'products/cohorts/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                        // nosemgrep: prefer-codegen-api -- Raw API call on the generated URL with an unchecked response type. cohortsCalculationHistoryRetrieve() from 'products/cohorts/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.get(
-                            new ApiRequest()
-                                .cohortsCalculationHistory(props.cohortId)
-                                .withQueryString({ limit: values.limit, offset })
-                                .assembleFullUrl()
+                            getCohortsCalculationHistoryRetrieveUrl(
+                                String(ApiConfig.getCurrentProjectId()),
+                                props.cohortId,
+                                { limit: values.limit, offset }
+                            )
                         )
                         return response
                     } catch (error: any) {
