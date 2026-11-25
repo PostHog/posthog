@@ -692,7 +692,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         tags = validated_data.pop("tags", None)
         traits = validated_data.get("anonymous_traits")
         if isinstance(traits, dict):
-            existing = instance.anonymous_traits or {}
+            existing = instance.anonymous_traits if isinstance(instance.anonymous_traits, dict) else {}
             kept = {key: value for key, value in existing.items() if key in INBOUND_EMAIL_TRAIT_KEYS}
             validated_data["anonymous_traits"] = {**traits, **kept}
         for field, value in validated_data.items():

@@ -344,9 +344,15 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
 
-    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit):
-        inbound = {"email_relayed": True, "email_forwarded": True}
-        self.ticket.anonymous_traits = {"name": "Jane", "email": "jane@example.net", **inbound}
+    @parameterized.expand(
+        [
+            ("inbound_markers", {"name": "Jane", "email_relayed": True, "email_forwarded": True}),
+            ("malformed_stored_traits", ["x"]),
+        ]
+    )
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit, _name: str, stored: object):
+        inbound = {"email_relayed": True, "email_forwarded": True} if isinstance(stored, dict) else {}
+        self.ticket.anonymous_traits = stored
         self.ticket.save(update_fields=["anonymous_traits"])
 
         response = self.client.patch(
