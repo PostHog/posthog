@@ -93,17 +93,19 @@ describe('provider edge process', () => {
         await expect(holding).rejects.toThrow('the provider edge process exited with SIGKILL')
     }, 10_000)
 
-    const blockRunner = (): void => {
+    const resumeEdgeAndBlockRunner = (): void => {
+        process.kill(edge.pid!, 'SIGCONT')
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
     }
     it.each([
-        ['the code that made the call', (): void => blockRunner()],
-        ['a timer that runs before the deadline', (): void => void setTimeout(blockRunner, 0)],
+        ['the code that made the call', (): void => resumeEdgeAndBlockRunner()],
+        ['a timer that runs before the deadline', (): void => void setTimeout(resumeEdgeAndBlockRunner, 0)],
     ])(
         'rejects a call the edge answered only after its deadline while %s blocks the runner',
         async (_case, block) => {
             await edge.close()
             edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 200 })
+            process.kill(edge.pid!, 'SIGSTOP')
             const holding = edge.hold(REJECT)
             block()
 
