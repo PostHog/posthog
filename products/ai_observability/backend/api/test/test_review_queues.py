@@ -1,9 +1,15 @@
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import serializers, status
 
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.review_queues import ReviewQueueItemCreateSerializer
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
@@ -107,7 +113,11 @@ class TestReviewQueuesApi(APIBaseTest):
         queue = self._create_queue()
         serializer = ReviewQueueItemCreateSerializer(
             data={"queue_id": str(queue.id), "trace_id": "trace_reviewed"},
-            context={"request": SimpleNamespace(user=self.user), "team": self.team},
+            context={
+                "request": SimpleNamespace(user=self.user),
+                "team": self.team,
+                "view": SimpleNamespace(user_access_control=UserAccessControl(user=self.user, team=self.team)),
+            },
         )
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -270,3 +280,55 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("add", "viewer", None, "post", "Restricted queue", status.HTTP_400_BAD_REQUEST),
+            ("move_in", "viewer", "Source queue", "patch", "Restricted queue", status.HTTP_400_BAD_REQUEST),
+            ("stay", "viewer", "Restricted queue", "patch", "Restricted queue", status.HTTP_200_OK),
+            ("move_out", "viewer", "Restricted queue", "patch", "Source queue", status.HTTP_400_BAD_REQUEST),
+            ("remove", "viewer", "Restricted queue", "delete", None, status.HTTP_403_FORBIDDEN),
+            ("open_in_hidden_queue", "none", "Restricted queue", "get", None, status.HTTP_404_NOT_FOUND),
+            (
+                "org_admin_adds_to_hidden_queue",
+                "none",
+                None,
+                "post",
+                "Restricted queue",
+                status.HTTP_201_CREATED,
+                OrganizationMembership.Level.ADMIN,
+            ),
+        ]
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_queue_items_follow_the_access_of_their_queue(
+        self,
+        _name: str,
+        access_level: str,
+        item_queue: str | None,
+        method: str,
+        target_queue: str | None,
+        expected_status: int,
+        member_level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+    ) -> None:
+        queues = {name: self._create_queue(name=name) for name in ("Source queue", "Restricted queue")}
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(queues["Restricted queue"].id),
+            access_level=access_level,
+        )
+        self.client.force_login(self._create_user("member@example.com", level=member_level))
+        body = {"queue_id": str(queues[target_queue].id)} if target_queue else None
+
+        if item_queue is None:
+            response = self.client.post(
+                self._queue_items_endpoint(), {**(body or {}), "trace_id": "trace_new"}, format="json"
+            )
+        else:
+            item = self._create_queue_item(queue=queues[item_queue], trace_id="trace_pending")
+            response = getattr(self.client, method)(f"{self._queue_items_endpoint()}{item.id}/", body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
