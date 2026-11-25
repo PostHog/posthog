@@ -11,11 +11,13 @@ from products.replay.backend.temporal.export_recordings.activities import (
     check_destination,
     export_shard,
     load_day_viewports,
+    wait_for_export_pool,
     write_summary,
 )
 from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
     DayViewportsInput,
+    ExportPoolInput,
     ExportRecordingsInput,
     ExportShardInput,
     ExportTotals,
@@ -59,6 +61,8 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
         plan = shard_plan(input)
         batch = plan[input.next_shard : input.next_shard + MAX_SHARDS_PER_RUN]
         semaphore = asyncio.Semaphore(input.max_parallel_shards)
+        # The pool scales while the first day's viewports load, and no shard starts before it is ready.
+        export_pool = asyncio.create_task(self._wait_for_export_pool(input, min(input.max_parallel_shards, len(batch))))
         # A day's shards share one viewport read, which the day's first shard to start begins.
         day_viewports: dict[str, asyncio.Task[None]] = {}
 
@@ -68,6 +72,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                     if day not in day_viewports:
                         day_viewports[day] = asyncio.create_task(self._load_day_viewports(input, day))
                     await day_viewports[day]
+                    await export_pool
                     return await self._export_shard(input, day, shard)
                 except ActivityError:
                     # One shard out of retries must not throw away the others' work. The summary lists it.
@@ -133,6 +138,20 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
         )
+
+    @staticmethod
+    async def _wait_for_export_pool(input: ExportRecordingsInput, shards: int) -> None:
+        try:
+            await workflow.execute_activity(
+                wait_for_export_pool,
+                ExportPoolInput(run_id=input.run_id, shards=shards),
+                start_to_close_timeout=timedelta(minutes=5),
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=common.RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError:
+            # The wait only spares the first shards a cold pool, so its failure must not stop the export.
+            workflow.logger.warning("Export pool wait failed")
 
     @staticmethod
     async def _export_shard(input: ExportRecordingsInput, day: str, shard: int) -> ExportTotals:
