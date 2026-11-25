@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from collections.abc import Callable
 
 import pytest
@@ -15,7 +16,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.delete_teams.activities import delete_team_records_activity
+from posthog.temporal.delete_teams.activities import STATEMENT_TIMEOUT_TERMINAL_ATTEMPT, delete_team_records_activity
 from posthog.temporal.delete_teams.types import (
     DeleteOrganizationWorkflowInputs,
     DeleteProjectDataWorkflowInputs,
@@ -368,17 +369,26 @@ def _database_error(cause: Exception) -> OperationalError:
     return error
 
 
+def _activity_environment(attempt: int) -> ActivityEnvironment:
+    environment = ActivityEnvironment()
+    environment.info = dataclasses.replace(environment.info, attempt=attempt)
+    return environment
+
+
 @pytest.mark.parametrize(
-    "error,error_type",
+    "error,attempt,error_type",
     [
-        (RecursionError("maximum recursion depth exceeded"), "RecursionError"),
+        (RecursionError("maximum recursion depth exceeded"), 1, "RecursionError"),
         (
             _database_error(psycopg.errors.QueryCanceled("canceling statement due to statement timeout")),
+            STATEMENT_TIMEOUT_TERMINAL_ATTEMPT,
             "StatementTimeout",
         ),
     ],
 )
-async def test_delete_team_records_activity_fails_a_futile_retry_terminally(error: Exception, error_type: str):
+async def test_delete_team_records_activity_fails_a_futile_retry_terminally(
+    error: Exception, attempt: int, error_type: str
+):
     # The real activity turns an error that every retry repeats into a small, non-retryable
     # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
     def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
@@ -386,7 +396,7 @@ async def test_delete_team_records_activity_fails_a_futile_retry_terminally(erro
 
     with patch("posthog.models.team.util.delete_team_records", raise_error):
         with pytest.raises(ApplicationError) as exc_info:
-            await ActivityEnvironment().run(
+            await _activity_environment(attempt).run(
                 delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
             )
 
@@ -395,18 +405,22 @@ async def test_delete_team_records_activity_fails_a_futile_retry_terminally(erro
 
 
 @pytest.mark.parametrize(
-    "cause",
+    "cause,attempt",
     [
-        psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
-        psycopg.errors.QueryCanceled("canceling statement due to user request"),
+        (
+            psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
+            STATEMENT_TIMEOUT_TERMINAL_ATTEMPT,
+        ),
+        (psycopg.errors.QueryCanceled("canceling statement due to user request"), STATEMENT_TIMEOUT_TERMINAL_ATTEMPT),
+        (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), 1),
     ],
 )
-async def test_delete_team_records_activity_retries_an_error_that_a_retry_can_pass(cause: Exception):
+async def test_delete_team_records_activity_retries_an_error_that_a_retry_can_pass(cause: Exception, attempt: int):
     def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
         raise _database_error(cause)
 
     with patch("posthog.models.team.util.delete_team_records", raise_error):
         with pytest.raises(OperationalError):
-            await ActivityEnvironment().run(
+            await _activity_environment(attempt).run(
                 delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
             )

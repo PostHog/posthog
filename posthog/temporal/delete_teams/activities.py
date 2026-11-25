@@ -14,6 +14,10 @@ from posthog.temporal.delete_teams.types import (
     TeamDataActivityInputs,
 )
 
+# The delete_team_records attempt from which a statement timeout fails the deletion. Earlier attempts retry it,
+# because lock contention can also push a statement past its timeout.
+STATEMENT_TIMEOUT_TERMINAL_ATTEMPT = 5
+
 
 def _resolve_deleted_by(user_id: int) -> str:
     from posthog.models.user import User
@@ -147,11 +151,12 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
             ) from None
         except OperationalError as error:
             cause = error.__cause__
-            if not isinstance(cause, psycopg.errors.QueryCanceled) or "statement timeout" not in str(cause):
+            is_statement_timeout = isinstance(cause, psycopg.errors.QueryCanceled) and "statement timeout" in str(cause)
+            if not is_statement_timeout or temporalio.activity.info().attempt < STATEMENT_TIMEOUT_TERMINAL_ATTEMPT:
                 raise
-            # The cascade runs under a statement timeout so that it cannot hold its locks for long. The data is
-            # unchanged on a retry, so the same statement times out again. A lock timeout and an operator's
-            # pg_cancel_backend stay retryable, because a retry can succeed after them.
+            # The cascade runs under a statement timeout so that it cannot hold its locks for long. A timeout
+            # that persists past a few retries means slow data, not lock contention, and every further retry
+            # would hold the locks again. A lock timeout and an operator's pg_cancel_backend stay retryable.
             raise ApplicationError(
                 f"A statement timed out deleting team records for {inputs.team_ids}. Add a batched purge for "
                 "the cascaded table that the statement deletes, then reset the workflow.",
