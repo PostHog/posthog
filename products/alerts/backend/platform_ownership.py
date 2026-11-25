@@ -248,11 +248,23 @@ def _apply_changes(alert: AlertConfiguration, changes: Mapping[str, Any]) -> Non
         alert.threshold.name = name
 
 
-def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
+def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime, threshold: Threshold | None = None) -> bool:
     """Hands an alert created in the caller's transaction to the platform unless its team keeps its
-    alerts on insight. False when the alert stays with insight."""
+    alerts on insight. False when the alert stays with insight.
+
+    `threshold` is the new alert's unsaved threshold. The copy holds it when the platform takes the
+    alert, so no `Threshold` row is written for it; otherwise it is saved onto the row."""
     alert = _locked(team_id, alert_id)
-    return alert is not None and on_created(alert, at)
+    if alert is None:
+        return False
+    if threshold is not None:
+        alert.threshold = threshold
+    if on_created(alert, at):
+        return True
+    if threshold is not None:
+        threshold.save()
+        AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).update(threshold=threshold)
+    return False
 
 
 def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
