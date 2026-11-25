@@ -74,9 +74,13 @@ _NO_ATTEMPT_ID = "1"
 _LEGACY_ACTION = "signup"
 
 
-def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_attempt_id: str = "") -> str | None:
-    """Store a nonce for a new challenge, or return None when this address already left OPEN_CHALLENGE_LIMIT
-    challenges unsolved from this IP. The count is per address and IP, so other people behind the IP are not blocked."""
+class TooManyOpenChallenges(Exception):
+    """The address left OPEN_CHALLENGE_LIMIT challenges unsolved from this IP."""
+
+
+def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_attempt_id: str = "") -> str:
+    """Store a nonce for a new challenge, or raise TooManyOpenChallenges. The count is per address and IP, so
+    other people behind the IP are not blocked."""
     identity_hash = _nonce_identity_hash(email, ip_address)
     nonce = f"challenge:{identity_hash}:{uuid.uuid4()}"
     redis_key = f"turnstile_nonce:{nonce}"
@@ -98,7 +102,7 @@ def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_at
     pipeline.zrem(open_key, nonce)
     pipeline.delete(redis_key)
     pipeline.execute()
-    return None
+    raise TooManyOpenChallenges()
 
 
 def consume_challenge_nonce(nonce: str, email: str, ip_address: str, *, action: str) -> str | None:

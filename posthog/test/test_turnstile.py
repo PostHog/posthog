@@ -12,6 +12,7 @@ from posthog.turnstile import (
     CHALLENGE_NONCE_TTL_SECONDS,
     OPEN_CHALLENGE_LIMIT,
     TURNSTILE_SITEVERIFY_URL,
+    TooManyOpenChallenges,
     _nonce_identity_hash,
     consume_challenge_nonce,
     create_challenge_nonce,
@@ -120,12 +121,13 @@ class TestChallengeNonce(TestCase):
         ip = str(ipaddress.IPv6Address(uuid.uuid4().int))
         nonces = [create_challenge_nonce("busy@example.com", ip, action="login") for _ in range(OPEN_CHALLENGE_LIMIT)]
 
-        assert create_challenge_nonce("busy@example.com", ip, action="login") is None
-        assert create_challenge_nonce("other@example.com", ip, action="login") is not None
+        with self.assertRaises(TooManyOpenChallenges):
+            create_challenge_nonce("busy@example.com", ip, action="login")
+        create_challenge_nonce("other@example.com", ip, action="login")
 
         consume_challenge_nonce(nonces[0], "busy@example.com", ip, action="login")
 
-        assert create_challenge_nonce("busy@example.com", ip, action="login") is not None
+        create_challenge_nonce("busy@example.com", ip, action="login")
 
     def test_validate_and_consume_single_use(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4", action="signup")

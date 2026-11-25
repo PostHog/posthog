@@ -32,7 +32,12 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.egress.workos_radar import workos_radar_check, workos_radar_report
 from posthog.models.instance_setting import get_instance_setting
-from posthog.turnstile import consume_challenge_nonce, create_challenge_nonce, verify_turnstile_token
+from posthog.turnstile import (
+    TooManyOpenChallenges,
+    consume_challenge_nonce,
+    create_challenge_nonce,
+    verify_turnstile_token,
+)
 from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
 
 from products.security.backend.facade.api import is_signup_risk_exempt
@@ -293,10 +298,11 @@ def evaluate_auth_attempt(
         outcome = "allow"
     issued_nonce = None
     if outcome == "challenge" and settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
-        issued_nonce = create_challenge_nonce(
-            email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id
-        )
-        if issued_nonce is None:
+        try:
+            issued_nonce = create_challenge_nonce(
+                email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id
+            )
+        except TooManyOpenChallenges:
             logger.warning("workos_radar_open_challenge_limit", action=action.value, email_hash=_hash_email(email))
             outcome = "block"
 
