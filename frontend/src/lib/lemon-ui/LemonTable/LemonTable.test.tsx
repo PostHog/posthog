@@ -492,6 +492,47 @@ describe('LemonTable', () => {
         expect(spannedColumns).toBe(3)
     })
 
+    it('pins the bulk selection checkbox before the pinned columns', () => {
+        const animationFrame = jest
+            .spyOn(window, 'requestAnimationFrame')
+            .mockImplementation((callback: FrameRequestCallback) => {
+                callback(0)
+                return 1
+            })
+        const offsetWidth = jest
+            .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+            .mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TH' ? 40 : 0
+            })
+        try {
+            render(
+                <LemonTable
+                    rowKey="id"
+                    dataSource={DATA}
+                    pinnedColumns={['name']}
+                    columns={[
+                        { title: 'Name', key: 'name', dataIndex: 'name' },
+                        { title: 'Value', key: 'value', dataIndex: 'value' },
+                    ]}
+                    bulkSelection={{ rowAriaLabel: (row) => `Select ${row.name}`, renderActions: () => null }}
+                />
+            )
+
+            const checkboxCell = screen.getByLabelText('Select alpha').closest('td')!
+            const nameCell = screen.getByText('alpha').closest('td')!
+            const valueCell = screen.getByText('3').closest('td')!
+            expect(checkboxCell).toHaveClass('LemonTable__cell--pinned')
+            expect(checkboxCell).toHaveStyle({ left: '0px' })
+            expect(nameCell).toHaveClass('LemonTable__cell--pinned')
+            expect(nameCell).toHaveStyle({ left: '40px' })
+            expect(valueCell).not.toHaveClass('LemonTable__cell--pinned')
+            expect(screen.getByText('Name').closest('th')).toHaveStyle({ left: '40px' })
+        } finally {
+            animationFrame.mockRestore()
+            offsetWidth.mockRestore()
+        }
+    })
+
     describe('sticky header', () => {
         const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
             jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {

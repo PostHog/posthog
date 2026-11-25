@@ -97,6 +97,9 @@ type SchemaColumn = LemonTableColumn<ExternalDataSourceSchema, keyof ExternalDat
 // A file upload schema has no schedule or sync method to choose, and never syncs on its own, so it isn't dimmed.
 const FILE_UPLOAD_HIDDEN_COLUMN_KEYS = ['sync_type', 'sync_frequency', 'should_sync']
 
+// Long table names make the table scroll sideways. The name stays pinned so that each row stays identifiable.
+const PINNED_COLUMN_KEYS = ['name']
+
 function fileUploadColumns(isFileUpload: boolean, columns: SchemaColumn[]): SchemaColumn[] {
     if (!isFileUpload) {
         return columns
@@ -553,6 +556,7 @@ function ManagedSchemaTable({
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            pinnedColumns={PINNED_COLUMN_KEYS}
             bulkSelection={
                 isFileUpload
                     ? undefined

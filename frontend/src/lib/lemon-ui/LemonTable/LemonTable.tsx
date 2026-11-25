@@ -39,6 +39,7 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
 const DEFAULT_NOUNS: [string, string] = ['entry', 'entries']
+const BULK_SELECTION_COLUMN_KEY = '__bulk-selection__'
 
 /** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
  *  space — using `textContent` on the whole cell would both smush visually-separated children
@@ -130,7 +131,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
-    /** Array of column keys to pin (make sticky). Columns won't be pinned in order. */
+    /** Array of column keys to pin (make sticky). Columns won't be pinned in order.
+     * With `bulkSelection`, the checkbox column is pinned too, so rows stay selectable while scrolled. */
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
@@ -291,10 +293,23 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         [closeCopyMenu, openCopyMenu]
     )
 
+    const hasBulkSelection = !!bulkSelection
+    const stickyColumnKeys = useMemo(
+        () =>
+            hasBulkSelection && pinnedColumns?.length ? [BULK_SELECTION_COLUMN_KEY, ...pinnedColumns] : pinnedColumns,
+        [hasBulkSelection, pinnedColumns]
+    )
+    // `useColumnWidths` finds each header cell by its index in this list. The header renders the checkbox
+    // column first, so the list must start with it too, or every pinned column reads its neighbor's width.
+    const measuredColumns = useMemo(
+        () => (hasBulkSelection ? [{ key: BULK_SELECTION_COLUMN_KEY }, ...baseColumns] : baseColumns),
+        [hasBulkSelection, baseColumns]
+    )
+
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
-        columnKeys: pinnedColumns,
-        columns: baseColumns,
+        columnKeys: stickyColumnKeys,
+        columns: measuredColumns,
     })
 
     /** Sorting. `useURLForSorting` gates both writing and reading the URL — when off, a stale
@@ -414,7 +429,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             return null
         }
         return {
-            key: '__bulk-selection__',
+            key: BULK_SELECTION_COLUMN_KEY,
             width: 32,
             title: (
                 <BulkSelectionCheckbox
@@ -777,7 +792,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     const columnKey = determineColumnKey(column) ?? `${columnIndex}`
                                                     const stickyInfo = getStickyColumnInfo(
                                                         columnKey,
-                                                        pinnedColumns,
+                                                        stickyColumnKeys,
                                                         pinnedColumnWidths,
                                                         columns
                                                     )
@@ -1050,7 +1065,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 expandable={expandable}
                                                 rowCount={paginationState.dataSourcePage.length}
                                                 firstColumnSticky={firstColumnSticky}
-                                                pinnedColumns={pinnedColumns}
+                                                pinnedColumns={stickyColumnKeys}
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
