@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 
@@ -22,7 +24,7 @@ const meta: Meta<typeof TagsTable> = {
         layout: 'padded',
         mockDate: '2026-11-24',
         featureFlags: [FEATURE_FLAGS.TAG_MANAGEMENT],
-        testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="tag-management-actions"]' },
+        testOptions: { waitForSelector: '[data-attr="tag-management-actions"]' },
     },
     decorators: [
         mswDecorator({
@@ -59,9 +61,30 @@ const meta: Meta<typeof TagsTable> = {
 export default meta
 type Story = StoryObj<typeof TagsTable>
 
+const quillParameters = { featureFlags: [FEATURE_FLAGS.TAG_MANAGEMENT, FEATURE_FLAGS.TODAY_RAIL_NAV] }
+const modalParameters = {
+    testOptions: {
+        waitForSelector: '[role="dialog"], [role="alertdialog"]',
+        snapshotTargetSelector: '[role="dialog"], [role="alertdialog"]',
+    },
+}
+
+async function openTagAction(canvasElement: HTMLElement, tagName: string, action: string): Promise<void> {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: `Actions for ${tagName}` }))
+    await userEvent.click(await within(document.body).findByText(action, { exact: true }))
+}
+
+async function openMergePreview(canvasElement: HTMLElement, destinationRole: 'button' | 'option'): Promise<void> {
+    await openTagAction(canvasElement, tags[0].name, 'Merge into another tag')
+    const page = within(document.body)
+    await userEvent.click(await page.findByPlaceholderText('Search existing tags'))
+    await userEvent.click(await page.findByRole(destinationRole, { name: tags[1].name }))
+    await page.findByText(/assignments after merge/i)
+}
+
 export const Catalog: Story = {}
 export const QuillCatalog: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.TAG_MANAGEMENT, FEATURE_FLAGS.TODAY_RAIL_NAV] },
+    parameters: quillParameters,
 }
 export const Empty: Story = {
     decorators: [
@@ -72,4 +95,44 @@ export const Empty: Story = {
         }),
     ],
     parameters: { testOptions: { waitForSelector: 'text=No tags yet.' } },
+}
+
+export const Rename: Story = {
+    parameters: modalParameters,
+    play: async ({ canvasElement }) => {
+        await openTagAction(canvasElement, tags[0].name, 'Rename')
+        await within(document.body).findByLabelText('Tag name')
+    },
+}
+
+export const QuillRename: Story = {
+    ...Rename,
+    parameters: { ...modalParameters, ...quillParameters },
+}
+
+export const MergePreview: Story = {
+    parameters: modalParameters,
+    play: async ({ canvasElement }) => {
+        await openMergePreview(canvasElement, 'button')
+    },
+}
+
+export const QuillMergePreview: Story = {
+    parameters: { ...modalParameters, ...quillParameters },
+    play: async ({ canvasElement }) => {
+        await openMergePreview(canvasElement, 'option')
+    },
+}
+
+export const DeleteUnused: Story = {
+    parameters: modalParameters,
+    play: async ({ canvasElement }) => {
+        await openTagAction(canvasElement, tags[2].name, 'Delete unused tag')
+        await within(document.body).findByText('This tag has no assignments. Deleting it cannot be undone.')
+    },
+}
+
+export const QuillDeleteUnused: Story = {
+    ...DeleteUnused,
+    parameters: { ...modalParameters, ...quillParameters },
 }
