@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from posthog.hogql.errors import CompilationBudgetExceededError, QueryError, TransientQueryError
+from posthog.hogql.errors import QueryError, TransientQueryError
 
 MAX_VIEW_DEPTH = 100
 MAX_VIEW_EXPANSIONS = 1000
@@ -69,3 +69,6 @@ def bounded_compilation(function: Callable[P, R]) -> Callable[P, R]:
                 compilation_budget.reset(token)
 
     return wrapped
+
+
+from posthog.hogql.errors import CompilationBudgetExceededError  # noqa: E402
