@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { sendFromCodeGuideUrl } from '../../../Transactional/sendFromCode/sendFromCodeGuideUrl'
 import { emailDomainLogic } from '../emailDomainLogic'
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
 import { HedgehogMailbox } from '../hoggies'
@@ -30,7 +31,7 @@ export function SendFromCodeNextCard(): JSX.Element {
             <LemonButton
                 type="primary"
                 className="self-start"
-                to={originConfig.backUrl}
+                to={sendFromCodeGuideUrl()}
                 data-attr="email-domain-ready-back-to-origin"
             >
                 {originConfig.backLabel}

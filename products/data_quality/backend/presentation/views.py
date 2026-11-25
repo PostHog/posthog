@@ -19,7 +19,7 @@ from django.db.models import QuerySet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -32,7 +32,14 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
-from posthog.rate_limit import HogQLQueryThrottle
+from posthog.rate_limit import (
+    DataQualityRunBurstRateThrottle,
+    DataQualityRunProjectRateThrottle,
+    DataQualityRunSustainedRateThrottle,
+    HogQLQueryThrottle,
+    PersonalApiKeyRateThrottle,
+    exhausted_throttle_wait,
+)
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
@@ -323,6 +330,12 @@ class ScheduleUnavailableAPIError(APIException):
 
 class _ProjectQualityViewSet(_QualityGatedViewSet):
     scope_object = "query"
+    SUITE_START_ACTIONS: frozenset[str] = frozenset()
+    RUN_LIMIT_THROTTLES: tuple[type[PersonalApiKeyRateThrottle], ...] = (
+        DataQualityRunBurstRateThrottle,
+        DataQualityRunSustainedRateThrottle,
+        DataQualityRunProjectRateThrottle,
+    )
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return ["query:read"]
@@ -331,6 +344,20 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
         super().initial(request, *args, **kwargs)
         if not self._authorized_subject_types(write=request.method not in SAFE_METHODS):
             raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
+        if self.action in self.SUITE_START_ACTIONS:
+            self._check_run_limits(request)
+
+    def _check_run_limits(self, request: Request) -> None:
+        for throttle_class in self.RUN_LIMIT_THROTTLES:
+            throttle = throttle_class()
+            if not throttle.allow_request(request, self):
+                raise Throttled(wait=self._longest_run_limit_wait(request, rejecting_wait=throttle.wait()))
+
+    def _longest_run_limit_wait(self, request: Request, rejecting_wait: float | None) -> float | None:
+        waits = (
+            exhausted_throttle_wait(throttle_class(), request, self) for throttle_class in self.RUN_LIMIT_THROTTLES
+        )
+        return max((wait for wait in (rejecting_wait, *waits) if wait is not None), default=None)
 
     def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
         report_user_action(
@@ -402,6 +429,7 @@ _SUBJECT_KEYS = ("subject_type", "subject_uuid")
 class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
     """Every check in the project: authoring, running, results, health, and schedules."""
 
+    SUITE_START_ACTIONS = frozenset({"run"})
     DETAIL_VISIBILITY_ACTIONS = frozenset({"retrieve", "destroy"})
     QUERY_GATED_ACTIONS = frozenset(
         {
@@ -598,7 +626,10 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         self._report(_CheckEvent.DELETED, _event_properties(instance))
 
     @extend_schema(
-        description="Run this check now. Returns the suite run to poll for the report.",
+        description="Run this check now. Returns the suite run to poll for the report. Each caller can send 20 run "
+        "requests a minute and 60 an hour, and each project 180 an hour, counted across this endpoint and POST "
+        "data_quality_runs, whatever the response. To run every check on a subject, call POST data_quality_runs with "
+        "subject_type and subject_uuid. That counts as one request.",
         request=None,
         responses={200: DataQualitySuiteRunSerializer},
     )
@@ -857,6 +888,7 @@ class DataQualityRunViewSet(
     """
 
     QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "create", "check_runs"})
+    SUITE_START_ACTIONS = frozenset({"create"})
     serializer_class = DataQualitySuiteRunSerializer
     queryset = DataQualitySuiteRun.objects.unscoped()
 
@@ -913,7 +945,9 @@ class DataQualityRunViewSet(
     @extend_schema(
         description="Run checks now: the ones named by check_ids, every enabled check on the subject named by "
         "subject_type and subject_uuid, or every enabled check in the project when neither is given. "
-        "Returns the suite run to poll for the report.",
+        "Returns the suite run to poll for the report. Each call counts as one run request, however many checks it "
+        "runs and whatever the response. Each caller can send 20 run requests a minute and 60 an hour, and each "
+        "project 180 an hour.",
         request=DataQualityRunRequestSerializer,
         responses={200: DataQualitySuiteRunSerializer},
     )

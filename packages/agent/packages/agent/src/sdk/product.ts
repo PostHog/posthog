@@ -47,8 +47,8 @@ export interface ProductLaunchConfiguration<
   readonly taskId: string;
   /** Task run identifier. */
   readonly runId: string;
-  /** Product that started the run. */
-  readonly originProduct?: string;
+  /** Surface that started the run, such as "slack". */
+  readonly interactionOrigin?: string;
   /** PostHog client that created the task. */
   readonly clientProvenance?: string;
   /** Product-specific launch data. */
@@ -140,12 +140,25 @@ export function buildPullRequestFooter(
   } = {},
 ): string {
   const mobile = launch.launchOptions.client_platform === "mobile";
-  let createdWith =
-    "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
-  if (mobile) {
+  const report = (options.sources ?? []).find(
+    (source) => source?.label === "inbox report",
+  );
+  const slackThread = (options.sources ?? []).find(
+    (source) => source?.label === "Slack thread",
+  );
+  let createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
+  if (!report && slackThread) {
+    createdWith =
+      "Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr)";
+  } else if (!report && mobile) {
     createdWith = "Created with [PostHog Mobile](https://posthog.com?ref=pr)";
-  } else if (options.automated || launch.clientProvenance === "posthog_web") {
-    createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
+  } else if (
+    !report &&
+    !options.automated &&
+    launch.clientProvenance === "posthog_desktop"
+  ) {
+    createdWith =
+      "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
   }
 
   const links = (options.sources ?? [])

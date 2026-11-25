@@ -829,6 +829,12 @@ fetched at audit time. Per-source detail is in [COVERAGE_GAPS_APPENDIX.md](COVER
 | `adequate`       |      55 | Coverage proportionate to the API              |
 | could not verify |       5 | No reachable API reference found               |
 
+The appendix was refreshed on 2026-11-19.
+The refresh added 74 implemented sources that were missing from it.
+It also re-audited the 278 sources whose listed gaps were all built or skipped, and added 1,251 open items.
+After that refresh the appendix holds 893 sources: 599 `gaps`, 136 **thin**, 148 `adequate`, 1 covered and 9 could not verify.
+The counts above and the lists below are from the first sweep.
+
 ### Thin sources, worst coverage first by business relevance
 
 These 76 expose a small fraction of a large API. The ones below stand out because the product is
@@ -853,6 +859,7 @@ queryable: `PyPI`, `Packagist`, `GNews`, `NewsApi`, `Guardian`, `Firecrawl`, `Im
 ### Could not verify
 
 `Decagon`, `Height`, `OPUSWatch`, `OrcaSecurity`, `Sentinelone`.
+The 2026-11-19 refresh added `Faire`, `Memberful`, `NewsBreak` and `Propertyware`.
 No reachable machine-readable reference was found for these during the sweep, usually because the
 docs sit behind auth or a customer portal.
 They are recorded so their empty gap lists are not mistaken for good coverage.

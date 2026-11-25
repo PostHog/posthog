@@ -210,7 +210,13 @@ async fn resolve_remote_events(
                 let Some(event_slot) = event_slots.get_mut(failed_event_slot) else {
                     return Err(err);
                 };
-                event_slot.failure.get_or_insert(err);
+                // A failure that a retry cannot clear decides the event's result.
+                match &event_slot.failure {
+                    Some(UnhandledError::ResolutionIncomplete { .. }) | None => {
+                        event_slot.failure = Some(err)
+                    }
+                    Some(_) => {}
+                }
                 continue;
             }
             Err(err) => return Err(err),
@@ -246,6 +252,18 @@ async fn resolve_remote_events(
                 "remote resolution filled event slot {} exception slot {} twice",
                 item.event_slot, item.exception_slot
             )));
+        }
+    }
+
+    // When no event resolved and one can succeed later, the request fails and the caller
+    // retries the batch, instead of that event answering `retry` on its own.
+    if event_slots.iter().all(|event| event.failure.is_some()) {
+        if let Some(incomplete) = event_slots.iter_mut().find_map(|event| {
+            event
+                .failure
+                .take_if(|err| matches!(err, UnhandledError::ResolutionIncomplete { .. }))
+        }) {
+            return Err(incomplete);
         }
     }
 

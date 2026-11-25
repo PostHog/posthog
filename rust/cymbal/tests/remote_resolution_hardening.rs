@@ -67,7 +67,7 @@ async fn stream_interruption_reroutes_in_flight_items() {
 }
 
 #[tokio::test]
-async fn server_per_item_input_error_fails_only_its_event() {
+async fn server_poison_item_fails_only_its_event() {
     let (lossy, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
         kind: ErrorKind::Poison,
     })
@@ -78,7 +78,7 @@ async fn server_per_item_input_error_fails_only_its_event() {
     let items: Vec<_> = remote_stage(ctx)
         .process(batch)
         .await
-        .expect("an input error must not fail the batch")
+        .expect("a poison item must not fail the batch")
         .into_iter()
         .collect();
 

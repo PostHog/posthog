@@ -36,6 +36,14 @@ ZUORA_ENDPOINTS: dict[str, str] = {
     "refunds": "refunds",
     "products": "products",
     "orders": "orders",
+    "amendments": "amendments",
+    "contacts": "contacts",
+    "product_rate_plans": "product-rate-plans",
+    "product_rate_plan_charges": "product-rate-plan-charges",
+    "rate_plans": "rate-plans",
+    "rate_plan_charges": "rate-plan-charges",
+    "invoice_items": "invoice-items",
+    "order_line_items": "order-line-items",
 }
 
 

@@ -319,16 +319,20 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
     from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
     from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceKind  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.enums import PlatformAlertOwner  # noqa: PLC0415
 
+    # A moved alert's settings live on its copy, so its copy is counted instead of its row. A row that
+    # says insight owns it counts beside a copy that says the platform does, because each stack then
+    # runs the alert's charged checks.
     queryset = AlertConfiguration.objects.filter(
         team_id=team_id, enabled=True, detector_config__type=DetectorType.LLM.value
-    )
+    ).exclude(owner=PlatformAlertOwner.PLATFORM)
     if exclude_alert_id is not None:
         queryset = queryset.exclude(id=exclude_alert_id)
     native = count_configurations(
         team_id=team_id,
         source_kind=SourceKind.INSIGHT,
-        native_only=True,
+        held_only=True,
         enabled_only=True,
         exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
         source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},

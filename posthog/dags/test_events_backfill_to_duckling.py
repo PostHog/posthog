@@ -1,9 +1,11 @@
 import os
 import re
+import itertools
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from fnmatch import fnmatch
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -13,12 +15,14 @@ from unittest.mock import MagicMock, call, patch
 import duckdb
 import psycopg
 from clickhouse_driver.errors import Error as ClickHouseError
+from dagster import SensorResult
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     _DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR,
+    BACKEND_UNKNOWN_REASON,
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EVENTS_COLUMNS,
@@ -28,6 +32,11 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TRINO_COLUMNS,
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    HOGLAKE_ADD_FILES_MAX_FILES,
+    HOGLAKE_FLAG_DEFERRED_REASON,
+    HOGLAKE_FULL_EXPORT_MAX_WRITERS,
+    HOGLAKE_FULL_EXPORT_SLACK_DAYS,
+    HOGLAKE_NOT_ENABLED_REASON,
     MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
@@ -37,6 +46,8 @@ from posthog.dags.events_backfill_to_duckling import (
     TARGET_ROWS_PER_FILE,
     DucklingBackfillConfig,
     DucklingTarget,
+    HoglakeBackfillNotEnabled,
+    HoglakeDay,
     _compute_fanout,
     _connect_duckgres,
     _connection_dropped,
@@ -67,11 +78,14 @@ from posthog.dags.events_backfill_to_duckling import (
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
     get_s3_url_for_clickhouse,
+    hoglake_days_with_rows,
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
+    plan_hoglake_full_export,
     register_files_with_duckling,
     register_persons_files_with_duckling,
+    schedulable_backfill_team_memberships,
     table_exists,
 )
 
@@ -79,6 +93,8 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    ControlPlaneStorage,
+    CPUnavailableError,
     DuckgresConnectionRefused,
     DuckgresOrganizationUnavailable,
     DuckLakeDayReplacement,
@@ -117,6 +133,16 @@ class TestDucklingBackfillAlertRouting:
         assert "disable_slack_notifications" not in job.tags
 
 
+@pytest.fixture(autouse=True)
+def _default_to_a_ducklake_warehouse_without_a_prefix():
+    # Without a control plane, a lookup would reach for the network. Tests of hoglake or a prefix override these.
+    with (
+        patch("posthog.dags.events_backfill_to_duckling.get_trino_backend", return_value="ducklake"),
+        patch("posthog.dags.events_backfill_to_duckling.get_control_plane_data_path", return_value=None),
+    ):
+        yield
+
+
 class TestResolveDucklingTarget:
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=None)
@@ -126,8 +152,10 @@ class TestResolveDucklingTarget:
     ):
         # The control plane is the authoritative owner of the bucket name.
         with patch(
-            "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-            return_value="posthog-duckling-org-1-mw-prod-us",
+            "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+            return_value=ControlPlaneStorage(
+                bucket="posthog-duckling-org-1-mw-prod-us", data_path="s3://posthog-duckling-org-1-mw-prod-us/"
+            ),
         ) as mock_cp:
             target = _resolve_duckling_target(7)
 
@@ -152,47 +180,111 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value="posthog-duckling-org-1-mw-prod-us",
+                "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+                return_value=ControlPlaneStorage(
+                    bucket="posthog-duckling-org-1-mw-prod-us", data_path="s3://posthog-duckling-org-1-mw-prod-us/"
+                ),
             ),
         ):
             target = _resolve_duckling_target(7)
 
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
+    @parameterized.expand(
+        [
+            ("per_org_ducklake_bucket", "posthog-duckling-org-1-mw-prod-us", True),
+            # A shared bucket holds the warehouse under a prefix that only the control plane names, so exporting to
+            # its root would put the files outside the warehouse.
+            ("shared_bucket", "shared-warehouses", False),
+            ("no_stored_server", None, False),
+        ]
+    )
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
-    def test_falls_back_to_stored_server_when_control_plane_unavailable(
+    def test_falls_back_to_a_stored_per_org_bucket_when_the_control_plane_cannot_answer(
+        self, _name, stored_bucket: str | None, falls_back: bool, _mock_org: MagicMock, _mock_tables: MagicMock
+    ):
+        server = MagicMock(bucket=stored_bucket, region="us-east-1") if stored_bucket else None
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=server),
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage", return_value=None),
+        ):
+            if falls_back:
+                assert _resolve_duckling_target(7).bucket == stored_bucket
+            else:
+                with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+                    _resolve_duckling_target(7)
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
+    def test_resolves_a_hoglake_target_from_the_data_path_without_the_ducklake_table_names(self, _mock_org: MagicMock):
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.get_trino_backend", return_value="hoglake"),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_control_plane_data_path",
+                return_value="s3://shared-warehouses/warehouses/org-1/",
+            ),
+            patch("posthog.dags.events_backfill_to_duckling._resolve_table_names") as mock_tables,
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage") as mock_bucket,
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target == DucklingTarget(
+            team_id=7,
+            organization_id="org-1",
+            bucket="shared-warehouses",
+            bucket_region="us-east-1",
+            backend="hoglake",
+            data_path="s3://shared-warehouses/warehouses/org-1/",
+        )
+        mock_tables.assert_not_called()
+        mock_bucket.assert_not_called()
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
+    def test_a_hoglake_target_needs_the_control_plane_data_path(self, _mock_org: MagicMock):
+        with patch("posthog.dags.events_backfill_to_duckling.get_trino_backend", return_value="hoglake"):
+            with pytest.raises(ValueError, match="No S3 data path resolvable"):
+                _resolve_duckling_target(7)
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
+    def test_refuses_a_ducklake_warehouse_that_keeps_its_data_under_a_prefix(
         self, _mock_org: MagicMock, _mock_tables: MagicMock
     ):
-        # CP can't answer → use the known-good stored row rather than failing the run.
-        server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", region="us-east-1")
+        with patch(
+            "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+            return_value=ControlPlaneStorage(
+                bucket="shared-warehouses", data_path="s3://shared-warehouses/warehouses/org-1/"
+            ),
+        ):
+            with pytest.raises(ValueError, match="cannot export to a prefix"):
+                _resolve_duckling_target(7)
+
+    @parameterized.expand(
+        [
+            ("stored_duckling_bucket_keeps_running_as_ducklake", "posthog-duckling-org-1-mw-prod-us", True),
+            ("stored_shared_customer_bucket_cannot_tell_the_backend", "shared-warehouses", False),
+            ("no_stored_server_cannot_tell_the_backend", None, False),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
+    def test_a_trino_status_outage_only_spares_warehouses_with_a_ducklake_bucket(
+        self, _name, stored_bucket: str | None, spared: bool, _mock_org: MagicMock, _mock_tables: MagicMock
+    ):
+        server = MagicMock(bucket=stored_bucket, region="us-east-1") if stored_bucket else None
         with (
             patch(
-                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
-                return_value=server,
+                "posthog.dags.events_backfill_to_duckling.get_trino_backend",
+                side_effect=CPUnavailableError("control plane down"),
             ),
-            patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value=None,
-            ),
+            patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=server),
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage", return_value=None),
         ):
-            target = _resolve_duckling_target(7)
-
-        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
-
-    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
-    def test_raises_when_nothing_can_name_the_bucket(
-        self, _mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
-    ):
-        with patch(
-            "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-            return_value=None,
-        ):
-            with pytest.raises(ValueError, match="No S3 bucket resolvable"):
-                _resolve_duckling_target(7)
+            if spared:
+                assert _resolve_duckling_target(7).bucket == stored_bucket
+            else:
+                with pytest.raises(CPUnavailableError):
+                    _resolve_duckling_target(7)
 
 
 class TestResolveTableNames:
@@ -2796,10 +2888,21 @@ class _FakeTrinoBackfillCatalog:
 
 
 class _FakeExportClickHouse:
-    def __init__(self, files_per_export: int) -> None:
+    def __init__(
+        self,
+        files_per_export: int,
+        days: list[tuple[date, int]] | None = None,
+        rows_per_file: int = 5,
+        reports_rows: bool = True,
+    ) -> None:
         self.files_per_export = files_per_export
+        self.rows_per_file = rows_per_file
+        self.last_query: Any = None
+        self.reports_rows = reports_rows
+        self.days = days or []
         self.inserts: list[tuple[str, dict[str, Any]]] = []
         self.objects: list[str] = []
+        self.listings = 0
 
     def execute(
         self, query: str, params: object = None, settings: dict[str, Any] | None = None
@@ -2809,8 +2912,14 @@ class _FakeExportClickHouse:
             url = re.search(r"s3\(\s*'([^']+)'", query)
             assert url is not None
             self.objects += [url[1].replace("{_partition_id}", str(index)) for index in range(self.files_per_export)]
+            written = self.files_per_export * self.rows_per_file
+            if self.reports_rows:
+                self.last_query = SimpleNamespace(progress=SimpleNamespace(written_rows=written))
             return []
+        if "GROUP BY day" in query:
+            return list(self.days)
         if "'One'" in query:
+            self.listings += 1
             pattern = re.search(r"s3\('([^']+)'", query)
             assert pattern is not None
             matched = [(url.rsplit("/", 1)[1],) for url in sorted(self.objects) if fnmatch(url, pattern[1])]
@@ -3116,6 +3225,459 @@ class TestBackfillThroughTrino:
 
         connect_catalog.assert_not_called()
         assert clickhouse.inserts == []
+
+
+class _FakeHoglakeBackfillCatalog:
+    def __init__(self, layout_mismatch: bool = False) -> None:
+        self.layout_mismatch = layout_mismatch
+        self.rebuilt = False
+        self.calls: list[tuple[str, str]] = []
+        self.tables: list[tuple[str, dict[str, str]]] = []
+        self.registered: list[
+            tuple[str, str, str, str, int, DuckLakeDayReplacement | DuckLakeTableReplacement | None]
+        ] = []
+
+    @contextmanager
+    def connect(self, *_args: Any, **_kwargs: Any) -> Iterator["_FakeHoglakeBackfillCatalog"]:
+        yield self
+
+    def ensure_table(
+        self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None:
+        if self.layout_mismatch and validate and not self.rebuilt:
+            raise DuckLakeTableLayoutError("the table has unsigned columns")
+        self.tables.append((table, dict(columns)))
+
+    def replace_table(self, table: str, columns: dict[str, str]) -> None:
+        self.calls.append(("replace", table))
+        self.rebuilt = True
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int:
+        self.calls.append(("register", table))
+        self.registered.append((table, location, file_prefix, import_id, expected_rows, replacement))
+        return 2
+
+
+class TestBackfillThroughHoglake:
+    DATA_PATH = "s3://bkt/warehouses/org-1/"
+    TARGET = DucklingTarget(
+        team_id=2,
+        organization_id="org-1",
+        bucket="bkt",
+        bucket_region="us-east-1",
+        backend="hoglake",
+        data_path=DATA_PATH,
+    )
+
+    def _run(
+        self,
+        run,
+        partition_key: str,
+        clickhouse: _FakeExportClickHouse,
+        config: DucklingBackfillConfig,
+        catalog: _FakeHoglakeBackfillCatalog | None = None,
+        org_on_flag: bool = True,
+    ):
+        catalog = catalog or _FakeHoglakeBackfillCatalog()
+        cluster = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
+        context = MagicMock(partition_key=partition_key)
+        context.run.run_id = "0123456789abcdef-run"
+        with (
+            patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=org_on_flag),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=True),
+            patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_ducklake,
+            patch("posthog.dags.events_backfill_to_duckling.connect_hoglake_backfill_catalog") as connect_hoglake,
+            patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped") as skipped,
+        ):
+            connect_hoglake.side_effect = catalog.connect
+            self.skipped = skipped
+            try:
+                run(context, config)
+            finally:
+                connect_ducklake.assert_not_called()
+        return catalog, connect_hoglake
+
+    @parameterized.expand(
+        [
+            (
+                "events_day",
+                _run_duckling_events_backfill,
+                "2_2026-06-17",
+                "events",
+                EVENTS_TRINO_COLUMN_TYPES,
+                "events/day=2026-06-17/",
+                DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17)),
+            ),
+            (
+                "persons_day",
+                _run_duckling_persons_backfill,
+                "2_2026-06-17",
+                "persons",
+                PERSONS_TRINO_COLUMN_TYPES,
+                "persons/day=2026-06-17/",
+                DuckLakeDayReplacement(column="_timestamp", day=date(2026, 6, 17)),
+            ),
+            (
+                "persons_full",
+                _run_duckling_persons_backfill,
+                "2",
+                "persons",
+                PERSONS_TRINO_COLUMN_TYPES,
+                "persons/full/",
+                DuckLakeTableReplacement(),
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_exports_under_the_team_data_path_and_registers_the_directory_without_listing(
+        self, _name, run, partition_key, table, column_types, directory, replacement
+    ):
+        days = [(date(2026, 5, 1), 10), (date(2026, 6, 1), 7)] if directory.endswith("full/") else []
+        clickhouse = _FakeExportClickHouse(files_per_export=2, days=days)
+
+        catalog, connect_hoglake = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
+
+        connect_hoglake.assert_called_with("org-1", canary=False, team_id=2)
+        assert catalog.tables == [(table, column_types)]
+        location = f"s3://bkt/warehouses/org-1/data/team_2/_ph_backfill/{directory}"
+        [(registered_table, registered_location, file_prefix, import_id, expected_rows, registered_replacement)] = (
+            catalog.registered
+        )
+        assert (registered_table, registered_location, registered_replacement) == (table, location, replacement)
+        # The one INSERT wrote 2 files of 5 rows.
+        assert expected_rows == 10
+        assert file_prefix == f"{import_id}_" and import_id.startswith("0123456789abcdef_")
+        assert len(clickhouse.inserts) == 1
+        for insert, settings in clickhouse.inserts:
+            assert (
+                f"'https://bkt.s3.us-east-1.amazonaws.com/{location.removeprefix('s3://bkt/')}{file_prefix}" in insert
+            )
+            assert settings["output_format_parquet_string_as_string"] == 1
+        assert clickhouse.listings == 0
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_a_full_persons_export_runs_oldest_first_with_the_outer_ranges_open(self):
+        # A bulk update puts 40M rows on the first day, which sets 8 files per day, so 32 days fit in one query.
+        days = [(date(2026, 5, 1) + timedelta(days=offset), 40_000_000 if offset == 0 else 7) for offset in range(40)]
+        clickhouse = _FakeExportClickHouse(files_per_export=1, days=days)
+
+        catalog, _ = self._run(_run_duckling_persons_backfill, "2", clickhouse, DucklingBackfillConfig())
+
+        [(_, location, file_prefix, *_, expected_rows, _replacement)] = catalog.registered
+        assert expected_rows == 2 * 5
+        first, second = (insert for insert, _ in clickhouse.inserts)
+        for insert in (first, second):
+            assert (
+                "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % 8))"
+                in insert
+            )
+        # Rows that an update moves past the scan land in the last query, which runs last and has no upper bound.
+        assert "p._timestamp >=" not in first
+        assert "p._timestamp < toDateTime('2026-06-02', 'UTC')" in first
+        assert "p._timestamp >= toDateTime('2026-06-02', 'UTC')" in second
+        assert "p._timestamp <" not in second
+        assert f"/full/{file_prefix}0000_{{_partition_id}}.parquet" in first
+        assert f"/full/{file_prefix}0001_{{_partition_id}}.parquet" in second
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "toDate(timestamp, 'UTC') = '2026-06-17'"),
+            ("persons", _run_duckling_persons_backfill, "toDate(p._timestamp, 'UTC') = '2026-06-17'"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_a_daily_export_selects_the_utc_day_of_the_partition(self, _name, run, predicate):
+        clickhouse = _FakeExportClickHouse(files_per_export=1)
+
+        self._run(run, "2_2026-06-17", clickhouse, DucklingBackfillConfig())
+
+        assert predicate in clickhouse.inserts[0][0]
+
+    @parameterized.expand(
+        [
+            ("with_the_flag", True, False),
+            ("with_the_run_override", False, True),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_registers_through_hoglake_with_the_flag_or_the_run_override(self, _name, org_on_flag, override):
+        catalog, _ = self._run(
+            _run_duckling_events_backfill,
+            "2_2026-06-17",
+            _FakeExportClickHouse(files_per_export=1),
+            DucklingBackfillConfig(register_through_hoglake=override),
+            org_on_flag=org_on_flag,
+        )
+
+        assert len(catalog.registered) == 1
+        self.skipped.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17", "events"),
+            ("persons", _run_duckling_persons_backfill, "2", "persons"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_fails_before_exporting_when_a_hoglake_warehouse_is_not_enabled(self, _name, run, partition_key, dataset):
+        clickhouse = _FakeExportClickHouse(files_per_export=1)
+        catalog = _FakeHoglakeBackfillCatalog()
+
+        with pytest.raises(HoglakeBackfillNotEnabled, match="register_through_hoglake"):
+            self._run(run, partition_key, clickhouse, DucklingBackfillConfig(), catalog, org_on_flag=False)
+
+        assert clickhouse.inserts == [] and catalog.calls == [] and catalog.tables == []
+        self.skipped.assert_called_once_with(team_id=2, dataset=dataset, reason=HOGLAKE_NOT_ENABLED_REASON)
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_a_day_without_files_still_ends_the_day_and_a_run_without_cleanup_appends(self):
+        day = DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17))
+
+        emptied, _ = self._run(
+            _run_duckling_events_backfill,
+            "2_2026-06-17",
+            _FakeExportClickHouse(files_per_export=0),
+            DucklingBackfillConfig(),
+        )
+        appended, _ = self._run(
+            _run_duckling_events_backfill,
+            "2_2026-06-17",
+            _FakeExportClickHouse(files_per_export=0),
+            DucklingBackfillConfig(cleanup_existing_partition_data=False),
+        )
+
+        assert [r for *_, r in emptied.registered] == [day]
+        assert [r for *_, r in appended.registered] == [None]
+        assert [rows for *_, rows, _ in emptied.registered + appended.registered] == [0, 0]
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_fails_before_registering_when_clickhouse_reports_no_written_rows(self):
+        catalog = _FakeHoglakeBackfillCatalog()
+
+        with pytest.raises(ValueError, match="did not report the rows"):
+            self._run(
+                _run_duckling_events_backfill,
+                "2_2026-06-17",
+                _FakeExportClickHouse(files_per_export=1, reports_rows=False),
+                DucklingBackfillConfig(),
+                catalog,
+            )
+
+        assert catalog.registered == []
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_rebuilds_a_mismatched_table_after_the_export_and_before_the_registration(self):
+        catalog = _FakeHoglakeBackfillCatalog(layout_mismatch=True)
+
+        self._run(
+            _run_duckling_persons_backfill,
+            "2",
+            _FakeExportClickHouse(files_per_export=2),
+            DucklingBackfillConfig(rebuild_mismatched_table=True),
+            catalog,
+        )
+
+        assert catalog.calls == [("replace", "persons"), ("register", "persons")]
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_export_only_runs_write_under_the_data_path_without_opening_the_catalog(self, _name, run, partition_key):
+        clickhouse = _FakeExportClickHouse(files_per_export=1, days=[(date(2026, 5, 1), 10)])
+
+        catalog, connect_hoglake = self._run(
+            run, partition_key, clickhouse, DucklingBackfillConfig(skip_ducklake_registration=True)
+        )
+
+        connect_hoglake.assert_not_called()
+        assert catalog.registered == []
+        assert "/warehouses/org-1/data/team_2/_ph_backfill/" in clickhouse.inserts[0][0]
+
+
+class TestHoglakeFullExportPlan:
+    def test_lists_the_utc_days_with_their_rows(self):
+        client = MagicMock()
+        client.execute.return_value = [(date(2026, 5, 1), 3), (date(2026, 5, 9), 40_000_000)]
+
+        days = hoglake_days_with_rows(client, "person", "_timestamp", "team_id = 2", {})
+
+        assert days == [HoglakeDay(day=date(2026, 5, 1), rows=3), HoglakeDay(day=date(2026, 5, 9), rows=40_000_000)]
+
+    @parameterized.expand(
+        [
+            ("no_rows", 0, 0, 1, 1),
+            ("five_quiet_years", 1826, 100, 1, 8),
+            ("one_bulk_update_day", 40, 40_000_000, 8, 2),
+            ("bulk_update_day_in_a_long_history", 2000, 40_000_000, 4, 32),
+        ]
+    )
+    def test_covers_every_timestamp_within_the_writer_and_file_limits(
+        self, _name, day_count, busiest_day_rows, files_per_day, query_count
+    ):
+        days = [
+            HoglakeDay(day=date(2020, 1, 1) + timedelta(days=offset), rows=busiest_day_rows if offset == 0 else 7)
+            for offset in range(day_count)
+        ]
+
+        plan = plan_hoglake_full_export(DucklingBackfillConfig(), days)
+
+        assert (plan.files_per_day, len(plan.queries)) == (files_per_day, query_count)
+        assert plan.queries[0].start is None and plan.queries[-1].end is None
+        assert all(earlier.end == later.start for earlier, later in itertools.pairwise(plan.queries))
+        assert sum(query.days for query in plan.queries) == day_count
+        assert max(query.days for query in plan.queries) * plan.files_per_day <= HOGLAKE_FULL_EXPORT_MAX_WRITERS
+        assert (day_count + HOGLAKE_FULL_EXPORT_SLACK_DAYS) * plan.files_per_day <= HOGLAKE_ADD_FILES_MAX_FILES
+
+    def test_refuses_an_export_with_more_days_than_add_files_registers(self):
+        days = [HoglakeDay(day=date(1990, 1, 1) + timedelta(days=offset), rows=1) for offset in range(10_000)]
+
+        with pytest.raises(ValueError, match="more files than add_files registers"):
+            plan_hoglake_full_export(DucklingBackfillConfig(), days)
+
+
+class TestSchedulableBackfillTeamMemberships:
+    @staticmethod
+    def _membership(team_id: int, organization_id: str) -> ManagedWarehouseTeamMembership:
+        return ManagedWarehouseTeamMembership(
+            team_id=team_id,
+            organization_id=organization_id,
+            schema_name=f"schema_{team_id}",
+            enabled=True,
+            backfill_enabled=True,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events", persons_table="persons", data_imports_schema="posthog_data_imports"
+            ),
+            earliest_event_date=None,
+        )
+
+    @parameterized.expand(
+        [
+            ("ducklake", "ducklake", False, None, None),
+            ("hoglake_with_the_flag", "hoglake", True, None, None),
+            ("hoglake_without_the_flag", "hoglake", False, None, HOGLAKE_NOT_ENABLED_REASON),
+            # A run could not route a team whose backend is unknown, so its days wait for a later tick.
+            (
+                "backend_unknown",
+                CPUnavailableError("control plane down"),
+                False,
+                "shared-warehouses",
+                BACKEND_UNKNOWN_REASON,
+            ),
+            (
+                "backend_unknown_per_org_ducklake_bucket",
+                CPUnavailableError("down"),
+                False,
+                "posthog-duckling-abc",
+                None,
+            ),
+        ]
+    )
+    def test_keeps_a_team_only_when_a_run_can_back_it_up(self, _name, backend, flag, stored_bucket, skip_reason):
+        memberships = [self._membership(1, "org-a"), self._membership(2, "org-a")]
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.get_cached_trino_backend", return_value=None),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_trino_backend",
+                side_effect=backend if isinstance(backend, Exception) else None,
+                return_value=None if isinstance(backend, Exception) else backend,
+            ) as get_backend,
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
+                return_value=SimpleNamespace(bucket=stored_bucket),
+            ),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=flag
+            ) as flag_lookup,
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped") as skipped,
+        ):
+            kept = schedulable_backfill_team_memberships(memberships, dataset="events")
+
+        assert kept == (memberships if skip_reason is None else [])
+        assert get_backend.call_count == 1 and get_backend.call_args.kwargs == {"use_cache": True}
+        assert skipped.call_count == (0 if skip_reason is None else 2)
+        if skip_reason is not None:
+            assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": skip_reason}
+        assert flag_lookup.call_count <= 1
+
+    def test_stops_asking_remote_services_once_the_tick_budget_is_spent(self):
+        memberships = [
+            self._membership(1, "org-cached"),
+            self._membership(2, "org-new"),
+            self._membership(3, "org-hoglake"),
+        ]
+        cached = {"org-cached": "ducklake", "org-hoglake": "hoglake"}
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS", 0.0),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_cached_trino_backend",
+                side_effect=lambda org: cached.get(org),
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.get_trino_backend") as get_backend,
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake") as flag_lookup,
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
+                return_value=SimpleNamespace(bucket="shared-warehouses"),
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped") as skipped,
+        ):
+            kept = schedulable_backfill_team_memberships(memberships, dataset="events")
+
+        assert kept == [memberships[0]]
+        get_backend.assert_not_called()
+        flag_lookup.assert_not_called()
+        assert [call.kwargs["reason"] for call in skipped.call_args_list] == [
+            BACKEND_UNKNOWN_REASON,
+            HOGLAKE_FLAG_DEFERRED_REASON,
+        ]
+
+    def test_the_events_daily_sensor_creates_no_partitions_for_a_hoglake_team_without_the_flag(self):
+        from dagster import DagsterInstance, build_sensor_context
+
+        memberships = [self._membership(1, "org-hoglake"), self._membership(2, "org-ducklake")]
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch(
+                "posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships",
+                return_value=memberships,
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.get_cached_trino_backend", return_value=None),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_trino_backend",
+                side_effect=lambda org, **_: "hoglake" if org == "org-hoglake" else "ducklake",
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=False),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped"),
+        ):
+            mock_tz.now.return_value = datetime(2020, 3, 10, 12, 0, 0)
+            result = duckling_events_daily_backfill_sensor(build_sensor_context(instance=DagsterInstance.ephemeral()))
+
+        assert isinstance(result, SensorResult)
+        keys = [request.partition_key or "" for request in result.run_requests or []]
+        assert keys and all(key.startswith("2_") for key in keys)
+        assert not any(
+            key.startswith("1_")
+            for request in result.dynamic_partitions_requests or []
+            for key in getattr(request, "partition_keys", None) or []
+        )
 
 
 # The Trino column type that DuckLake reads back from the Parquet type ClickHouse writes for a ClickHouse type.

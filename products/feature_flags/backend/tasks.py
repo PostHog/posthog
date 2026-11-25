@@ -28,6 +28,7 @@ from products.feature_flags.backend.flag_analytics import report_django_local_ev
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
+    enqueue_cohort_cache_invalidation,
     get_cache_stats,
     publish_shadow_invalidation,
     refresh_expiring_flags_caches,
@@ -98,10 +99,7 @@ def report_django_local_evaluation_usage_task() -> None:
     report_django_local_evaluation_usage()
 
 
-# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
-# cycle), so a module move must not silently rename the registration out from under that caller.
 @shared_task(
-    name="products.feature_flags.backend.tasks.update_team_service_flags_cache",
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS.value,
 )
@@ -133,6 +131,19 @@ def update_team_service_flags_cache(team_id: int) -> None:
     # stale one, and the diff would report Python's failure as Rust drift.
     if success:
         publish_shadow_invalidation(team_id)
+
+
+# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
+# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(
+    name="products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts",
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+)
+def invalidate_team_flags_cache_for_cohorts(team_id: int) -> None:
+    """Raise a `cohort` invalidation of the team's flags-service cache for a caller that cannot
+    import products.feature_flags, such as the cohort backfill finalizer."""
+    enqueue_cohort_cache_invalidation(team_id)
 
 
 @shared_task(

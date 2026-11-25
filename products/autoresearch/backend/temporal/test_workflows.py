@@ -67,7 +67,7 @@ from products.autoresearch.backend.temporal.workflows import (
     daily_sweep_key,
     evaluate_pipeline_outcome,
 )
-from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
 from products.autoresearch.backend.training.artifacts import scored_persons_key
 
 
@@ -129,12 +129,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         access = patch("products.autoresearch.backend.temporal.workflows.has_autoresearch_access", return_value=True)
         self.mock_access = access.start()
         self.addCleanup(access.stop)
-        desktop = patch("products.autoresearch.backend.temporal.workflows.get_desktop_access_decision")
-        desktop.start().return_value.allowed = True
-        self.addCleanup(desktop.stop)
-        usage = patch("products.autoresearch.backend.temporal.workflows.task_run_usage_limited", return_value=False)
-        self.mock_usage_limited = usage.start()
-        self.addCleanup(usage.stop)
+        gate_access = patch("products.autoresearch.backend.access.has_autoresearch_access", self.mock_access)
+        gate_access.start()
+        self.addCleanup(gate_access.stop)
 
     def _create_pipeline(self, **overrides: Any) -> AutoresearchPipeline:
         params: dict[str, Any] = {
@@ -602,11 +599,10 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, "already_running"),
-            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, True, "already_ran_today"),
-            ("tasks_usage_limited", None, True, True, True, "tasks_gated"),
-            ("rollout_withdrawn_since_discovery", None, False, False, True, "tasks_gated"),
-            ("organization_deactivated_since_discovery", None, False, True, False, "tasks_gated"),
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, True, True, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, True, True, "already_ran_today"),
+            ("rollout_withdrawn_since_discovery", None, False, True, "access_refused"),
+            ("organization_deactivated_since_discovery", None, True, False, "access_refused"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -614,7 +610,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         self,
         _name: str,
         run_status: Optional[str],
-        usage_limited: bool,
         in_rollout: bool,
         organization_active: bool,
         expected_reason: str,
@@ -623,7 +618,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         pipeline = self._create_pipeline()
         if run_status:
             AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
-        self.mock_usage_limited.return_value = usage_limited
         self.mock_access.return_value = in_rollout
         self.organization.is_active = organization_active
         self.organization.save()
@@ -632,6 +626,20 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
+
+    @parameterized.expand([("startup_program", "Startup", "none"), ("prepaid_credits", None, "active")])
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_ignores_desktop_funding_rules(
+        self, _name: str, startup_program_label: Optional[str], prepaid_credit_state: str, mock_run_training: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        funding = MagicMock(startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state)
+
+        with patch("ee.billing.billing_manager.BillingManager.get_funding_status", return_value=funding):
+            result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert (result.kicked_off, result.reason) == (True, "explore")
+        mock_run_training.assert_called_once()
 
     @parameterized.expand(
         [
@@ -682,9 +690,70 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("this_months_spend_reaches_the_budget", 0, (60_000_000, 40_000_000), None, "team_monthly_budget"),
+            ("under_the_budget", 0, (99_000_000, 990_000), None, "explore"),
+            ("last_months_spend_does_not_count", 20, (500_000_000, 0), None, "explore"),
+            ("unrecorded_token_cost_counts_as_zero", 0, (None, 1_000_000), None, "explore"),
+            ("team_override_raises_the_budget", 0, (60_000_000, 40_000_000), "this_team", "explore"),
+            ("budget_of_zero_stops_training", None, None, "turned_off", "team_monthly_budget"),
+            ("a_deleted_models_spend_still_counts", 0, (100_000_000, 0), "delete_the_model", "team_monthly_budget"),
+        ]
+    )
+    @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_monthly_budget_counts_this_months_spend(
+        self,
+        _name: str,
+        days_ago: Optional[int],
+        cost: Optional[tuple[Optional[int], int]],
+        override: Optional[str],
+        expected_reason: str,
+        mock_run_training: MagicMock,
+        mock_payload: MagicMock,
+    ) -> None:
+        budget = {"this_team": 200, "turned_off": 0}.get(override or "")
+        mock_payload.return_value = (
+            {"team_configs": {str(self.team.id): {"max_training_spend_usd_per_month": budget}}}
+            if budget is not None
+            else None
+        )
+        now = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        runs: dict[uuid.UUID, tuple[datetime, Optional[int], int]] = {}
+        with time_machine.travel(now, tick=False):
+            if days_ago is not None and cost is not None:
+                started_at = now - timedelta(days=days_ago)
+                other_pipeline = self._create_pipeline(name="other pipeline", status=AutoresearchPipeline.Status.PAUSED)
+                with time_machine.travel(started_at, tick=False):
+                    run = AutoresearchTrainingRun.objects.create(
+                        pipeline=other_pipeline,
+                        status=AutoresearchTrainingRun.Status.COMPLETED,
+                        kickoff_reason="explore",
+                        iteration_budget=3,
+                        task_id=uuid.uuid4(),
+                        task_run_id=uuid.uuid4(),
+                        agent_runtime_adapter="claude",
+                    )
+                assert run.task_run_id is not None
+                runs[run.task_run_id] = (started_at, *cost)
+                if override == "delete_the_model":
+                    other_pipeline.delete()
+            pipeline = self._create_pipeline()
+            with fake_task_run_spend(runs):
+                result = activity_kickoff_training(
+                    KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+                )
+
+        assert result.reason == expected_reason
+        assert result.error is None
+        assert mock_run_training.called is (expected_reason == "explore")
+        if expected_reason == "team_monthly_budget":
+            assert result.detail is not None and "resets at 2026-12-01T00:00:00+00:00" in result.detail
+
+    @parameterized.expand(
+        [
             ("no_champion_comes_first", 1, "no_champion", None, ["team_daily_cap", "scheduled"]),
             ("longest_wait_comes_first", 1, "waited_longer", None, ["team_daily_cap", "scheduled"]),
-            ("gated_creator_holds_no_slot", 1, "no_champion", "tasks_usage_limited", ["scheduled", "tasks_gated"]),
+            ("gated_creator_holds_no_slot", 1, "no_champion", "outside_the_rollout", ["scheduled", "access_refused"]),
             ("departed_creator_holds_no_slot", 1, "no_champion", "left_the_team", ["scheduled", "team_daily_cap"]),
             ("free_slot_for_every_due_pipeline", 2, "no_champion", None, ["scheduled", "scheduled"]),
         ]
@@ -713,9 +782,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         mock_run_training.side_effect = launch
         ahead_creator = self.user
-        if ahead_blocked == "tasks_usage_limited":
-            ahead_creator = User.objects.create_and_join(self.organization, "limited@example.com", None)
-            self.mock_usage_limited.side_effect = lambda creator, _team_id: creator.pk == ahead_creator.pk
+        if ahead_blocked == "outside_the_rollout":
+            ahead_creator = User.objects.create_and_join(self.organization, "outside@example.com", None)
+            self.mock_access.side_effect = lambda user, **_kwargs: user.pk != ahead_creator.pk
         elif ahead_blocked == "left_the_team":
             ahead_creator = User.objects.create(email="departed@example.com")
 

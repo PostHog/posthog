@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs, sync::Arc};
 
 use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
+use common_ingestion_response::{HEADER as ITEM_RESULTS_HEADER, VERSION as ITEM_RESULTS_VERSION};
 use common_redis::MockRedisClient;
 use common_types::error_tracking::FrameId;
 use cymbal::{
@@ -232,27 +233,34 @@ impl TestHarness {
         .await
     }
 
-    async fn post_events_to<T: DeserializeOwned>(
+    async fn post_body(
         &self,
-        uri: &str,
-        events: Vec<AnyEvent>,
+        item_results: bool,
+        body: JsonValue,
         configure: impl FnOnce(&mut ProcessingConfig),
-    ) -> (StatusCode, T) {
-        utils::get_response_with_config(
+    ) -> (StatusCode, JsonValue) {
+        let (status, response) = utils::get_raw_response_with_config(
             self.db.clone(),
             STORAGE_BUCKET.to_string(),
             || {
-                Request::builder()
+                let mut request = Request::builder()
                     .method("POST")
                     .header("content-type", "application/json")
-                    .uri(uri)
-                    .body(Body::from(serde_json::to_vec(&events).unwrap()))
+                    .uri("/process");
+                if item_results {
+                    request = request.header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION);
+                }
+                request
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
                     .unwrap()
             },
             Arc::new(Self::create_s3_mock()),
             configure,
         )
-        .await
+        .await;
+        // A rejected body is plain text, not JSON.
+        let response = serde_json::from_str(&response).unwrap_or(JsonValue::String(response));
+        (status, response)
     }
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
@@ -488,6 +496,71 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_change_log_tracks_creation_and_reopen(db: PgPool) {
+    let harness = TestHarness::new(db);
+    for disabled in [false, true] {
+        let mut input = make_event_with_options(
+            vec![make_exception("TypeError", "cannot read property")],
+            Some(if disabled {
+                "change-log-disabled"
+            } else {
+                "change-log-enabled"
+            }),
+            Some(false),
+        );
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        let issue_id = body.take_properties().issue_id();
+        let first_seen: DateTime<Utc> = "2020-02-03T04:05:06Z".parse().unwrap();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen) VALUES ($1, 1, $2, $3, 2, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(issue_id)
+        .bind(format!("older-fingerprint-{disabled}"))
+        .bind(first_seen)
+        .execute(&harness.db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+            .bind(issue_id)
+            .execute(&harness.db)
+            .await
+            .unwrap();
+
+        input.uuid = Uuid::now_v7();
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        assert_eq!(body.take_properties().issue_id(), issue_id);
+
+        let rows: Vec<(String, JsonValue, JsonValue, Option<Uuid>)> = sqlx::query_as(
+            "SELECT kind, data, snapshot, event_uuid FROM posthog_errortrackingissuechange WHERE issue_id = $1 ORDER BY id",
+        )
+        .bind(issue_id)
+        .fetch_all(&harness.db)
+        .await
+        .unwrap();
+        if disabled {
+            assert!(rows.is_empty());
+        } else {
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].0, "created");
+            assert_eq!(rows[0].1, json!({}));
+            assert_eq!(rows[0].2["first_seen"], "2024-01-01T00:00:00+00:00");
+            assert_eq!(rows[1].0, "status_changed");
+            assert_eq!(rows[1].1, json!({"previous": "resolved"}));
+            assert_eq!(rows[1].2["status"], "active");
+            assert_eq!(rows[1].2["first_seen"], "2020-02-03T04:05:06+00:00");
+            assert_eq!(rows[1].3, Some(input.uuid));
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn severity_rule_overrides_inference_only_for_new_issue(db: PgPool) {
     let harness = TestHarness::new(db);
     insert_severity_rule(&harness.db, "critical", json!(["_H", 1, 29, 38])).await;
@@ -711,6 +784,56 @@ async fn same_fingerprint_returns_same_issue(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn a_batch_takes_one_team_db_slot_per_new_fingerprint(db: PgPool) {
+    let distinct: Vec<AnyEvent> = (0..4)
+        .map(|i| make_event(vec![make_exception(&format!("FloodError{i}"), "new value")]))
+        .collect();
+    let copies: Vec<AnyEvent> = (0..4)
+        .map(|_| make_event(vec![make_exception("RepeatedError", "same value")]))
+        .collect();
+
+    for (events, expected_hot, message) in [
+        (
+            distinct,
+            true,
+            "four new fingerprints in one batch did not take more than one slot",
+        ),
+        (
+            copies,
+            false,
+            "four copies of one new fingerprint took more than one slot",
+        ),
+    ] {
+        let ctx = utils::build_context(
+            db.clone(),
+            STORAGE_BUCKET.to_string(),
+            Arc::new(TestHarness::create_s3_mock()),
+            |config| {
+                config.team_db_slots_mode = "log".to_string();
+                config.team_db_slots = 1;
+                config.team_hot_window_secs = 3600;
+            },
+        )
+        .await;
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/process")
+            .body(Body::from(serde_json::to_vec(&events).unwrap()))
+            .unwrap();
+
+        let response = get_router(ctx.clone()).oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let slots = ctx
+            .team_db_slots
+            .as_ref()
+            .expect("log mode builds the slots");
+        assert_eq!(slots.is_hot(1), expected_hot, "{message}");
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
@@ -732,7 +855,7 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn v2_reports_why_an_event_was_suppressed(db: PgPool) {
+async fn item_results_report_why_an_event_was_suppressed(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
 
@@ -741,14 +864,79 @@ async fn v2_reports_why_an_event_was_suppressed(db: PgPool) {
         .suppress_issue(created.take_properties().issue_id())
         .await;
 
-    let (status, body): (_, JsonValue) = harness
-        .post_events_to("/v2/process", vec![input], |_| {})
-        .await;
+    let (status, body) = harness.post_body(true, json!([input]), |_| {}).await;
 
     assert!(status.is_success());
     assert_eq!(
         body,
         json!({ "results": [{ "result": "drop", "reason": "suppressed" }] })
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let valid = make_event(vec![make_exception("Error", "boom")]);
+    let body = json!([{ "uuid": "not-an-event" }, valid]);
+
+    let (status, _) = harness.post_body(false, body.clone(), |_| {}).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let mut nested = make_event(vec![make_exception("Error", "boom")]);
+    nested.properties["nested"] = (0..200).fold(json!(1), |value, _| json!([value]));
+
+    for body in [body, json!([nested, valid])] {
+        let (status, response) = harness.post_body(true, body, |_| {}).await;
+
+        assert!(status.is_success(), "Expected success, got {status:?}");
+        let results = response["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["result"], json!("fail"));
+        assert_eq!(results[0]["error"]["code"], json!("invalid_input"));
+        assert_eq!(results[1]["result"], json!("ok"));
+        assert_eq!(results[1]["value"]["uuid"], json!(valid.uuid));
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_reject_a_request_with_more_events_than_the_limit(db: PgPool) {
+    let harness = TestHarness::new(db);
+
+    let (status, _) = harness
+        .post_body(true, json!([0, 0]), |config| {
+            config.process_max_events_per_request = 1
+        })
+        .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+    let (status, _) = harness.post_body(true, json!({}), |_| {}).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_carry_processing_errors_as_an_ingestion_warning(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event(vec![]);
+    input.properties["$cymbal_errors"] = json!(["sent by the caller"]);
+
+    let (status, response) = harness.post_body(true, json!([input]), |_| {}).await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    let result = &response["results"][0];
+    let errors = &result["value"]["properties"]["$cymbal_errors"];
+    assert!(
+        errors.as_array().is_some_and(
+            |errors| !errors.is_empty() && !errors.contains(&json!("sent by the caller"))
+        )
+    );
+    assert_eq!(
+        result["warnings"],
+        json!([{
+            "type": "error_tracking_exception_processing_errors",
+            "details": { "eventUuid": input.uuid, "errors": errors },
+            "key": input.uuid,
+        }])
     );
 }
 
@@ -766,21 +954,48 @@ fn use_resolution_stub(addr: std::net::SocketAddr) -> impl FnOnce(&mut Processin
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) {
+async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Poison, "fail", "invalid_input").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn unresolved_event_asks_for_a_retry_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Overloaded, "retry", "resolution_unavailable").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_fail_the_whole_request_when_no_event_resolved(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::ErrorThenError {
+        first: ErrorKind::Poison,
+        rest: ErrorKind::Overloaded,
+    })
+    .await;
+
+    let (status, _) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+async fn assert_one_event_ends_alone(db: PgPool, kind: ErrorKind, result: &str, code: &str) {
     let harness = TestHarness::new(db);
     let events = vec![
         load_static_event("javascript_chunk_id"),
         load_static_event("javascript_chunk_id_2"),
     ];
     let uuids = events.iter().map(|event| event.uuid).collect::<Vec<_>>();
-    let poison_after_first = || common::ServerBehavior::ErrorAfterFirst {
-        kind: ErrorKind::Poison,
-    };
+    let error_after_first = || common::ServerBehavior::ErrorAfterFirst { kind };
 
-    // The caller of `/process` retries the whole batch, so no issue may exist after the 500.
-    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
-    let (status, _): (_, JsonValue) = harness
-        .post_events_to("/process", events.clone(), use_resolution_stub(addr))
+    // A caller without item results retries the whole batch, so no issue may exist after the 500.
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
+    let (status, _) = harness
+        .post_body(false, json!(events), use_resolution_stub(addr))
         .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     let (issues,): (i64,) = sqlx::query_as("SELECT count(*) FROM posthog_errortrackingissue")
@@ -789,9 +1004,9 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
         .unwrap();
     assert_eq!(issues, 0);
 
-    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
-    let (status, body): (_, JsonValue) = harness
-        .post_events_to("/v2/process", events, use_resolution_stub(addr))
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
+    let (status, body) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
         .await;
 
     assert!(status.is_success(), "Expected success, got {status:?}");
@@ -800,17 +1015,19 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
     for (slot, uuid) in body["results"].as_array().unwrap().iter().zip(&uuids) {
         match slot["result"].as_str() {
             Some("ok") => assert_eq!(slot["value"]["uuid"], json!(uuid)),
-            Some("fail") => assert_eq!(slot["error"]["code"], json!("invalid_input")),
+            Some(other) if other == result => assert_eq!(slot["error"]["code"], json!(code)),
             other => panic!("unexpected result {other:?}: {slot}"),
         }
         results.push(slot["result"].as_str().unwrap().to_string());
     }
     results.sort();
-    assert_eq!(results, ["fail", "ok"]);
+    let mut expected = vec!["ok", result];
+    expected.sort();
+    assert_eq!(results, expected);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn v2_fails_the_whole_request_on_a_dependency_failure(db: PgPool) {
+async fn item_results_fail_the_whole_request_on_a_dependency_failure(db: PgPool) {
     let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     use_resolution_stub(addr)(&mut config);
@@ -827,7 +1044,8 @@ async fn v2_fails_the_whole_request_on_a_dependency_failure(db: PgPool) {
             Request::builder()
                 .method("POST")
                 .header("content-type", "application/json")
-                .uri("/v2/process")
+                .uri("/process")
+                .header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION)
                 .body(Body::from(serde_json::to_vec(&vec![&event]).unwrap()))
                 .unwrap(),
         )

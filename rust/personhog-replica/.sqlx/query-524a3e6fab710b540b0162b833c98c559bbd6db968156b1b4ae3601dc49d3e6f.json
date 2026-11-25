@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='tombstone_persons_by_ids_delete_overrides' */\n        DELETE FROM posthog_featureflaghashkeyoverride\n        WHERE team_id = $1 AND person_id = ANY($2)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "524a3e6fab710b540b0162b833c98c559bbd6db968156b1b4ae3601dc49d3e6f"
+}

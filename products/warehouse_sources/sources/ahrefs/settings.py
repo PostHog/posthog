@@ -358,6 +358,12 @@ QUOTA_RETRY_ERROR = (
 PROJECT_NOT_FOUND_ERROR = (
     "Ahrefs returned no target for the Site Audit project. Check the project ID and that the project has a target URL."
 )
+# project_id is the only documented parameter for this endpoint, so a 400 here isn't a malformed
+# request on our side — it means Ahrefs can't serve issues for this project (e.g. no completed crawl).
+ISSUES_BAD_REQUEST_ERROR = (
+    "Ahrefs rejected the Site Audit issues request for this project. Check that the project has a "
+    "completed crawl in Ahrefs Site Audit."
+)
 
 NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     "ahrefs_invalid_api_key": AUTH_ERROR,
@@ -365,6 +371,7 @@ NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     "ahrefs_project_not_found": PROJECT_NOT_FOUND_ERROR,
     "401 Client Error": AUTH_ERROR,
     "403 Client Error": ACCESS_ERROR,
+    "Bad Request for url: https://api.ahrefs.com/v3/site-audit/issues?output=json&project_id=": ISSUES_BAD_REQUEST_ERROR,
 }
 
 RETRYABLE_QUOTA_ERRORS: frozenset[str] = frozenset({"ahrefs_quota_exceeded", "402 Client Error"})

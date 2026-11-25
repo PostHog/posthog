@@ -194,7 +194,7 @@ rules, change `src/core/code_variables.rs` to match.
 The public HTTP contract stays `POST /process`: callers send an array of
 events and receive an equally sized array in the same order, with `null` in a
 slot only when the normal cymbal pipeline suppresses that event.
-`POST /v2/process` takes the same request and reports one result per event,
+A caller that sends `X-PostHog-Ingestion-Response: 1` gets one result per event,
 so an event whose own data cannot be processed does not fail the request. See
 [`docs/compatibility.md`](docs/compatibility.md) for both shapes. The
 Node.js error-tracking consumer can keep using its existing DNS routing

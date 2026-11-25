@@ -14,14 +14,16 @@
                 </span>
             {% endif %}
         </h2>
-        <div class="quill-card__action flex items-center gap-1.5 text-[11px] text-muted-foreground"
-             data-slot="card-action"
-             title="Owned by {{ rendered.panel.owner.name }}">
-            {{ rendered.panel.owner.name }}
-            <img class="size-[18px]"
-                 src="/static/admin-console/crests/{{ rendered.panel.owner.crest }}.svg"
-                 alt="" />
-        </div>
+        {% if rendered.panel.owner %}
+            <div class="quill-card__action flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                 data-slot="card-action"
+                 title="Owned by {{ rendered.panel.owner.name }}">
+                {{ rendered.panel.owner.name }}
+                <img class="size-[18px]"
+                     src="/static/admin-console/crests/{{ rendered.panel.owner.crest }}.svg"
+                     alt="" />
+            </div>
+        {% endif %}
     </div>
     <div class="quill-card__content flex flex-col gap-4"
          data-slot="card-content">

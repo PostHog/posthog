@@ -22,17 +22,22 @@ surfaces:
   on that user, so the person's own record answers the rule. That makes the usual
   internal rollout rules work unchanged: ``email ends_with @posthog.com``, a cohort,
   any person property. Nothing here forwards those properties; the person already
-  carries them.
+  carries them. A gate deciding for a Slack user gets the linked user's distinct ID
+  from ``slack_user_oauth.linked_posthog_distinct_id``, and falls back to the
+  workspace before the person links.
 - ``send_feature_flag_events=False`` — these are control checks, not analytics.
 - **Fail-closed** — any error returns ``False`` so a flaky flag call never
   silently enables a feature for everyone.
 
-The identity a gate is keyed on is also the identity it buckets on. So give a gate
-either a user on every call or on none, and read a rollout percentage on a
-user-keyed gate as a share of people rather than of workspaces.
+The identity a gate is keyed on is also the identity it buckets on. So read a rollout
+percentage on a user-keyed gate as a share of people rather than of workspaces, and
+on a gate that falls back to the workspace as a mix of the two.
 """
 
 from __future__ import annotations
+
+import json
+from urllib.parse import urlsplit
 
 import structlog
 import posthoganalytics
@@ -48,13 +53,15 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
+SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
+SLACK_APP_FRUSTRATION_RESPONSE_FLAG = "slack-app-frustration-response"
+SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -156,21 +163,14 @@ def is_slack_app_byos_enabled(
 ) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
-    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
-    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    Follows the tasks rollout for that plan. A Slack run marked for a plan whose rollout
+    is off fails when it starts, so Slack must never mark one.
     ``distinct_id`` is the PostHog user whose plan the run would use.
     """
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
-    if not tasks_facade.own_subscription_cloud_enabled(
+    return tasks_facade.own_subscription_cloud_enabled(
         adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
-    ):
-        return False
-    return _workspace_flag_enabled(
-        SLACK_APP_BYOS_FLAG,
-        integration,
-        failure_log_key="slack_app_byos_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 
@@ -203,46 +203,124 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     )
 
 
-def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
     authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
     return _workspace_flag_enabled(
         SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
         integration,
         failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The Slack account link also connects the person's Slack MCP."""
     return _workspace_flag_enabled(
         SLACK_APP_SLACK_MCP_FLAG,
         integration,
         failure_log_key="slack_app_slack_mcp_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     return _workspace_flag_enabled(
         SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
         integration,
         failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     return _workspace_flag_enabled(
         SLACK_APP_DAILY_WORK_FOCUS_FLAG,
         integration,
         failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
-    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
-    yet. Each step checks its own scopes."""
+def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """The daily work focus also tells the person what moved in the channels they share with the bot."""
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_SUMMARY_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Every answered message is classified, and an unhappy one gets a reaction. Each verdict is one model call."""
+    return _workspace_flag_enabled(
+        SLACK_APP_FRUSTRATION_RESPONSE_FLAG,
+        integration,
+        failure_log_key="slack_app_frustration_response_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+# The bot shows a payload GIF inside customer workspaces, so a flag edit must not be able to pick any image on the
+# internet. Only PostHog's own Cloudinary account qualifies.
+_ALLOWED_GIF_HOST = "res.cloudinary.com"
+_ALLOWED_GIF_PATH_PREFIX = "/dmukukwp6/"
+
+
+def is_allowed_gif_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.hostname == _ALLOWED_GIF_HOST
+        and parts.port is None
+        and not parts.username
+        and not parts.password
+        and parts.path.startswith(_ALLOWED_GIF_PATH_PREFIX)
+    )
+
+
+def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: str | None) -> tuple[str, ...] | None:
+    """The GIFs from the flag payload ``{"gif_urls": [...]}``, or ``None`` when the flag is off. The payload lets the
+    team change the GIFs without a deploy. Only URLs on PostHog's own asset host pass (``is_allowed_gif_url``).
+    A missing or malformed payload gives an empty tuple, and the caller then uses its default GIFs."""
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            SLACK_APP_FRUSTRATION_GIF_FLAG,
+            distinct_id or f"slack_workspace:{integration.integration_id}",
+            groups={"organization": _organization_id(integration)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("slack_app_frustration_gif_feature_flag_check_failed", integration_id=integration.id)
+        return None
+    if result is None or not result.enabled:
+        return None
+    payload = result.payload
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return ()
+    urls = payload.get("gif_urls") if isinstance(payload, dict) else None
+    if not isinstance(urls, list):
+        return ()
+    return tuple(url for url in urls if is_allowed_gif_url(url))
+
+
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Decided for the person who would get the thread, who is usually not linked to a PostHog user yet. Each step
+    checks its own scopes."""
     return _workspace_flag_enabled(
         SLACK_APP_ONBOARDING_FLAG,
         integration,
         failure_log_key="slack_app_onboarding_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )

@@ -553,10 +553,13 @@ describe('EmailSuppressionService', () => {
             }
         )
 
+        // A row that only counts soft bounces is not on the team's list, so unlike a removal it must not lift the
+        // global block.
         it.each([
-            ['the team removed the address', 'removed'],
-            ['a later delivery cleared the entry', 'delivered'],
-        ] as const)('does not block when %s', async (_label, step) => {
+            ['the team removed the address', 'removed', false],
+            ['a later delivery cleared the entry', 'delivered', false],
+            ['the team only counts soft bounces from the address', 'counting', true],
+        ] as const)('decides the send by the global list when %s', async (_label, step, blocked) => {
             const email = `back-${step}-${team.id}@example.com`
             const otherTeamId = await bounceForAnotherTeam(email)
 
@@ -570,6 +573,16 @@ describe('EmailSuppressionService', () => {
                     [team.id, email],
                     'test-insert-removed-suppression'
                 )
+            } else if (step === 'counting') {
+                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
+                const svc = newService(true)
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'first' })
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'second' })
+                expect(await readRow(email)).toMatchObject({
+                    suppressed: false,
+                    deleted: false,
+                    transient_bounce_count: 2,
+                })
             } else {
                 // Bounces stamp last_bounced_at with NOW(), so a delivery has to be newer than that.
                 await newService(true).recordDeliveries(
@@ -582,7 +595,8 @@ describe('EmailSuppressionService', () => {
                 )
             }
 
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
+            expect(await newService(false).isSuppressed(team.id, email)).toBe(false)
+            expect(await newService(true).isSuppressed(team.id, email)).toBe(blocked)
         })
 
         it.each([

@@ -55,6 +55,27 @@ class TestEcbDataPortalSource:
         assert "Your access has been blocked due to security concerns" in errors
         assert all(message for message in errors.values())
 
+    @pytest.mark.parametrize(
+        ("_name", "observed_error"),
+        [
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='data-api.ecb.europa.eu', port=443): Max retries exceeded with url: /service/data/EXR/D.USD.EUR.SP00.A?format=csvdata "
+                "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='data-api.ecb.europa.eu', port=443): "
+                'Read timed out. (read timeout=60)"))',
+            ),
+            (
+                "connection_refused",
+                "HTTPSConnectionPool(host='data-api.ecb.europa.eu', port=443): Max retries exceeded with url: /service/data/EXR/D.USD.EUR.SP00.A?format=csvdata "
+                "(Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
+                "Failed to establish a new connection: [Errno 111] Connection refused'))",
+            ),
+        ],
+    )
+    def test_exhausted_connection_retries_are_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
     def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_make_inputs())
         assert isinstance(manager, ResumableSourceManager)

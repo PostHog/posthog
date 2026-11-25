@@ -39,11 +39,13 @@ class CheckBillingLimitsActivityInputs:
 
 # The limiter list lives in Redis. Inside the job-creation activity this check has a single Temporal
 # attempt (a retry there would create a duplicate job row), so a connection blip is absorbed here
-# instead of failing the run.
+# instead of failing the run. 5 attempts with up to an 8s wait (plus the 3s connect timeout each
+# attempt can spend before raising) covers blips of up to ~30s, well inside the activity's own
+# 1-minute start_to_close_timeout.
 @retry(
     retry=retry_if_exception_type((redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential_jitter(initial=0.5, max=2),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=8),
     reraise=True,
 )
 def _team_is_rows_synced_limited(api_token: str) -> bool:

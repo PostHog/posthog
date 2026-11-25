@@ -40,6 +40,7 @@ from ..constants import (
 )
 from ..file_parse import FileParseError
 from ..github_repos import connection_status
+from ..key_libraries import key_library_id, readable_library_id
 from ..libraries import LibraryNotFound
 from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
@@ -513,7 +514,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         parameters=[KnowledgeUsageQuerySerializer],
         responses={200: KnowledgeUsageSerializer},
-        description="How much support agent runs cited the project's knowledge sources over a period.",
+        description=(
+            "Usage of the project's knowledge over a period: chunks ingested, searches, and how often "
+            "support agent runs cited the sources."
+        ),
     )
     @action(
         detail=False,
@@ -648,6 +652,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     queryset = KnowledgeDocument.objects.unscoped()
     serializer_class = KnowledgeDocumentWindowSerializer
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Every action listed here must apply the key's library limit from `key_libraries`.
     psak_allowed_actions = ["search", "window"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
@@ -698,13 +703,24 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # an attacker can't probe doc existence. `.unscoped()` + explicit
         # team_id filter mirrors the source viewset (the manager needs an
         # explicit team scope otherwise).
-        if not KnowledgeDocument.objects.unscoped().filter(id=document_id, team_id=self.team_id).exists():
+        # Before the document lookup, so a key whose library is gone gets one answer for every document id.
+        library_id = key_library_id(request)
+        source_ids = list(
+            KnowledgeDocument.objects.unscoped()
+            .filter(id=document_id, team_id=self.team_id)
+            .values_list("source_id", flat=True)[:1]
+        )
+        if not source_ids:
+            raise exceptions.NotFound()
+        if library_id is not None and not libraries.library_has_source(self.team_id, library_id, source_ids[0]):
             raise exceptions.NotFound()
 
         around_ordinal = self._parse_int_param(request, "around_ordinal", required=True)
         radius = self._parse_int_param(request, "radius", required=False, default=BK_DRILLDOWN_DEFAULT_RADIUS)
 
-        results = logic.get_document_window(self.team_id, document_id, around_ordinal, radius=radius)
+        results = logic.get_document_window(
+            self.team_id, document_id, around_ordinal, radius=radius, library_id=library_id
+        )
         return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
 
     @extend_schema(
@@ -804,15 +820,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _search_library_id(self, request: Request) -> UUID | None:
         raw = request.query_params.get("library_id")
-        if not raw:
+        requested: UUID | None = None
+        if raw:
+            try:
+                requested = UUID(raw)
+            except (ValueError, DjangoValidationError):
+                raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
+        library_id = readable_library_id(request, requested)
+        if library_id is None:
             return None
-        return self._existing_library_id(raw)
-
-    def _existing_library_id(self, raw: str) -> UUID:
-        try:
-            library_id = UUID(raw)
-        except (ValueError, DjangoValidationError):
-            raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
         try:
             libraries.get_library(self.team_id, library_id)
         except LibraryNotFound:

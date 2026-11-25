@@ -1,40 +1,57 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { suggestionCountsText } from 'products/warehouse_suggestions/frontend/suggestionCopy'
+import { QuillSuggestionsBanner } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsBanner'
 import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
 import { CatalogToReviewList } from './CatalogToReviewList'
+import { usageLogic } from './usageLogic'
 
-function CatalogToReviewWithSuggestions(): JSX.Element {
-    const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
-    const { reportReviewOpened } = useActions(warehouseSuggestionsLogic)
-    const count = stripState === 'active' ? surfaceSuggestions.length : 0
+interface SuggestedMetricsProps {
+    suggestedMetricCount: number
+}
+
+function CatalogToReviewWithSuggestions({ suggestedMetricCount }: SuggestedMetricsProps): JSX.Element | null {
+    const { stripState } = useValues(warehouseSuggestionsLogic)
 
     return (
         <CatalogToReviewList
-            suggestionsItem={{
-                key: 'certification-suggestions',
-                count,
-                title: pluralize(count, 'suggestion'),
-                description: suggestionCountsText(surfaceSuggestions),
-                href: urls.dataCatalog('suggestions'),
-                onReview: () => reportReviewOpened(),
-            }}
+            suggestedMetricCount={suggestedMetricCount}
+            suggestionsBanner={
+                stripState === 'active' ? (
+                    <QuillSuggestionsBanner reviewTo={urls.dataCatalog('suggestions')} />
+                ) : undefined
+            }
         />
     )
+}
+
+function CatalogToReviewRows({ suggestedMetricCount }: SuggestedMetricsProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS]) {
+        return <CatalogToReviewList suggestedMetricCount={suggestedMetricCount} />
+    }
+
+    return <CatalogToReviewWithSuggestions suggestedMetricCount={suggestedMetricCount} />
+}
+
+function CatalogToReviewWithSuggestedMetrics(): JSX.Element | null {
+    const { proposedRows } = useValues(usageLogic)
+
+    return <CatalogToReviewRows suggestedMetricCount={proposedRows.length} />
 }
 
 export function CatalogToReview(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS]) {
-        return <CatalogToReviewList />
+    // The usage logic loads the latest scan when it mounts, so it mounts only when the usage flag is on.
+    if (!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE]) {
+        return <CatalogToReviewRows suggestedMetricCount={0} />
     }
 
-    return <CatalogToReviewWithSuggestions />
+    return <CatalogToReviewWithSuggestedMetrics />
 }

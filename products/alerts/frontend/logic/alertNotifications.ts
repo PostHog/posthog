@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID } from 'lib/constants'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 
 import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -87,12 +87,6 @@ export const buildAlertFilterConfig = (
         },
     ],
 })
-
-// The opened event alone stands for a PagerDuty destination, so a count sees it once.
-export const buildAlertDestinationCountFilterGroups = (alertId: string): CyclotronJobFiltersType[] => [
-    buildAlertFilterConfig(alertId),
-    buildAlertFilterConfig(alertId, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID),
-]
 
 export type PendingAlertNotification =
     | {

@@ -1754,6 +1754,11 @@
             animation-fill-mode: forwards !important;
             animation-duration: 0ms !important;
             animation-iteration-count: 1 !important;
+
+            // content-visibility: auto skips rendering offscreen content. A capture would then
+            // depend on what was onscreen when each element mounted. This rule applies to
+            // elements whenever they mount, including after the story first renders.
+            content-visibility: visible !important;
         }
 
         // The animation-duration:0ms + forwards override above is meant to snap every

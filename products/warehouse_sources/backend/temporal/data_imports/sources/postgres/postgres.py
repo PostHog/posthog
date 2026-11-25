@@ -328,6 +328,13 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
     # once the pool has capacity or the backend reconnects), so recover by reconnecting.
     "{:error, :timeout}",
+    # The bare-atom sibling of "{:error, :timeout}": on some Supavisor versions the same pool
+    # checkout/backend-connect timeout is reported with the reason atom alone, not wrapped in the
+    # `{:error, ...}` tuple — "Failed to connect to database: :timeout" rather than "Failed to
+    # connect to database: {:error, :timeout}". Same transient pooler-timeout class, so recover the
+    # same way. Match the fuller phrase, not the bare ":timeout" atom, which alone is too generic
+    # and would match unrelated messages that happen to mention a timeout.
+    "failed to connect to database: :timeout",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
@@ -396,6 +403,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # server-side `idle_in_transaction_session_timeout` (already matched by type above) — same
     # transient class, just culled by the pooler instead of the server. A fresh reconnect recovers.
     "idle transaction timeout",
+    # PgBouncer's own `client_idle_timeout` setting: it disconnects a client that is not inside a
+    # transaction and has gone longer than the configured limit without a statement in flight —
+    # exactly what the offset-chunking fallback's autocommit connection does between pages while
+    # the destination's slow delta-merge runs between yields. Same bare, SQLSTATE-less error-packet
+    # shape as `query_wait_timeout` and `idle transaction timeout` above, so psycopg surfaces it as
+    # ProtocolViolation rather than OperationalError; same transient class, so a fresh reconnect
+    # recovers.
+    "client_idle_timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
@@ -425,6 +440,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # substring alone still classifies the whole thing. Same transient wake class as the other Neon
     # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
     "taking longer than expected to become active",
+    # A Neon-style proxy refuses a connect with "FATAL:  no primary available for branch <branch-id>"
+    # when the branch's compute endpoint has no primary assigned yet — observed moments after the
+    # same branch dropped a connection with "failed to connect to upstream" and an SSL EOF, i.e.
+    # during a brief compute failover/promotion window, not a customer-facing restriction like the
+    # permanent "branch is hibernated" / "connection not allowed for branch" entries in
+    # `get_non_retryable_errors`. A fresh connect after backoff succeeds once Neon finishes assigning
+    # a primary. Match the stable phrase and exclude the volatile branch id.
+    "no primary available for branch",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -485,21 +508,25 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # <n>"). Supavisor also has an instance-wide sibling: when the pooler's total client-facing
 # connection count (across every tenant it serves, not just this one) hits its own configured cap,
 # it refuses new connects with "FATAL:  (EMAXCONN) max client connections reached, limit: <n>" — the
-# same transient capacity class, since a slot frees the moment any tenant's connection closes. All of
-# these are transient capacity conditions on the customer's database or pooler — a slot frees the
-# moment another connection closes (or a session ends) — so a fresh connect after a short backoff
-# usually succeeds. Retried in-process on the read/sync connect path (see
+# same transient capacity class, since a slot frees the moment any tenant's connection closes.
+# PgBouncer-style poolers (Supavisor included — it mimics PgBouncer's wire errors in places) report
+# the same instance-wide cap with a different literal: "FATAL:  no more connections allowed
+# (max_client_conn)". All of these are transient capacity conditions on the customer's database or
+# pooler — a slot frees the moment another connection closes (or a session ends) — so a fresh connect
+# after a short backoff usually succeeds. Retried in-process on the read/sync connect path (see
 # `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
 # NOT added to `get_non_retryable_errors` (see source.py). The Supavisor matches are on the stable
 # "max clients reached in session mode" / "max client connections reached" phrases, excluding the
 # volatile pool_size/limit numbers and the "(EMAXCONNSESSION)" / "(EMAXCONN)" codes (mirrors the
-# `PostgresErrors` validation mapping in source.py).
+# `PostgresErrors` validation mapping in source.py). The PgBouncer-style match is the whole stable
+# phrase, which carries no volatile part.
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
     "max clients reached in session mode",
     "max client connections reached",
+    "no more connections allowed (max_client_conn)",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is

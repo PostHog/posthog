@@ -30,18 +30,21 @@ export function LiveMobileMetrics({
                     {
                         key: 'dau',
                         label: 'DAU',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.dailyActiveUsers ?? null,
                         about: 'Unique users active in the last 24 hours.',
                     },
                     {
                         key: 'wau',
                         label: 'WAU',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.weeklyActiveUsers ?? null,
                         about: 'Unique users active in the last 7 days.',
                     },
                     {
                         key: 'sessions',
                         label: 'Sessions',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.sessions ?? null,
                         about: 'Sessions active in the last 30 minutes.',
                     },
@@ -57,12 +60,14 @@ export function LiveMobileMetrics({
                     {
                         key: 'installs-day',
                         label: 'Installs · 24h',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.installs ?? null,
                         about: 'First launches after install in the last 24 hours.',
                     },
                     {
                         key: 'installs-week',
                         label: 'Installs · 7d',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.weeklyInstalls ?? null,
                         about: 'First launches after install in the last 7 days.',
                     },

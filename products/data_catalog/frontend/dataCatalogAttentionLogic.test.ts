@@ -5,21 +5,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { dataModelingNodesAttentionCountRetrieve } from 'products/data_modeling/frontend/generated/api'
 import { dataQualityChecksFailingCountRetrieve } from 'products/data_quality/frontend/generated/api'
 
 import { dataCatalogAttentionLogic } from './dataCatalogAttentionLogic'
-import { dataCatalogPendingReviewRetrieve } from './generated/api'
+import { dataCatalogAttentionRetrieve } from './generated/api'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
     default: {},
     ApiConfig: { getCurrentTeamId: jest.fn(() => 1) },
 }))
-jest.mock('./generated/api', () => ({ dataCatalogPendingReviewRetrieve: jest.fn() }))
-jest.mock('products/data_modeling/frontend/generated/api', () => ({
-    dataModelingNodesAttentionCountRetrieve: jest.fn(),
-}))
+jest.mock('./generated/api', () => ({ dataCatalogAttentionRetrieve: jest.fn() }))
 jest.mock('products/data_quality/frontend/generated/api', () => ({ dataQualityChecksFailingCountRetrieve: jest.fn() }))
 
 const RESTRUCTURE_FLAGS = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true }
@@ -37,12 +33,10 @@ describe('dataCatalogAttentionLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(dataCatalogPendingReviewRetrieve as jest.Mock).mockResolvedValue({
-            metrics: 3,
-            relationships: 0,
-            certifications: 1,
+        ;(dataCatalogAttentionRetrieve as jest.Mock).mockResolvedValue({
+            pending_review: { metrics: 3, relationships: 0, certifications: 1 },
+            failing_models: 4,
         })
-        ;(dataModelingNodesAttentionCountRetrieve as jest.Mock).mockResolvedValue({ count: 4 })
         ;(dataQualityChecksFailingCountRetrieve as jest.Mock).mockResolvedValue({ count: 2 })
     })
 
@@ -56,7 +50,7 @@ describe('dataCatalogAttentionLogic', () => {
         logic.actions.loadAttention()
         await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
 
-        expect(dataCatalogPendingReviewRetrieve).not.toHaveBeenCalled()
+        expect(dataCatalogAttentionRetrieve).not.toHaveBeenCalled()
         expect(logic.values.totalCount).toEqual(0)
     })
 
@@ -85,12 +79,45 @@ describe('dataCatalogAttentionLogic', () => {
         mountWithFlags(RESTRUCTURE_FLAGS)
         logic.actions.loadAttention()
         await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
-        ;(dataModelingNodesAttentionCountRetrieve as jest.Mock).mockRejectedValue(failure)
+        ;(dataCatalogAttentionRetrieve as jest.Mock).mockRejectedValue(failure)
 
         logic.actions.loadAttention()
         await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
 
         expect(logic.values.attention.failingModels).toEqual(expectedFailingModels)
         expect(logic.values.attention.failingChecks).toEqual(2)
+    })
+
+    it.each([
+        ['the catalog request', dataCatalogAttentionRetrieve],
+        ['the failing checks request', dataQualityChecksFailingCountRetrieve],
+    ])('on refresh, an empty body from %s keeps the last counts', async (_case, request) => {
+        mountWithFlags(RESTRUCTURE_FLAGS)
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+        ;(request as jest.Mock).mockResolvedValue(null)
+
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+
+        expect(logic.values.totalCount).toEqual(10)
+    })
+
+    it('keeps the last review counts when the server could not read them', async () => {
+        mountWithFlags(RESTRUCTURE_FLAGS)
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+        ;(dataCatalogAttentionRetrieve as jest.Mock).mockResolvedValue({ pending_review: null, failing_models: 5 })
+
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+
+        expect(logic.values.tabCounts).toEqual({
+            overview: 5,
+            tables: 1,
+            metrics: 3,
+            relationships: 0,
+            'data-quality': 2,
+        })
     })
 })

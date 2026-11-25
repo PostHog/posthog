@@ -377,6 +377,16 @@ function DetailsSection({
                     )}
                 </div>
                 <div className="flex items-center justify-between">
+                    <Tooltip title="When the last successful sync started, including syncs that found no new rows. Last synced can stay the same while the source has nothing new.">
+                        <span className="text-muted">Last checked</span>
+                    </Tooltip>
+                    {schema.last_checked_at ? (
+                        <TZLabel time={schema.last_checked_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                    ) : (
+                        <span className="text-muted">Never</span>
+                    )}
+                </div>
+                <div className="flex items-center justify-between">
                     <span className="text-muted">Row count</span>
                     <span>{schema.table?.row_count?.toLocaleString() ?? '—'}</span>
                 </div>
@@ -476,7 +486,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc } = useValues(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc, source } = useValues(logic)
     const { loadSchemaIncrementalFields, loadSchema, loadSourceConfig } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
@@ -644,7 +654,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(askAboutHistoryThenApply)
             return
         }
 
@@ -668,6 +678,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     <fieldset disabled={!!accessDisabledReason}>
                         <SyncMethodForm
                             ref={formRef}
+                            sourceType={source?.source_type}
                             hideFooter
                             onSaveDisabledReasonChange={setSaveDisabledReason}
                             saveButtonIsLoading={saving}
@@ -1098,16 +1109,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

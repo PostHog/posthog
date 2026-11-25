@@ -73,12 +73,23 @@ class PinnedResolver(AbstractResolver):
         pass
 
 
+def _without_userinfo(url: URL) -> URL:
+    """Remove userinfo from proxy URL.
+
+    Deployments put per-pod credentials in the proxy URL but trust should be
+    decided by the proxy address alone. This matches the behaviour of the
+    pinned httpx client.
+    """
+
+    return url.with_user(None)
+
+
 class PinnedTCPConnector(TCPConnector):
     def __init__(self, host_to_resolved_ips: Mapping[str, ResolvedIPs], **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._host_to_resolved_ips = host_to_resolved_ips
         self._pinned_resolver = PinnedResolver(host_to_resolved_ips)
-        self._trusted_proxies = frozenset(URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS)
+        self._trusted_proxies = frozenset(_without_userinfo(URL(url)) for url in settings.SSRF_TRUSTED_PROXY_URLS)
         self._using_proxy: ContextVar[bool] = ContextVar("pinned_aiohttp_using_proxy", default=False)
 
     async def connect(self, req: ClientRequest, traces: list[Trace], timeout: ClientTimeout) -> Connection:
@@ -87,7 +98,7 @@ class PinnedTCPConnector(TCPConnector):
         if self._host_to_resolved_ips and not self._host_to_resolved_ips.get(canonicalize_host(host)):
             raise SSRFBlockedError(f"Unknown host: {host}")
 
-        if req.proxy is not None and req.proxy not in self._trusted_proxies:
+        if req.proxy is not None and _without_userinfo(req.proxy) not in self._trusted_proxies:
             raise SSRFBlockedError(
                 "Outbound proxy is not trusted. Ask an administrator to configure SSRF_TRUSTED_PROXY_URLS."
             )

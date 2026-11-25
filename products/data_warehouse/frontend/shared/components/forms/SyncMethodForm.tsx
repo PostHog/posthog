@@ -78,13 +78,15 @@ const getModelPickNote = (fields: IncrementalField[], selectedField: string | nu
 }
 
 const getIncrementalSyncSupported = (
-    schema: ExternalDataSourceSyncSchema
+    schema: ExternalDataSourceSyncSchema,
+    adSourceName?: string
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
     if (!schema.incremental_available) {
         return {
             disabled: true,
-            disabledReason:
-                "Incremental replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
+            disabledReason: adSourceName
+                ? `${adSourceName} doesn't support incremental replication for this table. Use full table replication instead. For incremental performance data, use a stats table such as ad_stats or campaign_stats.`
+                : "Incremental replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 
@@ -102,13 +104,15 @@ const getIncrementalSyncSupported = (
 }
 
 const getAppendOnlySyncSupported = (
-    schema: ExternalDataSourceSyncSchema
+    schema: ExternalDataSourceSyncSchema,
+    adSourceName?: string
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
     if (!schema.append_available) {
         return {
             disabled: true,
-            disabledReason:
-                "Append only replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
+            disabledReason: adSourceName
+                ? `${adSourceName} doesn't support append only replication for this table. Use ${schema.incremental_available && schema.incremental_fields.length > 0 ? 'incremental replication' : 'full table replication'} instead.`
+                : "Append only replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 
@@ -127,6 +131,7 @@ const getAppendOnlySyncSupported = (
 
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
+    sourceType?: string
     onClose: () => void
     onSave: (
         syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -260,6 +265,7 @@ export const getInitialRadioState = (
 export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormProps>(function SyncMethodForm(
     {
         schema,
+        sourceType,
         onClose,
         onSave,
         availableColumns,
@@ -275,8 +281,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
-    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
-    const appendSyncSupported = getAppendOnlySyncSupported(schema)
+    const adSourceName = sourceType === 'GoogleAds' ? 'Google Ads' : sourceType === 'MetaAds' ? 'Meta Ads' : undefined
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema, adSourceName)
+    const appendSyncSupported = getAppendOnlySyncSupported(schema, adSourceName)
     const cdcSyncSupported = getCdcSyncSupported(schema)
     const { isCdcOnForSource, canPickCdc } = getCdcAvailability(schema)
 
@@ -519,6 +526,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             <LemonTag type="success">Recommended</LemonTag>
                         )}
                     </div>
+                    {incrementalSyncSupported.disabled && (
+                        <p className="mb-2 font-semibold">{incrementalSyncSupported.disabledReason}</p>
+                    )}
                     <p className="mb-2">
                         When using incremental replication, we'll store the max value of the below field on each sync
                         and only sync rows with greater or equal value on the next run.
@@ -618,6 +628,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                           <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                               <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
                           </div>
+                          {appendSyncSupported.disabled && (
+                              <p className="mb-2 font-semibold">{appendSyncSupported.disabledReason}</p>
+                          )}
                           <p className="mb-2">
                               When using append only replication, similar to incremental above, we'll store the max
                               value of the below field on each sync and only sync rows with greater or equal value on

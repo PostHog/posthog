@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface KnowledgeAccessApi {
+    /** ID of the project whose business knowledge the caller reads. */
+    project_id: number
+    /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited caller reads. Null when the caller is not limited.
+     * @nullable
+     */
+    library_id: string | null
+}
+
 /**
  * One chunk in a drill-down window over a single knowledge document.
  *
@@ -145,6 +157,50 @@ export interface GapTopicActionResultApi {
     readonly normalized_topic: string
     /** Number of gap rows whose status changed. */
     readonly updated: number
+}
+
+export interface KnowledgeKeyApi {
+    /** Project secret API key id. */
+    id: string
+    /** Name of the key. Unique in this project. */
+    label: string
+    /**
+     * First and last characters of the key.
+     * @nullable
+     */
+    mask_value: string | null
+    /**
+     * The key itself. Returned once, in the response that creates the key. Null everywhere else.
+     * @nullable
+     */
+    value: string | null
+    /** When the key was created. */
+    created_at: string
+    /**
+     * When the key last made a request, to the hour. Null when it never has.
+     * @nullable
+     */
+    last_used_at: string | null
+    /** True when the key reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited key reads. Null on a limited key means its library was deleted, so the key reads nothing.
+     * @nullable
+     */
+    library_id: string | null
+}
+
+export interface KnowledgeKeyCreateApi {
+    /**
+     * Name for the key. Must be unique in this project.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+     * @nullable
+     */
+    library_id: string | null
 }
 
 /**
@@ -699,11 +755,22 @@ export interface KnowledgeAvailabilityApi {
     readonly has_repositories: boolean
 }
 
-export interface DailyCitedRunsApi {
+export interface SurfaceUsageApi {
+    /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+    readonly surface: string
+    /** Usage from this surface in the period. */
+    readonly total: number
+}
+
+export interface DailyUsageApi {
     /** Day, in UTC. */
     readonly date: string
     /** Support agent runs that cited knowledge on this day. */
     readonly cited_run_count: number
+    /** Chunks written on this day. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made on this day. */
+    readonly query_count: number
 }
 
 export interface SourceUsageApi {
@@ -720,7 +787,7 @@ export interface SourceUsageApi {
 }
 
 /**
- * How much support agent runs used the knowledge base in a period.
+ * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
  */
 export interface KnowledgeUsageApi {
     /** Number of days the report covers, today included. */
@@ -733,8 +800,16 @@ export interface KnowledgeUsageApi {
     readonly source_count: number
     /** Knowledge sources that at least one run cited in the period. */
     readonly cited_source_count: number
+    /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made in the period, from every surface. */
+    readonly query_count: number
+    /** Chunks written in the period by source type, largest first. */
+    readonly chunks_by_surface: readonly SurfaceUsageApi[]
+    /** Searches in the period by where they came from, largest first. */
+    readonly queries_by_surface: readonly SurfaceUsageApi[]
     /** One entry per day, oldest first. */
-    readonly daily: readonly DailyCitedRunsApi[]
+    readonly daily: readonly DailyUsageApi[]
     /** The most cited sources in the period, most cited first. */
     readonly top_sources: readonly SourceUsageApi[]
 }

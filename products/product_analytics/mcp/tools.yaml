@@ -172,6 +172,12 @@ tools:
             `{filters(created_at AS timestamp)}`.
 
 
+            A `HogQLQuery` without its own `LIMIT` returns only the first 100 rows, and the chart draws only those rows.
+            A time series then stops early and shows no error. Before you save a SQL insight, add a `LIMIT` that is more
+            than the number of rows the query can return, up to 50000. For example, 30 days with 8 breakdown values is
+            240 rows, so `LIMIT 1000` is sufficient.
+
+
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
             `InsightVizNode`.
 
@@ -349,8 +355,9 @@ tools:
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results. Query uses the same format as
             insight-create. Replacing query replaces the entire definition; include all filters and visualization
-            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
-            access is already available. Skip browser checks for small edits.
+            settings you want to retain. Copy them unchanged from insight-get, including keys this schema does not list,
+            such as SQL conditional formatting rules with their `bytecode`. After substantial visual changes, check the
+            final saved insight once if browser access is already available. Skip browser checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when

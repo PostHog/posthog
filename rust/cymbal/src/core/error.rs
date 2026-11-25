@@ -57,14 +57,19 @@ pub enum UnhandledError {
     RedisError(#[from] CustomRedisError),
     #[error("Poison item: {0}")]
     Poison(String),
+    #[error("Resolution incomplete ({code}): {message}")]
+    ResolutionIncomplete { code: &'static str, message: String },
     #[error("Unhandled error: {0}")]
     Other(String),
 }
 
 impl UnhandledError {
-    /// True when the event's own data caused the failure, and not a dependency.
+    /// True when the failure stays with its event and does not fail the batch.
     pub fn is_item_failure(&self) -> bool {
-        matches!(self, Self::Poison(_) | Self::SerdeError(_))
+        matches!(
+            self,
+            Self::Poison(_) | Self::SerdeError(_) | Self::ResolutionIncomplete { .. }
+        )
     }
 }
 
@@ -249,7 +254,11 @@ pub enum EventError {
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
     #[error("Processing failed ({code}): {message}")]
-    ProcessingFailed { code: &'static str, message: String },
+    ProcessingFailed {
+        code: &'static str,
+        message: String,
+        retriable: bool,
+    },
 }
 
 /// A failure that can come from a dependency still fails the batch, as the response contract requires.
@@ -261,10 +270,21 @@ pub fn contain_failure<T>(
         Ok(value) => Ok(Ok(value)),
         Err(err) if err.is_item_failure() => {
             metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => operator).increment(1);
-            tracing::warn!(operator, error = %err, "event processing failed");
+            let (code, retriable) = match &err {
+                UnhandledError::ResolutionIncomplete { code, .. } => (*code, true),
+                _ => (codes::INVALID_INPUT, false),
+            };
+            if retriable {
+                // An overloaded pool leaves many events unresolved at once, and a warning for
+                // each one would add synchronous log writes to that overload.
+                tracing::debug!(operator, error = %err, "event processing did not complete");
+            } else {
+                tracing::warn!(operator, error = %err, "event processing failed");
+            }
             Ok(Err(EventError::ProcessingFailed {
-                code: codes::INVALID_INPUT,
+                code,
                 message: err.to_string(),
+                retriable,
             }))
         }
         Err(err) => Err(err),

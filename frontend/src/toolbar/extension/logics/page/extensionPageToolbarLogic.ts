@@ -269,8 +269,8 @@ export const extensionPageToolbarLogic = kea<extensionPageToolbarLogicType>([
                     } else if (command.type === 'set-href') {
                         currentPageLogic.actions.setHref(command.href)
                     } else {
-                        const { accessToken, refreshToken, clientId } = command.tokens
-                        toolbarConfigLogic.actions.setOAuthTokens(accessToken, refreshToken, clientId)
+                        const { accessToken, refreshToken, clientId, project } = command.tokens
+                        toolbarConfigLogic.actions.setOAuthTokens(accessToken, refreshToken, clientId, project)
                     }
                 },
                 inspect: () => elementsLogic.actions.setSelectedElement(null),

@@ -130,7 +130,7 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             ),
             iconPath="/static/warehouse-sources/wise/icon.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wise",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

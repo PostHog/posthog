@@ -10,6 +10,7 @@ from django.test import override_settings
 
 from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
@@ -24,8 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     build_capture_kwargs,
 )
 
-UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID  # type: ignore[attr-defined]
-TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
+UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID
+TIMED_OUT = KafkaError._TIMED_OUT
 
 hang = threading.Event()
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
@@ -45,6 +46,27 @@ class TestBuildCaptureKwargs:
             "event_source": "x",
             "distinct_id": "42",
             "properties": {"$set": {"plan_tier": "pro"}, "$geoip_disable": True},
+            "process_person_profile": True,
+        }
+
+    def test_maps_unset_only_message_to_person_property_removal(self):
+        kwargs = build_capture_kwargs(
+            {
+                "token": "tok",
+                "distinct_id": "person-1",
+                "properties": {},
+                "unset_properties": ["plan_tier", "audience_member"],
+            }
+        )
+        assert kwargs == {
+            "token": "tok",
+            "event_name": "$set",
+            "event_source": EVENT_SOURCE,
+            "distinct_id": "person-1",
+            "properties": {
+                "$unset": ["plan_tier", "audience_member"],
+                "$geoip_disable": True,
+            },
             "process_person_profile": True,
         }
 
@@ -84,6 +106,10 @@ class TestBuildCaptureKwargs:
             ("missing_distinct_id", {"token": "t", "properties": {"p": 1}}),
             ("empty_properties", {"token": "t", "distinct_id": "a", "properties": {}}),
             ("non_dict_properties", {"token": "t", "distinct_id": "a", "properties": "nope"}),
+            (
+                "invalid_unset_properties",
+                {"token": "t", "distinct_id": "a", "properties": {}, "unset_properties": [1]},
+            ),
             ("nan_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("nan")}}),
             ("inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("inf")}}),
             ("nested_inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": {"q": float("-inf")}}}),
@@ -94,6 +120,18 @@ class TestBuildCaptureKwargs:
             (
                 "group_missing_group_key",
                 {"token": "t", "distinct_id": "a", "kind": "group", "group_type": "org", "properties": {"p": 1}},
+            ),
+            (
+                "group_unset",
+                {
+                    "token": "t",
+                    "distinct_id": "a",
+                    "kind": "group",
+                    "group_type": "org",
+                    "group_key": "k",
+                    "properties": {},
+                    "unset_properties": ["p"],
+                },
             ),
         ]
     )
@@ -178,6 +216,24 @@ class TestProcessRecord:
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
 
+    @parameterized.expand([("returned", False), ("raised", True)])
+    def test_billing_limited_rejection_gets_its_own_dlq_reason(self, _name, raised):
+        if raised:
+            exc = Exception("billing limit exceeded")
+            exc.status_code = 402  # type: ignore[attr-defined]
+            capture = MagicMock(side_effect=exc)
+        else:
+            capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        dlq = MagicMock()
+        c = self._consumer(capture, dlq=dlq)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+        labels = {"reason": "billing_limited"}
+        before = REGISTRY.get_sample_value("warehouse_person_property_dlq_total", labels) or 0
+
+        assert c.process_record(value) == DLQ
+        assert dlq.produce.call_args.kwargs["data"]["reason"] == "billing_limited"
+        assert REGISTRY.get_sample_value("warehouse_person_property_dlq_total", labels) == before + 1
+
     def test_terminal_drop_goes_to_dlq_not_retry(self):
         # A dropped event is a permanent rejection (bad token, validation): DLQ it so it can't be
         # redelivered forever and wedge the partition.
@@ -199,7 +255,7 @@ class TestProcessRecord:
     )
     def test_capture_rejection_dlq_log_names_team(self, _name, lookup_kwargs, expected_team_id):
         hang.clear()
-        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=400))
         c = self._consumer(capture)
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
@@ -212,7 +268,7 @@ class TestProcessRecord:
             hang.set()
 
         [entry] = [e for e in logs if e["event"] == "person_property_update.dlq"]
-        assert entry["reason"] == "capture_error:402"
+        assert entry["reason"] == "capture_error:400"
         assert entry["team_id"] == expected_team_id
 
     @parameterized.expand(

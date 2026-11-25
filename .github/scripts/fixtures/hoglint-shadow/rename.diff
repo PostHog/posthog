@@ -1,0 +1,7 @@
+diff --git a/products/security/backend/facade/api.py b/products/security/backend/facade/api.py
+index 3f4a86f4252e..ba0dea817cb1 100644
+--- a/products/security/backend/facade/api.py
++++ b/products/security/backend/facade/api.py
+@@ -105 +105 @@ def _record_block(
+-def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_site: str, enforce: bool = True) -> bool:
++def access_refused_renamed(subject: contracts.SubjectInput, surface: Surface, *, call_site: str, enforce: bool = True) -> bool:

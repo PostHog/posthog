@@ -5,6 +5,7 @@ import type {
     IssueBreakdownApi,
     IssueEventApi,
     IssueListItemApi,
+    IssueSort,
     IssueStatusApi,
     IssueTrendApi,
     SpikeEventApi,
@@ -12,6 +13,7 @@ import type {
 } from '@/api/errorTracking'
 import type { ProjectScope } from '@/api/reports'
 import { formatRelativeAgo } from '@/lib/dates'
+import { compactNumber, plural } from '@/model/adapters/text'
 
 const HOUR_MS = 60 * 60_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -90,6 +92,49 @@ export function windowParam(value: string | string[] | undefined): ErrorsWindow 
 }
 
 export const WINDOW_LABELS: Record<ErrorsWindow, string> = { '24h': 'the last 24 hours', '7d': 'the last 7 days' }
+
+/** The stats in the order the list cards and the issue tiles show them, whatever the sort. */
+export const ISSUE_STATS: readonly IssueSort[] = ['users', 'sessions', 'occurrences']
+export const STAT_LABELS: Record<IssueSort, string> = {
+    users: 'Users',
+    sessions: 'Sessions',
+    occurrences: 'Occurrences',
+}
+export const SORT_CAPTIONS: Record<IssueSort, string> = {
+    users: 'Most users first',
+    sessions: 'Most sessions first',
+    occurrences: 'Most occurrences first',
+}
+
+/**
+ * A compact count. Sessions are 0 when no event of the issue has a `$session_id`, which is usual for backend SDKs, so
+ * they show a dash as on the web: 0 would say that no session saw the error.
+ */
+export function statText(stat: IssueSort, value: number): string {
+    return stat === 'sessions' && value <= 0 ? '–' : compactNumber(value)
+}
+
+const ASSIGNEE_SPOKEN: Record<IssueAssignee['kind'], string> = {
+    none: 'Unassigned',
+    me: 'Assigned to you',
+    user: 'Assigned to a teammate',
+    role: 'Assigned to a role',
+}
+
+/** The list card as a screen reader says it, with the full counts the card shows in compact form. */
+export function issueRowLabel(row: IssueRow, window: ErrorsWindow): string {
+    const sessions = row.sessions > 0 ? plural(row.sessions, 'session') : 'no sessions recorded'
+    const counts = `${plural(row.users, 'user')}, ${sessions}, ${plural(row.occurrences, 'occurrence')}`
+    const parts = [
+        row.title,
+        row.detail,
+        row.badge === 'spiking' ? 'Spiking' : row.badge === 'new' ? 'New' : null,
+        `${counts} in ${WINDOW_LABELS[window]}`,
+        ASSIGNEE_SPOKEN[row.assignee.kind],
+    ].filter((part): part is string => Boolean(part))
+    // A message often ends in a period, and the label adds its own.
+    return parts.map((part) => part.replace(/[.\s]+$/, '')).join('. ')
+}
 
 export function windowStart(window: ErrorsWindow, now: Date): Date {
     return new Date(now.getTime() - WINDOW_MS[window])
@@ -296,26 +341,33 @@ export function issueWebUrl(scope: ProjectScope | null, issueId: string): string
 }
 
 export interface TrendCaption {
+    /** What a screen reader says, such as "Up 45%". */
     text: string
+    /** The pill's text after its arrow, such as "45%". */
+    short: string
+    arrow: 'up' | 'down' | null
     rising: boolean
 }
 
 export function trendCaption(trend: IssueTrendApi | undefined): TrendCaption | null {
     switch (trend?.direction) {
         case 'new':
-            return { text: 'New in this window', rising: true }
-        case 'increasing':
+            return { text: 'New in this window', short: 'New in this window', arrow: null, rising: true }
+        case 'increasing': {
+            const percent = trend.change_percent === undefined ? null : `${trend.change_percent}%`
+            return { text: percent ? `Up ${percent}` : 'Rising', short: percent ?? 'Rising', arrow: 'up', rising: true }
+        }
+        case 'decreasing': {
+            const percent = trend.change_percent === undefined ? null : `${Math.abs(trend.change_percent)}%`
             return {
-                text: trend.change_percent === undefined ? 'Rising' : `Up ${trend.change_percent}%`,
-                rising: true,
-            }
-        case 'decreasing':
-            return {
-                text: trend.change_percent === undefined ? 'Falling' : `Down ${Math.abs(trend.change_percent)}%`,
+                text: percent ? `Down ${percent}` : 'Falling',
+                short: percent ?? 'Falling',
+                arrow: 'down',
                 rising: false,
             }
+        }
         case 'stable':
-            return { text: 'Steady', rising: false }
+            return { text: 'Steady', short: 'Steady', arrow: null, rising: false }
         default:
             return null
     }

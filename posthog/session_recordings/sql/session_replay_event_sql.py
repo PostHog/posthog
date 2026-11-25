@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     ai_tags_fixed Array(String),
     ai_tags_freeform Array(String),
     ai_highlighted UInt8,
-    surfacing_score Nullable(Float32),
 ) ENGINE = {engine}
 """
 
@@ -108,8 +107,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     -- AI-generated flag indicating the session is highlighted / worth watching
     ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-    -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
-    surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
 ) ENGINE = {engine}
 """
 
@@ -182,7 +179,6 @@ def _session_replay_events_mv_sql(
 {",`ai_tags_fixed` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_fixed" not in exclude_columns else ""}
 {",`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_freeform" not in exclude_columns else ""}
 {",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
-{",`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))" if "surfacing_score" not in exclude_columns else ""}
 {",`snapshot_mode_v2` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))" if "snapshot_mode_v2" not in exclude_columns else ""}
 )"""
 
@@ -228,7 +224,6 @@ max(_timestamp) as _timestamp
 {",groupUniqArrayArray(ai_tags_fixed) as ai_tags_fixed" if "ai_tags_fixed" not in exclude_columns else ""}
 {",groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform" if "ai_tags_freeform" not in exclude_columns else ""}
 {",max(ai_highlighted) as ai_highlighted" if "ai_highlighted" not in exclude_columns else ""}
-{",max(surfacing_score) as surfacing_score" if "surfacing_score" not in exclude_columns else ""}
 {",argMinState(replay.snapshot_mode, first_timestamp) as snapshot_mode_v2" if "snapshot_mode_v2" not in exclude_columns else ""}
 FROM {database}.{source_table} AS replay
 group by session_id, team_id

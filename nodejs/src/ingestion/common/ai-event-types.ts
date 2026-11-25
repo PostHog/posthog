@@ -3,6 +3,8 @@
 // for anything but the core types.
 export const AI_EVENT_NAME_PREFIX = '$ai_'
 
+export const AI_EVENT_BYTES_PROPERTY = '$ai_event_bytes'
+
 export function isAiEventName(event: string): boolean {
     return event.startsWith(AI_EVENT_NAME_PREFIX)
 }

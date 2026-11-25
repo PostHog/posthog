@@ -20,6 +20,10 @@ on:
         - cron: '23 */6 * * *' # every 6 hours
     workflow_dispatch:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     SLACK_CHANNEL: 'C0185UNBSJZ'
 

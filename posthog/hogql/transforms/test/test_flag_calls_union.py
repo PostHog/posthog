@@ -2,6 +2,7 @@ import re
 import sys
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -51,6 +52,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -245,12 +247,17 @@ def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     )
 
 
-def _enabled_flags(union: bool):
-    enabled = {"hogql-flag-calls-union"} if union else set()
-    return patch(
-        "posthog.hogql.database.database.feature_enabled_or_false",
-        side_effect=lambda key, *args, **kwargs: key in enabled,
-    )
+@contextmanager
+def _enabled_flags(union: bool, union_flag: bool | None = None):
+    enabled = {"hogql-flag-calls-union"} if (union if union_flag is None else union_flag) else set()
+    with (
+        patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key in enabled,
+        ),
+        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", not union),
+    ):
+        yield
 
 
 def _flag_evaluations_table_in_catalog():
@@ -795,6 +802,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         *,
         mode: FlagEvaluationsMode = READ,
         union: bool = True,
+        union_flag: bool | None = None,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
         person_id_pushdown: bool | None = None,
@@ -804,7 +812,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         rewrite_flag_calls: bool = True,
     ) -> str:
         _set_mode(self.organization, mode)
-        with _enabled_flags(union=union), _flag_evaluations_table_in_catalog():
+        with _enabled_flags(union=union, union_flag=union_flag), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
@@ -822,6 +830,29 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ).generate_clickhouse_sql()
         return substitute_params(sql, context.values)
 
+    @parameterized.expand(
+        [
+            ("without_key_or_date", FLAG_CALLS),
+            ("mixed_with_other_events", f"SELECT count() FROM events WHERE {MIXED}"),
+            ("select_star", f"SELECT * {FLAG_CALLS_FROM}"),
+        ]
+    )
+    def test_flag_evaluations_only_reads_the_same_when_it_keeps_writing_flag_calls_to_events(
+        self, _name: str, query: str
+    ):
+        def compiled() -> str:
+            try:
+                return self._sql(query, mode=ONLY, new_events_schema=False)
+            except QueryError as error:
+                return f"QueryError: {error}"
+
+        without_kept_writes = compiled()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            keep_writing_flag_calls_to_events=True
+        )
+
+        assert compiled() == without_kept_writes
+
     @staticmethod
     def _branches(sql: str) -> list[str]:
         start = sql.index("UNION ALL")
@@ -831,8 +862,39 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
     @parameterized.expand(
         [
-            ("mixed_query", f"SELECT count() FROM events WHERE {MIXED}", True, True),
-            ("mixed_query_with_the_flag_off", f"SELECT count() FROM events WHERE {MIXED}", False, False),
+            param("events_mode_with_the_flag", EVENTS, False, union_flag=True, new_events_schema=False),
+            param("read_mode", READ, False),
+            param("read_mode_with_the_flag", READ, True, union_flag=True),
+            param("read_mode_with_the_flag_and_the_union_disabled", READ, False, union_flag=True, union=False),
+            param("only_mode", ONLY, True),
+            param("only_mode_with_the_union_disabled", ONLY, False, union=False),
+            # The native JSON events table holds no flag calls on any mode.
+            param("native_events_on_events_mode", EVENTS, True, new_events_schema=True),
+            param("native_events_with_the_union_disabled", EVENTS, False, new_events_schema=True, union=False),
+        ]
+    )
+    def test_union_follows_the_mode_and_the_kill_switch(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        expected_union: bool,
+        union_flag: bool = False,
+        union: bool = True,
+        new_events_schema: bool | None = None,
+    ):
+        sql = self._sql(
+            f"SELECT count() FROM events WHERE {MIXED}",
+            mode=mode,
+            union=union,
+            union_flag=union_flag,
+            new_events_schema=new_events_schema,
+        )
+
+        assert ("UNION ALL" in sql) is expected_union
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is expected_union
+
+    @parameterized.expand(
+        [
             (
                 "query_phase_1_swaps",
                 "SELECT count() FROM events WHERE event = '$feature_flag_called' "
@@ -999,6 +1061,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "goe_0.properties",
             ),
             ("sample_row_count", f"SELECT count() FROM events SAMPLE 10 WHERE {MIXED}", "it uses SAMPLE"),
+            (
+                "properties_whose_paths_join_to_one_name_inside_a_persons_join_filter",
+                f"SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id AND p.id IN "
+                f"(SELECT person_id FROM events WHERE {MIXED} AND properties.a.b = '1' AND properties.a___b = '1') "
+                f"WHERE e.{MIXED}",
+                "properties.a.b and properties.a___b",
+            ),
             param(
                 "join_whose_on_clause_reads_another_field",
                 f"SELECT probe_join.key FROM events WHERE {MIXED}",
@@ -1330,7 +1399,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         for branch in (events, keyless):
             assert "equals(events.distinct_id, 'probe')" in branch
         assert "equals(flag_evaluations.distinct_id, 'probe')" in flag_evaluations
-        assert "flag_key" not in flag_evaluations
+        assert "in(flag_evaluations.flag_key" not in flag_evaluations
 
     @parameterized.expand(
         [
@@ -2303,7 +2372,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ({"a": 1}, {"a": 1}),
             ([1, 2], [1, 2]),
             ("text", "text"),
-            ({}, None),
+            ({}, {}),
             (None, None),
             (missing, None),
         ]
@@ -2334,6 +2403,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
             # Events rebuilds a flag property from `$feature_flags`, which holds text.
             ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            # The filter reaches the events branch, which compares the flag's own subcolumn of `$feature_flags`.
+            param(
+                "flag_filter",
+                "properties.`$feature/probe`",
+                123,
+                '"123"',
+                where="AND properties.`$feature/probe` = '123'",
+            ),
             ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
             param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
             # Events reads a declared path as its declared type, which is String for `$browser`.

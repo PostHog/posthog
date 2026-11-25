@@ -332,6 +332,58 @@ describe('query', () => {
         }
     })
 
+    it.each(['success', 'failure'])(
+        'can omit execution telemetry on %s without changing the query request',
+        async (outcome) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: 'select name from example_engagements where org_id = {account_external_id}',
+                values: { account_external_id: 'example-account' },
+            }
+            const requests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        requests.push(body.query)
+                        return outcome === 'success'
+                            ? {
+                                  results: [['Example result']],
+                                  clickhouse: 'SELECT name FROM example_engagements',
+                                  used_data_warehouse_sources: [
+                                      {
+                                          id: 'example-source',
+                                          source_type: 'Postgres',
+                                          table_name: 'example_engagements',
+                                          uses_history_table: true,
+                                      },
+                                  ],
+                              }
+                            : [400, { detail: 'Invalid query in example_engagements' }]
+                    },
+                },
+            })
+            captureSpy.mockClear()
+
+            const result = performQuery(query, { captureQueryTelemetry: false })
+            if (outcome === 'success') {
+                await expect(result).resolves.toMatchObject({ results: [['Example result']] })
+            } else {
+                await expect(result).rejects.toMatchObject({ status: 400 })
+            }
+
+            expect(requests).toEqual([query])
+            expect(
+                captureSpy.mock.calls.filter(([event]) =>
+                    ['query completed', 'query failed', 'data warehouse history table queried'].includes(
+                        event as string
+                    )
+                )
+            ).toEqual([])
+        }
+    )
+
     it('does not emit a query failed event when the request is aborted', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: HogQLQuery = setLatestVersionsOnQuery({

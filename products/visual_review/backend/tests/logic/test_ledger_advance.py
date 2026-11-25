@@ -12,6 +12,8 @@ from products.visual_review.backend.facade.enums import (
     BaselineApprovalState,
     BaselineEvidence,
     BaselineMode,
+    RunGate,
+    RunPurpose,
     RunStatus,
     RunType,
 )
@@ -25,8 +27,15 @@ from products.visual_review.backend.models import (
     Repo,
     Run,
 )
+from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, approve, make_record, seeded_repo
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    approve,
+    make_record,
+    seeded_repo,
+    set_baseline_mode,
+)
 
 EVIDENCE_SHA = "queue-run"
 APPROVED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
@@ -95,6 +104,23 @@ def _ledger(repo: Repo) -> dict[str, str]:
     head = ledger.cursor(repo.id)
     assert head is not None
     return ledger.ledger_at(repo.id, RunType.STORYBOOK, head.position)
+
+
+def _pull_request_run(repo: Repo, pr_number: int, commit_sha: str, *, minute: int = 0, **fields) -> Run:
+    run = Run.objects.create(
+        team_id=repo.team_id,
+        repo=repo,
+        run_type=RunType.STORYBOOK,
+        branch=fields.pop("branch", f"pr-{pr_number}-{commit_sha}"),
+        pr_number=pr_number,
+        commit_sha=commit_sha,
+        status=RunStatus.COMPLETED,
+        gate=fields.pop("gate", RunGate.COMMIT_STATUS),
+        **fields,
+    )
+    # Two runs created in a row can share a timestamp, and the newest run of a pull request is the one published.
+    Run.objects.filter(id=run.id).update(created_at=timezone.now() - timedelta(hours=1) + timedelta(minutes=minute))
+    return run
 
 
 def _state(approval: BaselineApproval) -> tuple[str, str]:
@@ -553,6 +579,13 @@ class TestAdvance:
                 9,
                 BaselineApprovalState.PROMOTED,
             ),
+            (
+                "stack_layer_based_on_its_parent_branch",
+                "chore: no pull request named",
+                [github_api.MergedPullRequest(number=9, base_ref="feature/layer-1", head_sha="head-9")],
+                9,
+                BaselineApprovalState.PROMOTED,
+            ),
         ],
     )
     def test_a_commit_without_a_usable_subject_asks_github_for_its_pull_request(
@@ -570,6 +603,32 @@ class TestAdvance:
 
         commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
         assert (commit.pr_number, commit.resolved) == (expected_pr, True)
+        assert _state(approval)[0] == expected_state
+
+    @pytest.mark.parametrize(
+        ("name", "merge_commit_sha", "expected_commit", "expected_state"),
+        [
+            ("merge_commit_is_this_commit", "s1", (7, True), BaselineApprovalState.PROMOTED),
+            ("merge_commit_is_another_commit", "elsewhere", (None, False), BaselineApprovalState.OPEN),
+        ],
+    )
+    def test_a_stack_layer_lands_at_its_own_merge_commit_whatever_its_base_branch(
+        self, repo, github, name, merge_commit_sha, expected_commit, expected_state
+    ) -> None:
+        approval = approve(repo, 7, "Button", "b7")
+        github.push("s1", "feat: upper layer (#7)")
+        github.pull_requests[7] = github_api.PullRequestState(
+            state="closed",
+            merged=True,
+            merge_commit_sha=merge_commit_sha,
+            base_ref="feature/layer-1",
+            head_sha="head-7",
+        )
+
+        ledger_advance.advance(repo)
+
+        commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
+        assert (commit.pr_number, commit.resolved) == expected_commit
         assert _state(approval)[0] == expected_state
 
     @pytest.mark.parametrize(
@@ -637,6 +696,104 @@ class TestAdvance:
 
         assert query_counts[0] == query_counts[1]
         assert _ledger(repo)["Story-0"] == "h8"
+
+    @pytest.mark.parametrize(
+        ("mode", "status_gate", "gate", "published_commits"),
+        [
+            pytest.param(BaselineMode.LEDGER, True, RunGate.COMMIT_STATUS, ["p2b"], id="ledger_mode"),
+            pytest.param(BaselineMode.LEDGER, True, RunGate.CI_JOB, ["p2b"], id="runs_made_in_shadow_mode"),
+            pytest.param(BaselineMode.SHADOW, True, RunGate.CI_JOB, [], id="shadow_mode"),
+            pytest.param(BaselineMode.SHADOW, False, RunGate.CI_JOB, [], id="status_gate_off"),
+        ],
+    )
+    def test_a_landing_publishes_again_for_other_pull_requests_that_approved_the_same_story(
+        self, repo, github, mocker, django_capture_on_commit_callbacks, mode, status_gate, gate, published_commits
+    ) -> None:
+        set_baseline_mode(repo, mode, status_gate=status_gate)
+        approve(repo, 1, "Button", "b1")
+        # A stack child that lands in the same transaction, so the holder below is found twice.
+        approve(repo, 6, "Button", "b6", ledger_base_hash="b0", effective_base_hash="b1")
+        approve(repo, 2, "Button", "b2")
+        approve(repo, 3, "Card", "c3", ledger_base_hash="c0")
+        for minute, (pr_number, commit_sha) in enumerate(
+            ((1, "head-1"), (2, "p2a"), (2, "p2b"), (3, "p3a"), (6, "head-6"))
+        ):
+            _pull_request_run(repo, pr_number, commit_sha, minute=minute, gate=gate)
+        # A merge-queue run carries the pull request's number, but its commit is not the one the guard decides.
+        _pull_request_run(repo, 2, "queue-2", minute=5, purpose=RunPurpose.OBSERVE, branch="trunk-merge/pr-2/q")
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+        github.merge(1, "s1")
+        github.merge(6, "s2")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _ledger(repo)["Button"] == "b6"
+        assert publish.call_args_list == [
+            mocker.call(repo.team_id, str(repo.id), commit_sha, RunType.STORYBOOK) for commit_sha in published_commits
+        ]
+
+    @pytest.mark.parametrize(
+        ("child_run", "published_commits"),
+        [
+            pytest.param("applies_parent", ["head-1", "head-2"], id="child_run_applies_the_parent_approval"),
+            pytest.param("applies_nothing", ["head-1"], id="child_run_applies_no_approval"),
+            pytest.param("superseded", ["head-1"], id="only_a_superseded_child_run_applies_it"),
+        ],
+    )
+    def test_a_landing_publishes_again_for_stack_children_that_applied_a_landed_story_approval(
+        self, repo, github, mocker, django_capture_on_commit_callbacks, child_run, published_commits
+    ) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        parent = approve(repo, 1, "Button", "b1")
+        _pull_request_run(repo, 1, "head-1")
+        applied = make_record(candidate_approval_ids=(parent.id,))
+        current_child = _pull_request_run(
+            repo,
+            2,
+            "head-2",
+            minute=1,
+            metadata={METADATA_KEY: (make_record() if child_run != "applies_parent" else applied).to_json()},
+        )
+        if child_run == "superseded":
+            older_child = _pull_request_run(
+                repo, 2, "head-2-old", branch="pr-2-old", metadata={METADATA_KEY: applied.to_json()}
+            )
+            older_child.superseded_by = current_child
+            older_child.save()
+        approve(repo, 8, "Button", "b8")
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+        github.merge(8, "s1")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _ledger(repo)["Button"] == "b8"
+        assert publish.call_args_list == [
+            mocker.call(repo.team_id, str(repo.id), commit_sha, RunType.STORYBOOK) for commit_sha in published_commits
+        ]
+
+    # Only real transactions commit the two landings apart. Inside a test transaction both callbacks run at its end.
+    @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
+    def test_each_landing_transaction_of_one_advance_publishes_again(self, repo, github, mocker) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        approve(repo, 7, "Button", "b7")
+        approve(repo, 1, "Card", "c1", ledger_base_hash="c0")
+        approve(repo, 2, "Button", "b2")
+        approve(repo, 2, "Card", "c2", ledger_base_hash="c0")
+        _pull_request_run(repo, 2, "p2a")
+        github.push("s1", "feat: late (#7)")
+        github.open_pull_request(7)
+        ledger_advance.advance(repo)
+        github.mark_merged(7, "s1")
+        github.merge(1, "s2")
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+
+        # Pull request 1 lands with the new commits, and pull request 7 after them, when its commit resolves late.
+        result = ledger_advance.advance(repo)
+
+        assert (result.commits_added, result.commits_resolved_late, result.approvals_landed) == (1, 1, 2)
+        assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "p2a", RunType.STORYBOOK)] * 2
 
     def test_a_yaml_repo_is_left_alone(self, repo, github) -> None:
         repo.baseline_mode = BaselineMode.YAML
@@ -726,18 +883,25 @@ class TestReconcileOpenApprovals:
         assert ledger.ledger_at(repo.id, RunType.STORYBOOK, 0)["Button"] == "b0"
 
     @pytest.mark.parametrize(
-        ("merged_days_ago", "expected_state"),
-        [(13, BaselineApprovalState.OPEN), (15, BaselineApprovalState.ABANDONED), (None, BaselineApprovalState.OPEN)],
+        ("merged_days_ago", "merge_commit_sha", "expected_state"),
+        [
+            (13, "m7", BaselineApprovalState.OPEN),
+            (15, "m7", BaselineApprovalState.ABANDONED),
+            (None, "m7", BaselineApprovalState.OPEN),
+            (15, "s1", BaselineApprovalState.PROMOTED),
+        ],
     )
     def test_approvals_of_a_pull_request_merged_into_another_branch_wait_before_they_are_abandoned(
-        self, repo, github, merged_days_ago, expected_state
+        self, repo, github, merged_days_ago, merge_commit_sha, expected_state
     ) -> None:
+        github.push("s1", "chore: no pull request named")
+        ledger_advance.advance(repo)
         approval = approve(repo, 7, "Button", "b7", approved_at=timezone.now() - timedelta(days=30))
         merged_at = None if merged_days_ago is None else timezone.now() - timedelta(days=merged_days_ago)
         github.pull_requests[7] = github_api.PullRequestState(
             state="closed",
             merged=True,
-            merge_commit_sha="m7",
+            merge_commit_sha=merge_commit_sha,
             base_ref="release",
             head_sha="head-7",
             merged_at=merged_at,

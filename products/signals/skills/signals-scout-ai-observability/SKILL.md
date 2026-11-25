@@ -74,7 +74,7 @@ The lenses below are the surfaces worth watching. **Do not run all of them every
 | **Errors**                 | `$ai_is_error` / `$ai_http_status` rate or composition shift            | `exploring-llm-traces`      |
 | **Volume**                 | gen/trace count or distinct-users collapse or surge; runaway-loop shape | `exploring-llm-traces`      |
 | **Eval performance**       | a specific eval's pass-rate / fails-per-day changing recently           | `exploring-llm-evaluations` |
-| **Eval/enrichment config** | an eval / tagger / scorer silently broken or mis-set                    | `exploring-llm-evaluations` |
+| **Eval/enrichment config** | an eval or scorer silently broken or mis-set                            | `exploring-llm-evaluations` |
 | **Clusters**               | a new / growing / error-heavy / expensive cluster                       | `exploring-llm-clusters`    |
 | **Tool usage**             | the mix of tools called shifting; tool-calls-per-trace climbing         | `exploring-llm-traces`      |
 
@@ -145,7 +145,7 @@ Evals & enrichment config:
 
 - `llma-evaluation-list` — eval **config** only (name, type, enabled). Pass-rates are NOT here — read the trend from `$ai_evaluation` events via `execute-sql` (the reliable path).
 - `llma-evaluation-report-list` / `-run-list` — the scheduled AI reports configured on an eval, and what past runs said about it (a drill-down, not the spine). Pair with `llma-evaluation-get` / `-test-hog`.
-- `llma-tagger-list` / `llma-score-definition-list` — the enrichment config surface (auto-taggers and scorers — LLM/Hog jobs that can silently break).
+- `llma-score-definition-list` — the scorer config surface (LLM/Hog jobs that can silently break).
 - `llma-clustering-job-list` / `-get` — semantic clusters over traces/generations.
 - `llma-prompt-list` / `-get` — prompt versions, for correlating a change to its cause.
 

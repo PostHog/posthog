@@ -297,7 +297,7 @@ export function QuillMaterializationRunActions({
                                         })
                                     }
                                 >
-                                    Revert materialization
+                                    Stop materializing
                                 </DropdownMenuItem>
                                 {deleteItem}
                             </>

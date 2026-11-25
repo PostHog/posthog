@@ -1,5 +1,6 @@
 import json
 import dataclasses
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -31,9 +33,11 @@ from products.stamphog.backend.facade.enums import (
     DigestRunStatus,
     ReviewMode,
     ReviewRunStatus,
+    ReviewVerdict,
     RoutingMode,
 )
 from products.stamphog.backend.facade.github import StamphogGitHubError
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import (
     DigestRun,
     PullRequest,
@@ -43,8 +47,9 @@ from products.stamphog.backend.models import (
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
+from products.stamphog.backend.presentation.serializers import CodeReviewApprovalRepositoryWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
+from products.stamphog.backend.tasks.tasks import process_pull_request_event
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
@@ -65,7 +70,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/repositories/"
         # Flipping the review-gating fields takes the manager level, which org admins hold
         # everywhere. The plain-member cases below cover the other side.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -84,7 +89,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         if stamphog_level is not None:
             AccessControl.objects.create(
                 team=grant_team or self.team,
-                resource="stamphog",
+                resource="code_review_approval",
                 resource_id=None,
                 access_level=stamphog_level,
                 organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
@@ -210,14 +215,16 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # "none" on the other team, so the request can only pass on the grant under test.
         AccessControl.objects.create(
             team=env if grant_on_parent else self.team,
-            resource="stamphog",
+            resource="code_review_approval",
             resource_id=None,
             access_level="none",
             organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
         )
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/",
+            {"digest_enabled": True},
+            format="json",
         )
 
         assert response.status_code == expected_status, response.content
@@ -238,7 +245,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/", {"enabled": False}, format="json"
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -261,7 +268,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/", {"enabled": False}, format="json"
         )
 
         assert response.status_code == expected_status, response.content
@@ -415,7 +422,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id, repository="PostHog/posthog", installation_id="7"
         )
 
-        response = self.client.get(f"/api/projects/{env.id}/stamphog/repo_configs/")
+        response = self.client.get(f"/api/projects/{env.id}/code_review/approvals/repositories/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         repos = [row["repository"] for row in response.json()["results"]]
@@ -434,13 +441,13 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             label="child-scoped",
             user=self.user,
             secure_value=hash_key_value(key_value),
-            scopes=["stamphog:read"],
+            scopes=["code_review_approval:read"],
             scoped_teams=[env.id],
         )
         self.client.logout()
 
         response = self.client.get(
-            f"/api/projects/{env.id}/stamphog/repo_configs/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -453,12 +460,10 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand(
-        [("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",), ("routing_runs",)]
-    )
+    @parameterized.expand([("repositories",), ("runs",), ("pull_requests",), ("digests",), ("reviewer_routing",)])
     def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
-        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/{resource}/not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/code_review/approvals/{resource}/not-a-uuid/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cannot_delete_other_teams_config(self) -> None:
@@ -580,10 +585,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert (config.enabled, config.installation_id, config.connected_by_user_id) == (True, "42", self.user.id)
         expected_mode = ReviewMode.LABEL if existing_installation in (None, "") else ReviewMode.ALL
         assert config.review_mode == expected_mode
-        expected_calls = (
-            [call(team_id=self.team.id, config_id=str(config.id))] if expected_mode == ReviewMode.LABEL else []
-        )
-        assert queue_label.call_args_list == expected_calls
+        assert queue_label.call_args_list == [call(team_id=self.team.id, config_id=str(config.id))]
 
     @parameterized.expand(
         [
@@ -644,7 +646,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_asking_for_digest_without_reviews_is_rejected(
         self, _name: str, current: contracts.RepoConfigDTO | None, data: dict
     ) -> None:
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data=data, partial=current is not None, partial_update=current is not None, current=current
         )
         assert not serializer.is_valid()
@@ -653,7 +655,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_disabling_reviews_clears_the_digest(self) -> None:
         # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
         # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data={"enabled": False},
             partial=True,
             partial_update=True,
@@ -683,7 +685,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
                 review_mode=stored_mode,
                 review_on_clean_external_review=True,
             )
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data=data, partial=current is not None, partial_update=current is not None, current=current
         )
 
@@ -706,7 +708,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_fork_labels_take_only_team_slugs_and_github_label_names(
         self, _name: str, labels: dict[str, str], valid: bool
     ) -> None:
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data={"routing_fork_labels": labels},
             partial=True,
             partial_update=True,
@@ -721,7 +723,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/runs/"
         self.repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
         )
@@ -875,7 +877,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(self.url)
             assert response.status_code == status.HTTP_200_OK
             output = response.json()["results"][0]["output"]
-        assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
+        assert output == {"engine_version": "test-1.0.0", "reviewer_exit_code": 0}
         for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
             assert leaked not in output
 
@@ -885,7 +887,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/runs/"
         self.repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id,
             repository="PostHog/posthog",
@@ -987,6 +989,184 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         if existing_silent:
             assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
 
+    def _finish_as(self, run_id: str, verdict: ReviewVerdict) -> None:
+        # Store the context the way the workflow's fetch does, so the run records what its review saw.
+        client = StamphogGitHubClient("77")
+        output = {
+            **ReviewRun.objects.unscoped().get(id=run_id).output,
+            "pr": client.get_pr("PostHog/posthog", 5),
+            "reviews": client.get_pr_reviews("PostHog/posthog", 5),
+            "discussion": client.get_pr_discussion("PostHog/posthog", 5),
+            "review_threads": client.get_pr_review_threads("PostHog/posthog", 5),
+        }
+        ReviewRun.objects.unscoped().filter(id=run_id).update(
+            status=ReviewRunStatus.COMPLETED, verdict=verdict, output=output
+        )
+
+    def _comment(self, body: str, login: str = "bob", association: str = "MEMBER", bot: bool = False) -> None:
+        user = {"login": login, "type": "Bot" if bot else "User"}
+        self.github.issue_comments.setdefault(("PostHog/posthog", 5), []).append(
+            {"user": user, "author_association": association, "body": body}
+        )
+
+    def _answer_but_fail_the_thread_read(self, error: Exception) -> None:
+        self._comment("The flag is checked upstream.")
+        patcher = patch(f"{_CLIENT}.get_pr_review_threads", side_effect=error)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _add_trigger_label(self) -> dict[str, Any]:
+        runs = ReviewRun.objects.unscoped().filter(team_id=self.team.id).order_by("-created_at")
+        newest_before = runs.first()
+        payload = {
+            "action": "labeled",
+            "installation": {"id": "77"},
+            "repository": {"full_name": "PostHog/posthog"},
+            "pull_request": self.github.prs[("PostHog/posthog", 5)],
+            "label": {"name": "stamphog"},
+        }
+        process_pull_request_event(payload, f"delivery-{uuid7()}")
+        newest = runs.first()
+        assert newest is not None
+        return {"created": newest != newest_before, "run": {"id": str(newest.id)}}
+
+    def _ask(self, via: str) -> dict[str, Any]:
+        return self._request().json() if via == "api" else self._add_trigger_label()
+
+    def _label_notices(self) -> list[str]:
+        return [
+            w["body"]["body"] for w in self.github.github_writes if w["kind"] in ("issue_comment", "issue_comment_edit")
+        ]
+
+    def _label_removals(self) -> list[str]:
+        return [w["label"] for w in self.github.github_writes if w["kind"] == "remove_label"]
+
+    @parameterized.expand(
+        [
+            (f"{name}_via_{via}", verdict, change, expect_created, notice, via)
+            for name, verdict, change, expect_created, notice in [
+                ("nothing_changed", ReviewVerdict.REFUSED, lambda t: None, False, "found no new comments"),
+                (
+                    "stamphog_commented",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._comment("Not approved.", "stamphog[bot]", bot=True),
+                    False,
+                    "found no new comments",
+                ),
+                (
+                    "author_answered",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._comment("The flag is checked upstream."),
+                    True,
+                    None,
+                ),
+                ("escalation_answered", ReviewVerdict.ESCALATE, lambda t: t._comment("Owner signed off."), True, None),
+                (
+                    "evidence_unreadable",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._answer_but_fail_the_thread_read(
+                        StamphogGitHubError("GraphQL errors", status_code=502)
+                    ),
+                    False,
+                    "could not read the comments",
+                ),
+                (
+                    "evidence_read_shed",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._answer_but_fail_the_thread_read(GitHubEgressBudgetExhausted("budget spent")),
+                    False,
+                    "could not read the comments",
+                ),
+                (
+                    "approval_stands",
+                    ReviewVerdict.APPROVED,
+                    lambda t: t._comment("Thanks."),
+                    False,
+                    "already approved this commit",
+                ),
+                ("wait_stands", ReviewVerdict.WAIT, lambda t: t._comment("Thanks."), False, "does not repeat"),
+                (
+                    "review_in_flight",
+                    ReviewVerdict.REFUSED,
+                    lambda t: (
+                        ReviewRun.objects.unscoped().filter(team_id=t.team.id).update(status=ReviewRunStatus.REVIEWING)
+                    ),
+                    False,
+                    "already reviewing this commit",
+                ),
+            ]
+            for via in ("api", "label")
+        ]
+    )
+    def test_request_reviews_a_refused_head_again_only_for_new_evidence(
+        self,
+        _name: str,
+        verdict: ReviewVerdict,
+        change: Callable[[Any], None],
+        expect_created: bool,
+        notice: str | None,
+        via: str,
+    ) -> None:
+        if via == "label":
+            StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(review_mode=ReviewMode.ALL)
+        first = self._ask(via)["run"]["id"]
+        self._finish_as(first, verdict)
+        change(self)
+        self.start_workflow.reset_mock()
+
+        body = self._ask(via)
+
+        assert body["created"] is expect_created
+        assert self.start_workflow.called is expect_created
+        if expect_created:
+            run = ReviewRun.objects.unscoped().get(id=body["run"]["id"])
+            assert run.output["evidence_rerun_of"] == first
+            assert run.output["review_trigger"] == ("manual" if via == "api" else "label")
+        else:
+            assert body["run"]["id"] == first
+        if via == "api":
+            return
+        if notice is None:
+            assert (self._label_removals(), self._label_notices()) == ([], [])
+        else:
+            assert self._label_removals() == ["stamphog"]
+            assert len(self._label_notices()) == 1
+            assert notice in self._label_notices()[0]
+
+    @parameterized.expand([("api",), ("label",)])
+    def test_evidence_re_runs_never_repeat_reviewed_evidence_and_stop_at_the_cap(self, via: str) -> None:
+        if via == "label":
+            StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(review_mode=ReviewMode.ALL)
+        run_id = self._ask(via)["run"]["id"]
+        self._finish_as(run_id, ReviewVerdict.REFUSED)
+
+        def answer(text: str, *, fails: bool = False) -> dict:
+            self._comment(text)
+            body = self._ask(via)
+            if body["created"] and fails:
+                ReviewRun.objects.unscoped().filter(id=body["run"]["id"]).update(status=ReviewRunStatus.FAILED)
+            elif body["created"]:
+                self._finish_as(body["run"]["id"], ReviewVerdict.REFUSED)
+            return body
+
+        assert answer("First answer.")["created"] is True
+        after_first = list(self.github.issue_comments[("PostHog/posthog", 5)])
+        second = answer("Second answer.")
+        assert second["created"] is True
+
+        self.github.issue_comments[("PostHog/posthog", 5)] = after_first
+        body = self._ask(via)
+        assert (body["created"], body["run"]["id"]) == (False, second["run"]["id"])
+
+        # A re-run that failed reviewed nothing, so it leaves the third slot free.
+        assert answer("Third answer.", fails=True)["created"] is True
+        third = answer("Fourth answer.")
+        assert third["created"] is True
+        body = answer("Fifth answer.")
+        assert (body["created"], body["run"]["id"]) == (False, third["run"]["id"])
+        if via == "label":
+            assert "reached that limit" in self._label_notices()[-1]
+
     @parameterized.expand(
         [
             ("draft", {"draft": True}, "read"),
@@ -1010,7 +1190,10 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_request_needs_the_write_scope(self) -> None:
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="read-only", user=self.user, secure_value=hash_key_value(key_value), scopes=["stamphog:read"]
+            label="read-only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["code_review_approval:read"],
         )
         self.client.logout()
 
@@ -1068,7 +1251,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/repositories/sync_installation/"
         self.state = _install_state(self.team.id, self.user.id)
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
@@ -1361,7 +1544,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/routing_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/reviewer_routing/"
         repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
         )
@@ -1412,10 +1595,14 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         pull_request = PullRequest.objects.unscoped().create(
             team_id=team_id, repo_config=repo_config, pr_number=pr_number
         )
+        return self._log_run(pull_request, owners)
+
+    def _log_run(self, pull_request: PullRequest, owners: list[dict]) -> RoutingRun:
+        team_id = pull_request.team_id
         run = RoutingRun.objects.unscoped().create(
             team_id=team_id,
             pull_request=pull_request,
-            head_sha=f"head-{pr_number}",
+            head_sha=f"head-{pull_request.pr_number}",
             mode=RoutingMode.ALWAYS,
             trigger="opened",
             scope="full",
@@ -1433,6 +1620,9 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("by_pull_request", {"pr_number": 2}, [2]),
             ("by_head_sha", {"head_sha": "head-2"}, [2]),
             ("by_outcome", {"outcome": "cut"}, [1]),
+            ("by_any_of_several_outcomes", {"outcome": "cut,requested"}, [2, 1]),
+            ("by_outcomes_as_a_json_array", {"outcome": '["cut","requested"]'}, [2, 1]),
+            ("by_one_outcome_as_a_json_array", {"outcome": '["cut"]'}, [1]),
             ("by_reason", {"reason": "model_kept"}, [2]),
             ("by_owner_and_outcome_on_one_owner", {"owner": "team-alpha", "outcome": "cut"}, []),
         ]
@@ -1455,10 +1645,87 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
 
+    @parameterized.expand(
+        [
+            (
+                "newest_run_decides_the_owner_outcome",
+                {"owner": "team-delta", "outcome": "not_requested", "latest_per_pr": "true"},
+                [11],
+            ),
+            ("every_run_without_latest_per_pr", {"owner": "team-delta", "outcome": "not_requested"}, [11, 10]),
+            (
+                "window_never_falls_back_to_an_older_run",
+                {"owner": "team-delta", "latest_per_pr": "true", "created_before": timedelta(days=-3, hours=-12)},
+                [11],
+            ),
+            ("merged_after_is_inclusive", {"merged_after": timedelta(days=-1)}, [11]),
+            ("merged_before_is_exclusive", {"merged_before": timedelta(days=-1), "latest_per_pr": "true"}, [10]),
+            ("not_merged", {"merged": "false", "latest_per_pr": "true"}, [2, 1]),
+            ("newest_merge_first", {"merged": "true", "latest_per_pr": "true", "ordering": "-merged_at"}, [11, 10]),
+        ]
+    )
+    def test_list_shows_what_landed_in_an_owners_area(
+        self, _name: str, query: dict[str, Any], expected_pr_numbers: list[int]
+    ) -> None:
+        now = timezone.now()
+        repo_config = StamphogRepoConfig.objects.unscoped().get(team_id=self.team.id)
+        # #10 merged before #11, but its newest run is the newer one, and it asked team-delta.
+        landed = [
+            (10, now - timedelta(days=2), [(-5, "not_requested"), (-3, "requested")]),
+            (11, now - timedelta(days=1), [(-4, "not_requested")]),
+        ]
+        for pr_number, merged_at, runs in landed:
+            pull_request = PullRequest.objects.unscoped().create(
+                team_id=self.team.id, repo_config=repo_config, pr_number=pr_number, merged_at=merged_at
+            )
+            for days, outcome in runs:
+                run = self._log_run(
+                    pull_request, [{"owner": "team-delta", "kind": "team", "outcome": outcome, "reason": "model_kept"}]
+                )
+                RoutingRun.objects.unscoped().filter(id=run.id).update(created_at=now + timedelta(days=days))
+
+        params = {
+            key: (now + value).isoformat() if isinstance(value, timedelta) else value for key, value in query.items()
+        }
+        response = self.client.get(self.url, params)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert [run["pr_number"] for run in body["results"]] == expected_pr_numbers
+        # With latest_per_pr, #10's two runs count as one pull request.
+        assert body["count"] == len(expected_pr_numbers)
+
     def test_a_run_says_why_each_owner_was_or_was_not_asked(self) -> None:
+        merged_at = timezone.now().replace(microsecond=0)
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(
+            title="Cache flag definitions per request",
+            author_login="octocat",
+            pr_url="https://github.com/PostHog/posthog/pull/1",
+            merged_at=merged_at,
+            additions=40,
+            deletions=12,
+            changed_files=3,
+        )
+
         response = self.client.get(self.url, {"pr_number": 1})
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        pull_request = response.json()["results"][0]["pull_request"]
+        assert {**pull_request, "merged_at": datetime.fromisoformat(pull_request["merged_at"])} == {
+            "title": "Cache flag definitions per request",
+            "author": "octocat",
+            "url": "https://github.com/PostHog/posthog/pull/1",
+            "merged_at": merged_at,
+            "additions": 40,
+            "deletions": 12,
+            "changed_files": 3,
+            "summary": None,
+            "auto_approved": False,
+        }
+        # The stored size is 0 until the merge, which the API reports as unknown.
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(merged_at=None)
+        unmerged = self.client.get(self.url, {"pr_number": 1}).json()["results"][0]["pull_request"]
+        assert (unmerged["additions"], unmerged["deletions"], unmerged["changed_files"]) == (None, None, None)
         owners = {owner["owner"]: owner for owner in response.json()["results"][0]["owners"]}
         assert owners["team-alpha"]["pins"] == [self._PIN]
         # The list stays small on a large pull request. One run carries the files.
@@ -1469,6 +1736,163 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "model_cut",
             "Only renames an import.",
         )
+
+    @parameterized.expand(
+        [
+            ("no_review", [], None, None, False),
+            (
+                "one_team_summary_has_no_clause",
+                [{"change_summary": "Caches flag definitions per request."}],
+                "Caches flag definitions per request.",
+                None,
+                False,
+            ),
+            (
+                "clause_per_team",
+                [{"change_summary": "Splits the config. @PostHog/team-alpha: moves the loader."}],
+                "Splits the config.",
+                "moves the loader.",
+                False,
+            ),
+            (
+                "markdown_images_are_neutralized_in_the_summary_and_every_clause",
+                [
+                    {
+                        "change_summary": (
+                            "Adds a chart ![a](https://example.com/a.png). "
+                            "@PostHog/team-alpha: moves ![b](https://example.com/b.png) the loader."
+                        )
+                    }
+                ],
+                "Adds a chart [image removed].",
+                "moves [image removed] the loader.",
+                False,
+            ),
+            (
+                "newest_completed_summary_wins",
+                [
+                    {"change_summary": "Older summary.", "created_at": -2},
+                    {"change_summary": "Newer summary.", "created_at": -1},
+                    {"change_summary": "", "created_at": 0},
+                    {"change_summary": "Failed run.", "status": ReviewRunStatus.FAILED, "created_at": 0},
+                ],
+                "Newer summary.",
+                None,
+                False,
+            ),
+            ("approved_at_the_routed_head", [{"verdict": "approved"}], None, None, True),
+            ("approved_at_another_head", [{"verdict": "approved", "head_sha": "head-older"}], None, None, False),
+            (
+                "dismissed_approval",
+                [{"verdict": "approved", "approval_dismissed_at": 0}],
+                None,
+                None,
+                False,
+            ),
+            (
+                "approval_retained_at_the_routed_head",
+                [{"verdict": "approved", "head_sha": "head-older", "output": {"retained_head_shas": ["head-1"]}}],
+                None,
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_a_run_carries_the_review_summary_and_approval(
+        self,
+        _name: str,
+        review_runs: list[dict[str, Any]],
+        expected_summary: str | None,
+        expected_alpha_clause: str | None,
+        expected_approved: bool,
+    ) -> None:
+        now = timezone.now()
+        pull_request = self.run_one.pull_request
+        for fields in review_runs:
+            times: dict[str, datetime] = {
+                key: now + timedelta(days=fields[key])
+                for key in ("created_at", "approval_dismissed_at")
+                if key in fields
+            }
+            values: dict[str, Any] = {"head_sha": "head-1", "status": ReviewRunStatus.COMPLETED, **fields, **times}
+            run = ReviewRun.objects.unscoped().create(team_id=self.team.id, pull_request=pull_request, **values)
+            # created_at is auto_now_add, so the create ignores it.
+            if "created_at" in times:
+                ReviewRun.objects.unscoped().filter(id=run.id).update(created_at=times["created_at"])
+
+        response = self.client.get(self.url, {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        run = response.json()["results"][0]
+        assert run["pull_request"]["summary"] == expected_summary
+        assert run["pull_request"]["auto_approved"] is expected_approved
+        owners = {owner["owner"]: owner["summary"] for owner in run["owners"]}
+        assert owners == {"team-alpha": expected_alpha_clause, "team-beta": None}
+
+    def test_only_the_single_run_read_returns_each_owners_files(self) -> None:
+        files = [{**self._FILE, "path": f"products/alpha/{lines}.py", "additions": lines} for lines in (5, 40, 1, 12)]
+        RoutingRunOwner.objects.unscoped().filter(run=self.run_one, owner="team-alpha").update(files=files)
+
+        listed = self.client.get(self.url, {"pr_number": 1}).json()["results"][0]
+        one = self.client.get(f"{self.url}{self.run_one.id}/").json()
+
+        alpha = next(owner for owner in listed["owners"] if owner["owner"] == "team-alpha")
+        assert "files" not in alpha
+        # The single-run read keeps every file.
+        assert len(next(owner for owner in one["owners"] if owner["owner"] == "team-alpha")["files"]) == 4
+
+    @parameterized.expand(
+        [
+            ("default_window", {}, [("team-alpha", 2), ("team-beta", 1), ("team-gamma", 1)]),
+            ("custom_window", {"created_after": timedelta(days=-1)}, [("team-alpha", 1), ("team-gamma", 1)]),
+        ]
+    )
+    def test_owners_count_distinct_pull_requests(
+        self, _name: str, query: dict[str, Any], expected: list[tuple[str, int]]
+    ) -> None:
+        now = timezone.now()
+        # A second run of #1 asks team-alpha again, which must not count #1 twice.
+        self._log_run(
+            self.run_one.pull_request,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "requested", "reason": "model_kept"}],
+        )
+        repo_config = self.run_one.pull_request.repo_config
+        old = self._make_run(
+            self.team.id,
+            repo_config,
+            4,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "cut", "reason": "model_cut"}],
+        )
+        self._make_run(
+            self.team.id,
+            repo_config,
+            5,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "cut", "reason": "model_cut"}],
+        )
+        runs = RoutingRun.objects.unscoped()
+        runs.filter(id=old.id).update(created_at=now - timedelta(days=120))
+        runs.filter(team_id=self.team.id, pull_request__pr_number=1).update(created_at=now - timedelta(days=2))
+
+        params = {key: (now + value).isoformat() for key, value in query.items()}
+        response = self.client.get(f"{self.url}owners/", params)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(row["owner"], row["pr_count"]) for row in response.json()] == expected
+        assert {row["kind"] for row in response.json()} == {"team"}
+
+    def test_owners_accepts_a_key_with_the_read_scope(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["code_review_approval:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"{self.url}owners/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
 
     def test_runs_created_at_the_same_time_page_without_gaps(self) -> None:
         RoutingRun.objects.unscoped().filter(team_id=self.team.id).update(created_at=timezone.now())
@@ -1548,7 +1972,9 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(routing=stored)
         StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).update(routing_mode=RoutingMode.FALLBACK)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/pull_requests/", {"pr_number": 1})
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/code_review/approvals/pull_requests/", {"pr_number": 1}
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         pull_request = response.json()["results"][0]
@@ -1610,7 +2036,7 @@ class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 summary=summary,
             )
 
-        url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
+        url = f"/api/projects/{self.team.id}/code_review/approvals/digests/"
         body = self.client.get(url).json()
         assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2", "C3"}
         assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y", "team-z"}

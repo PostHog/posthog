@@ -1,10 +1,12 @@
 """Vercel Marketplace webhooks.
 
-Three quirks: Vercel signs with HMAC-SHA1, its marketplace App is registered against the
-secondary region rather than the primary one, and its invoice events are an open-ended family
-that the registry, which matches an exact event type, sees under one collapsed name.
+Four quirks: Vercel signs with HMAC-SHA1; it sends no timestamp header, so freshness comes from
+the signed body; its marketplace App is registered against the secondary region rather than the
+primary one; and its invoice events are an open-ended family that the registry, which matches an
+exact event type, sees under one collapsed name.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -14,7 +16,8 @@ from django.utils import timezone
 
 from posthog import regions
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.dispatch.dedup import DELIVERY_DEDUP_TTL_SECONDS
+from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.verify.schemes import HmacSignature, SignatureScheme
 
 # Vercel names every invoice event `marketplace.invoice.<something>` and adds to the family over
@@ -26,6 +29,16 @@ VERCEL_TRANSFER_EVENT = "integration-configuration.transferred"
 VERCEL_EVENT_TYPES = frozenset({VERCEL_BILLING_EVENT, VERCEL_DEAUTHORIZATION_EVENT, VERCEL_TRANSFER_EVENT})
 
 VERCEL_SIGNATURE_HEADER = "x-vercel-signature"
+
+VERCEL_DELIVERY_ID_FIELD = "id"
+VERCEL_CREATED_AT_FIELD = "createdAt"
+MILLISECONDS_PER_SECOND = 1000
+
+VERCEL_CLOCK_SKEW_SECONDS = 5 * 60
+
+# A copy older than this would outlive the dedup mark on its `id` and run again. The skew allowance
+# covers a Vercel clock that runs ahead of this one.
+VERCEL_DELIVERY_MAX_AGE_SECONDS = DELIVERY_DEDUP_TTL_SECONDS - VERCEL_CLOCK_SKEW_SECONDS
 
 # Whether the request reached the region the marketplace App's one webhook URL names. Only that
 # region forwards, so only there is a local miss somebody else's to settle; the consumer reads
@@ -44,6 +57,34 @@ def delivery_event_type(raw_event_type: str) -> str:
     if raw_event_type.startswith(f"{VERCEL_BILLING_EVENT}."):
         return VERCEL_BILLING_EVENT
     return raw_event_type
+
+
+def read_delivery_id(payload: Mapping[str, Any]) -> str:
+    """The body's `id`. The signature covers it, so a copy of a delivery carries the same one."""
+    value = payload.get(VERCEL_DELIVERY_ID_FIELD)
+    if not isinstance(value, str) or not value:
+        raise InvalidPayload(f"Vercel delivery has no string `{VERCEL_DELIVERY_ID_FIELD}`")
+    return value
+
+
+def _created_at_is_fresh(created_at: Any, *, now_seconds: float) -> bool:
+    """Whether a `createdAt` in milliseconds falls inside the window that dedup covers.
+
+    A missing or malformed value is not fresh. Vercel sends the field on every event, and a body
+    without it would stay acceptable after its dedup mark expires.
+    """
+    # `bool` is a subclass of `int`, and `json.loads` accepts `NaN`, `Infinity` and integers too large for a float.
+    if isinstance(created_at, bool) or not isinstance(created_at, int | float):
+        return False
+    try:
+        created_at_ms = float(created_at)
+    except OverflowError:
+        return False
+    if not math.isfinite(created_at_ms):
+        return False
+
+    age_seconds = now_seconds - created_at_ms / MILLISECONDS_PER_SECOND
+    return -VERCEL_CLOCK_SKEW_SECONDS <= age_seconds <= VERCEL_DELIVERY_MAX_AGE_SECONDS
 
 
 class VercelProvider(WebhookProvider):
@@ -84,6 +125,12 @@ class VercelProvider(WebhookProvider):
     def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
+
+        delivery_id = read_delivery_id(payload)
+        now = timezone.now()
+        if not _created_at_is_fresh(payload.get(VERCEL_CREATED_AT_FIELD), now_seconds=now.timestamp()):
+            raise InvalidPayload(f"Vercel delivery `{VERCEL_CREATED_AT_FIELD}` is missing or outside the window")
+
         in_receiving_region = request.get_host() == self.receiving_region_domain()
         # The whole body travels, not its `payload` field: the consumer needs the exact event
         # name the prefix above collapsed, and that lives on the envelope.
@@ -91,13 +138,10 @@ class VercelProvider(WebhookProvider):
             WebhookDelivery(
                 provider=self.provider,
                 app=self.app,
-                # Vercel does send one, as the body's `id`. It is left unused because turning
-                # dedup on changes which redeliveries reach the consumer, and that belongs in its
-                # own change rather than in a transport swap. Dedup stays the consumer's own job.
-                delivery_id=None,
+                delivery_id=delivery_id,
                 event_type=delivery_event_type(str(payload.get("type", ""))),
                 payload=payload,
-                received_at=timezone.now(),
+                received_at=now,
                 context={RECEIVING_REGION_CONTEXT_KEY: "true" if in_receiving_region else "false"},
             ),
         )

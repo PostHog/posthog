@@ -20,6 +20,7 @@ import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { trackLiveEventActionTaken } from './analytics'
 import { LiveEventProperties } from './LiveEventProperties'
@@ -86,6 +87,7 @@ function EventDetails({
 }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const { height } = useSceneDimensions()
     const router = useRouter()
     const now = useNow(active ? 10_000 : null).getTime()
     const replayInApp = useFeatureFlag(FEATURE_FLAGS.sessionReplay)
@@ -133,7 +135,7 @@ function EventDetails({
 
     const demo = scope === null
     return (
-        <View style={styles.body}>
+        <View style={[styles.body, { height: Math.min(400, height * 0.5) }]}>
             <SheetTitle title={event.label} subtitle={subtitle} onDone={onClose} />
             <GestureDetector gesture={scrollGesture}>
                 <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
@@ -210,7 +212,7 @@ function EventDetails({
 
 const useStyles = createStyles(({ colors }) => ({
     body: { flexShrink: 1 },
-    scroll: { flexShrink: 1 },
+    scroll: { flex: 1 },
     content: { paddingBottom: 8 },
     card: {
         marginTop: 8,

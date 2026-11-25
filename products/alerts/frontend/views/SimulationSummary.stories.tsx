@@ -55,8 +55,8 @@ const FORECAST_RESULT: AlertSimulationResult = {
     total_points: FORECAST_VALUES.length,
     anomaly_count: FORECAST_TRIGGERED.length,
     forecast: {
-        lower_quantile: 0.05,
-        upper_quantile: 0.95,
+        lower_quantile: 0.01,
+        upper_quantile: 0.99,
         expected: scoredOnly(FORECAST_EXPECTED),
         lower: scoredOnly(FORECAST_EXPECTED.map((v) => v - 20)),
         upper: scoredOnly(FORECAST_EXPECTED.map((v) => v + 20)),
@@ -117,7 +117,7 @@ export const Forecast: Story = {
         <StoryFrame>
             <SimulationSummary
                 result={FORECAST_RESULT}
-                detectorConfig={{ type: 'forecast', above: { quantile: 0.95 }, below: { quantile: 0.05 } }}
+                detectorConfig={{ type: 'forecast', above: { quantile: 0.99 }, below: { quantile: 0.01 } }}
             />
         </StoryFrame>
     ),

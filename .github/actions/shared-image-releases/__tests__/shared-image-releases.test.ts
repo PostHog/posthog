@@ -1,7 +1,7 @@
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
+import {ChangeStatus, Filter, Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
 
 const destination = {repository: 'posthog-temporal-workers/data-warehouse-metadata'}
 const source = 'posthog-cloud'
@@ -10,12 +10,51 @@ const literal = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/shared-im
   {paths: Paths; bytes: string; sha256: string}[]
 describe('shared-image publication bindings and fingerprints', () => {
   test('binds every channel of the committed policy', () => {
-    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../..', POLICY_PATH), 'utf8'))
+    const repositoryRoot = path.join(__dirname, '../../../..')
+    const policy = loadPolicy(readFileSync(path.join(repositoryRoot, POLICY_PATH), 'utf8'))
     const channels = policy.images['posthog-cloud'].channels
     const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
     expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
+    const base = policy.filters.sharedWorkerBase
+    const witnesses = [
+      '.dockerignore', 'Dockerfile', 'uv.lock',
+      'tools/hogli/pyproject.toml', 'packages/owners-yaml/pyproject.toml', 'packages/owners-yaml/README.md',
+      'packages/personhog-proto/pyproject.toml',
+      'posthog/management/commands/migrate.py', 'posthog/management/commands/migrate_clickhouse.py',
+      'posthog/migrations/0001_initial.py', 'posthog/clickhouse/migrations/0001_initial.py',
+      'products/access_control/backend/migrations/0001_initial.py'
+    ]
+    const files = witnesses.map(filename => ({filename, status: ChangeStatus.Modified}))
     for (const [name, channel] of Object.entries(channels)) {
       expect(bindings[name]).toEqual({repository: channel.repository})
+      expect({[channel.filter]: policy.filters[channel.filter].slice(0, base.length)}).toEqual({[channel.filter]: base})
+      const matched = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(files).channel
+      expect({[channel.filter]: matched.map(file => file.filename)}).toEqual({[channel.filter]: witnesses})
+    }
+
+    const workflowPath = '.github/workflows/container-images-cd.yml'
+    const workflow = yaml.load(readFileSync(path.join(repositoryRoot, workflowPath), 'utf8')) as
+      {jobs: {shared_image_channels: {'timeout-minutes'?: number; steps: {'timeout-minutes'?: number; with?: Record<string, string>}[]}}}
+    const job = workflow.jobs.shared_image_channels
+    const budgetInput = 'shared-image-budgets'
+    const publish = job.steps.find(step => step.with?.[budgetInput] !== undefined)
+    const budget = publish?.with?.[budgetInput]
+    if (publish === undefined || budget === undefined) throw new Error(`Missing ${budgetInput} in shared_image_channels`)
+    const {maxChannels, concurrency, fetchMs, comparisonMs, channelMs, totalMs} = JSON.parse(budget) as Record<string, number>
+    const channelCount = Object.keys(bindings).length
+    expect(channelCount).toBeLessThanOrEqual(maxChannels)
+    const worstCaseMs = fetchMs + 2 * comparisonMs + Math.ceil(channelCount / concurrency) * channelMs
+    if (!(worstCaseMs <= totalMs)) {
+      throw new Error(`${channelCount} channels that all publish can take ${worstCaseMs} ms (fetchMs + 2 x comparisonMs + ceil(channels / concurrency) x channelMs), ` +
+        `above totalMs ${totalMs}: in ${workflowPath} raise totalMs to at least ${worstCaseMs} and the publish step and job timeout-minutes with it`)
+    }
+    const stepMinutes = publish['timeout-minutes'] ?? 0
+    if (!(stepMinutes * 60000 > totalMs)) {
+      throw new Error(`In ${workflowPath} the publish step timeout-minutes ${stepMinutes} (${stepMinutes * 60000} ms) must exceed totalMs ${totalMs}`)
+    }
+    const stepsMinutes = job.steps.reduce((sum, step) => sum + (step['timeout-minutes'] ?? 0), 0)
+    if ((job['timeout-minutes'] ?? 0) <= stepsMinutes) {
+      throw new Error(`In ${workflowPath} the shared_image_channels timeout-minutes ${job['timeout-minutes']} must exceed the sum of its steps' timeout-minutes, ${stepsMinutes}`)
     }
   })
 

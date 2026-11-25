@@ -6,10 +6,11 @@ import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
+import { ContentAutopilotAnswerSentimentTag } from './ContentAutopilotAnswerSentimentTag'
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
-import { CITATIONS_MAX_DAYS } from './contentAutopilotCitationsModalLogic'
+import { CITATIONS_MAX_DATE_FROM } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { checkPromptVersion, engineLabel } from './utils'
@@ -70,6 +71,13 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                 position={shownCheck.target_best_position}
                             />
                         )}
+                        {shownCheck.check_failed ? null : (
+                            <ContentAutopilotAnswerSentimentTag
+                                sentiment={shownCheck.brand_sentiment ?? null}
+                                score={shownCheck.brand_sentiment_score ?? null}
+                                namesBrand={shownAnswerMentions?.mentions.some((m) => m.brand.isOwn) ?? false}
+                            />
+                        )}
                         <span>
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}
                             <TZLabel time={shownCheck.created_at} />
@@ -88,6 +96,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             <ContentAutopilotAnswerText
                                 text={shownCheck.answer_text ?? ''}
                                 mentions={shownAnswerMentions}
+                                sentences={shownCheck.brand_sentiment_sentences}
                             />
                             <ContentAutopilotAnswerMentionList
                                 mentions={shownAnswerMentions?.mentions ?? []}
@@ -112,7 +121,8 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             lookup={{
                                                 kind: 'url',
                                                 value: url,
-                                                days: CITATIONS_MAX_DAYS,
+                                                dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                dateTo: null,
                                                 branded: 'all',
                                             }}
                                             source="prompt-answer-sources"
@@ -155,7 +165,8 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             lookup={{
                                                 kind: 'search',
                                                 value: query,
-                                                days: CITATIONS_MAX_DAYS,
+                                                dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                dateTo: null,
                                                 branded: 'all',
                                             }}
                                             source="prompt-answer-searches"

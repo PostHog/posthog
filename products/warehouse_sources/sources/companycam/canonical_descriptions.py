@@ -1,5 +1,18 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
+_COMMENT_COLUMNS = {
+    "id": "The unique ID of the Comment.",
+    "creator_id": "The id of the entity that created the Comment.",
+    "creator_type": "The type of the entity that created the Comment.",
+    "creator_name": "The display name of the entity that created the Comment.",
+    "commentable_id": "The unique ID of the entity that the Comment was applied to.",
+    "commentable_type": "The type of the entity that the Comment was applied to.",
+    "status": "The status of the Comment (always active).",
+    "content": "The contents of the Comment. May contain whitespace characters such as newlines.",
+    "created_at": "Timestamp when the Comment was created on the server.",
+    "updated_at": "Timestamp when the Comment was last updated.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Projects": {
         "description": "A jobsite or work location where photos, videos, and documents are organized.",
@@ -192,5 +205,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Timestamp when the Tag was created on the server.",
             "updated_at": "Timestamp when the Tag was last updated.",
         },
+    },
+    "ProjectCollaborators": {
+        "description": "A company that collaborates on a Project. One row per Project and collaboration.",
+        "docs_url": "https://docs.companycam.com/reference/listprojectcollaborators",
+        "columns": {
+            "id": "The unique ID of the collaborator.",
+            "project_id": "The unique ID of the Project the collaborator is a part of.",
+            "company_id": "The unique ID of the collaborating Company.",
+            "project_invitation_id": "The unique ID of the invitation for the collaboration.",
+            "accepted_at": "Timestamp when the project collaboration was accepted.",
+            "created_at": "Timestamp when the project collaboration was created on the server.",
+            "updated_at": "Timestamp when the project collaboration was last updated.",
+        },
+    },
+    "ProjectComments": {
+        "description": "A comment left on a Project.",
+        "docs_url": "https://docs.companycam.com/reference/listprojectcomments",
+        "columns": _COMMENT_COLUMNS | {"project_id": "The id of the Project the Comment was left on."},
+    },
+    "PhotoComments": {
+        "description": "A comment left on a Photo.",
+        "docs_url": "https://docs.companycam.com/reference/listphotocomments",
+        "columns": _COMMENT_COLUMNS | {"photo_id": "The id of the Photo the Comment was left on."},
     },
 }

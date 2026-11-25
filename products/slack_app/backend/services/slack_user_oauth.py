@@ -64,21 +64,32 @@ def granted_user_scopes(user_scopes: str) -> frozenset[str]:
 class LinkedUserToken:
     access_token: str = field(repr=False)
     scopes: frozenset[str]
+    user_distinct_id: str | None
 
 
 def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
     """The user token of the most recent link, with the scopes Slack granted it."""
-    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).first()
+    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).select_related("user").first()
     token = (link.sensitive_config or {}).get("user_access_token") if link else None
     if link is None or not token:
         return None
-    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link))
+    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link), user_distinct_id=link.user.distinct_id)
 
 
 def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
     """The link's token when it can search public channels, which the work focus needs. Otherwise None."""
     token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
     return token if token is not None and "search:read.public" in token.scopes else None
+
+
+def linked_posthog_distinct_id(*, slack_user_id: str, slack_team_id: str) -> str | None:
+    """The distinct id of the PostHog user behind the most recent active link to this Slack identity, in any
+    organization. A flag gate deciding for a Slack user takes this, and falls back to the workspace before the link."""
+    return (
+        _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+        .values_list("user__distinct_id", flat=True)
+        .first()
+    )
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:

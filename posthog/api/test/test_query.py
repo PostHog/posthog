@@ -51,17 +51,21 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.experiments.backend.facade.warehouse_native_access import WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade.query_labels import (
     MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
     MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
@@ -218,9 +222,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "A column in this query doesn't exist in the data. Check the column names. "
                 "If the query uses a view, check that the view still matches its source table.",
             ),
-            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
-            ("syntax_error", 62, "ClickHouse error while executing query."),
-            ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            (
+                "unsupported_method",
+                1,
+                "This operation isn't supported here. Simplify the expression or use a different SQL function.",
+            ),
+            (
+                "syntax_error",
+                62,
+                "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+            ),
+            (
+                "unknown_code",
+                999_999,
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
+            ),
             *[
                 (
                     storage_error,
@@ -593,7 +609,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_safe_clickhouse_error_passed_through(self):
+    def test_argument_type_error_names_the_function(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
         with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
@@ -605,7 +621,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response["code"], "illegal_type_of_argument")
             self.assertEqual(response["attr"], None)
             self.assertIn(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                "`plus` cannot combine DateTime64 and String",
                 response["detail"],
             )
 
@@ -1614,6 +1630,57 @@ class TestQueryRetrieve(APIBaseTest):
         else:
             self.assertNotIn("warehouse result", response.content.decode())
 
+    def test_warehouse_native_results_require_connection_access(self) -> None:
+        # Every member of the team can fetch an async status by id. The totals came from the customer's warehouse,
+        # so a viewer who may not read the connection in full must not get them.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type=ExternalDataSourceType.BIGQUERY,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [f"{WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX}{source.id}"],
+                "results": ["warehouse totals"],
+            }
+        ).encode()
+
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()["query_status"]["results"], ["warehouse totals"])
+
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+            response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertNotIn("warehouse totals", response.content.decode())
+
+        # A sharing token reaches this endpoint without a user, so no connection access can be checked for it.
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        self.client.logout()
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/query/{self.valid_query_id}/?sharing_access_token={share.access_token}"
+            )
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertNotIn("warehouse totals", response.content.decode())
+
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
@@ -1634,6 +1701,11 @@ class TestQueryRetrieve(APIBaseTest):
                 "too_many_parts",
                 "The database had a temporary problem while it ran this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
+            ),
+            (
+                "future_error",
+                "clickhouse_999999",
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
             ),
             (
                 "internal_query_rejection",

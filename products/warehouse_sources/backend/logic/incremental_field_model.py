@@ -38,8 +38,9 @@ from posthog.llm.system_one_client import (
     build_system_one_client,
     system_one_configured,
 )
-from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
+from posthog.ph_client import ph_scoped_capture
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
+from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion
@@ -55,7 +56,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
 TIMEOUT_SECONDS = 3.0
@@ -270,7 +270,7 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team", path: str) -> None
 def _report_answered(team: "Team", summary: dict[str, Any]) -> None:
     if summary["path"] == SYNC_FORM_PATH:
         # The sync form's pick is computed in a Celery task, where the global client may never flush.
-        with ph_scoped_capture() as capture:
+        with ph_scoped_capture(event_region=get_instance_region()) as capture:
             capture(distinct_id=str(team.uuid), event=ANSWERED_EVENT, properties=summary, groups=groups(team=team))
     else:
         report_team_action(team, ANSWERED_EVENT, summary)
@@ -298,16 +298,7 @@ def _is_open(schema: SourceSchema) -> bool:
 
 
 def _model_allowed(team: "Team") -> bool:
-    if team.organization.is_ai_data_processing_approved is not True or not system_one_configured():
-        return False
-    organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        FEATURE_FLAG,
-        organization_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        send_feature_flag_events=False,
-    )
+    return team.organization.is_ai_data_processing_approved is True and system_one_configured()
 
 
 def _within_team_budget(team_id: int, tables: int) -> bool:

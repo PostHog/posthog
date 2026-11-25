@@ -12,7 +12,7 @@ from posthog.api.monitoring import monitor
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.models import User
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME
 from ..marketplace.credentials import (
@@ -59,7 +59,7 @@ class SkillMarketplaceActionsMixin(SkillAccessMixin):
     @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
-    @llma_track_latency("llma_skills_marketplace_command")
+    @skills_track_latency("llma_skills_marketplace_command")
     @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")
     def marketplace_command(self, request: Request, **kwargs) -> Response:
         """Report whether the user already has a marketplace credential, without minting one.
@@ -77,7 +77,7 @@ class SkillMarketplaceActionsMixin(SkillAccessMixin):
 
     @extend_schema(request=LLMSkillMarketplaceIssueSerializer, responses={200: LLMSkillMarketplaceCommandSerializer})
     @marketplace_command.mapping.post
-    @llma_track_latency("llma_skills_marketplace_issue")
+    @skills_track_latency("llma_skills_marketplace_issue")
     @monitor(feature=None, endpoint="llma_skills_marketplace_issue", method="POST")
     def issue_marketplace_command(self, request: Request, **kwargs) -> Response:
         """Mint the user's read-only marketplace credential (or rotate it) and return the install command.

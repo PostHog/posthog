@@ -31,7 +31,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
 from posthog.logging.exceptions import add_otel_exception_attributes
 from posthog.models import Organization, Team
@@ -132,6 +132,28 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.successful())
         self.assertEqual(execute.call_count, failures + 1)
         self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
+
+    def test_process_query_task_ignores_tags_from_a_newer_release(self):
+        from posthog.tasks.tasks import process_query_task
+
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                args=(
+                    self.team_id,
+                    None,
+                    self.query_id,
+                    build_query("SELECT 1"),
+                    {"tag_from_a_newer_release": "x", "dashboard_id": 7},
+                    False,
+                ),
+                throw=False,
+            )
+
+        self.assertTrue(result.successful())
+        execute.assert_called_once()
 
     @parameterized.expand([False, True])
     def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
@@ -463,6 +485,24 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
+    def test_enqueued_query_tags_leave_out_traceparent_for_older_workers(self):
+        from posthog.clickhouse.query_tagging import tags_context
+
+        with (
+            patch("posthog.tasks.tasks.process_query_task.si") as signature,
+            patch("posthog.clickhouse.client.execute_async.add_task_to_on_commit"),
+            tags_context(
+                client_query_id="dashboard-v2-batch-1",
+                traceparent="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+            ),
+        ):
+            client.enqueue_process_query_task(self.team, self.user.id, build_query("SELECT 1"))
+
+        # A worker on the previous release has no traceparent field and would reject the task.
+        sent_tags = signature.call_args.args[4]
+        self.assertEqual(sent_tags["client_query_id"], "dashboard-v2-batch-1")
+        self.assertNotIn("traceparent", sent_tags)
+
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")
         query_id = client.enqueue_process_query_task(
@@ -532,7 +572,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             (
                 "unknown_server_fault",
                 InternalCHQueryError("DB::Exception: stored-secret", code=999_999),
-                "unknown_exception",
+                "clickhouse_999999",
             ),
             (
                 "python_error",
@@ -566,7 +606,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 True,
                 InternalCHQueryError("Unknown column", code=47),
                 "unknown_identifier",
-                "Code: 47.\nUnknown column",
+                None,
                 True,
             ),
             (
@@ -575,6 +615,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 ExposedCHQueryError("Expected an integer argument", code=43),
                 "illegal_type_of_argument",
                 "Expected an integer argument",
+                False,
+            ),
+            (
+                "changed_storage_file",
+                False,
+                CHQueryErrorS3FileChangedDuringRead("A file changed. Retry the query.", code=117),
+                "s3_file_changed_during_read",
+                "A file changed. Retry the query.",
                 False,
             ),
             (

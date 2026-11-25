@@ -11,6 +11,7 @@ import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
 import { AuditExporter, captureSender } from './audit/exporter'
+import { measureAuditExportLag } from './audit/lag'
 import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
@@ -41,6 +42,7 @@ const DATABASE_RETRY_MS = 5_000
 
 /** How often to delete idempotency keys that passed their 24 hour window. */
 const IDEMPOTENCY_CLEANUP_MS = 10 * 60 * 1000
+const AUDIT_LAG_INTERVAL_MS = 30_000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -277,8 +279,10 @@ export class CredentialsServer {
             secrets: () => mount.current(),
             integrations: () => this.integrations,
         }
-        if (this.pool) {
-            this.startAuditMaintenance(this.pool)
+        const pool = this.pool
+        if (pool) {
+            this.cancelTimers.push(every(AUDIT_LAG_INTERVAL_MS, () => measureAuditExportLag(pool)))
+            this.startAuditExport(pool)
         }
         const app = createApp(appOptions)
 
@@ -321,10 +325,10 @@ export class CredentialsServer {
         this.setupProcessListeners()
     }
 
-    private startAuditMaintenance(pool: Pool): void {
+    private startAuditExport(pool: Pool): void {
         const { auditExport } = this.config
         if (auditExport) {
-            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
+            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)
             this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
             this.cancelTimers.push(() => exporter.stop())
         }

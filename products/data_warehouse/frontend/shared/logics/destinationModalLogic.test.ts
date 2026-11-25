@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -47,6 +49,16 @@ describe('destinationModalLogic', () => {
             database: 'postgres',
             schema: 'public',
         })
+    })
+
+    it.each([
+        ['off', false, false],
+        ['on', true, true],
+    ])('MotherDuck is offered in the type picker only when its flag is %s', (_label, flagOn, offered) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_DESTINATION_MOTHERDUCK]: flagOn })
+
+        expect(logic.values.creatableDestinationTypes.includes('MotherDuck')).toEqual(offered)
+        expect(logic.values.creatableDestinationTypes).toContain('Postgres')
     })
 
     it('drops the previous type fields when the type changes', async () => {

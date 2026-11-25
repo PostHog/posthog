@@ -593,10 +593,6 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
         help_text="The `RecordingsQuery` recording filters this version ran with.",
     )
     sampling_rate = serializers.FloatField(allow_null=True, help_text="The 0..1 downsample this version ran with.")
-    sampling_mode = serializers.CharField(
-        allow_null=True,
-        help_text="The session-coverage pre-filter this version ran with.",
-    )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
     total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")

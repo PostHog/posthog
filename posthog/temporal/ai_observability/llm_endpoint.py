@@ -8,7 +8,7 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 
 import os
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any, Literal
 
 from django.conf import settings
@@ -30,6 +30,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
+from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
@@ -242,6 +243,7 @@ def build_flex_first_chat_client(
     distinct_id: str,
     flex: bool = True,
     use_responses_api: bool = False,
+    authorize_request: Callable[[], None] | None = None,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client that prefers the flex service tier.
 
@@ -254,7 +256,7 @@ def build_flex_first_chat_client(
     Pass ``flex=False`` to opt a caller out while keeping the bounded timeouts.
     """
     use_flex = flex and model in FLEX_CAPABLE_MODELS
-    return build_langchain_chat_client(
+    client = build_langchain_chat_client(
         model,
         min(timeout, STANDARD_CALL_TIMEOUT),
         ai_product=ai_product,
@@ -266,6 +268,21 @@ def build_flex_first_chat_client(
         max_retries=1,
         use_responses_api=use_responses_api,
     )
+    if authorize_request is not None:
+        api_key: str = client.root_client.api_key
+
+        # The SDK resolves a callable key before every HTTP attempt, including its own retries.
+        def authorized_api_key() -> str:
+            authorize_request()
+            return api_key
+
+        client.root_client = client.root_client.with_options(api_key=authorized_api_key)
+        client.client = client.root_client.chat.completions
+        client.root_async_client = client.root_async_client.with_options(
+            api_key=database_sync_to_async_pool(authorized_api_key)
+        )
+        client.async_client = client.root_async_client.chat.completions
+    return client
 
 
 def build_langchain_callbacks(
