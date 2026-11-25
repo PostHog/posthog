@@ -103,12 +103,14 @@ class FakeSendGridState:
         self.rate_limits: dict[str, tuple[int, int]] = {}
         self._windows: dict[str, tuple[float, int]] = {}
         # How "ready" exports fall short: "bytes" cuts the packed file off, "connection" ends an unpacked one early,
-        # "rows" leaves out the last contact, and "empty" holds no contacts and counts none.
+        # "rows" leaves out the last contact, "extra" adds one, and "empty" holds no contacts and counts none.
         self.export_damage: str | None = None
         # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "bom", "header" ("upper", "lower",
         # "spaced" or "field_ids"), "reversed", "header_in_each_file", "count" ("stated", "null" or "missing"), "all_columns" and
         # "ignores_filter".
         self.export_shape: dict[str, Any] = {}
+        # How long `/__trickle` waits between bytes.
+        self.trickle_seconds = 0.0
         # How many checks an export stays pending for, and the status that follows.
         self.export_pending_checks = 1
         self.export_status = "ready"
@@ -230,6 +232,18 @@ class _Handler(BaseHTTPRequestHandler):
             ]
         return 200, body, {}
 
+    def _send_trickle(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Length", "40")
+        self.end_headers()
+        for _ in range(40):
+            try:
+                self.wfile.write(b"x")
+                self.wfile.flush()
+            except OSError:
+                return
+            threading.Event().wait(self.server.state.trickle_seconds)
+
     def _send_export_file(self, export_id: str, query: dict[str, str]) -> None:
         state = self.server.state
         with state.lock:
@@ -243,13 +257,15 @@ class _Handler(BaseHTTPRequestHandler):
                 }
             )
             status = self._forced_status("/__exports")
-        if status:
+        if status and status != 200:
             return self._send(status, {}, {"Location": "https://example.com/"} if status == 302 else None)
         shape = state.export_shape
         part, files = int(query.get("part", 0)), shape.get("files", 1)
         contacts = state.exports[export_id]["contacts"][part::files]
         if state.export_damage == "rows":
             contacts = contacts[:-1]
+        if state.export_damage == "extra":
+            contacts = [*contacts, {"id": "extra", "email": "extra@example.com", "list_ids": []}]
         columns = _export_columns(state.exports[export_id]["contacts"], shape)
         rows = io.StringIO()
         writer = csv.writer(rows)
@@ -279,6 +295,8 @@ class _Handler(BaseHTTPRequestHandler):
             with state.lock:
                 return self._send(200, state.requests)
         query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
+        if parsed.path == "/__trickle":
+            return self._send_trickle()
         if match := re.fullmatch(r"/__exports/([^/]+)\.csv\.gz", parsed.path):
             return self._send_export_file(match.group(1), query)
         authorization = self.headers.get("Authorization", "")

@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -804,7 +805,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             ("cut_off_file", {"export_damage": "bytes"}, "arrived incomplete"),
             ("cut_off_connection", {"export_damage": "connection"}, "arrived incomplete"),
             ("nothing_exported", {"export_damage": "empty"}, "holds none of 7 contacts"),
-            ("missing_rows", {"export_damage": "rows"}, "holds 6 of 7 contacts"),
+            ("extra_rows", {"export_damage": "extra"}, "holds 8 contacts, but says it holds 7"),
+            ("missing_rows", {"export_damage": "rows"}, "holds 6 contacts, but says it holds 7"),
             ("failed_export", {"export_status": "failure"}, "couldn't export your contacts"),
         ]
     )
@@ -921,20 +923,37 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         assert list(self._cohorts(run)) == ["SendGrid contacts", "Newsletter (from SendGrid)"]
         assert "Bêta testeurs wasn't imported" in run.progress["contacts"]["warnings"][0]
 
-    @parameterized.expand([("redirect", 302, "HTTP 302", 0), ("expired_link", 403, "expired", 1)])
-    def test_a_refused_download_is_never_followed_and_an_expired_one_starts_a_new_export(
-        self, _name: str, status: int, message: str, new_exports: int
-    ) -> None:
+    def test_a_redirected_download_is_never_followed(self) -> None:
         run = self._start()
-        self.state.failures["/__exports"] = [status]
-        with self.assertRaisesRegex(ImportProviderUnavailable, message) as raised:
+        self.state.failures["/__exports"] = [302]
+        with self.assertRaisesRegex(ImportProviderUnavailable, "HTTP 302") as raised:
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
         assert "signature" not in str(raised.exception)
 
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
-        assert len(self.state.exports) == 4 + new_exports
         assert len(self._cohorts(run)) == 3
+
+    def test_exports_that_expired_are_all_started_again_in_one_attempt(self) -> None:
+        run = self._start()
+        self.state.failures["/__exports"] = [403, 200, 403, 200, 403, 200]
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert len(self.state.exports) == 4 + 3
+        assert len(self._cohorts(run)) == 3
+
+    def test_a_download_that_trickles_stops_at_its_deadline(self) -> None:
+        self.state.trickle_seconds = 0.1
+        started = time.monotonic()
+        with (
+            patch(f"{_CLIENT}.MAX_DOWNLOAD_SECONDS", 0.3),
+            self.assertRaisesRegex(SendGridAPIError, "took too long"),
+            SendGridClient(FULL_KEY, self.server.url).download(f"{self.server.url}/__trickle"),
+        ):
+            pass
+
+        # The whole file takes 4 seconds.
+        assert time.monotonic() - started < 2
 
     def test_an_export_past_the_size_limit_stops_the_step_without_a_retry(self) -> None:
         run = self._start()

@@ -49,6 +49,9 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.contacts import (
     CONTACT_COUNT_LABELS,
+    MAX_CONTACT_BYTES,
+    MAX_CONTACT_MEMBERSHIPS,
+    TOO_MANY_CONTACTS_MESSAGE,
     ContactCollector,
     ContactList,
     new_people_page,
@@ -1150,36 +1153,43 @@ def _fetch_contacts(
     if everyone_count == 0 and len(known_counts) < len(counts):
         everyone_count = None
     for target, contact_count in ((ALL_CONTACTS, everyone_count), *list_counts.items()):
-        members: list[dict[str, str]] = []
-        exported = 0
-        try:
-            if target not in exports:
-                exports[target] = _start_export(client, target)
-                yield progress_page()
-            export = _ready_export(client, exports[target])
-            for fields in _exported_contacts(client, export):
-                exported += 1
-                if member := contacts.add(fields.get("email"), _contact_properties(fields, custom_fields)):
-                    members.append(member)
-            _check_export_size(export, exported, contact_count, read if target != ALL_CONTACTS else None)
-            if exported and not members:
-                raise _NoEmails("SendGrid's contact export holds no valid email address.")
-        except _ExportGone as e:
+        rows: list[_Row] = []
+        failure: _ExportGone | None = None
+        # An export can have expired since an earlier attempt, or its download can fail, and a new one then works.
+        for _ in range(2):
+            try:
+                if target not in exports:
+                    exports[target] = _start_export(client, target)
+                    yield progress_page()
+                export = _ready_export(client, exports[target])
+                rows = _read_rows(client, export, custom_fields)
+                _check_export_size(export, len(rows), contact_count, read if target != ALL_CONTACTS else None)
+                if rows and not any(exact_email(row.email) for row in rows):
+                    raise _NoEmails("SendGrid's contact export holds no valid email address.")
+                failure = None
+                break
+            except _ExportGone as e:
+                failure = e
+                if not isinstance(e, _ExportPending):
+                    exports.pop(target, None)
+                if isinstance(e, _ExportUnusable | _NoEmails):
+                    break
+        if failure is not None:
             # SendGrid doesn't say how it exports nothing, so what it counts as empty can't stop the import. Contacts
             # can have a phone number only, so a list without an email address can't either.
-            may_be_empty = isinstance(e, _ExportUnusable) and contact_count == 0
+            may_be_empty = isinstance(failure, _ExportUnusable) and contact_count == 0
             if target == ALL_CONTACTS and may_be_empty:
                 yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(NO_CONTACTS_NOTE,)))
                 return
-            if not isinstance(e, _ExportPending) or may_be_empty:
-                exports.pop(target, None)
-            if target != ALL_CONTACTS and (may_be_empty or isinstance(e, _NoEmails)):
-                skipped[str(lists.pop(target).get("name") or target)] = str(e)
+            if target != ALL_CONTACTS and (may_be_empty or isinstance(failure, _NoEmails)):
+                skipped[str(lists.pop(target).get("name") or target)] = str(failure)
                 continue
             yield progress_page()
-            raise ImportProviderUnavailable(str(e)) from e
+            raise ImportProviderUnavailable(str(failure)) from failure
+        # Only an export that passed every check adds people.
+        members = [member for row in rows if (member := contacts.add(row.email, row.properties))]
         if target == ALL_CONTACTS:
-            read = exported
+            read = len(rows)
             repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
         else:
             list_members[target] = members
@@ -1328,6 +1338,23 @@ def _check_export_size(
         )
 
 
+@frozen
+class _Row:
+    email: str | None
+    properties: dict[str, str | None]
+
+
+def _read_rows(client: SendGridClient, export: Mapping[str, Any], custom_fields: Mapping[str, str]) -> list[_Row]:
+    rows: list[_Row] = []
+    size = 0
+    for fields in _exported_contacts(client, export):
+        size += sum(len(value or "") for value in fields.values())
+        if len(rows) >= MAX_CONTACT_MEMBERSHIPS or size > MAX_CONTACT_BYTES:
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
+        rows.append(_Row(email=fields.get("email"), properties=_contact_properties(fields, custom_fields)))
+    return rows
+
+
 def _exported_contacts(client: SendGridClient, export: Mapping[str, Any]) -> Iterator[dict[str, str | None]]:
     """Every contact of an export. Raises when any of them is missing, because a list that came back short would remove
     people from its cohort."""
@@ -1351,8 +1378,8 @@ def _exported_contacts(client: SendGridClient, export: Mapping[str, Any]) -> Ite
             raise
     if not names and urls:
         raise _ExportUnusable("SendGrid's contact export is an empty file.")
-    if isinstance(expected, int) and read < expected:
-        raise _ExportGone(f"SendGrid's contact export holds {read:,} of {expected:,} contacts.")
+    if isinstance(expected, int) and read != expected:
+        raise _ExportGone(f"SendGrid's contact export holds {read:,} contacts, but says it holds {expected:,}.")
 
 
 def _ready_export(client: SendGridClient, export_id: str) -> dict[str, Any]:

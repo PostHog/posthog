@@ -9,6 +9,7 @@ import json
 import time
 import zlib
 import tempfile
+import http.client
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import IO, Any
@@ -16,7 +17,6 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 
-import urllib3
 import requests
 
 from posthog.dataclasses import frozen
@@ -197,7 +197,9 @@ class SendGridClient:
                     size = 0
                     # The bytes as sent, because requests neither limits what it unpacks nor notices a body that ends
                     # before its stated length.
-                    for chunk in response.raw.stream(DOWNLOAD_CHUNK_BYTES, decode_content=False):
+                    # urllib3 waits for a whole chunk. The standard library's read1 returns what has arrived, so a server
+                    # that trickles bytes still meets the deadline.
+                    while chunk := response.raw._original_response.read1(DOWNLOAD_CHUNK_BYTES):
                         size += len(chunk)
                         if size > MAX_DOWNLOAD_BYTES:
                             raise SendGridResponseTooLarge(DOWNLOAD_TOO_LARGE_MESSAGE)
@@ -209,7 +211,7 @@ class SendGridClient:
                         raise SendGridDownloadIncomplete(INCOMPLETE_DOWNLOAD_MESSAGE)
         except SSRFBlockedError:
             raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE) from None
-        except (requests.RequestException, urllib3.exceptions.HTTPError) as e:
+        except (requests.RequestException, http.client.HTTPException, OSError) as e:
             raise SendGridDownloadIncomplete(
                 f"Couldn't download SendGrid's contact export ({type(e).__name__})."
             ) from None
