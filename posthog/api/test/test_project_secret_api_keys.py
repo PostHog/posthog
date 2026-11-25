@@ -263,32 +263,6 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key.refresh_from_db()
         assert (key.secure_value != "sha256$owner") == (expected_status == 200)
 
-    @parameterized.expand(
-        [
-            (scope, mirrors_legacy_token, expected_status)
-            for scope in ["business_knowledge:read", "person:write"]
-            for mirrors_legacy_token, expected_status in [(True, 400), (False, 200)]
-        ]
-    )
-    def test_update_adding_restricted_scope_is_refused_for_the_legacy_token_key(
-        self, scope, mirrors_legacy_token, expected_status
-    ):
-        self.team.secret_api_token = "phs_" + "l" * 40
-        self.team.save()
-        secure_value = hash_key_value(self.team.secret_api_token if mirrors_legacy_token else "phs_" + "o" * 40)
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team, label="existing key", secure_value=secure_value, scopes=["feature_flag:read"]
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"scopes": ["feature_flag:read", scope]},
-        )
-
-        assert response.status_code == expected_status, response.json()
-        key.refresh_from_db()
-        assert (scope in key.scopes) == (expected_status == 200)
-
     @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
     def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
         self._make_staff()

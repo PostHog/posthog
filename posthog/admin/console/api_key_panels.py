@@ -20,7 +20,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
+from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
@@ -131,11 +131,8 @@ def revoke_project_secret_api_key(request: HttpRequest, obj: Model, form: forms.
     if key is None:
         messages.error(request, "This key no longer exists.")
         return HttpResponse(status=404)
-    was_legacy_mirror = revoke_exposed_project_secret_api_key(key, _more_info(form))
-    # A key that mirrored the team's legacy secret token is deleted, so the Django admin history has no row to hang
-    # the entry on. The audit log still has the operation.
-    if not was_legacy_mirror:
-        _log_change(request, key, "Rolled key.")
+    roll_project_secret_api_key_and_notify(key, _more_info(form))
+    _log_change(request, key, "Rolled key.")
     messages.success(request, "Project secret API key revoked and project admins notified.")
     return None
 
@@ -170,8 +167,7 @@ class ProjectSecretApiKeysPanel(Panel):
                 danger=True,
                 description=(
                     "The key gets a new value, so whatever uses the old one stops working, and the project's "
-                    "admins get an email. A key that mirrors the team's legacy secret token is deleted instead, "
-                    "and the email asks the admins to rotate that token."
+                    "admins get an email."
                 ),
                 form_class=_exposed_key_form(keys),
                 undo_hint="This cannot be undone. The project's admins create or roll a key in project settings.",

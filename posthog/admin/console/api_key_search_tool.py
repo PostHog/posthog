@@ -1,5 +1,4 @@
 from django import forms
-from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 
@@ -101,17 +100,6 @@ def _project_secret_api_key_result(key: str) -> Table | None:
     )
 
 
-def _team_secret_token_result(key: str) -> Table | None:
-    # Read the row, not the team cache, so the result tells the primary and the backup token apart.
-    team = Team.objects.filter(Q(secret_api_token=key) | Q(secret_api_token_backup=key)).first()
-    if team is None:
-        return None
-    label = "Feature flags secure API key"
-    if team.secret_api_token != key:
-        label += " (backup)"
-    return Table(columns=("Type", "Team"), rows=(Row(cells=(Cell(text=label), _team_cell(team))),))
-
-
 def _oauth_access_token_result(key: str) -> Table | None:
     token = find_oauth_access_token(key)
     if token is None:
@@ -164,7 +152,8 @@ def find_key(key: str) -> Table | None:
     if personal is not None:
         return personal
     if key.startswith(SECRET_API_TOKEN_PREFIX):
-        return _project_secret_api_key_result(key) or _team_secret_token_result(key)
+        # A legacy team secret token matches here too, through its backfilled PSAK mirror row (#63111).
+        return _project_secret_api_key_result(key)
     if key.startswith(OAUTH_ACCESS_TOKEN_PREFIX):
         return _oauth_access_token_result(key)
     if key.startswith(OAUTH_REFRESH_TOKEN_PREFIX):

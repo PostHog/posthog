@@ -160,7 +160,6 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "personal_api_key_changed_by_org_admin": "01a1cc79-d82c-0000-732e-c847b629727e",
     "code_based_verification": "01a16472-1d73-0000-2828-3a196b3d5bc5",
     "email_verification_code": "01a16473-0e70-0000-fcab-8290ccf17558",
-    "feature_flags_secure_api_key_exposed": "01a16469-95fd-0000-6717-9ec46285eef3",
     "project_secret_api_key_exposed": "01a16472-afbb-0000-e94f-9c65348f46e9",
     "oauth_token_exposed": "01a1646a-003a-0000-8d21-32e544374fe7",
     "passkey_added": "01a1646a-85df-0000-d018-9cdc391f507a",

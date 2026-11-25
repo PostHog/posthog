@@ -34,8 +34,7 @@ OTHER_AUDIENCE_PURPOSE = ScopedServiceJwtPurpose(
 class TestInternalAccountAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token"])
+        self.legacy_secret_token = generate_random_token_secret()
         self.client = APIClient()
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         self.url = f"/api/projects/{self.team.id}/internal/customer_analytics/account"
@@ -103,7 +102,7 @@ class TestInternalAccountAPI(APIBaseTest):
             ),
             (
                 "legacy_secret_api_token",
-                lambda self: {"HTTP_AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+                lambda self: {"HTTP_AUTHORIZATION": f"Bearer {self.legacy_secret_token}"},
                 status.HTTP_401_UNAUTHORIZED,
             ),
             (

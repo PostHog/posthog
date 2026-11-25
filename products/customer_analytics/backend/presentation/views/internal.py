@@ -3,7 +3,7 @@ Internal account endpoints for the Customer analytics product.
 
 The service-to-service surface the CDP worker's account workflow actions call. Callers
 authenticate with a short-lived scoped service JWT pinned to one team and one account
-external_id (#82564 tracks retiring the legacy secret_api_token routes in external.py).
+external_id.
 Mounted under /api/projects/<team_id>/internal/ in posthog/urls.py, a namespace Contour
 ingress does not expose, so the routes are unreachable from the public internet.
 """

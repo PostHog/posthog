@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
@@ -25,7 +24,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_secret,
@@ -485,84 +484,6 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         # Key should NOT be found because user is inactive
         self.assertEqual(data[0]["label"], "false_positive")
 
-    @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
-    def test_secret_alert_finds_project_secret_and_sends_email(self, mock_send_email, mock_verify):
-        """Test that a project secret API key is found and email is sent to admins."""
-        mock_verify.return_value = None
-
-        # Set up a secret token on the team
-        token = "phx_test_secret_token_1234567890"
-        self.team.secret_api_token = token
-        self.team.save()
-
-        # Send alert with the token
-        response = self.client.post(
-            "/api/alerts/github",
-            data=json.dumps(
-                [
-                    {
-                        "token": token,
-                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
-                        "url": "https://github.com/test/repo/blob/main/config.py",
-                        "source": "github",
-                    }
-                ]
-            ),
-            content_type="application/json",
-            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
-
-        # Verify email task was called
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.team.id)
-        self.assertEqual(call_args[0][1], mask_key_value(token))
-        self.assertIn("https://github.com/test/repo/blob/main/config.py", call_args[0][2])
-
-    @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
-    def test_secret_alert_finds_project_secret_backup_and_sends_email(self, mock_send_email, mock_verify):
-        """Test that a backup project secret API key is also detected."""
-        mock_verify.return_value = None
-
-        # Set up a backup secret token on the team
-        token = "phx_test_backup_secret_token_123"
-        self.team.secret_api_token = "phx_different_primary_token"
-        self.team.secret_api_token_backup = token
-        self.team.save()
-
-        # Send alert with the backup token
-        response = self.client.post(
-            "/api/alerts/github",
-            data=json.dumps(
-                [
-                    {
-                        "token": token,
-                        "type": GITHUB_TYPE_FOR_SECURE_API_KEY,
-                        "url": "https://github.com/test/repo/blob/main/old_config.py",
-                        "source": "github",
-                    }
-                ]
-            ),
-            content_type="application/json",
-            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-
-        # Verify email task was called
-        mock_send_email.assert_called_once()
-
 
 class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
     def _post_alert(self, tokens: list[str]):
@@ -584,9 +505,8 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         )
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_finds_and_rolls_project_secret_api_key(self, mock_psak_exposed, mock_ff_exposed, mock_verify):
+    def test_finds_and_rolls_project_secret_api_key(self, mock_psak_exposed, mock_verify):
         mock_verify.return_value = None
         key, value = create_project_secret_api_key(team=self.team, created_by=self.user, label="Production key")
         old_secure_value = key.secure_value
@@ -611,130 +531,61 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertEqual(call_args[1], key.id)
         self.assertEqual(call_args[2], old_mask_value)
         self.assertIn("https://github.com/test/repo/blob/main/config.py", call_args[3])
-        mock_ff_exposed.assert_not_called()
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_legacy_team_secret_token_is_not_rolled(self, mock_psak_exposed, mock_ff_exposed, mock_verify):
+    def test_leaked_legacy_team_token_rolls_its_mirror_row(self, mock_psak_exposed, mock_verify):
+        # A legacy Team.secret_api_token value exists only as its backfilled PSAK mirror
+        # row (#63111); the leak report must still revoke it through that row, and it must
+        # stop verifying widget identity: migration 0056 copied the same value into
+        # SigningSecret, so a never-rotated team still holds it there.
         mock_verify.return_value = None
         token = "phs_legacy_team_secret_token_123"
-        self.team.secret_api_token = token
-        self.team.save()
+        row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+        old_secure_value = row.secure_value
         signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post_alert([token])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()[0]["label"], "true_positive")
-
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.secret_api_token, token)
-        # Recorded so the pre-drop backfill rerun cannot mint a fresh mirror row for it.
-        self.assertTrue(
-            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
-        )
+        row.refresh_from_db()
+        self.assertNotEqual(row.secure_value, old_secure_value)
         signing_secret.refresh_from_db()
         self.assertNotEqual(signing_secret.secret, token)
-        self.assertTrue(signing_secret.rotated_independently)
-        mock_ff_exposed.assert_called_once()
-        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], True)
-        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], False)
-        mock_psak_exposed.assert_not_called()
-
-    @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
-    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_leaked_token_lingering_as_previous_signing_secret_ends_the_grace_window(
-        self, mock_psak_exposed, mock_ff_exposed, mock_verify
-    ):
-        mock_verify.return_value = None
-        token = "phs_legacy_team_secret_token_123"
-        self.team.secret_api_token = token
-        self.team.save()
-        signing_secret = SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team,
-            secret="phs_rotated_fresh_secret",
-            previous_secret=token,
-            previous_secret_rotated_at=timezone.now(),
-            rotated_independently=True,
-        )
-
-        response = self._post_alert([token])
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        signing_secret.refresh_from_db()
-        self.assertEqual(signing_secret.secret, "phs_rotated_fresh_secret")
-        self.assertIsNone(signing_secret.previous_secret)
-        mock_ff_exposed.assert_called_once()
-        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], False)
-        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], True)
-        mock_psak_exposed.assert_not_called()
-
-    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
-    @patch("posthog.api.github.posthoganalytics.capture")
-    @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
-    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_leaked_team_token_with_backfilled_psak_deletes_the_row_and_notifies(
-        self, _name, token_field, mock_psak_exposed, mock_ff_exposed, mock_verify, mock_capture
-    ):
-        # The backfilled row IS the leaked legacy credential: revocation deletes it and
-        # tells the admins to rotate the still-valid team token, exactly once.
-        mock_verify.return_value = None
-        token = "phs_legacy_team_secret_token_123"
-        self.team.secret_api_token = "phs_some_current_primary_value" if token_field != "secret_api_token" else token
-        setattr(self.team, token_field, token)
-        self.team.save()
-        row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
-
-        response = self._post_alert([token])
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["label"], "true_positive")
-        self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+        # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for the
+        # value, which the rolled PSAK no longer carries.
         self.assertTrue(
             RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
-        mock_psak_exposed.assert_not_called()
-        mock_ff_exposed.assert_called_once()
-        # No signing secret row carried the token, so the email must not claim a replacement.
-        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], False)
-        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], False)
-        alert_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "github_secret_alert"]
-        self.assertEqual(len(alert_events), 1)
-        self.assertEqual(alert_events[0].kwargs["properties"]["key_kind"], "team_secret_token")
+        mock_psak_exposed.assert_called_once()
+        self.assertTrue(mock_psak_exposed.call_args.kwargs["signing_secret_replaced"])
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_unknown_phs_token_is_false_positive(self, mock_psak_exposed, mock_ff_exposed, mock_verify):
+    def test_unknown_phs_token_is_false_positive(self, mock_psak_exposed, mock_verify):
         mock_verify.return_value = None
 
         response = self._post_alert([generate_random_token_secret()])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()[0]["label"], "false_positive")
-        mock_ff_exposed.assert_not_called()
         mock_psak_exposed.assert_not_called()
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_mixed_batch_labels_each_token_independently(self, mock_psak_exposed, mock_ff_exposed, mock_verify):
+    def test_mixed_batch_labels_each_token_independently(self, mock_psak_exposed, mock_verify):
         mock_verify.return_value = None
         _, psak_value = create_project_secret_api_key(team=self.team, created_by=self.user)
         legacy_token = "phs_legacy_team_secret_token_123"
-        self.team.secret_api_token = legacy_token
-        self.team.save()
+        create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=legacy_token)
 
         response = self._post_alert([psak_value, legacy_token, generate_random_token_secret()])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         labels = [item["label"] for item in response.json()]
         self.assertEqual(labels, ["true_positive", "true_positive", "false_positive"])
-        mock_psak_exposed.assert_called_once()
-        mock_ff_exposed.assert_called_once()
+        self.assertEqual(mock_psak_exposed.call_count, 2)
 
 
 class TestRelayToEu(SimpleTestCase):
@@ -795,9 +646,7 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         """Verify no HTTP call to EU when all results are true_positive."""
         mock_verify.return_value = None
 
-        token = "phx_test_secret_token_1234567890"
-        self.team.secret_api_token = token
-        self.team.save()
+        _, token = create_project_secret_api_key(team=self.team, created_by=self.user)
 
         response = self.client.post(
             "/api/alerts/github",
@@ -950,7 +799,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.posthoganalytics.capture")
     @patch("posthog.api.github.get_instance_region")
-    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_local_find_sets_key_found_region_to_current_region(
         self, mock_send_email, mock_get_region, mock_capture, mock_verify
     ):
@@ -958,9 +807,7 @@ class TestSecretAlertRegionTracking(APIBaseTest):
         mock_verify.return_value = None
         mock_get_region.return_value = "US"
 
-        token = "phx_test_secret_token_for_region"
-        self.team.secret_api_token = token
-        self.team.save()
+        _, token = create_project_secret_api_key(team=self.team, created_by=self.user)
 
         self.client.post(
             "/api/alerts/github",
