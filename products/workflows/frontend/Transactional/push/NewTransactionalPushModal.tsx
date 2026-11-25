@@ -2,20 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
-import { CyclotronJobInputIntegrationMulti } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationMulti'
-
-import { CyclotronJobInputSchemaType } from '~/types'
-
 import { newTransactionalPushLogic } from './newTransactionalPushLogic'
-import { PushChannelsSetupWarning } from './PushChannelsSetupWarning'
-
-const CHANNELS_SCHEMA: CyclotronJobInputSchemaType = {
-    key: 'channels',
-    type: 'integration_multi',
-    integration: 'firebase,apns',
-    label: 'Push channels',
-    required: true,
-}
+import { PushChannelsField } from './PushChannelsField'
 
 export function NewTransactionalPushModal(): JSX.Element {
     const { isOpen, name, draft, isCreating, createDisabledReason } = useValues(newTransactionalPushLogic)
@@ -60,17 +48,7 @@ export function NewTransactionalPushModal(): JSX.Element {
                         data-attr="new-transactional-push-name"
                     />
                 </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel info="Each person gets the notification on every device they registered with these apps.">
-                        Send through
-                    </LemonLabel>
-                    <CyclotronJobInputIntegrationMulti
-                        schema={CHANNELS_SCHEMA}
-                        value={draft.channels}
-                        onChange={(channels) => setDraft({ channels })}
-                    />
-                    <PushChannelsSetupWarning channels={draft.channels} />
-                </div>
+                <PushChannelsField channels={draft.channels} onChange={(channels) => setDraft({ channels })} />
                 <div className="flex flex-col gap-1">
                     <LemonLabel
                         htmlFor="new-transactional-push-title"
