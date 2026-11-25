@@ -170,8 +170,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const editor = (
         <div
             className="flex flex-col flex-1 gap-2 min-h-0 relative"
-            // Create leaves the page when it lands, so an edit typed meanwhile would have nowhere to go.
-            {...(isCreating ? { inert: '' } : {})}
+            // Create leaves the page and a sync replaces the form, so an edit typed meanwhile would be lost.
+            {...(isCreating || isSyncingExternalEdit ? { inert: '' } : {})}
         >
             {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
             {(isSyncingExternalEdit || isCreating) && <SpinnerOverlay />}
