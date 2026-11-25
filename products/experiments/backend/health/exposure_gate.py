@@ -93,6 +93,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 from products.feature_flags.backend.facade.edit_history import FlagEdit, flag_edits_since
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -390,6 +391,9 @@ class _ExposureGate:
         self._start_date = start_date
         self._group_type_index = group_type_index
         self._denied_event_properties = denied_event_properties
+        # The exposures of a warehouse-native experiment live in the customer's warehouse. No event of this project
+        # describes them, so every answer is unknown, and a query would only fail and report to error tracking.
+        self._warehouse_native = warehouse_native_exposure_config(experiment.exposure_criteria) is not None
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
         self._filter_settings = _settings_the_filters_compile_with(experiment)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
@@ -461,6 +465,8 @@ class _ExposureGate:
         window_end: datetime,
         final: Callable[[A], bool],
     ) -> A | None:
+        if self._warehouse_native:
+            return None
         # Every answer reads the flag, variant and group properties of the exposures. Any denied event property, not
         # a list of the read ones, so no list can miss one. The findings then keep their warnings.
         if self._denied_event_properties:
