@@ -546,6 +546,13 @@ describe('Self-driving activation guidance', () => {
 
     const listCall: GuidanceCall = { toolName: 'query-error-tracking-issues-list', args: {}, isError: false }
 
+    const evalHarnessRun: Partial<ResolvedState> = {
+        clientProfile: new MCPClientProfile({ consumer: 'eval' }),
+        isTaskBound: true,
+        sandboxTaskId: 'synthetic-task',
+        apiKeyScopes: ['task:write', 'internal_run:read'],
+    }
+
     function activationState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         const state = makeToolExecutorState(
             [
@@ -686,10 +693,21 @@ describe('Self-driving activation guidance', () => {
         ['unavailable reports tools', { allTools: [] }],
         ['a first-party assistant', { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' }],
         ['a first-party app that declares no consumer', { oauthClientId: 'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W' }],
+        ['an eval run without consent', { ...evalHarnessRun, aiConsentGiven: false }],
+        ['an eval run without the experiment flag', { ...evalHarnessRun, toolFeatureFlags: {} }],
+        ['an eval run without reports tools', { ...evalHarnessRun, allTools: [] }],
     ] satisfies [string, Partial<ResolvedState>][])('does not fetch readiness for %s', async (_label, overrides) => {
         const state = activationState(overrides)
         expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)).toBeUndefined()
         expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it('offers the notice to an eval harness run despite its sandbox task token', async () => {
+        const state = activationState(evalHarnessRun)
+        expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, listCall)).toMatchObject({
+            ruleId: 'error-tracking-sd-activation',
+            outcome: 'shown',
+        })
     })
 
     it.each([

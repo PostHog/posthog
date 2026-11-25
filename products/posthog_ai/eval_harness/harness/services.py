@@ -54,6 +54,8 @@ _ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
 EVAL_AI_PRODUCT = "posthog_ai"
 """The gateway product eval tasks resolve to through their ``posthog_ai`` origin."""
+# Mirrors MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG in services/mcp/src/hono/guidance/rules/index.ts.
+MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG = "mcp-guidance-error-tracking-sd-activation"
 
 AI_GATEWAY_EVAL_DATABASE = "ai_gateway_evals"
 AI_GATEWAY_EVAL_CREDITS_USD = "10000"
@@ -346,12 +348,15 @@ def start_mcp_server(
         # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
         # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
-        # the widget batch tools that the dashboard widget evals exercise.
+        # the widget batch tools that the dashboard widget evals exercise. The Self-driving
+        # activation flag lets the notice reach error tracking results once per conversation,
+        # which the signals activation eval measures.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "dashboard-widgets": True,
                 "notebook-app-builder": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+                MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG: True,
             }
         ),
     }

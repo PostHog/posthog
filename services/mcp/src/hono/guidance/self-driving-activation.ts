@@ -33,6 +33,25 @@ const onboardingSchema = z.object({
     github_optional_available: z.boolean().optional().default(false),
 })
 
+// Mirrors EVAL_INTERACTION_ORIGIN in products/tasks/backend/constants.py. The eval harness runs the agent as a
+// sandboxed task, so its token and headers fail the customer-caller checks below. The caller can set this header
+// itself, which is safe only because the rule runs in development and test alone.
+const EVAL_HARNESS_CONSUMER = 'eval'
+
+function isCustomerCaller(state: ResolvedState): boolean {
+    return (
+        !state.isTaskBound &&
+        !state.sandboxTaskId &&
+        resolveScopePreset(state.apiKeyScopes) === 'user' &&
+        isCustomerAgentCaller({
+            mcpConsumer: state.clientProfile.consumer,
+            clientUserAgent: state.requestContext.clientUserAgent,
+            apiKeyScopes: state.apiKeyScopes,
+            oauthClientId: state.oauthClientId,
+        })
+    )
+}
+
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
     return (
         (call.toolName === 'query-error-tracking-issues-list' ||
@@ -40,16 +59,8 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
         !call.isError &&
         !state.isImpersonated &&
         !state.suppressAnalytics &&
-        !state.isTaskBound &&
-        !state.sandboxTaskId &&
         state.aiConsentGiven === true &&
-        resolveScopePreset(state.apiKeyScopes) === 'user' &&
-        isCustomerAgentCaller({
-            mcpConsumer: state.clientProfile.consumer,
-            clientUserAgent: state.requestContext.clientUserAgent,
-            apiKeyScopes: state.apiKeyScopes,
-            oauthClientId: state.oauthClientId,
-        }) &&
+        (state.clientProfile.consumer === EVAL_HARNESS_CONSUMER || isCustomerCaller(state)) &&
         typeof state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === 'boolean' &&
         REQUIRED_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
     )
