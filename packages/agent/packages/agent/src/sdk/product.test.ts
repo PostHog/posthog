@@ -65,10 +65,10 @@ describe("defineProduct", () => {
 describe("buildPullRequestFooter", () => {
   it.each([
     [
-      "desktop",
+      "unknown client",
       {},
       {},
-      "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+      "*Created with [PostHog](https://posthog.com?ref=pr)*",
     ],
     [
       "mobile overrides automated",
@@ -106,4 +106,35 @@ describe("buildPullRequestFooter", () => {
       "*Created with [PostHog](https://posthog.com?ref=pr) from a [PostHog AI chat](https://example.com/c)*",
     );
   });
+
+  it.each([
+    ["unknown", "*Created with [PostHog](https://posthog.com?ref=pr)*"],
+    [
+      "posthog_desktop",
+      "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+    ],
+  ])("requires desktop provenance: %s", (clientProvenance, expected) => {
+    expect(buildPullRequestFooter({ ...launch(), clientProvenance })).toBe(
+      expected,
+    );
+  });
+
+  it.each(["posthog_desktop", "posthog_web", undefined])(
+    "credits the report before the client: %s",
+    (clientProvenance) => {
+      expect(
+        buildPullRequestFooter(
+          { ...launch(), clientProvenance },
+          {
+            sources: [
+              { label: "inbox report", url: "https://example.com/r" },
+              { label: "Slack thread", url: "https://example.com/t" },
+            ],
+          },
+        ),
+      ).toBe(
+        "*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](https://example.com/r) via a [Slack thread](https://example.com/t)*",
+      );
+    },
+  );
 });

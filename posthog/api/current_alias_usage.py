@@ -8,8 +8,10 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.event_usage import get_request_analytics_properties, sanitize_header_value
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.synthetic_user import SyntheticUser
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +60,15 @@ def record_current_alias_use(request: HttpRequest, *, route: str, status_class: 
         logger.warning("current_alias_usage_record_failed", exc_info=True)
 
 
+def _oauth_application_id() -> str | None:
+    # The OAuth authenticator records the token's application as the request's activity credential.
+    # CHQueries runs inside ActivityLoggingMiddleware, so the credential is still set here.
+    credential = activity_storage.get_credential()
+    if credential is None or credential.type != OAuthAccessTokenAuthentication.activity_credential_type:
+        return None
+    return credential.id
+
+
 def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, status_class: str) -> None:
     user = request.user
     # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
@@ -95,7 +106,17 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     if not distinct_id:
         return
     api_key_mask = get_query_tag_value("api_key_mask")
-    dedupe_parts = (distinct_id, scope.value, route, method, access_method, token_in_query, api_key_mask)
+    oauth_application_id = _oauth_application_id()
+    dedupe_parts = (
+        distinct_id,
+        scope.value,
+        route,
+        method,
+        access_method,
+        token_in_query,
+        api_key_mask,
+        oauth_application_id,
+    )
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
         return
@@ -126,6 +147,7 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             "token_in_query": token_in_query,
             "api_key_mask": api_key_mask,
             "api_key_label": get_query_tag_value("api_key_label"),
+            "oauth_application_id": oauth_application_id,
             "origin": sanitize_header_value(request.headers.get("Origin")),
             "team_id": team_id,
         },

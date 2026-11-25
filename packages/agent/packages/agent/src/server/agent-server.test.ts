@@ -7793,13 +7793,11 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("Generated-By: PostHog Desktop");
         expect(prompt).not.toContain("test-task-id");
         expect(prompt).not.toContain("gh pr create --draft");
-        // If the user does explicitly ask for a PR in this review-first mode,
-        // the agent must still use the PostHog Desktop footer, not Claude Code's default.
         expect(prompt).toContain(
           "If the user explicitly asks you to open a pull request",
         );
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).toContain(".github/pull_request_template.md");
         expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
@@ -8027,9 +8025,8 @@ describe("AgentServer HTTP Mode", () => {
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).not.toContain("stop with local changes ready for review");
-      // Manual runs keep the PostHog Desktop attribution.
       expect(prompt).toContain(
-        "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)",
+        "Created with [PostHog](https://posthog.com?ref=pr)",
       );
     });
 
@@ -8526,7 +8523,7 @@ describe("AgentServer HTTP Mode", () => {
           origin: "desktop",
           launchOptions: {},
           source: INBOX_REPORT,
-          footer: `*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
         },
         {
           label: "mobile client",
@@ -8564,7 +8561,7 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("**Why**");
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
         expect(prompt).not.toContain("from a [Slack thread]");
       });

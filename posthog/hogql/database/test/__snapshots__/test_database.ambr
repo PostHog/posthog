@@ -13777,17 +13777,6 @@
                   "table": null,
                   "type": "float"
               },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Deprecated: scanners no longer filter on quality, so every scanner scans as comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "model": {
                   "chain": null,
                   "description": "LLM model that scans each session; sets the price.",
@@ -30597,17 +30586,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
-              },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Deprecated: scanners no longer filter on quality, so every scanner scans as comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "model": {
                   "chain": null,

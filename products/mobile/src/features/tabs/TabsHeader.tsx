@@ -2,8 +2,7 @@ import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 import { LiveAudienceControl } from '@/features/live/LiveAudienceControl'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
-import { BlurEdge } from '@/ui/BlurEdge'
-import { FadeEdge } from '@/ui/FadeEdge'
+import { HEADER_FADE, HeaderBackdrop } from '@/ui/HeaderBackdrop'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
@@ -27,12 +26,7 @@ const STATUS_TOP = (HEADER_ROW_HEIGHT + TITLE_HEIGHT) / 2
 const STATUS_BOTTOM = HEADER_TOP + STATUS_TOP + STATUS_HEIGHT
 /** Design-frame offset where a tab's content starts at rest, with or without a status line. */
 export const TABS_HEADER_BOTTOM = HEADER_ROW_BOTTOM + 12
-/** The fade below the row reaches past the first row's top, so rows dissolve under the header instead of being cut. */
-const HEADER_FADE = 28
-const SOLID = HEADER_ROW_BOTTOM / (HEADER_ROW_BOTTOM + HEADER_FADE)
-// The chrome grows by the status line, so the line stays over the solid part and the fade starts below it.
 const STATUS_PADDING = STATUS_BOTTOM - HEADER_ROW_BOTTOM + HEADER_FADE
-const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
 const FILTER_DOT = 8
 
@@ -77,20 +71,19 @@ export function TabsHeader({
     const hint = editing ? null : (slot?.hint ?? null)
     const filter = slot?.filter ?? null
     const withStatus = status !== null
-    const solid = withStatus ? SOLID_WITH_STATUS : SOLID
+    const headerTop = topOffset(insets, HEADER_TOP)
     return (
         <View
             style={[
                 styles.header,
                 {
-                    paddingTop: topOffset(insets, HEADER_TOP),
+                    paddingTop: headerTop,
                     paddingBottom: withStatus ? STATUS_PADDING : HEADER_FADE,
                     maxWidth: tab === 'inbox' && paired && paneAxis === 'row' ? inboxExtent : undefined,
                 },
             ]}
         >
-            <BlurEdge solid={solid} />
-            <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
+            <HeaderBackdrop fadeStart={headerTop + STATUS_TOP} />
             <View style={styles.titleStack}>
                 <View style={styles.titleGroup}>
                     <View

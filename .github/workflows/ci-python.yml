@@ -781,6 +781,7 @@ jobs:
             - name: Run vendor tests
               if: steps.select.outputs.mode == 'full' || steps.select.outputs.vendors != ''
               env:
+                  POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'pull_request' && '1' || '0' }}
                   MODE: ${{ steps.select.outputs.mode }}
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |

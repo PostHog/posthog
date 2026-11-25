@@ -46,6 +46,7 @@ jobs:
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
             idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
             devex-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex-rules || 'false' }}
+            sdk-pins: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.sdk-pins || 'true' }}
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
@@ -172,6 +173,16 @@ jobs:
                       devex-rules:
                         - '.semgrep/rules/devex/**'
                         - '!.semgrep/rules/devex/**/*.md'
+                      # Keep these paths aligned with the paths.include of the rule semgrep-sdk-pins runs.
+                      sdk-pins:
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - '**/pyproject.toml'
+                        - '**/requirements*.txt'
+                        - '**/requirements*.in'
+                        - '**/Cargo.toml'
+                        - '.semgrep/rules/devex/posthog-sdk-major-pin.yaml'
+                        - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
         needs: changes
@@ -639,6 +650,44 @@ jobs:
                       --error --metrics=off --timeout 300 \
                       -- "${python_files[@]}"
 
+    # The devex scan skips rust/, nodejs/, cli/ and the root manifests, so this job runs the
+    # SDK major-pin rule over every manifest in the tree. The rule reads manifests only, so a
+    # full scan is cheap, and it also catches a pin that an unchanged file already breaks.
+    semgrep-sdk-pins:
+        needs: changes
+        if: needs.changes.outputs.sdk-pins == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        steps:
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Checkout
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Check PostHog SDK major pins
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: 'true'
+                  args: >-
+                      --config .semgrep/rules/devex/posthog-sdk-major-pin.yaml
+                      --exclude /.semgrep
+
     semgrep-test-rules:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
@@ -753,6 +802,7 @@ jobs:
             - semgrep-products-frontend
             - semgrep-general
             - semgrep-devex
+            - semgrep-sdk-pins
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
@@ -796,6 +846,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-devex.result }}" != "success" && "${{ needs.semgrep-devex.result }}" != "skipped" ]]; then
                     echo "semgrep-devex did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-sdk-pins.result }}" != "success" && "${{ needs.semgrep-sdk-pins.result }}" != "skipped" ]]; then
+                    echo "semgrep-sdk-pins did not complete successfully."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then

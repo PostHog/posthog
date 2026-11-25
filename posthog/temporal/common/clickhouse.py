@@ -1135,11 +1135,19 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *,
+    team_id: typing.Optional[int] = None,
+    clickhouse_url: str | None = None,
+    workload: Workload = Workload.OFFLINE,
+    **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
+
+    DEFAULT workload resolves to OFFLINE for this client. An explicit clickhouse_url
+    overrides the endpoint, but logs and metrics keep their workload's database and cluster.
+    All workloads authenticate with the same deployment's CLICKHOUSE_USER credentials.
 
     Usage:
 
@@ -1177,13 +1185,33 @@ async def get_client(
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
+    if workload == Workload.DEFAULT:
+        workload = Workload.OFFLINE
+
     cluster = settings.CLICKHOUSE_CLUSTER
-    if clickhouse_url is None:
-        events_url = await database_sync_to_async(events_cluster_http_url)(Workload.OFFLINE, team_id)
-        url = events_url or settings.CLICKHOUSE_OFFLINE_HTTP_URL
-        if events_url:
-            cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
+    database = settings.CLICKHOUSE_DATABASE
+    if workload == Workload.LOGS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_LOGS_CLUSTER_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_LOGS_CLUSTER_HOST}:{port}/"
+        database = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+        cluster = settings.CLICKHOUSE_LOGS_CLUSTER
+    elif workload == Workload.METRICS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_METRICS_CLUSTER_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_METRICS_CLUSTER_HOST}:{port}/"
+        database = settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE
+        cluster = settings.CLICKHOUSE_METRICS_CLUSTER
+    elif workload == Workload.ENDPOINTS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_ENDPOINTS_HOST}:{port}/"
     else:
+        url = settings.CLICKHOUSE_HTTP_URL if workload == Workload.ONLINE else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+        if clickhouse_url is None:
+            events_url = await database_sync_to_async(events_cluster_http_url)(workload, team_id)
+            if events_url:
+                url = events_url
+                cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
+
+    if clickhouse_url is not None:
         url = clickhouse_url
 
     async with ClickHouseClient(
@@ -1191,7 +1219,7 @@ async def get_client(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         password_file=settings.CLICKHOUSE_PASSWORD_FILE,
-        database=settings.CLICKHOUSE_DATABASE,
+        database=database,
         cluster=cluster,
         timeout=timeout,
         ssl=False,

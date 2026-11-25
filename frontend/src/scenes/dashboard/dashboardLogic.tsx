@@ -4300,7 +4300,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         /**
          * The group each tile opens and closes with. Tiles outside any group share one key, so tiles that waited in a
-         * closed "Overview" tab still load once it shows, also after the dashboard switches to sections or loses its
+         * closed tab of their own still load once it shows, also after the dashboard switches to sections or loses its
          * last group.
          */
         tileGroupKeys: [

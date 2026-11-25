@@ -124,6 +124,15 @@ class ErrorTrackingIssue(UUIDTModel):
         if not source_issue_ids:
             return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
 
+        from products.error_tracking.backend.logic.issue_tags.gate import (  # noqa: PLC0415 - logic imports this module
+            issue_tags_enabled,
+        )
+        from products.error_tracking.backend.logic.issue_tags.writer import (  # noqa: PLC0415 - logic imports this module
+            carry_issue_tags_on_merge,
+        )
+
+        # A flag evaluation can make a network call, so it runs before the merge takes its row locks.
+        carry_tags = issue_tags_enabled(team_id)
         with transaction.atomic():
             locked = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
@@ -159,10 +168,12 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
                 issue_id=target_issue_id
             )
-            # Read source assignees before the delete cascades their assignment rows away
+            # Read source assignees and labels before the delete cascades their rows away
             _adopt_source_assignee_on_merge(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
+            if carry_tags:
+                carry_issue_tags_on_merge(target=self, source_issue_ids=existing_source_issue_ids)
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
             # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
@@ -1215,7 +1226,8 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
     """The answer to one tag question about an issue.
 
     A row holds only the answer of the highest-ranked tagger that answered, so write it through
-    logic/issue_tags/writer.py. A missing row and a null `value` both read as unknown.
+    logic/issue_tags/writer.py. Only a true `value` applies the label. A missing row, a false `value` and a null
+    `value` all mean no label.
     """
 
     class Source(models.TextChoices):

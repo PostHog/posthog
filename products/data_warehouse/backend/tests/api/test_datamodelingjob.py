@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from posthog.models.team.team import Team
@@ -217,6 +219,25 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["saved_query_name"], "Test saved query")
         self.assertTrue(response.json()["saved_query_deleted"])
+
+    def test_unrestricted_list_hides_runs_of_a_hard_deleted_model_without_reading_models(self):
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=None,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now(),
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(
+            {job["id"] for job in response.json()["results"]}, {str(self.job1.id), str(self.job2.id), str(self.job3.id)}
+        )
+        count_sql = next(q["sql"] for q in queries.captured_queries if "COUNT(*)" in q["sql"])
+        self.assertNotIn(DataWarehouseSavedQuery._meta.db_table, count_sql)
 
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")

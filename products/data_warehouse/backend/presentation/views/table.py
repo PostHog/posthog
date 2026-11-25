@@ -430,7 +430,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        schema = instance.externaldataschema_set.first()
+        schema = min(instance.externaldataschema_set.all(), key=lambda schema: schema.pk, default=None)
         if schema is None:
             # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
             # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema

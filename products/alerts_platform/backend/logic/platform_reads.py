@@ -17,6 +17,7 @@ from django.db.models.functions import Coalesce
 from posthog.helpers.full_text_search import build_rank
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
+from products.alerts_platform.backend.delivery.thread_store import LEGACY_EVENTS_PROVIDER
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     EnabledNativeConfiguration,
@@ -46,7 +47,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertState,
 )
 from products.alerts_platform.backend.logic import platform_alert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
 def instance_view(alert: PlatformAlert, configuration: PlatformAlertConfiguration) -> PlatformAlertSnapshot:
@@ -547,6 +548,21 @@ def _owned_with_public_ids(team_id: int, public_ids: Collection[UUID]) -> QueryS
     """The alerts the platform owns with these public ids (`PlatformAlertConfiguration.destination_alert_id`)."""
     return PlatformAlertConfiguration.objects.for_team(team_id).filter(
         PlatformAlertConfiguration.with_destination_alert_ids(public_ids), owner=PlatformAlertOwner.PLATFORM
+    )
+
+
+def legacy_events_emitted_since(*, team_id: int, public_id: UUID, since: datetime) -> bool:
+    """Whether a delivery claimed or emitted the alert's legacy events at or after `since`."""
+    return (
+        PlatformAlertThread.objects.for_team(team_id)
+        .filter(
+            configuration__in=PlatformAlertConfiguration.objects.for_team(team_id).filter(
+                PlatformAlertConfiguration.with_destination_alert_ids([public_id])
+            ),
+            provider=LEGACY_EVENTS_PROVIDER,
+            updated_at__gte=since,
+        )
+        .exists()
     )
 
 

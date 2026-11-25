@@ -8,6 +8,7 @@ import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
@@ -63,65 +64,66 @@ export function SettingsScreen(): ReactElement {
 
     return (
         <View style={styles.screen} testID="settings-screen">
-            <ScrollView
-                contentContainerStyle={[
-                    styles.content,
-                    {
-                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
-                        paddingBottom: bottomOffset(insets, 48),
-                    },
-                ]}
-                onScroll={scrollTitle.onScroll}
-                scrollEventThrottle={16}
-                testID="settings-scroll"
-            >
-                <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
-                    Settings
-                </Text>
-                <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
-                <DefaultPageGroup />
-                {signedIn && !demo ? <ProjectSwitcher /> : null}
-                {signedIn ? <PushStatusGroup /> : null}
-                {signedIn || demo ? <NotificationPreferencesGroup /> : null}
-                <AppearanceGroup />
-                {__DEV__ ? (
-                    <SettingsGroup
-                        title="Demo"
-                        footer={
-                            demo && signedIn
-                                ? 'The inbox shows sample reports. Turn this off to see your projects.'
-                                : undefined
-                        }
-                    >
-                        <SettingsRow
-                            label="Demo mode"
-                            accessory={
-                                <Switch
-                                    {...webSwitchProps}
-                                    value={demo}
-                                    onValueChange={toggleDemo}
-                                    trackColor={{ true: colors.switchOn, false: colors.switchOff }}
-                                    thumbColor={colors.white}
-                                    accessibilityLabel="Demo mode"
-                                    testID="settings-demo-toggle"
-                                />
+            <ScreenBlur chrome={<ScreenChrome title={scrollTitle.title} onBack={goBack} backTestID="settings-back" />}>
+                <ScrollView
+                    contentContainerStyle={[
+                        styles.content,
+                        {
+                            paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                            paddingBottom: bottomOffset(insets, 48),
+                        },
+                    ]}
+                    onScroll={scrollTitle.onScroll}
+                    scrollEventThrottle={16}
+                    testID="settings-scroll"
+                >
+                    <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
+                        Settings
+                    </Text>
+                    <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
+                    <DefaultPageGroup />
+                    {signedIn && !demo ? <ProjectSwitcher /> : null}
+                    {signedIn ? <PushStatusGroup /> : null}
+                    {signedIn || demo ? <NotificationPreferencesGroup /> : null}
+                    <AppearanceGroup />
+                    {__DEV__ ? (
+                        <SettingsGroup
+                            title="Demo"
+                            footer={
+                                demo && signedIn
+                                    ? 'The inbox shows sample reports. Turn this off to see your projects.'
+                                    : undefined
                             }
-                        />
+                        >
+                            <SettingsRow
+                                label="Demo mode"
+                                accessory={
+                                    <Switch
+                                        {...webSwitchProps}
+                                        value={demo}
+                                        onValueChange={toggleDemo}
+                                        trackColor={{ true: colors.switchOn, false: colors.switchOff }}
+                                        thumbColor={colors.white}
+                                        accessibilityLabel="Demo mode"
+                                        testID="settings-demo-toggle"
+                                    />
+                                }
+                            />
+                        </SettingsGroup>
+                    ) : null}
+                    <SettingsGroup title="App">
+                        <SettingsRow label="Version" value={version} />
                     </SettingsGroup>
-                ) : null}
-                <SettingsGroup title="App">
-                    <SettingsRow label="Version" value={version} />
-                </SettingsGroup>
-                <SettingsGroup title="Account" testID="settings-account">
-                    <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
-                    {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
-                    {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
-                </SettingsGroup>
-                {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
-                <LegalGroup accountHost={signedIn && !demo ? host : null} />
-                <SignOutSection />
-            </ScrollView>
-            <ScreenChrome title={scrollTitle.title} onBack={goBack} backTestID="settings-back" />
+                    <SettingsGroup title="Account" testID="settings-account">
+                        <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
+                        {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
+                        {demo ? <SettingsRow label="Project" value={viewer.projectName || 'None'} /> : null}
+                    </SettingsGroup>
+                    {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
+                    <LegalGroup accountHost={signedIn && !demo ? host : null} />
+                    <SignOutSection />
+                </ScrollView>
+            </ScreenBlur>
         </View>
     )
 }

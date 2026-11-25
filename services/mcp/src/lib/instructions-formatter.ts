@@ -95,6 +95,7 @@ export interface InstructionsContext {
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
+    learnToolEnabled?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
@@ -262,6 +263,21 @@ export class InstructionsFormatter {
         ]
     }
 
+    buildLearnToolDescription(): string {
+        return this.skillsFirstSection(false)
+    }
+
+    private skillsFirstSection(execSyntax: boolean): string {
+        return formatPrompt(SKILLS_FIRST, {
+            learn_call: execSyntax
+                ? 'run `learn -s "<task keywords>"` here'
+                : 'call the `learn` tool with `learn -s "<task keywords>"`',
+            skill_store_note: execSyntax
+                ? ''
+                : ' Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.',
+        })
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
@@ -297,6 +313,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 PROJECT_SCOPE,
+                ...(ctx.learnToolEnabled ? [this.skillsFirstSection(false)] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
@@ -362,7 +379,7 @@ export class InstructionsFormatter {
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             PROJECT_SCOPE,
-            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.skillsEnabled ? [this.skillsFirstSection(true)] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]

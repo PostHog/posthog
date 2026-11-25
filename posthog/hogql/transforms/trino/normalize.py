@@ -259,6 +259,51 @@ class TrinoScalarCTELowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class _InlineAliasCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: dict[str, ast.Expr] = {}
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not node.hidden:
+            self.aliases.setdefault(node.alias, node.expr)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
+class _InlineAliasHider(TraversingVisitor):
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        node.hidden = True
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
 class _QualifiedFieldFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -296,6 +341,12 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.in_order_by = False
         self.in_window = False
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
+        # Trino can't read a name given inside a projection, as in `(id AS y) + 1 AS x`, so those expand too.
+        inline_aliases = _InlineAliasCollector()
+        for expr in node.select:
+            inline_aliases.visit(expr.expr if isinstance(expr, ast.Alias) else expr)
+        for name, expr in inline_aliases.aliases.items():
+            self.aliases.setdefault(name, expr)
         self.alias_positions = {
             expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
         }
@@ -335,7 +386,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 and isinstance(order_expression.chain[0], str)
                 and order_expression.chain[0] in self.aliases
                 and isinstance(order_expression.chain[-1], str)
-                and order_expression.chain[-1] in self.aliases
+                and order_expression.chain[-1] in self.alias_positions
             ):
                 order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
         self.aliases = outer_aliases
@@ -420,6 +471,9 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 expanded = self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+            # ClickHouse allows a projection to name a part of itself, as in `(id AS y) + 1 AS x`. The copy must
+            # not define `y` again in the same scope, while the projection it came from still does.
+            _InlineAliasHider().visit(expanded)
             # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
             # alias would read that output column. The output column itself already holds this value.
             if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):

@@ -14,6 +14,8 @@ import * as zod from 'zod'
  */
 export const platformAlertReceiversCreateBodyNameMax = 255
 
+export const platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp('^[0-9A-Za-z]{26}$')
+
 export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -21,10 +23,12 @@ export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name of the receiver, unique in the project.'),
     enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord'])
-        .describe('\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord')
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty', 'incident_io'])
         .describe(
-            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord'
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
+        )
+        .describe(
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         ),
     slack_workspace_id: zod
         .number()
@@ -38,12 +42,47 @@ export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted.'
         ),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .optional()
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .optional()
+        .describe(
+            'PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.\n\n\* `us` - us\n\* `eu` - eu'
+        ),
+    incident_io_alert_source_config_id: zod
+        .string()
+        .regex(platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp)
+        .optional()
+        .describe('ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.'),
+    incident_io_secret: zod
+        .string()
+        .optional()
+        .describe(
+            'Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
 })
 
 /**
  * Change a receiver. Destination fields replace the stored destination and need the type.
  */
 export const platformAlertReceiversPartialUpdateBodyNameMax = 255
+
+export const platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp(
+    '^[0-9A-Za-z]{26}$'
+)
 
 export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -53,11 +92,13 @@ export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.objec
         .describe('Name of the receiver, unique in the project.'),
     enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
     type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord'])
-        .describe('\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord')
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty', 'incident_io'])
+        .describe(
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
+        )
         .optional()
         .describe(
-            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord'
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty\n\* `incident_io` - incident.io'
         ),
     slack_workspace_id: zod
         .number()
@@ -70,6 +111,37 @@ export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .optional()
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .optional()
+        .describe(
+            'PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.\n\n\* `us` - us\n\* `eu` - eu'
+        ),
+    incident_io_alert_source_config_id: zod
+        .string()
+        .regex(platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp)
+        .optional()
+        .describe('ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.'),
+    incident_io_secret: zod
+        .string()
+        .optional()
+        .describe(
+            'Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted.'
         ),
 })
 
@@ -100,7 +172,9 @@ export const PlatformAlertRoutesCreateBody = /* @__PURE__ */ zod.object({
         )
         .min(1)
         .optional()
-        .describe('The alert transitions the receiver hears about through this route. Defaults to every kind.'),
+        .describe(
+            'The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
+        ),
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
 
@@ -131,7 +205,9 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .min(1)
         .optional()
-        .describe('The alert transitions the receiver hears about through this route. Defaults to every kind.'),
+        .describe(
+            'The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
+        ),
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
 
@@ -160,10 +236,10 @@ export const platformAlertsCreateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyOneEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyOneEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyOneEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyOneDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyOneDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyOneDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyOneCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyOneCooldownMinutesMin = 0
@@ -181,10 +257,10 @@ export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyTwoEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyTwoEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyTwoEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyTwoDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyTwoDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyTwoDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyTwoCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyTwoCooldownMinutesMin = 0
@@ -201,10 +277,10 @@ export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyThreeEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyThreeEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyThreeEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyThreeDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyThreeDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyThreeDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyThreeCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyThreeCooldownMinutesMin = 0
@@ -222,10 +298,10 @@ export const platformAlertsCreateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyFourEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyFourDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyFourDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyFourDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyFourCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyFourCooldownMinutesMin = 0
@@ -245,10 +321,10 @@ export const platformAlertsCreateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodyFiveEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodyFiveEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodyFiveEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodyFiveDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodyFiveDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodyFiveDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodyFiveCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyFiveCooldownMinutesMin = 0
@@ -390,7 +466,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodyOneEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyOneEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -529,7 +605,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodyTwoEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyTwoEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -711,7 +787,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodyThreeEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyThreeEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -840,7 +916,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodyFourEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyFourEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -981,7 +1057,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodyFiveEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodyFiveEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1030,9 +1106,9 @@ export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodyOneEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodyOneEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodyOneDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodyOneDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodyOneCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyOneCooldownMinutesMax = 2147483647
@@ -1046,9 +1122,9 @@ export const platformAlertsUpdateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodyTwoEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodyTwoEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodyTwoDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodyTwoDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodyTwoCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyTwoCooldownMinutesMax = 2147483647
@@ -1062,9 +1138,9 @@ export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodyThreeEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodyThreeEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodyThreeDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodyThreeDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodyThreeCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyThreeCooldownMinutesMax = 2147483647
@@ -1077,9 +1153,9 @@ export const platformAlertsUpdateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodyFourEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodyFourEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodyFourDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodyFourDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodyFourCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyFourCooldownMinutesMax = 2147483647
@@ -1093,9 +1169,9 @@ export const platformAlertsUpdateBodyFiveGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodyFiveEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodyFiveEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodyFiveDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodyFiveDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodyFiveCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyFiveCooldownMinutesMax = 2147483647
@@ -1111,9 +1187,9 @@ export const platformAlertsUpdateBodySixGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodySixGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodySixEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodySixEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodySixDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodySixDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodySixCooldownMinutesMin = 0
 export const platformAlertsUpdateBodySixCooldownMinutesMax = 2147483647
@@ -1281,7 +1357,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodyOneEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1436,7 +1512,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodyTwoEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1565,7 +1641,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodyThreeEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1737,7 +1813,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodyFourEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1856,7 +1932,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodyFiveEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1987,7 +2063,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodySixEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2034,9 +2110,9 @@ export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyOneGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyOneDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyOneDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyOneCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyOneCooldownMinutesMax = 2147483647
@@ -2050,9 +2126,9 @@ export const platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesDefault = 
 export const platformAlertsPartialUpdateBodyTwoGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyTwoGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyTwoDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMax = 2147483647
@@ -2066,9 +2142,9 @@ export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesDefault 
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyThreeGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyThreeDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyThreeDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyThreeCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyThreeCooldownMinutesMax = 2147483647
@@ -2081,9 +2157,9 @@ export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesDefault =
 export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMax = 2147483647
@@ -2097,9 +2173,9 @@ export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesDefault =
 export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMax = 2147483647
@@ -2115,9 +2191,9 @@ export const platformAlertsPartialUpdateBodySixGroupingOneMaxInstancesDefault = 
 export const platformAlertsPartialUpdateBodySixGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodySixEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodySixEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodySixDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodySixDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodySixCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodySixCooldownMinutesMax = 2147483647
@@ -2297,7 +2373,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2462,7 +2538,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyTwoEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2601,7 +2677,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyThreeEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2783,7 +2859,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyFourEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2912,7 +2988,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -3053,7 +3129,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodySixEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()

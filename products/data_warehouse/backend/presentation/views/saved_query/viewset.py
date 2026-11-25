@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Expression, JSONField, Model, Prefetch, Value
+from django.db.models import Expression, JSONField, Model, Value
 from django.db.models.fields.json import KeyTransform
 
 import structlog
@@ -242,13 +242,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "created_by",
                 "managed_viewset",
                 "column_annotations",
-                Prefetch(
-                    "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
-                        "-last_run_at"
-                    )[:1],
-                    to_attr="jobs",
-                ),
             )
             # Both serializers read `folder.id` and `folder.name`, so without the join Django
             # fetches the folder once per foldered view.
@@ -271,7 +264,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             read_query_keys = managed_trino_query_flag_enabled(
                 self.team.organization_id
             ) or team_has_had_direct_query_source(self.team.pk)
-            base_queryset = base_queryset.annotate(**_view_engine_annotations(read_query_keys=read_query_keys))
+            base_queryset = base_queryset.annotate(
+                **_view_engine_annotations(read_query_keys=read_query_keys),
+                **view_state.serving_run_annotations(),
+            )
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")

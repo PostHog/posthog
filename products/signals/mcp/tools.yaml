@@ -978,6 +978,21 @@ tools:
             `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter
             yet.
         feature_flag: signals-source-filters
+    inbox-source-filter-preview:
+        operation: signals_source_configs_filter_preview_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview an inbox source filter
+        description: >
+            Check a filter expression before you save it, and see what it does to the source's records from the last 7
+            days: how many pass, how many it excludes, and the newest records of each with their field values. Use the
+            fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid
+            expression or a source that has not synced. Records that pass can still be skipped later by guidance or
+            deduplication. Saves nothing.
+        feature_flag: signals-source-filters
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true

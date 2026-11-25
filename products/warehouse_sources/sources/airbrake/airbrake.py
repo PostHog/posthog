@@ -7,7 +7,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.sources.airbrake.settings import AIRBRAKE_ENDPOINTS, AirbrakeEndpointConfig
+from products.warehouse_sources.sources.airbrake.settings import (
+    AIRBRAKE_ENDPOINTS,
+    AirbrakeEndpointConfig,
+    AirbrakeStatsConfig,
+)
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
@@ -28,6 +32,11 @@ NOTICES_MAX_PAGES_PER_GROUP = 20
 # for the full activity timeout. Bound the total groups a single notice sync fans out into — a
 # safety valve far above any realistic account, not an expected limit.
 NOTICES_MAX_GROUPS_PER_SYNC = 10_000
+# Group stats fan out over the same groups as notices, so they get the same safety valve.
+GROUP_STATS_MAX_GROUPS_PER_SYNC = 10_000
+# Stats endpoints return at most `limit` buckets (documented default 100). Each request asks for a
+# window that holds no more buckets than this, so no bucket is cut off.
+STATS_BUCKETS_PER_REQUEST = 100
 
 
 class AirbrakeRetryableError(Exception):
@@ -285,6 +294,204 @@ def _notices_rows(
             manager.save_state(AirbrakeResumeConfig(page=1, project_id=remaining_projects[project_index + 1]))
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _to_epoch_seconds(value: Any) -> int | None:
+    if isinstance(value, datetime):
+        return int((value.replace(tzinfo=UTC) if value.tzinfo is None else value).timestamp())
+    if isinstance(value, date):
+        return _to_epoch_seconds(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
+    if isinstance(value, str):
+        try:
+            return _to_epoch_seconds(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except ValueError:
+            return None
+    return None
+
+
+def _stats_windows(
+    stats: AirbrakeStatsConfig, now: datetime, db_incremental_field_last_value: Optional[Any]
+) -> list[tuple[int, int | None]]:
+    """Split the read range into [time__gte, time__lt) windows of epoch seconds.
+
+    The range starts at the lookback limit, or at the watermark when that is later. The watermark is
+    the newest bucket already loaded, which was possibly still filling, so the range includes it again.
+    The last window has no upper bound and ends at the current, partial bucket.
+    """
+    now_seconds = int(now.timestamp())
+    start = now_seconds - stats.lookback_seconds
+    watermark = _to_epoch_seconds(db_incremental_field_last_value)
+    if watermark is not None:
+        start = max(start, watermark)
+    start -= start % stats.period_seconds
+
+    span = STATS_BUCKETS_PER_REQUEST * stats.period_seconds
+    windows: list[tuple[int, int | None]] = []
+    while start + span <= now_seconds:
+        windows.append((start, start + span))
+        start += span
+    windows.append((start, None))
+    return windows
+
+
+def _stats_rows_from_response(data: dict[str, Any], parent: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn Airbrake's parallel arrays ({"time": [...], "accepted": [...]}) into one row per bucket."""
+    times = data.get("time") or []
+    series = {key: values for key, values in data.items() if key != "time" and isinstance(values, list)}
+    rows = []
+    for index, bucket in enumerate(times):
+        if bucket is None:
+            continue
+        row: dict[str, Any] = {**parent, "time": bucket}
+        for key, values in series.items():
+            row[key] = values[index] if index < len(values) else None
+        rows.append(row)
+    return rows
+
+
+def _stats_series_rows(
+    session: requests.Session,
+    api_key: str,
+    path: str,
+    stats: AirbrakeStatsConfig,
+    windows: list[tuple[int, int | None]],
+    parent: dict[str, Any],
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AirbrakeResumeConfig],
+    current: AirbrakeResumeConfig,
+    following: AirbrakeResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read every window of one parent's stats, staging where a resumed run must continue.
+
+    Windows are cheap compared to the parent enumeration, so a resume restarts the current parent.
+    After the last window it continues at `following`.
+    """
+    for index, (start, end) in enumerate(windows):
+        params: dict[str, Any] = {
+            "key": api_key,
+            "period": stats.period,
+            "time__gte": start,
+            "limit": STATS_BUCKETS_PER_REQUEST,
+        }
+        if end is not None:
+            params["time__lt"] = end
+        rows = _stats_rows_from_response(_fetch_page(session, f"{AIRBRAKE_BASE_URL}{path}", params, logger), parent)
+
+        bookmark = following if index + 1 == len(windows) else current
+        if bookmark is not None:
+            manager.save_state(bookmark)
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
+
+
+def _project_stats_rows(
+    session: requests.Session,
+    api_key: str,
+    endpoint_config: AirbrakeEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AirbrakeResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    assert endpoint_config.stats is not None
+    windows = _stats_windows(endpoint_config.stats, _now(), db_incremental_field_last_value)
+    project_ids = [project["id"] for project in _list_projects(session, api_key, logger)]
+
+    resume = _load_resume(manager)
+    remaining, _resumed = _slice_from_bookmark(project_ids, resume.project_id if resume else None)
+
+    for index, project_id in enumerate(remaining):
+        following = AirbrakeResumeConfig(project_id=remaining[index + 1]) if index + 1 < len(remaining) else None
+        try:
+            yield from _stats_series_rows(
+                session,
+                api_key,
+                endpoint_config.path.format(project_id=project_id),
+                endpoint_config.stats,
+                windows,
+                {"projectId": project_id},
+                logger,
+                manager,
+                current=AirbrakeResumeConfig(project_id=project_id),
+                following=following,
+            )
+        except requests.HTTPError as exc:
+            if not _is_not_found(exc):
+                raise
+            logger.warning(f"Airbrake: project {project_id} not found while fetching {endpoint_config.name}")
+            manager.safe_point()
+
+
+def _group_stats_rows(
+    session: requests.Session,
+    api_key: str,
+    endpoint_config: AirbrakeEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AirbrakeResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    assert endpoint_config.stats is not None
+    windows = _stats_windows(endpoint_config.stats, _now(), db_incremental_field_last_value)
+    project_ids = [project["id"] for project in _list_projects(session, api_key, logger)]
+
+    resume = _load_resume(manager)
+    remaining_projects, resumed_project = _slice_from_bookmark(project_ids, resume.project_id if resume else None)
+
+    groups_fanned_out = 0
+    for project_index, project_id in enumerate(remaining_projects):
+        try:
+            group_ids = _list_group_ids(session, api_key, project_id, logger)
+        except requests.HTTPError as exc:
+            if not _is_not_found(exc):
+                raise
+            logger.warning(f"Airbrake: project {project_id} not found while enumerating groups")
+            group_ids = []
+        manager.safe_point()
+
+        bookmark = resume.group_id if resume is not None and project_index == 0 and resumed_project else None
+        remaining_groups, _resumed = _slice_from_bookmark(group_ids, bookmark)
+        next_project = (
+            AirbrakeResumeConfig(project_id=remaining_projects[project_index + 1])
+            if project_index + 1 < len(remaining_projects)
+            else None
+        )
+
+        for group_index, group_id in enumerate(remaining_groups):
+            if groups_fanned_out >= GROUP_STATS_MAX_GROUPS_PER_SYNC:
+                logger.warning(
+                    f"Airbrake: group stats budget ({GROUP_STATS_MAX_GROUPS_PER_SYNC}) reached, stopping group stats sync"
+                )
+                return
+            groups_fanned_out += 1
+
+            following = (
+                AirbrakeResumeConfig(project_id=project_id, group_id=remaining_groups[group_index + 1])
+                if group_index + 1 < len(remaining_groups)
+                else next_project
+            )
+            try:
+                yield from _stats_series_rows(
+                    session,
+                    api_key,
+                    endpoint_config.path.format(project_id=project_id, group_id=group_id),
+                    endpoint_config.stats,
+                    windows,
+                    {"projectId": project_id, "groupId": group_id},
+                    logger,
+                    manager,
+                    current=AirbrakeResumeConfig(project_id=project_id, group_id=group_id),
+                    following=following,
+                )
+            except requests.HTTPError as exc:
+                if not _is_not_found(exc):
+                    raise
+                logger.warning(f"Airbrake: group {group_id} in project {project_id} not found, skipping stats")
+                manager.safe_point()
+
+
 def _build_groups_params(
     should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any]
 ) -> dict[str, Any]:
@@ -327,6 +534,18 @@ def get_rows(
         )
     elif endpoint == "notices":
         yield from _notices_rows(session, api_key, endpoint_config, logger, resumable_source_manager)
+    elif endpoint == "activities":
+        yield from _project_fan_out_rows(session, api_key, endpoint_config, logger, resumable_source_manager)
+    elif endpoint in ("project_stats", "group_stats"):
+        stats_rows = _project_stats_rows if endpoint == "project_stats" else _group_stats_rows
+        yield from stats_rows(
+            session,
+            api_key,
+            endpoint_config,
+            logger,
+            resumable_source_manager,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
     else:
         raise ValueError(f"Unknown Airbrake endpoint: {endpoint}")
 

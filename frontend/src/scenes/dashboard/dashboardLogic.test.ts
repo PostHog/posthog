@@ -1234,7 +1234,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer opens it',
                     open: () => logic.actions.selectTileGroupTab('group-target'),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 1,
                 },
@@ -1248,7 +1248,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer follows a link to it',
                     open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 0,
                 },
@@ -1270,8 +1270,8 @@ describe('dashboardLogic', () => {
                     await expectLogic(logic, open).toFinishAllListeners()
 
                     expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
-                        'tiles-ungrouped',
                         'group-target',
+                        'tiles-ungrouped',
                     ])
                     expect(logic.values.activeTileGroupTab).toEqual('target')
                     expect(router.values.searchParams.tab).toEqual('group-target')
@@ -1309,6 +1309,7 @@ describe('dashboardLogic', () => {
                         customization: { group_display: 'tabs' },
                         tiles: [...leftTiles, targetTile],
                     }
+                    router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' })
                     await mountDashboard()
                     refreshInsight.mockClear()
                     const finishLoads: (() => void)[] = []

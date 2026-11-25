@@ -6,8 +6,6 @@ import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -63,8 +61,6 @@ describe('ImplementButton', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()

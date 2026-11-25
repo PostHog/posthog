@@ -13,6 +13,7 @@ import { ClusteringSplitPane } from './ClusteringSplitPane'
 import { ClusterListPanel } from './ClusterListPanel'
 import { ClusterScorecards } from './ClusterScorecards'
 import { ClusteringViewMode, mcpClusteringLogic } from './mcpClusteringLogic'
+import { RecurringIntentsSection } from './RecurringIntentsSection'
 import { ToolDetailPanel } from './ToolDetailPanel'
 import { ToolsListPanel } from './ToolsListPanel'
 
@@ -172,9 +173,23 @@ function ToolsView({ loading }: { loading: boolean }): JSX.Element {
     )
 }
 
+function RedactedIntentsNote(): JSX.Element | null {
+    const { intentTextRedacted } = useValues(mcpClusteringLogic)
+    if (!intentTextRedacted) {
+        return null
+    }
+    return (
+        <LemonBanner type="info">
+            Intent text is hidden from you by access control, so intent groups are numbered instead of named. Session,
+            call and tool counts are unaffected.
+        </LemonBanner>
+    )
+}
+
 function IntentsView({ loading }: { loading: boolean }): JSX.Element {
     return (
         <>
+            <RedactedIntentsNote />
             <ClusterScorecards loading={loading} />
             <ClusteringSplitPane
                 logicKey="mcp-clustering-intents"
@@ -182,6 +197,7 @@ function IntentsView({ loading }: { loading: boolean }): JSX.Element {
                 list={loading ? PANE_SKELETON : <ClusterListPanel />}
                 detail={loading ? PANE_SKELETON : <ClusterDetailPanel />}
             />
+            {loading ? null : <RecurringIntentsSection />}
         </>
     )
 }

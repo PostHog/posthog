@@ -385,7 +385,7 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         min_value=1,
         max_value=MAX_SOURCE_EVALUATION_PERIODS,
         help_text="Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; "
-        "metrics alerts allow up to 60.",
+        "metrics alerts allow up to 1441.",
     )
     datapoints_to_alarm = serializers.IntegerField(
         min_value=1,

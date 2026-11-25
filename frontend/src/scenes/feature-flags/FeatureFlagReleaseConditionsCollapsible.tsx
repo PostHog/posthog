@@ -68,6 +68,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
@@ -659,6 +660,10 @@ const ConditionContent = ({
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                             showCohortFlagTargeting
+                                        />
+                                        <CohortFlagTargetingNotice
+                                            properties={group.properties ?? []}
+                                            className="mt-2"
                                         />
                                     </div>
 

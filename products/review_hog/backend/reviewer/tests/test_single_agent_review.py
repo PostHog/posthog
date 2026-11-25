@@ -183,6 +183,46 @@ class TestSingleAgentPrompt:
         assert prompt.count(PROMPT_CACHE_MARKER) == 1
         assert prompt.split(PROMPT_CACHE_MARKER)[1].lstrip().startswith("CORE RUBRIC")
 
+    @pytest.mark.parametrize(
+        "merge_base_sha,base_read",
+        [
+            pytest.param(_MERGE_BASE, f"git show {_MERGE_BASE}:'<path>'", id="base_commit_known"),
+            pytest.param(None, "apply its removed lines as they state the rule", id="base_commit_unknown"),
+        ],
+    )
+    def test_a_rule_file_the_pr_changes_is_named_and_read_from_the_base(
+        self, pr_metadata: PRMetadata, merge_base_sha: str | None, base_read: str
+    ) -> None:
+        # A delta turn sees only the files of the last push, and a rule file changed by an earlier push
+        # still sits in the checkout with the pull request's text.
+        unsafe_path = "docs/x'$(id)'/AGENTS.md"
+        whole_pr = [
+            _file("a.py", "x = 1"),
+            _file("products/x/AGENTS.md", "- new rule"),
+            _file("CLAUDE.md", "- y"),
+            _file(".agents/security.md", "- z"),
+            _file("tools/skills/s/SKILL.md", "- w"),
+            _file("src/notes.md", "- v").model_copy(update={"status": "renamed", "previous_filename": "src/AGENTS.md"}),
+            _file(unsafe_path, "- u"),
+        ]
+        prompt = SingleAgentPrompt(
+            repository="o/r",
+            pr_metadata=pr_metadata,
+            pr_files=[whole_pr[0]],
+            whole_pr_files=whole_pr,
+            prior_findings=[],
+            guidelines="rubric",
+            merge_base_sha=merge_base_sha,
+        ).render()
+
+        assert (
+            "This pull request changes these rule files: `products/x/AGENTS.md`, `CLAUDE.md`, `.agents/security.md`, "
+            "`tools/skills/s/SKILL.md`, `src/AGENTS.md`."
+        ) in prompt
+        assert "also changes 1 rule file whose path has characters" in prompt
+        assert unsafe_path not in prompt.split("## Diff")[0]
+        assert base_read in prompt.split(PROMPT_CACHE_MARKER)[0]
+
 
 @pytest.mark.parametrize(
     "delta_since,expect_section",

@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 
+import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -79,6 +81,43 @@ const RULES_V2_EXPERIMENT_FLAG = {
     },
 }
 
+// Flag 1779's first condition set targets this cohort.
+const pricingCohort = (realtime: CohortRealtimeReadinessApi): Record<string, unknown> => ({
+    id: 1,
+    name: 'Viewed pricing this week',
+    count: 4321,
+    is_static: false,
+    filters: { properties: { type: 'AND', values: [] } },
+    realtime_enabled: realtime.state !== 'off',
+    realtime,
+})
+
+const NOT_READY = { ready_at: null, build: null, reason: null, history_limit_days: null }
+
+const expandAllConditions = async (canvasElement: HTMLElement): Promise<void> => {
+    // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
+    const expandAll = await waitFor(
+        () => {
+            const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
+            if (!button) {
+                throw new Error('release conditions for flag 1779 not yet rendered')
+            }
+            return button
+        },
+        // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
+        { timeout: 30000 }
+    )
+    expandAll.click()
+    await waitFor(
+        () => {
+            if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
+                throw new Error('condition sets not expanded yet')
+            }
+        },
+        { timeout: 5000 }
+    )
+}
+
 const meta: Meta = {
     component: App,
     tags: ['ff'],
@@ -103,20 +142,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/integrations': {},
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([
-                    {
-                        id: 1,
-                        name: 'Viewed pricing this week',
-                        count: 4321,
-                        is_static: false,
-                        filters: { properties: { type: 'AND', values: [] } },
-                        realtime: {
-                            state: 'ready',
-                            ready_at: '2023-01-27T09:40:00Z',
-                            build: null,
-                            reason: null,
-                            history_limit_days: null,
-                        },
-                    },
+                    pricingCohort({ ...NOT_READY, state: 'ready', ready_at: '2023-01-27T09:40:00Z' }),
                 ]),
 
                 '/api/projects/:team_id/feature_flags': featureFlags,
@@ -224,30 +250,46 @@ export const EditFeatureFlagConditionsWithRealtimeCohort: Story = {
         pageUrl: `${urls.featureFlag(1779)}?edit=true`,
         testOptions: { waitForLoadersToDisappear: false },
     },
-    play: async ({ canvasElement }) => {
-        // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
-        const expandAll = await waitFor(
-            () => {
-                const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
-                if (!button) {
-                    throw new Error('release conditions for flag 1779 not yet rendered')
-                }
-                return button
+    play: async ({ canvasElement }) => expandAllConditions(canvasElement),
+}
+
+const storyWithCohortFlagsCantTargetYet = (realtime: CohortRealtimeReadinessApi): Story => ({
+    parameters: {
+        pageUrl: `${urls.featureFlag(1779)}?edit=true`,
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([pricingCohort(realtime)]),
+                // The notice reads the cohort again when it appears.
+                '/api/projects/:team_id/cohorts/:id/': pricingCohort(realtime),
             },
-            // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
-            { timeout: 30000 }
-        )
-        expandAll.click()
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAllConditions(canvasElement)
         await waitFor(
             () => {
-                if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
-                    throw new Error('condition sets not expanded yet')
+                if (!canvasElement.querySelector('[data-attr="cohort-flag-targeting-notice"]')) {
+                    throw new Error('cohort notice not rendered yet')
                 }
             },
             { timeout: 5000 }
         )
     },
-}
+})
+
+export const EditFeatureFlagConditionsWithRealtimeOffCohort: Story = storyWithCohortFlagsCantTargetYet({
+    ...NOT_READY,
+    state: 'off',
+})
+
+export const EditFeatureFlagConditionsWithPreparingCohort: Story = storyWithCohortFlagsCantTargetYet({
+    ...NOT_READY,
+    state: 'building',
+    build: { phase: 'scanning', percent_complete: 40, updated_at: '2023-01-28T09:00:00Z' },
+})
 
 export const EditMultiVariateFeatureFlag: Story = {
     parameters: {

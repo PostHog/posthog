@@ -18,22 +18,22 @@ RENAMED_RESOURCES = {
 
 BATCH_SIZE = 5000
 
+# `posthog_oauthapplication` and `posthog_oauthaccesstoken` are left to the
+# `backfill_code_review_scopes` management command. In prod they hold millions of rows with these
+# scopes, and every row rewrite updates two large GIN indexes on the scope column, so a pass here
+# took days and blocked the deploy. Reads translate the old names (`translate_renamed_scopes`), so
+# those rows keep their access until the command adds the new names.
+
 # (table, column) pairs that store scopes as an array.
 SCOPE_ARRAY_COLUMNS = [
     ("posthog_personalapikey", "scopes"),
     ("posthog_projectsecretapikey", "scopes"),
-    ("posthog_oauthapplication", "scopes"),
-    ("posthog_oauthapplication", "optional_scopes"),
     ("posthog_workloadtrustpolicy", "scopes"),
     ("posthog_workloadtrustpolicyrequest", "scopes"),
 ]
 
 # (table, column, extra filter) for columns that store scopes as one space-separated string.
-# The access token filter matches the condition of `oauthaccesstoken_scopes_gin`, so each batch
-# finds its rows through that index instead of scanning the table. Tokens without an application
-# are minted inside PostHog and never carry these scopes.
 SCOPE_TEXT_COLUMNS = [
-    ("posthog_oauthaccesstoken", "scope", "AND application_id IS NOT NULL"),
     ("posthog_oauthgrant", "scope", ""),
     ("posthog_oauthdevicegrant", "scope", ""),
     ("posthog_oauthdevicegrant", "required_scope", ""),

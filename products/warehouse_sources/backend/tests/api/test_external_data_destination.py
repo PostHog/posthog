@@ -21,6 +21,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
+from posthog.integrations import UndecryptedIntegrationSecretError
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
@@ -41,6 +42,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -59,11 +61,14 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     new_connection_test_table,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
+    DELIVERY_FAILURES_LIMIT,
+    UNREADABLE_CREDENTIALS_ERROR,
     DestinationConnectLinkQuerySerializer,
     ExternalDataDestinationViewSet,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+DESTINATION_VIEWS = "products.warehouse_sources.backend.presentation.views.external_data_destination"
 REDSHIFT_ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-redshift"
 REDSHIFT_CLUSTER_HOST = "my-cluster.abc123.us-east-1.redshift.amazonaws.com"
 REDSHIFT_WORKGROUP_HOST = "my-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com"
@@ -1354,6 +1359,66 @@ class TestSyncedSourcesAccessControl(DestinationAPITestBase):
         assert [entry["id"] for entry in listed] == [str(self.source.id)]
         assert str(hidden_source.id) not in [entry["id"] for entry in listed]
 
+    def test_delivery_failures_omit_a_source_the_viewer_cannot_see(self) -> None:
+        hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(hidden_source.id),
+            access_level="none",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+        destination = self._create_destination()
+        for source in (self.source, hidden_source):
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error="analytics postgres: connection refused",
+                destination_ids=[str(destination.id)],
+            )
+
+        self.client.force_login(self.viewer)
+        results = self.client.get(f"{self.base}/{destination.id}/delivery_failures").json()["results"]
+
+        assert [row["source_id"] for row in results] == [str(self.source.id)]
+
+    def test_delivery_failures_omit_a_table_the_viewer_cannot_see(self) -> None:
+        hidden_table = DataWarehouseTable.objects.create(
+            name="charges", team=self.team, external_data_source=self.source
+        )
+        self.schema.table = hidden_table
+        self.schema.save(update_fields=["table"])
+        visible_schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="customers")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(hidden_table.id),
+            access_level="none",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+        destination = self._create_destination()
+        for schema in (self.schema, visible_schema):
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=self.source,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error="analytics postgres: connection refused",
+                destination_ids=[str(destination.id)],
+            )
+
+        self.client.force_login(self.viewer)
+        results = self.client.get(f"{self.base}/{destination.id}/delivery_failures").json()["results"]
+
+        assert [row["schema_name"] for row in results] == ["customers"]
+
 
 class TestDestinationLinkEndpoints(DestinationAPITestBase):
     def setUp(self) -> None:
@@ -2032,3 +2097,231 @@ class TestDestinationAPIKeyScopes(DestinationAPITestBase):
         )
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestDeliveryFailures(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="Prod",
+            integration=self._redshift_integration("password"),
+            config={"database": "analytics", "schema": "raw"},
+        )
+        self.other_destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Prod EU",
+            integration=self._integration(),
+            config={},
+        )
+
+    def _failed_job(self, latest_error: str | None, **overrides) -> ExternalDataJob:
+        fields = {
+            "team": self.team,
+            "pipeline": self.source,
+            "schema": self.schema,
+            "status": ExternalDataJob.Status.FAILED,
+            "latest_error": latest_error,
+            "destination_ids": [str(self.destination.id)],
+            "workflow_run_id": "run-1",
+            **overrides,
+        }
+        return ExternalDataJob.objects.create(**fields)
+
+    def _failures(self, destination: ExternalDataDestination | None = None) -> list[dict]:
+        destination = destination or self.destination
+        response = self.client.get(f"{self.base}/{destination.id}/delivery_failures")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["results"]
+
+    @parameterized.expand(
+        [
+            ("direct", "Prod: relation does not exist", "relation does not exist", False),
+            (
+                "after_retries",
+                "max retries exceeded: Prod: SSL connection closed",
+                "SSL connection closed",
+                False,
+            ),
+            (
+                "configuration_error",
+                "Prod: Destination configuration error. The user lacks privileges.",
+                "Destination configuration error. The user lacks privileges.",
+                True,
+            ),
+        ]
+    )
+    def test_returns_the_error_of_a_failed_delivery(
+        self, _name: str, latest_error: str, expected_error: str, is_configuration_error: bool
+    ) -> None:
+        job = self._failed_job(latest_error)
+
+        assert self._failures() == [
+            {
+                "job_id": str(job.id),
+                "source_id": str(self.source.id),
+                "source_name": "Stripe",
+                "source_type": "Stripe",
+                "schema_id": str(self.schema.id),
+                "schema_name": "charges",
+                "error": expected_error,
+                "is_configuration_error": is_configuration_error,
+                "created_at": job.created_at.isoformat().replace("+00:00", "Z"),
+                "finished_at": None,
+                "workflow_run_id": "run-1",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("another_destination_failed", {"latest_error": "Prod EU: timeout"}),
+            ("source_error_not_delivery", {"latest_error": "Stripe returned 401"}),
+            ("run_did_not_deliver_here", {"destination_ids": []}),
+            ("run_succeeded", {"status": ExternalDataJob.Status.COMPLETED}),
+            ("no_error", {"latest_error": None}),
+            ("too_old", {"created_at": timezone.now() - timedelta(days=15)}),
+        ]
+    )
+    def test_omits_runs_that_are_not_a_recent_failure_of_this_destination(self, _name: str, overrides: dict) -> None:
+        overrides = {"latest_error": "Prod: boom", **overrides}
+        created_at = overrides.pop("created_at", None)
+        job = self._failed_job(
+            overrides.pop("latest_error"),
+            destination_ids=overrides.pop(
+                "destination_ids", [str(self.destination.id), str(self.other_destination.id)]
+            ),
+            **overrides,
+        )
+        if created_at is not None:
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        assert self._failures() == []
+
+    def test_a_longer_destination_name_claims_its_own_failure(self) -> None:
+        self._failed_job("Prod EU: timeout", destination_ids=[str(self.destination.id), str(self.other_destination.id)])
+
+        assert self._failures() == []
+        assert [row["error"] for row in self._failures(self.other_destination)] == ["timeout"]
+
+    def test_omits_runs_of_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_source = ExternalDataSource.objects.create(
+            team=other_team,
+            source_id="other",
+            connection_id="other-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self._failed_job("Prod: boom", team=other_team, pipeline=other_source, schema=None)
+
+        assert self._failures() == []
+
+    @parameterized.expand([("long_password", "fake-secret"), ("short_password", "x9")])
+    def test_masks_the_destination_credentials_in_the_error(self, _name: str, password: str) -> None:
+        integration = self.destination.integration
+        assert integration is not None
+        integration.sensitive_config = {"password": password}
+        integration.save(update_fields=["sensitive_config"])
+        self._failed_job(f"Prod: login for posthog on my-cluster.example.com rejected the value {password}")
+
+        [failure] = self._failures()
+
+        assert failure["error"] == "login for posthog on my-cluster.example.com rejected the value ***"
+
+    def test_masks_every_same_named_destination_on_the_run(self) -> None:
+        twin = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="Prod",
+            integration=self._redshift_integration("password"),
+            config={"database": "analytics", "schema": "raw"},
+        )
+        assert twin.integration is not None
+        twin.integration.sensitive_config = {"password": "twin-secret"}
+        twin.integration.save(update_fields=["sensitive_config"])
+        self._failed_job(
+            "Prod: login rejected the value twin-secret", destination_ids=[str(self.destination.id), str(twin.id)]
+        )
+
+        for destination in (self.destination, twin):
+            assert [row["error"] for row in self._failures(destination)] == ["login rejected the value ***"]
+
+    def test_hides_the_error_when_the_credentials_service_cannot_read_the_secrets(self) -> None:
+        self._failed_job("Prod: login rejected the value secret-pass")
+        other = self._failed_job("Prod: boom")
+        ExternalDataJob.objects.filter(id=other.id).update(created_at=timezone.now() - timedelta(minutes=1))
+
+        with patch(
+            f"{DESTINATION_VIEWS}.source_helpers.get_integration_error_redaction_values",
+            side_effect=UndecryptedIntegrationSecretError(),
+        ):
+            results = self._failures()
+
+        assert [row["error"] for row in results] == [UNREADABLE_CREDENTIALS_ERROR, UNREADABLE_CREDENTIALS_ERROR]
+        assert all("secret-pass" not in json.dumps(row) for row in results)
+
+    @parameterized.expand(
+        [
+            ("top_level_secret", {"password": "gAAAAAnot-a-readable-token"}),
+            ("nested_secret", {"auth": {"password": "gAAAAAnot-a-readable-token"}}),
+            ("one_of_several_secrets", {"password": "readable", "token": "gAAAAAnot-a-readable-token"}),
+        ]
+    )
+    def test_hides_the_error_when_a_stored_secret_is_still_ciphertext(self, _name: str, sensitive_config: dict) -> None:
+        integration = self.destination.integration
+        assert integration is not None
+        integration.sensitive_config = sensitive_config
+        integration.save(update_fields=["sensitive_config"])
+        self._failed_job("Prod: login rejected the value secret-pass")
+
+        results = self._failures()
+
+        assert [row["error"] for row in results] == [UNREADABLE_CREDENTIALS_ERROR]
+        assert "secret-pass" not in json.dumps(results)
+
+    def test_still_masks_a_readable_destination_next_to_an_unreadable_one(self) -> None:
+        other_integration = self.other_destination.integration
+        assert other_integration is not None
+        other_integration.sensitive_config = {"password": "gAAAAAnot-a-readable-token"}
+        other_integration.save(update_fields=["sensitive_config"])
+        integration = self.destination.integration
+        assert integration is not None
+        integration.sensitive_config = {"password": "prod-secret"}
+        integration.save(update_fields=["sensitive_config"])
+        self._failed_job(
+            "Prod: login rejected the value prod-secret",
+            destination_ids=[str(self.destination.id), str(self.other_destination.id)],
+        )
+
+        assert [row["error"] for row in self._failures()] == ["login rejected the value ***"]
+
+    def test_finds_failures_older_than_a_page_of_other_failed_runs(self) -> None:
+        now = timezone.now()
+        own = self._failed_job("Prod: boom")
+        others = [self._failed_job("Stripe returned 401") for _ in range(3)]
+        ExternalDataJob.objects.filter(id=own.id).update(created_at=now - timedelta(days=2))
+        for index, job in enumerate(others):
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=index))
+
+        with patch(f"{DESTINATION_VIEWS}.DELIVERY_FAILURES_PAGE_SIZE", 2):
+            results = self._failures()
+
+        assert [row["job_id"] for row in results] == [str(own.id)]
+
+    def test_returns_the_newest_runs_first_up_to_the_limit(self) -> None:
+        now = timezone.now()
+        jobs = [self._failed_job(f"Prod: failure {index}") for index in range(DELIVERY_FAILURES_LIMIT + 2)]
+        for index, job in enumerate(jobs):
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=index))
+
+        results = self._failures()
+
+        assert [row["error"] for row in results] == [f"failure {index}" for index in range(DELIVERY_FAILURES_LIMIT)]
+
+    def test_the_posthog_warehouse_has_no_delivery_failures(self) -> None:
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        self._failed_job("PostHog warehouse: boom", destination_ids=[str(warehouse.id)])
+
+        assert self._failures(warehouse) == []

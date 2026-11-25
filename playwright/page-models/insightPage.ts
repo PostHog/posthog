@@ -151,8 +151,15 @@ export class InsightPage {
             await expect(successToast.or(this.editButton)).toBeVisible()
         }).toPass({ timeout: 30000 })
 
-        if (new URL(this.page.url()).pathname === originalPathname) {
+        const savedPathname = new URL(this.page.url()).pathname
+        if (savedPathname === originalPathname) {
             await expect(this.editButton).toBeVisible()
+        }
+
+        // An insight opened from a dashboard returns to that dashboard on save, so the insight is not fetched again.
+        if (/\/dashboard\//.test(savedPathname)) {
+            insightReloaded.catch(() => undefined)
+            return
         }
 
         await insightReloaded

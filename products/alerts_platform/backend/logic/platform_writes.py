@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
+    destination_handoff,
     platform_lifecycle,
     platform_reads,
     rule_metadata,
@@ -220,6 +221,8 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
+        # Labels pick the routes, so an edit to them can move a firing between receivers.
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(
             configuration,
             change,
@@ -248,6 +251,7 @@ def update_configuration(
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,
@@ -443,6 +447,7 @@ def update_owned_copy(
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if cadence is not None:
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
@@ -455,6 +460,7 @@ def update_owned_copy(
             )
             configuration.first_enabled_at = first_enabled_at
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,

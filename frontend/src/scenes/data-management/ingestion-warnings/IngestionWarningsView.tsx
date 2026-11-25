@@ -34,6 +34,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
     message_size_too_large: 'Discarded event exceeding 1MB limit',
     person_properties_size_violation: 'Person properties exceeded the size limit and were trimmed or rejected',
+    person_properties_depth_violation: 'Person properties were nested more than 128 levels deep and were rejected',
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',

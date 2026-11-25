@@ -40,6 +40,7 @@ import {
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsJoinBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsJoinBanner'
 import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 
@@ -307,6 +308,7 @@ export function Cohorts(): JSX.Element {
             />
 
             <RealtimeCohortsWaitlistBanner />
+            <RealtimeCohortsJoinBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

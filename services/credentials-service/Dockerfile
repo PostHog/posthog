@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7.1@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# The digest pins the frontend image; the tag alone is mutable. Update both together.
 # PostHog credentials-service (Hono / Node.js). Serves the platform integration
 # credentials PostHog itself owns over HTTP; see README.md.
 #

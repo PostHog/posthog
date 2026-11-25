@@ -20,6 +20,8 @@ class MailerLiteEndpointConfig:
     # Runs on each fan-out parent row before the child binds to it; a list return explodes the row.
     parent_data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = None
     page_size: int = PAGE_SIZE
+    # Lookup endpoints return their whole list in one response and document no `limit` param.
+    paginated: bool = True
     # Unused (every endpoint is full refresh); kept so the config satisfies FanoutEndpointLike.
     incremental_fields: list[Any] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
@@ -42,6 +44,24 @@ _SHOP_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "shop_id"},
     child_response_actions=_CHILD_404_IGNORE,
 )
+
+
+def _form_subscribers(form_type: str) -> MailerLiteEndpointConfig:
+    # Defaults `filter[status]` to `active`, like the group and segment membership endpoints.
+    return MailerLiteEndpointConfig(
+        name=f"forms_{form_type}_subscribers",
+        path="/forms/{form_id}/subscribers",
+        partition_key="created_at",
+        primary_keys=["form_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name=f"forms_{form_type}",
+            resolve_param="form_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "form_id"},
+            child_response_actions=_CHILD_404_IGNORE,
+        ),
+    )
 
 
 def _explode_automation_statuses(automation: dict[str, Any]) -> list[dict[str, Any]]:
@@ -203,6 +223,27 @@ MAILERLITE_ENDPOINTS: dict[str, MailerLiteEndpointConfig] = {
         partition_key="created_at",
         primary_keys=["shop_id", "id"],
         fanout=_SHOP_FANOUT,
+    ),
+    "ecommerce_customers": MailerLiteEndpointConfig(
+        name="ecommerce_customers",
+        path="/ecommerce/shops/{shop_id}/customers",
+        partition_key="created_at",
+        primary_keys=["shop_id", "id"],
+        fanout=_SHOP_FANOUT,
+    ),
+    # The forms list is split by type, so each type's signups come through that type's form table.
+    "forms_popup_subscribers": _form_subscribers("popup"),
+    "forms_embedded_subscribers": _form_subscribers("embedded"),
+    "forms_promotion_subscribers": _form_subscribers("promotion"),
+    "timezones": MailerLiteEndpointConfig(
+        name="timezones",
+        path="/timezones",
+        paginated=False,
+    ),
+    "campaign_languages": MailerLiteEndpointConfig(
+        name="campaign_languages",
+        path="/campaigns/languages",
+        paginated=False,
     ),
 }
 

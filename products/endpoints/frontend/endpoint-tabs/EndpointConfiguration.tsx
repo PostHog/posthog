@@ -97,14 +97,21 @@ export function EndpointConfiguration(): JSX.Element {
 
     const effectiveDataFreshness =
         dataFreshness ?? viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
-    const dataFreshnessOptions = DATA_FRESHNESS_OPTIONS.some((option) => option.value === effectiveDataFreshness)
-        ? DATA_FRESHNESS_OPTIONS
-        : [
-              ...DATA_FRESHNESS_OPTIONS,
-              { value: effectiveDataFreshness, label: humanFriendlyDuration(effectiveDataFreshness) },
-          ]
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
+    const planRefreshFloorSeconds = isMaterialized ? endpoint.plan_refresh_floor_seconds : null
+    const dataFreshnessOptions = (
+        DATA_FRESHNESS_OPTIONS.some((option) => option.value === effectiveDataFreshness)
+            ? DATA_FRESHNESS_OPTIONS
+            : [
+                  ...DATA_FRESHNESS_OPTIONS,
+                  { value: effectiveDataFreshness, label: humanFriendlyDuration(effectiveDataFreshness) },
+              ]
+    ).map((option) =>
+        planRefreshFloorSeconds !== null && option.value < planRefreshFloorSeconds
+            ? { ...option, disabledReason: 'More often than your plan allows' }
+            : option
+    )
     const materializationExpanded = leftActiveKeys.includes('materialization')
 
     const breakdownProperties = extractBreakdownPropertyNames(currentQuery)
