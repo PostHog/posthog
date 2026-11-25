@@ -17,6 +17,8 @@ import {
 // context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
+const TRACE_EVENTS_LIMIT = 1_000
+
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
@@ -195,6 +197,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const query: Record<string, unknown> = {
                 ...queryParams,
                 kind: config.kind,
+                ...(config.kind === 'TraceQuery' ? { eventsLimit: TRACE_EVENTS_LIMIT } : {}),
             }
             if (hasTestAccountFilterField(schema)) {
                 await applyProjectTestAccountDefault(context, query)
@@ -255,6 +258,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
                 ...(typeof data.has_next === 'boolean'
                     ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
+                    : {}),
+                ...(config.kind === 'TraceQuery' && data.hasMore === true
+                    ? {
+                          _eventsLimit: {
+                              limit: TRACE_EVENTS_LIMIT,
+                              note: `The trace has more than ${TRACE_EVENTS_LIMIT} events, so only the earliest ${TRACE_EVENTS_LIMIT} were read and \`_truncated.totalEvents\` counts only those. totalCost, totalLatency, and the token totals cover every event. To read later events, run execute-sql on posthog.ai_events filtered by trace_id.`,
+                          },
+                      }
                     : {}),
             }
             if (isTraceQuery) {
