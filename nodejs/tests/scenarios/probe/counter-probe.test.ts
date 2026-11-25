@@ -125,6 +125,7 @@ describe('counter probe', () => {
                 }
                 for (const table of [
                     'kafka_app_metrics2_copy',
+                    'app_metrics2',
                     'writable_app_metrics2',
                     'sharded_app_metrics2',
                     'elsewhere',
