@@ -1674,6 +1674,17 @@
                                         },
                                         "type": "object"
                                     },
+                                    "use_in_recommendations": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                    },
                                     "version": {
                                         "anyOf": [
                                             {
@@ -2718,6 +2729,17 @@
                                             "type": "string"
                                         },
                                         "type": "object"
+                                    },
+                                    "use_in_recommendations": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
                                     },
                                     "version": {
                                         "anyOf": [
@@ -3786,6 +3808,17 @@
                                     },
                                     "timestamp_field": {
                                         "type": "string"
+                                    },
+                                    "use_in_recommendations": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
                                     },
                                     "version": {
                                         "anyOf": [
