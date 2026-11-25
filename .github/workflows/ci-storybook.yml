@@ -392,7 +392,6 @@ jobs:
             # missing, so a failed upload costs one narrowing opportunity rather
             # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
-              if: github.event_name == 'pull_request'
               continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -403,7 +402,6 @@ jobs:
 
             # Consumed by check-baseline-removals, which needs only the story index.
             - name: Upload story index artifact
-              if: github.event_name == 'pull_request' && needs.changes.outputs.snapshots_baseline == 'true'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-index
