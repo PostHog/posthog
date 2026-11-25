@@ -10,7 +10,9 @@ from django.utils import timezone
 
 from slack_sdk.errors import SlackApiError
 
-from posthog.llm.system_one import NoulAnswer, SystemOneResult
+from posthog.llm.system_one import NoulAnswer, SystemOneRequestFailed, SystemOneResult
+from posthog.redis import get_client
+from posthog.token_bucket import Budget
 
 from products.slack_app.backend.logic.onboarding.daily_summary import (
     DailySummaryIndexNotReady,
@@ -28,6 +30,12 @@ DAILY_SUMMARY = "products.slack_app.backend.logic.onboarding.daily_summary"
 SINCE = datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
 BEFORE = SINCE.timestamp() - 3600
 AFTER = SINCE.timestamp() + 3600
+
+
+@pytest.fixture(autouse=True)
+def _fresh_history_budget() -> None:
+    # The Slack history bucket lives in Redis under the workspace id every test shares, and frozen clocks never refill it.
+    get_client().delete(f"slack_app:daily_summary:history:{SLACK_TEAM_ID}")
 
 
 def _root(
@@ -197,7 +205,11 @@ def test_a_failed_build_caches_nothing_and_its_retry_can_build(workspace_integra
     client = _index_client([SlackApiError("rate limited", {"ok": False, "error": "ratelimited"}), {"messages": [root]}])
     slack = _patched_slack(client)
     try:
-        with patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker:
+        with (
+            patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker,
+            # One channel read an hour: the retry only gets one because the failed build gave back the read it never made.
+            patch(f"{DAILY_SUMMARY}.HISTORY_BUDGET", Budget(burst=1, per_hour=1)),
+        ):
             ranker.return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
             # A rate-limited channel read is not a quiet channel, so the build fails instead of caching a partial index.
             with pytest.raises(DailySummaryIndexNotReady):
@@ -226,3 +238,56 @@ def test_a_later_hour_rebuilds_the_index_so_late_runs_see_the_day(workspace_inte
 
     # Runs in one hour share a build; the next hour's runs get a fresh one, while the first build is still cached.
     assert client.conversations_history.call_count == 2
+
+
+@pytest.mark.django_db
+@time_machine.travel(datetime(2026, 11, 9, 9, 30, tzinfo=UTC), tick=False)
+def test_the_index_holds_the_newest_roots_and_skips_a_batch_jev_refuses(workspace_integration) -> None:
+    cache.clear()
+
+    def roots(*offsets: int) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "messages": [
+                {"ts": f"{AFTER + n:.6f}", "user": "U_OTHER", "text": f"r{n}", "reply_count": 1} for n in offsets
+            ]
+        }
+
+    # Two roots moved in the same second in different channels, so the cap has to break a tie.
+    history = {"C1": roots(1, 3), "C2": roots(1, 2)}
+    client = MagicMock()
+    client.users_conversations.return_value = {"channels": [{"id": "C1"}, {"id": "C2"}]}
+    client.conversations_history.side_effect = lambda channel, **_: history[channel]
+    slack = _patched_slack(client)
+    answers = [
+        SystemOneRequestFailed("The ai-gateway returned HTTP 400", status_code=400),
+        lambda questions: SystemOneResult(
+            model="jev", answers={key: NoulAnswer(probability=0.9) for key in questions}, input_tokens=None
+        ),
+    ]
+
+    def decide(*, state: dict[str, Any], questions: dict[str, Any]) -> SystemOneResult:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer(questions)
+
+    try:
+        with (
+            patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker,
+            patch(f"{DAILY_SUMMARY}.ROOTS_PER_WORKSPACE", 3),
+            patch(f"{DAILY_SUMMARY}.RANK_BATCH_SIZE", 2),
+        ):
+            ranker.return_value.decide.side_effect = decide
+            assert build_workspace_index(workspace_integration) == 3
+    finally:
+        slack.stop()
+
+    index = cached_index(workspace_integration)
+    assert index is not None
+    # The oldest of the tied roots falls off, and no request asks Jev about more than a batch of roots.
+    assert {(root.channel_id, root.ts): root.score for root in index} == {
+        ("C1", f"{AFTER + 3:.6f}"): 0.0,
+        ("C2", f"{AFTER + 2:.6f}"): 0.0,
+        ("C2", f"{AFTER + 1:.6f}"): 0.9,
+    }
+    assert [len(call.kwargs["questions"]) for call in ranker.return_value.decide.call_args_list] == [2, 1]
