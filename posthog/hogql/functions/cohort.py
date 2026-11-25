@@ -117,9 +117,9 @@ def inline_cohort_may_read_flag_call_union(
     """Whether the subquery that `inline_cohort_query` builds for the cohort can read flag calls through the flag-call
     union: HogQL reads the team's flag calls from flag_evaluations, and the subquery names `$feature_flag_called`.
 
-    The team check also passes on mode 1, where an inline cohort never reads the union. It reads `modifiers`, which can
-    move the team to the native events table. A nested cohort compiles to a read of its stored members, so only this
-    cohort's own conditions count.
+    `reads_flag_calls_from_flag_evaluations` also returns True on mode 1, where an inline cohort never reads the
+    union. It reads `modifiers`, because a modifier can move the team to the native events table. A nested cohort
+    compiles to a read of its stored members, so only this cohort's own conditions count.
     """
     from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
 
