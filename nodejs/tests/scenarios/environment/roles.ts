@@ -68,6 +68,7 @@ const SECRET_OR_PLACE_SETTING =
     /SECRET|PASSWORD|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_DIR$|_LOCATION$/
 const SECRET_OR_PLACE_PARAM = /^(password|sslpassword|sslrootcert|sslcert|sslkey)$/i
 const RDKAFKA_SETTING_PREFIX = 'KAFKA_'
+const COMMA_BEFORE_URL = /,(?=[a-z][a-z\d+.-]*:\/\/)/i
 
 const presenceOf = (list: string): string => (list.split(',').some((part) => part.trim()) ? 'set' : '')
 
@@ -90,7 +91,7 @@ function withoutHostOrCredentials(part: string): string {
 const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
     value === undefined || SECRET_OR_PLACE_SETTING.test(key)
         ? value && presenceOf(value)
-        : value.split(',').map(withoutHostOrCredentials).join(',')
+        : value.split(COMMA_BEFORE_URL).map(withoutHostOrCredentials).join(',')
 
 export function configHashOf(specs: RoleSpec[]): string {
     const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])

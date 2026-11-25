@@ -670,6 +670,7 @@ describe('scenario environment', () => {
                 passwordInQuery: withSetting({
                     DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?password=one',
                 }),
+                passwordWithComma: withSetting({ DATABASE_URL: 'postgres://posthog:o,ne@cluster-b:5432/posthog' }),
                 caFileElsewhere: withSetting({
                     DATABASE_URL:
                         'postgres://posthog:one@cluster-a:5432/posthog?sslmode=verify-full&sslrootcert=/srv/b/ca.pem',
@@ -698,6 +699,7 @@ describe('scenario environment', () => {
                 passwordInQuery: withSetting({
                     DATABASE_URL: 'postgres://posthog@cluster-b:5432/posthog?password=two',
                 }),
+                passwordWithComma: withSetting({ DATABASE_URL: 'postgres://posthog:t,wo@cluster-c:5432/posthog' }),
                 caFileElsewhere: withSetting({
                     DATABASE_URL:
                         'postgres://posthog:two@cluster-b:5432/posthog?sslmode=verify-full&sslrootcert=/srv/a/ca.pem',
