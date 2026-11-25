@@ -19,10 +19,7 @@ describe('buildWorkflowTaskOutputFields', () => {
             variables
         )
 
-        expect(fields).toEqual({
-            output_fields: { verdict: 'string', score: 'number', is_urgent: 'boolean', details: 'json' },
-            output_field_descriptions: { verdict: 'ship or hold' },
-        })
+        expect(fields).toEqual({ verdict: 'string', score: 'number', is_urgent: 'boolean', details: 'string' })
     })
 
     it.each([
@@ -37,7 +34,7 @@ describe('buildWorkflowTaskOutputFields', () => {
 
     it('asks for text when it cannot match the mapping to a variable', () => {
         expect(buildWorkflowTaskOutputFields({ key: 'missing', result_path: 'output.verdict' }, [])).toEqual({
-            output_fields: { verdict: 'string' },
+            verdict: 'string',
         })
     })
 })
