@@ -536,6 +536,25 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 None,
             ),
             (
+                "plain_event_projection_with_an_array_join_call",
+                "SELECT uuid, timestamp, arrayJoin([1, 2]) AS tag FROM events",
+                EVENT_ROW_TYPES,
+                None,
+            ),
+            (
+                "plain_projection_of_a_cte_named_events",
+                "WITH events AS (SELECT uuid, timestamp FROM posthog.events UNION ALL SELECT uuid, timestamp "
+                "FROM posthog.events) SELECT uuid, timestamp FROM events",
+                EVENT_ROW_TYPES,
+                None,
+            ),
+            (
+                "plain_event_projection_filtered_on_joined_person_properties",
+                "SELECT uuid, timestamp FROM events WHERE person.properties.plan = 'paid'",
+                EVENT_ROW_TYPES,
+                None,
+            ),
+            (
                 "plain_event_projection_with_a_moving_window",
                 "SELECT uuid, timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY",
                 EVENT_ROW_TYPES,

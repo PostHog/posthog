@@ -103,6 +103,9 @@ class MaterializeRules:
     min_saved_share: float
     max_extra_bytes: float
     incremental_lookback_seconds: int
+    incremental_row_counts_per_team: int
+    incremental_row_count_seconds: int
+    incremental_row_count_remember_days: int
 
 
 @frozen
@@ -225,6 +228,9 @@ RULES = Rules(
         min_saved_share=0.5,
         max_extra_bytes=float(TERABYTE),
         incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
+        incremental_row_counts_per_team=1,
+        incremental_row_count_seconds=15,
+        incremental_row_count_remember_days=7,
     ),
     measurement=MeasurementRules(max_per_team=3, max_per_run=50, max_seconds=180, retry_after_days=7),
     unmaterialize=UnmaterializeRules(
