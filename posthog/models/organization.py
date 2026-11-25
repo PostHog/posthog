@@ -911,15 +911,13 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             if new_level is not None:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             return
-        # `posthog.models.user` imports this module.
+        # Deferred to avoid a circular import
         from posthog.models.user import UserType  # noqa: PLC0415
 
-        # Admin and owner rights include managing members and billing, which an account that no person
-        # signs in to must not hold.
         if (
             new_level is not None
             and new_level > OrganizationMembership.Level.MEMBER
-            and membership_being_updated.user.type != UserType.HUMAN
+            and membership_being_updated.user.type == UserType.SERVICE_ACCOUNT
         ):
             raise exceptions.ValidationError(
                 {"level": "Service accounts can only have the member level."}, code="service_account_level"
