@@ -138,7 +138,7 @@ export interface cohortsModelActions {
     cacheCohort: (cohort: CohortType) => {
         cohort: CohortType
     }
-    cohortCreated: (cohort: CohortType | CohortApi) => {
+    cohortCreated: (cohort: CohortApi | CohortType) => {
         cohort: CohortType
     }
     deleteCohort: (cohort: Partial<CohortType>) => {

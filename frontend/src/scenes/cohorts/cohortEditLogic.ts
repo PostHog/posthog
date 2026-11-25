@@ -145,7 +145,7 @@ export interface cohortEditLogicValues {
     creationPersonQuery: ActorsQuery
     csvMaxBytes: number
     csvUploadModalOpen: boolean
-    duplicatedCohort: CohortType | CohortApi | null
+    duplicatedCohort: CohortApi | CohortType | null
     duplicatedCohortLoading: boolean
     effectiveQuery: DataTableNode
     hasAddUsersMenu: boolean
@@ -215,7 +215,7 @@ export interface cohortEditLogicActions {
             asStatic: boolean
         }
     ) => {
-        duplicatedCohort: CohortType | CohortApi | null
+        duplicatedCohort: CohortApi | CohortType | null
         payload?: {
             asStatic: boolean
         }
