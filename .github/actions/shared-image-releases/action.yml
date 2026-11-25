@@ -9,7 +9,7 @@ inputs:
         required: false
         default: '[]'
     shared-image-bootstrap:
-        description: JSON object with one configured channel key, approved seed revision and digest
+        description: JSON seed object, or JSON array of seed objects, each with one configured channel key, approved seed revision and digest
         required: false
     shared-image-digest:
         description: Exact digest from the successful shared build

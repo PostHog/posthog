@@ -68,6 +68,9 @@ class SignalSourceTableConfig(BaseModel):
     fields: tuple[str, ...]
     # Optional filter clause (interpreted by the fetcher — HogQL for data warehouse, ORM for Postgres sources)
     where_clause: str | None = None
+    # HogQL matching only the records the emitter turns into signals. Must agree with the emitter's skip
+    # rule. Only the filter preview reads it; emission relies on the emitter dropping those records.
+    emittable_where: str | None = None
     # Optional ORDER BY expression (HogQL) for the fetcher's query, so the `max_records` limit keeps the
     # most important records instead of an arbitrary subset
     order_by: str | None = None

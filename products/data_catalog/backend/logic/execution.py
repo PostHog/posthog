@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from django.utils import timezone
 
+from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework.exceptions import Throttled, ValidationError
 
@@ -40,7 +41,7 @@ from posthog.models import Team, User
 from posthog.utils import absolute_uri
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
-from ..metrics import metric_run_outcome, metric_run_outcome_for
+from ..metrics import definition_kind_label, metric_run_outcome, metric_run_outcome_for
 from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
@@ -48,6 +49,8 @@ from .exceptions import MetricHasNoDefinition
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+tracer = trace.get_tracer(__name__)
 
 _LAST_RUN_THROTTLE = timedelta(minutes=30)
 
@@ -77,12 +80,19 @@ def run_metric(
     query_id: Optional[str] = None,
     request: "Request | None" = None,
 ) -> dict:
-    with metric_run_outcome(metric.definition_kind) as run:
+    with (
+        tracer.start_as_current_span(
+            "data_catalog.metric_run",
+            attributes={"team_id": team.pk, "definition_kind": definition_kind_label(metric.definition_kind)},
+        ),
+        metric_run_outcome(metric.definition_kind) as run,
+    ):
         if not metric.definition:
             run.record("rejected")
             raise MetricHasNoDefinition()
 
-        is_drifted = compute_drift([metric])[metric.id]
+        with tracer.start_as_current_span("data_catalog.metric_run.compute_drift"):
+            is_drifted = compute_drift([metric])[metric.id]
 
         def capture_run(event: str, **extra: object) -> None:
             capture_metric_event(
@@ -97,9 +107,10 @@ def run_metric(
             return _markdown_envelope(metric, is_drifted)
 
         try:
-            query = prepare_execution_query(
-                metric.definition, date_from=date_from, date_to=date_to, interval=interval, offset=offset
-            )
+            with tracer.start_as_current_span("data_catalog.metric_run.prepare_query"):
+                query = prepare_execution_query(
+                    metric.definition, date_from=date_from, date_to=date_to, interval=interval, offset=offset
+                )
         except ValidationError:
             run.record("rejected")
             raise
@@ -109,7 +120,10 @@ def run_metric(
         )
         started_at = time.monotonic()
         try:
-            with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY):
+            with (
+                tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY),
+                tracer.start_as_current_span("data_catalog.metric_run.execute_query"),
+            ):
                 raw = process_query_dict(
                     team,
                     query,

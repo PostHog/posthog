@@ -12,8 +12,18 @@ from posthog.hogql_queries.ai.utils import parse_ai_property_value
 from posthog.models import Team, User
 
 from ..message_normalizer.values import Value
+from .events_fallback import FallbackWindow, events_filter
 from .previews import PreviewReads, TracePreviewSources, pick_preview_events, preview_sources, timed_out_sources
-from .trace_queries import AI_EVENTS_HAS_STATE, ai_events, column_in, event_in, read_ai_events_table, read_flag
+from .trace_queries import (
+    AI_EVENTS_HAS_STATE,
+    EVENTS_HAS_STATE,
+    ai_events,
+    column_in,
+    event_in,
+    read_ai_events_table,
+    read_flag,
+    read_shared_events_table,
+)
 from .turn import TURN_INPUT_TAIL
 
 PREVIEW_PICKS_QUERY_NAME = "ai_traces_preview_picks"
@@ -30,6 +40,7 @@ _COLUMNS = {
     "$ai_output_state": "output_state",
 }
 _TAIL_PROPERTY = "$ai_input"
+DATABASE_TIMEOUTS = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
 
 
 @frozen
@@ -61,6 +72,20 @@ class PreviewEventValues:
     values: dict[str, StoredValue]
 
 
+@frozen
+class SourceReads:
+    """How a page's sources are read: the names that tag its two reads, and how much of each input it keeps."""
+
+    picks_name: str
+    values_name: str
+    latest_input: bool = False
+    tail: int = TURN_INPUT_TAIL
+    tail_max_bytes: int | None = None
+
+
+PREVIEW_READS: Final = SourceReads(picks_name=PREVIEW_PICKS_QUERY_NAME, values_name=PREVIEWS_QUERY_NAME)
+
+
 def _field(name: str) -> ast.Field:
     return ast.Field(chain=[name])
 
@@ -86,30 +111,63 @@ def _raw(column: str) -> ast.Expr:
     return _call("ifNull", _field(column), ast.Constant(value=""))
 
 
-def _tail_items() -> ast.Expr:
-    return _call("arraySlice", _call("JSONExtractArrayRaw", _raw("input")), ast.Constant(value=-TURN_INPUT_TAIL))
+def _tail_items(tail: int) -> ast.Expr:
+    return _call("arraySlice", _call("JSONExtractArrayRaw", _raw("input")), ast.Constant(value=-tail))
 
 
-def _per_tail_item(expr: ast.Expr) -> ast.Expr:
-    return _call("arrayMap", ast.Lambda(args=["item"], expr=expr), _tail_items())
+def _per_tail_item(expr: ast.Expr, tail: int) -> ast.Expr:
+    return _call("arrayMap", ast.Lambda(args=["item"], expr=expr), _tail_items(tail))
 
 
-def _input_tail_over_caps() -> ast.Expr:
-    return _per_tail_item(_over_cap(_field("item")))
-
-
-def _input_tail() -> ast.Expr:
-    # An oversized item is replaced rather than dropped, so the positions stay aligned with its over-cap flags.
+def _unreadable_tail_items(tail: int, budget: int | None) -> ast.Expr:
+    """One flag per tail item: over the cap, or older than the newest items that fit in `budget` bytes in total."""
+    if budget is None:
+        return _per_tail_item(_over_cap(_field("item")), tail)
     item = _field("item")
-    kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item))
-    tail = _call(
+    sizes = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value=4), _call("length", item)), tail)
+    sizes_from_here_to_the_end = _call("arrayReverse", _call("arrayCumSum", _call("arrayReverse", sizes)))
+    return _call(
+        "arrayMap",
+        ast.Lambda(
+            args=["item", "size_to_end"],
+            expr=_call(
+                "or",
+                _over_cap(item),
+                _compare(ast.CompareOperationOp.Gt, _field("size_to_end"), ast.Constant(value=budget)),
+            ),
+        ),
+        _tail_items(tail),
+        sizes_from_here_to_the_end,
+    )
+
+
+def _input_tail_over_caps(tail: int, budget: int | None) -> ast.Expr:
+    return _unreadable_tail_items(tail, budget)
+
+
+def _input_tail(tail: int, budget: int | None) -> ast.Expr:
+    # An unreadable item is replaced rather than dropped, so the positions stay aligned with its flags.
+    item = _field("item")
+    if budget is None:
+        kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item), tail)
+    else:
+        kept_items = _call(
+            "arrayMap",
+            ast.Lambda(
+                args=["item", "unreadable"],
+                expr=_call("if", _field("unreadable"), ast.Constant(value="null"), item),
+            ),
+            _tail_items(tail),
+            _unreadable_tail_items(tail, budget),
+        )
+    joined = _call(
         "concat",
         ast.Constant(value="["),
         _call("arrayStringConcat", kept_items, ast.Constant(value=",")),
         ast.Constant(value="]"),
     )
     is_list = _compare(ast.CompareOperationOp.Eq, _call("JSONType", _raw("input")), ast.Constant(value="Array"))
-    return _call("if", is_list, tail, _capped(_field("input")))
+    return _call("if", is_list, joined, _capped(_field("input")))
 
 
 def _for(event_ids: Sequence[str], expr: ast.Expr, otherwise: ast.Expr) -> ast.Expr:
@@ -128,18 +186,18 @@ def _read_for(reads: PreviewReads) -> dict[str, Sequence[str]]:
     }
 
 
-def _values_select(reads: PreviewReads) -> list[ast.Expr]:
+def _values_select(reads: PreviewReads, tail: int, budget: int | None) -> list[ast.Expr]:
     read_for = _read_for(reads)
     selected: list[ast.Expr] = [
         _field("uuid"),
         _field("event"),
         ast.Alias(
             alias="input_item_over_caps",
-            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(), ast.Array(exprs=[])),
+            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(tail, budget), ast.Array(exprs=[])),
         ),
     ]
     for name, column in _COLUMNS.items():
-        value = _input_tail() if name == _TAIL_PROPERTY else _capped(_field(column))
+        value = _input_tail(tail, budget) if name == _TAIL_PROPERTY else _capped(_field(column))
         # An alias named like its column would shadow the column in the over-cap check.
         selected += [
             ast.Alias(alias=f"{column}_value", expr=_for(read_for[name], value, ast.Constant(value=None))),
@@ -151,16 +209,16 @@ def _values_select(reads: PreviewReads) -> list[ast.Expr]:
     return selected
 
 
-def _events_query(trace_ids: Sequence[str], *, latest: bool) -> ast.SelectQuery:
+def _events_query(trace_ids: Sequence[str], where: ast.Expr, has_state: ast.Expr, *, latest: bool) -> ast.SelectQuery:
     # The earliest and the latest event of each name, and of each state for trace events, are all the picks choose
     # from, so a trace reads at most a few light rows however long it is.
     return ast.SelectQuery(
         select=[
             *(_field(column) for column in _EVENT_COLUMNS[:-1]),
-            ast.Alias(alias="has_state", expr=clone_expr(AI_EVENTS_HAS_STATE)),
+            ast.Alias(alias="has_state", expr=clone_expr(has_state)),
         ],
         select_from=ai_events(),
-        where=ast.And(exprs=[column_in("trace_id", trace_ids), event_in(_PICKED_EVENT_NAMES)]),
+        where=where,
         order_by=[
             ast.OrderExpr(expr=_field("timestamp"), order="DESC" if latest else "ASC"),
             ast.OrderExpr(expr=_field("uuid"), order="ASC"),
@@ -176,23 +234,27 @@ def _events_limit(trace_ids: Sequence[str]) -> int:
     return len(trace_ids) * len(_PICKED_EVENT_NAMES) * 2
 
 
-def _picks_query(trace_ids: Sequence[str]) -> ast.SelectQuery:
+def _picks_query(trace_ids: Sequence[str], where: ast.Expr, has_state: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=[_field(column) for column in _EVENT_COLUMNS],
         select_from=ast.JoinExpr(
             table=ast.SelectSetQuery.create_from_queries(
-                [_events_query(trace_ids, latest=False), _events_query(trace_ids, latest=True)], "UNION ALL"
+                [
+                    _events_query(trace_ids, where, has_state, latest=False),
+                    _events_query(trace_ids, where, has_state, latest=True),
+                ],
+                "UNION ALL",
             )
         ),
         limit=ast.Constant(value=2 * _events_limit(trace_ids)),
     )
 
 
-def _values_query(reads: PreviewReads) -> ast.SelectQuery:
+def _values_query(reads: PreviewReads, tail: int, budget: int | None, where: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_values_select(reads),
+        select=_values_select(reads, tail, budget),
         select_from=ai_events(),
-        where=ast.And(exprs=[column_in("trace_id", reads.trace_ids), column_in("uuid", reads.event_ids)]),
+        where=where,
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[_field("uuid")]),
         limit=ast.Constant(value=len(reads.event_ids)),
     )
@@ -206,8 +268,72 @@ def _parsed(raw: Any) -> Value:
     return None if raw is None or raw == "" else parse_ai_property_value(raw)
 
 
-def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[PreviewEventRow]:
-    results = read_ai_events_table(PREVIEW_PICKS_QUERY_NAME, _picks_query(trace_ids), team, user, _settings())
+def _picked_events_where(trace_ids: Sequence[str], window: FallbackWindow | None) -> ast.Expr:
+    trace_filter = column_in("trace_id", trace_ids)
+    event_filter = event_in(_PICKED_EVENT_NAMES)
+    if window is None:
+        return ast.And(exprs=[trace_filter, event_filter])
+    return events_filter(trace_filter=trace_filter, event_filter=event_filter, window=window)
+
+
+def _values_where(reads: PreviewReads, window: FallbackWindow | None) -> ast.Expr:
+    trace_and_event = ast.And(exprs=[column_in("trace_id", reads.trace_ids), column_in("uuid", reads.event_ids)])
+    if window is None:
+        return trace_and_event
+    return events_filter(trace_filter=trace_and_event, event_filter=event_in(_PICKED_EVENT_NAMES), window=window)
+
+
+def _read(
+    name: str,
+    query: ast.SelectQuery,
+    team: Team,
+    user: User | None,
+    window: FallbackWindow | None,
+) -> list[Any]:
+    read = read_ai_events_table if window is None else read_shared_events_table
+    return read(name, query, team, user, _settings())
+
+
+def read_sources(
+    team: Team, user: User | None, trace_ids: Sequence[str], reads: SourceReads, *, window: FallbackWindow | None = None
+) -> dict[str, TracePreviewSources]:
+    """The values each trace's turn is built from, keyed by trace id. A trace with no state event and no generation
+    has no entry. With a `window`, reads the shared events table inside it instead of `posthog.ai_events`. When the
+    values read times out, every picked side times out. A picks read that times out raises."""
+    if not trace_ids:
+        return {}
+    rows = load_preview_event_rows(team, user, trace_ids, window=window, name=reads.picks_name)
+    picks = pick_preview_events(rows)
+    try:
+        values = load_preview_values(
+            team,
+            user,
+            PreviewReads.of(picks, latest_input=reads.latest_input),
+            window=window,
+            name=reads.values_name,
+            tail=reads.tail,
+            tail_max_bytes=reads.tail_max_bytes,
+        )
+    except DATABASE_TIMEOUTS:
+        return timed_out_sources(picks, rows)
+    return preview_sources(picks, values)
+
+
+def load_preview_event_rows(
+    team: Team,
+    user: User | None,
+    trace_ids: Sequence[str],
+    *,
+    window: FallbackWindow | None = None,
+    name: str = PREVIEW_PICKS_QUERY_NAME,
+) -> list[PreviewEventRow]:
+    """The light rows the picks choose from. With a `window`, reads the shared events table inside it instead of
+    `posthog.ai_events`."""
+    query = _picks_query(
+        trace_ids,
+        _picked_events_where(trace_ids, window),
+        AI_EVENTS_HAS_STATE if window is None else EVENTS_HAS_STATE,
+    )
     return [
         PreviewEventRow(
             trace_id=str(trace_id),
@@ -216,14 +342,23 @@ def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[s
             timestamp=timestamp,
             has_state=read_flag(has_state),
         )
-        for trace_id, uuid, event, timestamp, has_state in results
+        for trace_id, uuid, event, timestamp, has_state in _read(name, query, team, user, window)
     ]
 
 
-def load_preview_values(team: Team, user: User | None, reads: PreviewReads) -> dict[str, PreviewEventValues]:
+def load_preview_values(
+    team: Team,
+    user: User | None,
+    reads: PreviewReads,
+    *,
+    window: FallbackWindow | None = None,
+    name: str = PREVIEWS_QUERY_NAME,
+    tail: int = TURN_INPUT_TAIL,
+    tail_max_bytes: int | None = None,
+) -> dict[str, PreviewEventValues]:
     if not reads.event_ids:
         return {}
-    results = read_ai_events_table(PREVIEWS_QUERY_NAME, _values_query(reads), team, user, _settings())
+    results = _read(name, _values_query(reads, tail, tail_max_bytes, _values_where(reads, window)), team, user, window)
     rows = (
         PreviewEventValues(
             uuid=str(uuid),
@@ -244,16 +379,9 @@ def load_preview_values(team: Team, user: User | None, reads: PreviewReads) -> d
     return {row.uuid: row for row in rows}
 
 
-def load_preview_sources(team: Team, user: User | None, trace_ids: Sequence[str]) -> dict[str, TracePreviewSources]:
+def load_preview_sources(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, reads: SourceReads = PREVIEW_READS
+) -> dict[str, TracePreviewSources]:
     """The values each trace's preview is built from, keyed by trace id. A trace with no state event and no
     generation has no entry. Reads only `posthog.ai_events`, so a trace past its retention there has none either."""
-    requested = list(dict.fromkeys(trace_ids))
-    if not requested:
-        return {}
-    rows = load_preview_event_rows(team, user, requested)
-    picks = pick_preview_events(rows)
-    try:
-        values = load_preview_values(team, user, PreviewReads.of(picks))
-    except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong):
-        return timed_out_sources(picks, rows)
-    return preview_sources(picks, values)
+    return read_sources(team, user, list(dict.fromkeys(trace_ids)), reads)

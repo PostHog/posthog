@@ -42,7 +42,7 @@ export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
                 bodyClassName="h-72 p-2"
                 skeletonClassName="h-full w-full"
             />
-            <ContentAutopilotTileSkeleton title="Mentions by topic" />
+            <ContentAutopilotTileSkeleton title="Visibility by topic" />
         </div>
         <ContentAutopilotTileSkeleton title="What the engines searched for" />
     </section>

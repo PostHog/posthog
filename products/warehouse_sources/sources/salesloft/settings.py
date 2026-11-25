@@ -28,6 +28,8 @@ class SalesloftEndpointConfig:
     partition_key: Optional[str] = None
     # Set where the endpoint's default `sort_by` is not `updated_at` (tasks, activity_histories).
     sort_by: Optional[str] = None
+    # None where the endpoint has no `sort_direction` param, so the row order is not known.
+    sort_direction: Optional[str] = "ASC"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
@@ -50,8 +52,17 @@ class SalesloftEndpointConfig:
         ]
 
 
-def _incremental(name: str, path: str, sort_by: Optional[str] = None) -> SalesloftEndpointConfig:
-    return SalesloftEndpointConfig(name=name, path=path, incremental=True, partition_key="created_at", sort_by=sort_by)
+def _incremental(
+    name: str, path: str, sort_by: Optional[str] = None, sort_direction: Optional[str] = "ASC"
+) -> SalesloftEndpointConfig:
+    return SalesloftEndpointConfig(
+        name=name,
+        path=path,
+        incremental=True,
+        partition_key="created_at",
+        sort_by=sort_by,
+        sort_direction=sort_direction,
+    )
 
 
 def _full_refresh(name: str, path: str, partition_key: Optional[str] = "created_at") -> SalesloftEndpointConfig:
@@ -79,12 +90,17 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
     "successes": _incremental("successes", "/successes"),
     "tasks": _incremental("tasks", "/tasks", sort_by="updated_at"),
     "team_templates": _incremental("team_templates", "/team_templates"),
+    # The conversation intelligence endpoints default to `sort_by=created_at` and document a
+    # lowercase `sort_direction` enum. `/transcriptions` has no `sort_direction` param at all.
+    "conversations": _incremental("conversations", "/conversations", sort_by="updated_at", sort_direction="asc"),
+    "transcriptions": _incremental("transcriptions", "/transcriptions", sort_by="updated_at", sort_direction=None),
     # Full refresh (no reliable server-side timestamp filter; mostly reference/config data)
     "account_tiers": _full_refresh("account_tiers", "/account_tiers"),
     "call_dispositions": _full_refresh("call_dispositions", "/call_dispositions"),
     "call_sentiments": _full_refresh("call_sentiments", "/call_sentiments"),
     "crm_users": _full_refresh("crm_users", "/crm_users"),
     "custom_fields": _full_refresh("custom_fields", "/custom_fields"),
+    "custom_roles": _full_refresh("custom_roles", "/custom_roles", partition_key=None),
     "email_template_attachments": _full_refresh(
         "email_template_attachments", "/email_template_attachments", partition_key=None
     ),
@@ -101,6 +117,13 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
         "team_template_attachments", "/team_template_attachments", partition_key=None
     ),
     "users": _full_refresh("users", "/users"),
+    # The event `id` is the calendar provider's id, so the same event repeats once per user calendar.
+    "calendar_events": SalesloftEndpointConfig(
+        name="calendar_events",
+        path="/calendar/events",
+        partition_key="created_at",
+        primary_keys=["user_guid", "id"],
+    ),
     # Fan-out: Salesloft serves cadence stats one cadence at a time (`/cadence_stats/{id}`), and the
     # payload carries no cadence id, so the parent id is injected as `cadence_id`.
     "cadence_stats": SalesloftEndpointConfig(

@@ -57,11 +57,13 @@ class TestAgentStartupRecovery(BaseTest):
             _record_agent_startup_attempt(context, "gvisor")
         run.refresh_from_db()
         assert "agent_startup_success" not in run.state
+        assert run.agent_status == TaskRun.AgentStatus.STARTING
         assert latest_startup() is None
         with time_machine.travel(started_at + timedelta(seconds=1), tick=False):
             _record_agent_startup_success(context)
         run.refresh_from_db()
         success = run.state["agent_startup_success"]
+        assert run.agent_status == TaskRun.AgentStatus.READY
         assert success["started_at"] == started_at.isoformat()
         assert success["provider"] == provider
         assert latest_startup() == started_at
@@ -71,11 +73,14 @@ class TestAgentStartupRecovery(BaseTest):
         assert run.state["agent_startup_success"] == success
         assert latest_startup() == started_at
         TaskRun.update_state_atomic(str(run.id), updates={"startup_failure": {"reason": "proxy_invalid"}})
-        TaskRun.objects.filter(id=run.id).update(error_message="Turn failed", status=final_status)
+        TaskRun.objects.filter(id=run.id).update(
+            error_message="Turn failed", status=final_status, agent_status=TaskRun.AgentStatus.BUSY
+        )
         with time_machine.travel(started_at + timedelta(seconds=3), tick=False):
             _record_agent_startup_success(context)
         run.refresh_from_db()
         assert "startup_failure" not in run.state
+        assert run.agent_status == TaskRun.AgentStatus.BUSY
         assert run.error_message == ("Turn failed" if run.is_terminal else None)
         assert run.state["agent_startup_success"]["started_at"] == (started_at + timedelta(seconds=2)).isoformat()
         assert latest_startup() == started_at + timedelta(seconds=2)

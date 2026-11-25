@@ -5,7 +5,8 @@ import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { getHealthHandler } from '@/tools/experiments/getHealth'
 import { getResultsHandler } from '@/tools/experiments/getResults'
 import { readConfigHealth } from '@/tools/experiments/health'
-import type { Context } from '@/tools/types'
+import { GENERATED_TOOLS } from '@/tools/generated/experiments'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 vi.mock('@/lib/posthog/flags', () => ({ isFeatureFlagEnabled: vi.fn() }))
 
@@ -70,9 +71,10 @@ describe('experiment health gate', () => {
         setup: null,
     }
 
-    const buildContext = (getHealth: Mock, exposureRead: unknown, trackEvent: Mock): Context =>
+    const buildContext = (getHealth: Mock, exposureRead: unknown, trackEvent: Mock, request: Mock = vi.fn()): Context =>
         ({
             api: {
+                request,
                 getProjectBaseUrl: () => 'https://us.posthog.com/project/42',
                 experiments: () => ({
                     getMetricResults: vi.fn().mockResolvedValue({
@@ -241,6 +243,130 @@ describe('experiment health gate', () => {
 
         expect(read).toEqual({ health: null, outcome })
         expect(getHealth).toHaveBeenCalledTimes(readsHealth ? 1 : 0)
+    })
+
+    const notRun = 'Findings: none. Checks: none ran. The configuration checks did not run.'
+
+    it.each([
+        {
+            name: 'adds the findings of the draft, read before the launch',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
+            health: { summary: 'Findings: 1 warning. Checks: 1 finding.', codes: ['no_metric'] },
+            outcome: 'read',
+        },
+        {
+            name: 'leaves out a finding that the launch resolves, with its check',
+            flag: true,
+            healthRead: (): Promise<unknown> =>
+                Promise.resolve({
+                    success: true,
+                    data: {
+                        ...configHealth,
+                        findings: [
+                            ...configHealth.findings,
+                            {
+                                ...configHealth.findings[0],
+                                check: 'flag_state',
+                                code: 'flag_live_before_launch',
+                                severity: 'info',
+                            },
+                        ],
+                        checks: [...configHealth.checks, { ...configHealth.checks[0], key: 'flag_state' }],
+                    },
+                }),
+            health: { summary: 'Findings: 1 warning. Checks: 1 finding.', codes: ['no_metric'] },
+            outcome: 'read',
+        },
+        {
+            name: 'keeps the launch result when the health read returns a page instead of the health',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: '<html></html>' }),
+            health: { summary: 'Findings: none. Checks: none ran.', codes: [] },
+            outcome: 'read',
+        },
+        {
+            name: 'keeps the launch result as it is when a health list has the wrong type',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: { findings: {}, checks: [] } }),
+            health: undefined,
+            outcome: null,
+        },
+        {
+            name: 'adds no findings when the flag is off',
+            flag: false,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
+            health: undefined,
+            outcome: 'flag_off',
+        },
+        {
+            name: 'says the checks did not run when the health read fails',
+            flag: true,
+            healthRead: (): Promise<unknown> =>
+                Promise.resolve({ success: false, error: new Error('Internal server error') }),
+            health: { summary: notRun, codes: [] },
+            outcome: 'failed',
+        },
+        {
+            name: 'says the checks did not run when the health read outlasts the deadline',
+            flag: true,
+            healthRead: (deadline: AbortController): Promise<unknown> => {
+                deadline.abort()
+                return never()
+            },
+            health: { summary: notRun, codes: [] },
+            outcome: 'timed_out',
+        },
+    ])('experiment-launch $name', async ({ flag, healthRead, health, outcome }) => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
+        const deadline = new AbortController()
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+        // Like the server, the health read stops returning the draft's findings once the experiment is launched.
+        let launched = false
+        const request = vi.fn().mockImplementation(async () => {
+            launched = true
+            return { id: 7, name: 'Test', feature_flag_key: 'k', start_date: '2026-11-24T10:00:00Z' }
+        })
+        const getHealth = vi
+            .fn()
+            .mockImplementation(() =>
+                launched
+                    ? Promise.resolve({ success: true, data: { findings: [], checks: [], setup: null } })
+                    : healthRead(deadline)
+            )
+        const trackEvent = vi.fn().mockResolvedValue(undefined)
+        const tool = (GENERATED_TOOLS['experiment-launch'] as () => ToolBase<ZodObjectAny>)()
+
+        try {
+            const result = (await tool.handler(
+                buildContext(getHealth, exposureOk, trackEvent, request),
+                tool.schema.parse({ id: 7 })
+            )) as Record<string, any>
+
+            expect(result).toMatchObject({ id: 7, start_date: '2026-11-24T10:00:00Z' })
+            const preLaunch = result.pre_launch_health
+            expect(
+                preLaunch && { summary: preLaunch.summary, codes: preLaunch.findings.map((f: any) => f.code) }
+            ).toEqual(health)
+            expect(trackEvent.mock.calls).toEqual(
+                outcome === null
+                    ? []
+                    : [
+                          [
+                              'mcp experiment health returned',
+                              expect.objectContaining({
+                                  tool_name: 'experiment-launch',
+                                  experiment_id: 7,
+                                  health_finding_codes: health?.codes ?? [],
+                                  configuration_checks_outcome: outcome,
+                                  exposure_checks_outcome: 'not_started',
+                              }),
+                          ],
+                      ]
+            )
+        } finally {
+            timeout.mockRestore()
+        }
     })
 
     it('experiment-health-get returns only the documented exposure fields', async () => {

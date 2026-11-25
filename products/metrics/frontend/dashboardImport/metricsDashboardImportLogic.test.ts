@@ -1,15 +1,22 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsDashboardImportsCreate, metricsDashboardImportsList } from 'products/metrics/frontend/generated/api'
+import {
+    metricsDashboardImportsCreate,
+    metricsDashboardImportsDismissCreate,
+    metricsDashboardImportsInputRetrieve,
+    metricsDashboardImportsList,
+} from 'products/metrics/frontend/generated/api'
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
+    DashboardImportInputApi,
     DashboardImportSourceEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 
@@ -19,6 +26,8 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsDashboardImportsCreate: jest.fn(),
     metricsDashboardImportsList: jest.fn(),
+    metricsDashboardImportsInputRetrieve: jest.fn(),
+    metricsDashboardImportsDismissCreate: jest.fn(),
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
@@ -34,6 +43,7 @@ const importStatus = (overrides: Partial<DashboardImportApi> = {}): DashboardImp
     dashboard_name: 'Checkout service',
     phase: null,
     panel_progress: [],
+    agent_activity: null,
     layout_rounds: null,
     layout_round: null,
     dashboard_id: null,
@@ -128,6 +138,72 @@ describe('metricsDashboardImportLogic', () => {
         const calls = mockList.mock.calls.length
         await jest.advanceTimersByTimeAsync(30000)
         expect(mockList).toHaveBeenCalledTimes(calls)
+    })
+
+    it('starts a retry from what the failed import read', async () => {
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockResolvedValue({
+            source: 'grafana',
+            name: 'Orders',
+            grafana_json: '{"panels": [1]}',
+            image_base64: null,
+            image_content_type: null,
+        })
+        logic.actions.openImport(importStatus({ status: 'failed' }))
+
+        await expectLogic(logic, () => logic.actions.retryImport(importStatus({ status: 'failed' }))).toDispatchActions(
+            ['retryImportDone']
+        )
+
+        expect(logic.values).toMatchObject({ step: 'input', grafanaJson: '{"panels": [1]}', dashboardName: 'Orders' })
+    })
+
+    it('drops a retry input that arrives after the user opened another import', async () => {
+        let resolveInput: (input: DashboardImportInputApi) => void = () => {}
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockReturnValue(
+            new Promise((resolve) => {
+                resolveInput = resolve
+            })
+        )
+        const first = importStatus({ id: 'first', status: 'failed' })
+        const second = importStatus({ id: 'second', status: 'failed' })
+        logic.actions.openImport(first)
+        logic.actions.retryImport(first)
+        logic.actions.closeImportModal()
+        logic.actions.openImport(second)
+
+        resolveInput({
+            source: 'grafana',
+            name: null,
+            grafana_json: '{"panels": [1]}',
+            image_base64: null,
+            image_content_type: null,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ currentImport: second, grafanaJson: '', retrying: false })
+    })
+
+    it('keeps the failed summary open when the input does not load', async () => {
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockRejectedValue(new ApiError('Server error', 500))
+        const failed = importStatus({ status: 'failed' })
+        logic.actions.openImport(failed)
+
+        await expectLogic(logic, () => logic.actions.retryImport(failed)).toDispatchActions(['retryImportDone'])
+
+        expect(logic.values.step).toBe('summary')
+        expect(lemonToast.error).toHaveBeenCalledTimes(1)
+    })
+
+    it('a dismissed import leaves the list and closes its dialog', async () => {
+        jest.mocked(metricsDashboardImportsDismissCreate).mockResolvedValue(undefined as never)
+        const failed = importStatus({ status: 'failed' })
+        mockList.mockResolvedValue([failed])
+        await expectLogic(logic, () => logic.actions.loadRecentImports()).toDispatchActions(['setRecentImports'])
+        logic.actions.openImport(failed)
+
+        await expectLogic(logic, () => logic.actions.dismissImport(failed)).toDispatchActions(['dismissImportSuccess'])
+
+        expect(logic.values).toMatchObject({ recentImports: [], isModalOpen: false })
     })
 
     it('blocks a fourth import while three run', async () => {

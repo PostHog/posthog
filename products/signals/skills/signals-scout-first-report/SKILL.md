@@ -1,5 +1,6 @@
 ---
 name: signals-scout-first-report
+disable-model-invocation: true
 scout-display-name: First report
 scout-preserve-trial-model: true
 description: >

@@ -58,7 +58,10 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
       const projectChanged = state.currentProjectId !== projectId;
       projectId = state.currentProjectId;
       if (state.currentOrgId === orgId) {
-        if (projectChanged && projectId !== null) this.requestRefresh();
+        if (projectChanged && projectId !== null) {
+          this.resetBackoff();
+          this.requestRefresh();
+        }
         return;
       }
       orgId = state.currentOrgId;

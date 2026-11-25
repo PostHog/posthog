@@ -33,6 +33,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
@@ -599,14 +600,14 @@ function NativeEmailTemplaterForm({
     const isWorkflowEmail = logicProps.type === 'native_email' || logicProps.type === 'native_email_sandbox'
     const documentEditorActive = usesDocumentEditor && mode === 'full'
     // Each header field gets one short row to keep vertical space for the canvas. A transactional template adds its
-    // sender as one summary line above, and a workflow email adds the sender and the recipients. The new editor has
-    // its own visual/plain-text switch, so a template it edits keeps the full header.
+    // sender as one summary line above, and a workflow email adds the sender and the recipients. A transactional
+    // template in the new editor keeps the full header.
     const workflowHeader = isWorkflowEmail && emailHeaderEnabled
     const compactHeader =
         workflowHeader ||
         ((logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
             mode === 'full' &&
-            !documentEditorActive)
+            (!documentEditorActive || logicProps.type === 'native_email_template'))
     const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
     const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
@@ -627,8 +628,16 @@ function NativeEmailTemplaterForm({
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
-                            <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
-                                <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
+                            <EmailHeaderRow
+                                label="Subject"
+                                error={logicProps.fieldErrors?.subject}
+                                wrap={showContentSwitch}
+                            >
+                                <LemonField
+                                    name="subject"
+                                    className={clsx('flex-1', showContentSwitch ? 'min-w-32' : 'min-w-0')}
+                                    renderError={() => null}
+                                >
                                     {({ value, onChange }: ChildFunctionProps) => (
                                         <LiquidSupportedText
                                             value={value}
@@ -1250,6 +1259,7 @@ function EmailTemplaterInline(): JSX.Element {
 
 export function EmailTemplater({
     saveIndicator,
+    emailKey,
     ...props
 }: EmailTemplaterLogicProps & {
     // Presentation-only slot rendered in the modal header: hosts using liveChanges surface their
@@ -1257,8 +1267,10 @@ export function EmailTemplater({
     // props so a fresh JSX element per render doesn't churn propsChanged.
     saveIndicator?: ReactNode
 }): JSX.Element {
+    const [mountKey] = useState(() => uuid())
+    const openEmailKey = emailKey ?? mountKey
     return (
-        <BindLogic logic={emailTemplaterLogic} props={props}>
+        <BindLogic key={openEmailKey} logic={emailTemplaterLogic} props={{ ...props, emailKey: openEmailKey }}>
             {/* The new editor fits the page, so the email and its style panel scroll on their own. Short windows scroll the page instead. */}
             <div className="flex flex-col flex-1 has-[[data-attr=email-document-editor]]:min-h-[38rem]">
                 {props.layout === 'inline' ? (

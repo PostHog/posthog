@@ -183,6 +183,60 @@ _MERCHANT_ACCOUNT_FIELDS = """
             isDefault
 """
 
+# Credit card verifications carry their amount under `paymentMethodVerificationDetails`;
+# the root `amount` is deprecated.
+_VERIFICATION_FIELDS = f"""
+            id
+            legacyId
+            createdAt
+            status
+            merchantAccountId
+            gatewayRejectionReason
+            paymentMethod {{ legacyId }}
+            processorResponse {{
+              legacyCode
+              message
+              additionalInformation
+              avsPostalCodeResponse
+              avsStreetAddressResponse
+              cvvResponse
+            }}
+            networkResponse {{ code message }}
+            riskData {{ id decision decisionReasons score fraudServiceProvider deviceDataCaptured }}
+            paymentMethodVerificationDetails {{
+              __typename
+              ... on CreditCardVerificationDetails {{ amount {{ value currencyCode }} }}
+              ... on UsBankAccountVerificationDetails {{ method verificationDeterminedAt }}
+            }}
+            paymentMethodSnapshot {{
+              __typename
+              ... on CreditCardDetails {{
+                brandCode
+                last4
+                bin
+                {_BIN_DATA_FIELDS}
+              }}
+            }}
+"""
+
+# Plan `price` is a `MonetaryAmount` object, but add-on and discount `amount` is the
+# `Amount` scalar and must be selected as a leaf.
+_RECURRING_BILLING_SUBSCRIPTION_PLAN_FIELDS = """
+            id
+            legacyId
+            name
+            description
+            price { value currencyCode }
+            billingFrequency
+            billingDayOfMonth
+            numberOfBillingCycles
+            trial { duration durationUnit }
+            addOns { id legacyId name amount numberOfBillingCycles }
+            discounts { id legacyId name amount numberOfBillingCycles }
+            createdAt
+            updatedAt
+"""
+
 
 @frozen
 class BraintreeEndpointConfig:
@@ -205,15 +259,19 @@ class BraintreeEndpointConfig:
     # the value is copied there so the incremental cursor and the partition key have a
     # top-level column to read.
     created_at_path: tuple[str, ...] = ("createdAt",)
+    # False for a field returning a plain list, read in one request with no cursor.
+    paginated: bool = True
 
 
-# `TransactionSearchInput`, `RefundSearchInput`, `CustomerSearchInput` and
-# `RecurringBillingSubscriptionSearchInput` all accept a createdAt range filter, giving
+# `TransactionSearchInput`, `RefundSearchInput`, `CustomerSearchInput`,
+# `VerificationSearchInput` and `RecurringBillingSubscriptionSearchInput` all accept a createdAt range filter, giving
 # those streams genuine server-side incremental. `DisputeSearchInput` does not (it filters
 # on receivedDate/replyByDate/effectiveDate instead), so disputes re-read the full set each
 # run and rely on the primary-key merge to dedupe — the node still exposes createdAt, so the
 # incremental cursor and partition key are unchanged. `merchantAccounts` is a small lookup
 # with no timestamp at all, so it is full refresh and unpartitioned.
+# `recurringBillingSubscriptionPlans` returns every plan as one unpaginated list with no
+# filter input, so it is full refresh, still partitioned on the plan's createdAt.
 # Result ordering is not documented, so incremental streams declare sort_mode="desc" —
 # the pipeline then commits the watermark only when a run completes.
 #
@@ -255,6 +313,20 @@ BRAINTREE_ENDPOINTS: dict[str, BraintreeEndpointConfig] = {
         query_path=("viewer", "merchant"),
         incremental_fields=[],
         partition_key=None,
+        created_at_search_field=None,
+    ),
+    "verifications": BraintreeEndpointConfig(
+        connection_field="verifications",
+        input_type="VerificationSearchInput",
+        node_fields=_VERIFICATION_FIELDS,
+    ),
+    "recurring_billing_subscription_plans": BraintreeEndpointConfig(
+        connection_field="plans",
+        input_type=None,
+        node_fields=_RECURRING_BILLING_SUBSCRIPTION_PLAN_FIELDS,
+        query_path=("recurringBillingSubscriptionPlans",),
+        paginated=False,
+        incremental_fields=[],
         created_at_search_field=None,
     ),
 }

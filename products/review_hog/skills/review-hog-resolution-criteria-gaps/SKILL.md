@@ -1,5 +1,6 @@
 ---
 name: review-hog-resolution-criteria-gaps
+disable-model-invocation: true
 description: >
   Fixes should-fix and must-fix bugs and missing functionality. Leaves wording, documentation,
   and style suggestions to the author.

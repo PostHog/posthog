@@ -13,6 +13,11 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
 const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
 const ARROW_MARKER = { type: MarkerType.ArrowClosed, width: 20, height: 20 }
 
+// react-flow sizes each node wrapper to the layout box above, which is often taller than the
+// card it holds. Turn pointer events off on the wrapper so that only the card can be grabbed or
+// clicked. The node components set pointer-events-auto on the card to take the pointer back.
+const NODE_WRAPPER_STYLE = { pointerEvents: 'none' } as const
+
 const NODE_GAP = 60
 
 const THROUGH_HIDDEN_NODES_EDGE: Partial<ReactFlowEdge> = {
@@ -59,6 +64,7 @@ export function initialLineageGraphLayout(
         position:
             direction === 'DOWN' ? { x: 0, y: index * (height + NODE_GAP) } : { x: index * (width + NODE_GAP), y: 0 },
         ...(node.collapsed ? COLLAPSED_NODE_SIZE : { width, height }),
+        style: NODE_WRAPPER_STYLE,
         data: {
             node,
             variant,
