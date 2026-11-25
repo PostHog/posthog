@@ -22,6 +22,7 @@ from pydantic import (
 )
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import empty
 
 from posthog.schema import (
     AnyPropertyFilterDiscriminated,
@@ -37,7 +38,6 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
@@ -61,6 +61,7 @@ from products.experiments.backend.facade.contracts import (
     RunningTimeMode,
 )
 from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
+from products.experiments.backend.facade.experiment_validation import holdout_exists
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
@@ -71,7 +72,6 @@ from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
-    ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
     get_experiment_rule,
@@ -106,7 +106,6 @@ from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
 
@@ -120,6 +119,36 @@ class _ExperimentApiMetricsList(PydanticRootModel):
 @extend_schema_field(_ExperimentApiMetricsList)  # type: ignore[arg-type]
 class ExperimentMetricsField(serializers.JSONField):
     pass
+
+
+class _HoldoutIdField(serializers.IntegerField):
+    """The id of a holdout of the team in the serializer context. A bad id gets the messages and codes of a primary
+    key related field, the same answer as a bad id in other related fields of the API."""
+
+    default_error_messages = {
+        "does_not_exist": serializers.PrimaryKeyRelatedField.default_error_messages["does_not_exist"],
+        "incorrect_type": serializers.PrimaryKeyRelatedField.default_error_messages["incorrect_type"],
+    }
+
+    def run_validation(self, data: Any = empty) -> int | None:
+        # A related field reads an empty string as null, which clears the holdout.
+        if data == "":
+            data = None
+        return super().run_validation(data)
+
+    def to_internal_value(self, data: Any) -> int:
+        # The type check of a primary key related field: DRF refuses a boolean, and Django converts the lookup value
+        # with int().
+        try:
+            if isinstance(data, bool):
+                raise TypeError
+            holdout_id = int(data)
+        except (TypeError, ValueError):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        team_id = self.context.get("team_id")
+        if not team_id or not holdout_exists(team_id=team_id, holdout_id=holdout_id):
+            self.fail("does_not_exist", pk_value=data)
+        return holdout_id
 
 
 class _ExperimentSetupPropertyFilterList(PydanticRootModel):
@@ -820,9 +849,16 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
 
 
 @extend_schema_serializer(component_name="ExperimentToSavedMetric")
-class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
+class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
     """A shared metric's link to one experiment, as the experiment API returns it."""
 
+    id = serializers.IntegerField(read_only=True)
+    experiment = serializers.IntegerField(source="experiment_id")
+    saved_metric = serializers.IntegerField(source="saved_metric_id")
+    metadata = serializers.JSONField(required=False)
+    created_at = serializers.DateTimeField(read_only=True)
+    query = serializers.JSONField(source="saved_metric.query", read_only=True)
+    name = serializers.CharField(source="saved_metric.name", read_only=True)
     # The link model has no such attribute, so this serializer renders it as null.
     # ExperimentSerializer.to_representation sets the value from the served query.
     effective_query = ExperimentMetricDefinitionField(
@@ -837,8 +873,15 @@ class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
         ),
     )
 
-    class Meta(ExperimentToSavedMetricSerializer.Meta):
-        fields = [*ExperimentToSavedMetricSerializer.Meta.fields, "effective_query"]
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Refresh action names to show current names instead of stale cached values.
+        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
+        # parent serializer context); None when used standalone, falling back to a per-call query.
+        team = instance.experiment.team
+        actions_by_id = self.context.get("actions_by_id")
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
+        return data
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -850,9 +893,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     leaner ``ExperimentBasicSerializer`` instead.
     """
 
-    holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(),
-        source="holdout",
+    holdout_id = _HoldoutIdField(
         required=False,
         allow_null=True,
         help_text="ID of a holdout group to exclude from the experiment.",
@@ -1085,15 +1126,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "user_access_level",
         ]
 
-    def get_fields(self):
-        fields = super().get_fields()
-        team_id = self.context.get("team_id")
-        if team_id:
-            fields["holdout_id"].queryset = ExperimentHoldout.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
-        else:
-            fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
-        return fields
-
     @extend_schema_field(serializers.BooleanField())
     def get_can_freeze_exposure(self, obj: Experiment) -> bool:
         return obj.can_freeze_exposure
@@ -1105,7 +1137,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             return EXPERIMENT_EXPOSURE_EVENT
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_default_exposure_event(obj.start_date or timezone.now())
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
@@ -1127,7 +1159,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
 
-        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
+        # Note: Action name refresh is handled by ExperimentSavedMetricLinkSerializer.to_representation
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
@@ -1343,11 +1375,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def to_facade_dto(self) -> CreateExperimentInput:
         """Convert validated request data to facade DTO."""
-        # Extract holdout ID if provided
-        holdout_id = None
-        if holdout := self.validated_data.get("holdout"):
-            holdout_id = holdout.id if hasattr(holdout, "id") else None
-
         # Convert ordering lists to tuples (DTO uses tuples for immutability)
         primary_ordering = self.validated_data.get("primary_metrics_ordered_uuids")
         secondary_ordering = self.validated_data.get("secondary_metrics_ordered_uuids")
@@ -1377,7 +1404,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             conclusion=self.validated_data.get("conclusion"),
             conclusion_comment=self.validated_data.get("conclusion_comment"),
             repository=self.validated_data.get("repository"),
-            holdout_id=holdout_id,
+            holdout_id=self.validated_data.get("holdout_id"),
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
             create_in_folder=self.validated_data.get("_create_in_folder"),
@@ -1425,7 +1452,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conclusion",
             "conclusion_comment",
             "repository",
-            "holdout",
+            "holdout_id",
             "filters",
             "scheduling_config",
             "_create_in_folder",

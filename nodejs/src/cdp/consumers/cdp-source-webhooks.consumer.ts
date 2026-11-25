@@ -303,7 +303,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        const addMetric = (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => {
+        const addMetric = (
+            metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count' | 'app_source_version'>
+        ) => {
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: hogFlow.team_id,

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -131,13 +132,12 @@ def _changed_since_incremental(config: EventbriteEndpointConfig) -> IncrementalC
 def _leaf_endpoint(
     config: EventbriteEndpointConfig,
     *,
-    resolve: Optional[tuple[str, str, str]] = None,
+    resolves: Sequence[tuple[str, str, str]] = (),
     incremental: Optional[IncrementalConfig] = None,
 ) -> Endpoint:
     endpoint: Endpoint = {"path": config.path, "data_selector": config.data_key}
     params: dict[str, Any] = dict(config.params)
-    if resolve is not None:
-        param_name, parent, field = resolve
+    for param_name, parent, field in resolves:
         params[param_name] = {"type": "resolve", "resource": parent, "field": field}
     if params:
         endpoint["params"] = params
@@ -229,12 +229,17 @@ def eventbrite_source(
             _parent_resource("organizations", ORGANIZATIONS_PATH, "organizations", None)
         ]
         if config.scope == EndpointScope.ORG:
-            leaf = _leaf_endpoint(config, resolve=("organization_id", "organizations", "id"), incremental=incremental)
+            leaf = _leaf_endpoint(
+                config, resolves=[("organization_id", "organizations", "id")], incremental=incremental
+            )
         else:  # EndpointScope.EVENT — two-level fan-out: organizations -> events -> leaf
             resources.append(
                 _parent_resource("events", ORG_EVENTS_PATH, "events", ("organization_id", "organizations", "id"))
             )
-            leaf = _leaf_endpoint(config, resolve=("event_id", "events", "id"), incremental=incremental)
+            event_resolves = [("event_id", "events", "id")]
+            if "{organization_id}" in config.path:
+                event_resolves.append(("organization_id", "events", "organization_id"))
+            leaf = _leaf_endpoint(config, resolves=event_resolves, incremental=incremental)
         leaf_resource: EndpointResource = {"name": endpoint, "endpoint": leaf}
         if config.include_from_parent:
             leaf_resource["include_from_parent"] = config.include_from_parent

@@ -412,7 +412,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExternalDataSourceRevenueAnalyticsConfig",  # via ExternalDataSource
         "FeatureFlagDashboards",  # via FeatureFlag
         "FeatureFlagEvaluationContext",  # via FeatureFlag
-        "FeatureFlagRoleAccess",  # via FeatureFlag
         "HeatmapSnapshot",  # via SavedHeatmap
         "LLMSkillFile",  # via LLMSkill
         "LogsAlertCheck",  # via LogsAlertConfiguration

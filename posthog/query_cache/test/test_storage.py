@@ -20,6 +20,7 @@ from posthog.query_cache import (
     results as qc_results,
     storage as qc_storage,
 )
+from posthog.query_cache.results import decoded_size, prefetched_size
 from posthog.query_cache.serialization import encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 from posthog.query_cache.storage import S3_POINTER_MAGIC, ZSTD_FRAME_MAGIC, entry_redis_key
@@ -438,6 +439,35 @@ class TestQueryCacheS3Routing(BaseTest):
             qc_results._get_prefetch_executor().shutdown(wait=True)
 
         assert peak == 2
+
+    def test_a_lookup_after_a_failed_batched_read_reports_its_decoded_size(self):
+        cache_key = f"decoded_size_{self.team.pk}"
+        QueryCache(team_id=self.team.pk, cache_key=cache_key).store_result(
+            response=self._large_response(), target_age=None
+        )
+        stored = qc_storage.load_entry_value(cache_key)
+        assert stored is not None and stored.startswith(ZSTD_FRAME_MAGIC)
+
+        with (
+            patch.object(qc_results, "load_entry_values", side_effect=ConnectionError),
+            prefetched_entries([cache_key], team_id=self.team.pk),
+        ):
+            assert prefetched_size(cache_key) == 0
+            assert QueryCache(team_id=self.team.pk, cache_key=cache_key).lookup().entry is not None
+            assert decoded_size(cache_key) == len(zstd.decompress(stored)) > len(stored)
+
+    def test_prefetched_size_is_the_decoded_size_of_a_compressed_entry(self):
+        cache_key = f"prefetched_size_{self.team.pk}"
+        QueryCache(team_id=self.team.pk, cache_key=cache_key).store_result(
+            response=self._large_response(), target_age=None
+        )
+        stored = qc_storage.load_entry_value(cache_key)
+        assert stored is not None and stored.startswith(ZSTD_FRAME_MAGIC)
+
+        with prefetched_entries([cache_key], team_id=self.team.pk):
+            assert prefetched_size(cache_key) == len(zstd.decompress(stored)) > len(stored)
+            QueryCache(team_id=self.team.pk, cache_key=cache_key).lookup()
+            assert prefetched_size(cache_key) == 0
 
     def test_pointer_write_updates_freshness_index(self):
         cache_key = f"s3_freshness_{self.team.pk}"

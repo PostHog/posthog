@@ -258,6 +258,64 @@ class TestApplyRun(BaseTest):
         )
 
     @parameterized.expand(
+        [
+            ("stopped_refreshes_only", 60, False, WarehouseSuggestionStatus.PROPOSED),
+            ("stopped_refreshes_only_inside_the_cooldown", 10, False, WarehouseSuggestionStatus.ACCEPTED),
+            ("marked_deprecated", 60, True, WarehouseSuggestionStatus.ACCEPTED),
+        ]
+    )
+    def test_an_accepted_deprecate_returns_after_the_cooldown_only_when_the_view_was_not_marked_deprecated(
+        self, _name: str, accepted_days_ago: int, marked_deprecated: bool, expected_status: WarehouseSuggestionStatus
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        deprecate = self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)
+        apply_run(ctx, self.team, [deprecate], NOW - timedelta(days=accepted_days_ago), surface=True)
+        created_asset = (
+            {"certification_id": str(uuid4()), "stopped_materialization": False}
+            if marked_deprecated
+            else {"saved_query_id": str(view_id)}
+        )
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=accepted_days_ago),
+            created_asset=created_asset,
+        )
+
+        apply_run(ctx, self.team, [deprecate], NOW, surface=False)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        reproposed = expected_status == WarehouseSuggestionStatus.PROPOSED
+        assert (row.status, row.reproposed_count, row.surfaced_at is None) == (
+            expected_status,
+            int(reproposed),
+            reproposed,
+        )
+
+    @parameterized.expand(
+        [
+            ("still_computed_on_read", False, WarehouseSuggestionAssetOutcome.LIVE),
+            ("materialized_again", True, WarehouseSuggestionAssetOutcome.UNUSED),
+        ]
+    )
+    def test_records_what_became_of_a_deprecate_that_only_stopped_refreshes(
+        self, _name: str, materialized_now: bool, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        apply_run(ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.DEPRECATE, view_id, 1)], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=2),
+            created_asset={"saved_query_id": str(view_id)},
+        )
+        later = context(team_reads({}), views=[view(view_id, materializes=materialized_now)], team_id=self.team.pk)
+
+        apply_run(later, self.team, [], NOW, surface=False)
+
+        assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
+
+    @parameterized.expand(
         [("expired", WarehouseSuggestionStatus.EXPIRED), ("auto_resolved", WarehouseSuggestionStatus.AUTO_RESOLVED)]
     )
     def test_a_closed_suggestion_revives_into_the_queue_when_its_evidence_returns(

@@ -3,12 +3,11 @@ import { apiMutator } from 'lib/api-orval-mutator'
 import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
-    warehouseTablesCreateFromUploadCreate,
-    warehouseTablesReplaceFileCreate,
+    warehouseTablesCreateFromFileCreate,
+    warehouseTablesReplaceWithFileCreate,
     warehouseTablesRetrieve,
-    warehouseTablesUploadFileCreate,
 } from 'products/data_warehouse/frontend/generated/api'
-import type { FileUploadResponseApi, TableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { TableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { getCohortIdentifier } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
 import { notebooksSqlV2RunsPageRetrieve, notebooksSqlV2RunsRetrieve } from './generated/api'
@@ -84,7 +83,7 @@ async function* storedFramePages(
     }
 }
 
-async function uploadResultTable(source: SqlResultSource): Promise<FileUploadResponseApi> {
+async function resultTableFile(source: SqlResultSource): Promise<File> {
     const chunks: Blob[] = []
     let size = 0
     for await (const { columns, rows } of resultPages(source)) {
@@ -108,30 +107,25 @@ async function uploadResultTable(source: SqlResultSource): Promise<FileUploadRes
     if (!size) {
         throw new Error('The query returned no rows to save.')
     }
-    return warehouseTablesUploadFileCreate(source.projectId, {
-        file: new File(chunks, 'notebook-result.json', { type: 'application/x-ndjson' }),
-        file_format: 'json',
-    })
+    return new File(chunks, 'notebook-result.json', { type: 'application/x-ndjson' })
 }
 
-export type PendingTableUpload = { upload?: FileUploadResponseApi }
+export type PendingTableUpload = { file?: File }
 
 export async function saveResultTable(
     source: SqlResultSource,
     destination: { name: string } | { tableId: string },
     pending: PendingTableUpload
 ): Promise<SavedSqlResultTable> {
-    const upload = (pending.upload ??= await uploadResultTable(source))
-    const file = {
-        upload_id: upload.upload_id,
-        filename: upload.filename,
+    const upload = {
+        file: (pending.file ??= await resultTableFile(source)),
         file_format: 'json' as const,
         notebook_cell: `${source.shortId}/${source.nodeId}`,
     }
     const table =
         'tableId' in destination
-            ? await warehouseTablesReplaceFileCreate(source.projectId, destination.tableId, file)
-            : await warehouseTablesCreateFromUploadCreate(source.projectId, { ...file, table_name: destination.name })
+            ? await warehouseTablesReplaceWithFileCreate(source.projectId, destination.tableId, upload)
+            : await warehouseTablesCreateFromFileCreate(source.projectId, { ...upload, table_name: destination.name })
     return {
         id: table.id,
         name: table.name,
