@@ -1,5 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
-import { execFile, spawn } from 'child_process'
+import { execFile, execFileSync, spawn } from 'child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import net from 'net'
 import { tmpdir } from 'os'
@@ -112,15 +112,24 @@ describe('provider edge process', () => {
         edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
         await withFakeTimers(async () => {
             process.kill(edge.pid!, 'SIGSTOP')
-            const holding = edge.hold(REJECT)
-            jest.advanceTimersByTime(500)
-            jest.runOnlyPendingTimers()
+            const holding = outcomeOf(edge.hold(REJECT))
+            jest.advanceTimersByTime(250)
+            const clearing = outcomeOf(edge.clearFaults())
+            jest.advanceTimersByTime(250)
+            jest.advanceTimersByTime(1)
 
-            await expect(holding).rejects.toThrow('the provider edge process did not answer add within 500 ms')
-            await expect(edge.clearFaults()).rejects.toThrow(
-                'the provider edge process did not answer add within 500 ms'
-            )
-            expect(runs(edge.pid)).toBe(false)
+            expect({
+                waiting: await Promise.all([holding, clearing]),
+                later: await outcomeOf(edge.clearFaults()),
+                edgeRuns: runs(edge.pid),
+            }).toEqual({
+                waiting: [
+                    'the provider edge process did not answer add within 500 ms',
+                    'the provider edge process did not answer add within 500 ms',
+                ],
+                later: 'the provider edge process did not answer add within 500 ms',
+                edgeRuns: false,
+            })
         })
     }, 10_000)
 
@@ -133,7 +142,7 @@ describe('provider edge process', () => {
             process.kill(edge.pid!, 'SIGCONT')
             blockRunnerFor(300)
             jest.advanceTimersByTime(500)
-            jest.runOnlyPendingTimers()
+            jest.advanceTimersByTime(1)
 
             expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
                 outcome: 'the provider edge process did not answer add within 500 ms',
@@ -149,7 +158,7 @@ describe('provider edge process', () => {
         const holding = outcomeOf(edge.hold(REJECT))
         setImmediate(() => {
             process.kill(edge.pid!, 'SIGCONT')
-            blockRunnerFor(800)
+            blockRunnerFor(2000)
         })
 
         expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({ outcome: 'answered', edgeRuns: true })
@@ -168,7 +177,9 @@ describe('provider edge process', () => {
             existsSync(pidFile) ? Number(readFileSync(pidFile, 'utf8')) : undefined
         const opensslRuns = (): boolean => {
             try {
-                return readFileSync(`/proc/${opensslPid()}/cmdline`, 'utf8') === 'sleep\x00600\x00'
+                return !execFileSync('ps', ['-o', 'stat=', '-p', String(opensslPid())], {
+                    encoding: 'utf8',
+                }).startsWith('Z')
             } catch {
                 return false
             }
