@@ -9667,7 +9667,7 @@
         "feature_flag": "signals-source-filters"
     },
     "inbox-source-filter-preview": {
-        "description": "Check a filter expression before you save it, and see what it does to the source's records from the last 7 days: how many pass, how many it excludes, and the newest records of each with their field values. Use the fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid expression or a source that has not synced. Records that pass can still be skipped later by guidance or deduplication. Saves nothing.",
+        "description": "Check a filter expression before you save it, and see what it does to the source's records from the last 7 days: how many pass, how many it excludes, and the newest records of each with their field values. Use the fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid expression or a source that has not synced. Records that never become signals, such as Linear issues without a description, are left out of every count. Records that pass can still be skipped later by guidance or deduplication. Saves nothing.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Preview an inbox source filter",
