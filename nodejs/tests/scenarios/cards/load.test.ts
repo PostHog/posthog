@@ -57,6 +57,8 @@ const emailWorkerKill = {
     for: '1s',
 }
 
+const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
+
 describe('load', () => {
     let dir: string
 
@@ -240,6 +242,21 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-api': 2 } },
             `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
         ]),
+        ...[
+            ['role.kill', 'cdp-api'],
+            ['role.freeze', 'cdp-cyclotron-worker-email'],
+        ].map(([valve, target]): [string, object, object, string] => [
+            `edge_accepted on ${valve} of ${target}`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+        ]),
+        [
+            'edge_accepted while the profile runs more than one email worker',
+            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
+        ],
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -281,10 +298,10 @@ describe('load', () => {
             'valves.0: exactly one of at, when',
         ],
         [
-            'a when predicate other than running_on_queue',
+            'a when predicate the runner does not know',
             { ...card, valves: [{ ...emailWorkerKill, when: { ...emailWorkerKill.when, name: 'queue_empty' } }] },
             undefined,
-            'valves.0.when.name: running_on_queue is the only predicate',
+            'valves.0.when.name: the predicates are running_on_queue and edge_accepted',
         ],
         [
             'running_on_queue without its queue',
