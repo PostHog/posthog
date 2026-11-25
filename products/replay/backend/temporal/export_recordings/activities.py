@@ -86,6 +86,8 @@ VIEWPORTS_GROUP_BY_SPILL_BYTES = 10 * 1024 * 1024 * 1024
 MAX_SESSION_VIEWPORT_BYTES = 64 * 1024
 # A shard reads its whole file into memory, so the file stays bounded too.
 MAX_SHARD_VIEWPORT_BYTES = 256 * 1024 * 1024
+# A narrow selection filters its sessions in the query, so ClickHouse aggregates no others.
+MAX_FILTERED_SESSIONS = 10_000
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
@@ -145,6 +147,7 @@ WHERE event IN ('$pageview', '$screen')
     AND length(`$session_id`) BETWEEN 1 AND 128
     AND match(toString(properties.$viewport_width), '^[0-9]{1,6}$')
     AND match(toString(properties.$viewport_height), '^[0-9]{1,6}$')
+    AND {session_filter}
 GROUP BY shard, session_id, width, height, href, toStartOfMinute(timestamp)
 ORDER BY shard, session_id, first_ms
 """
@@ -300,6 +303,19 @@ Viewport = dict[str, Any]
 SessionMetadata = tuple[dict[str, list[Viewport]], dict[str, dict[str, Any]]]
 
 
+def day_session_filter(input: DayViewportsInput) -> ast.Expr:
+    listed: list[str] = []
+    for shard in range(input.shards_per_day):
+        listed.extend(load_shard_session_ids(input.session_ids_prefix, input.day, shard))
+        if len(listed) > MAX_FILTERED_SESSIONS:
+            return ast.Constant(value=True)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["$session_id"]),
+        right=ast.Constant(value=listed),
+    )
+
+
 def day_viewports_sql(team: Team, input: DayViewportsInput) -> tuple[str, dict[str, Any]]:
     day_start = datetime.fromisoformat(input.day).replace(tzinfo=UTC)
     context = HogQLContext(team_id=team.pk, team=team, enable_select_queries=True, limit_top_select=False)
@@ -311,6 +327,7 @@ def day_viewports_sql(team: Team, input: DayViewportsInput) -> tuple[str, dict[s
                 "shards_per_day": ast.Constant(value=input.shards_per_day),
                 "start": ast.Constant(value=day_start - timedelta(hours=1)),
                 "end": ast.Constant(value=day_start + timedelta(days=2)),
+                "session_filter": day_session_filter(input),
             },
         ),
         context,

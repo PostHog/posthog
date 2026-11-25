@@ -541,7 +541,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
         )
 
-    def test_day_viewports_go_to_each_listed_sessions_shard(self) -> None:
+    @parameterized.expand([("filtered_in_the_query", 10_000), ("filtered_after_the_query", 0)])
+    def test_day_viewports_go_to_each_listed_sessions_shard(self, _name: str, max_filtered_sessions: int) -> None:
         for event, session_id, width in (
             ("$screen", "s2", 800),
             ("$autocapture", "s1", 1),
@@ -559,7 +560,10 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         quote = self._quote(None, shards_per_day=4)
 
-        with patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async):
+        with (
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
+            patch.object(activities, "MAX_FILTERED_SESSIONS", max_filtered_sessions),
+        ):
             async_to_sync(self._load_viewports)(quote)
 
         day = self.day.date().isoformat()
