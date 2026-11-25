@@ -6,7 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
-- `Infotip` — an info icon button that explains the value next to it, on hover, click, keyboard and touch (a toggletip built from `Popover` + `Button`)
+- `Infotip` — an info icon button that explains the value next to it when clicked, tapped or pressed (a toggletip built from `Popover` + `Button`)
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
@@ -54,7 +54,7 @@ Rules:
 Rules:
 
 - Use `Infotip` for every icon-only info hint. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
-- Hover opens it after `delay` (100ms by default). A click, tap, Enter or Space opens it and keeps it open until Escape or a click outside, and focus then returns to the icon. A keyboard user lands in the popup, so a link inside it is reachable.
+- A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Focus then returns to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
 - The button draws 20px so it fits a line of text, and an invisible layer grows its target to 24px. Don't shrink it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
 - Keep the content to short text, optionally with an inline link. It renders inside a `<p>`, so no block elements. Anything longer, or with controls, is a `Popover`.

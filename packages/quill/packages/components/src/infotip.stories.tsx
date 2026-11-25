@@ -13,12 +13,10 @@ const meta: Meta<typeof Infotip> = {
         children: 'Where your site appears among the cited sources, on average. 1 is first.',
         side: 'top',
         align: 'center',
-        delay: 100,
     },
     argTypes: {
         side: { control: 'inline-radio', options: ['top', 'right', 'bottom', 'left'] },
         align: { control: 'inline-radio', options: ['start', 'center', 'end'] },
-        delay: { control: { type: 'number', min: 0, step: 50 } },
         children: { control: 'text' },
     },
     decorators: [

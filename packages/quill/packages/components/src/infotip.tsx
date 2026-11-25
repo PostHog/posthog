@@ -3,7 +3,6 @@ import * as React from 'react'
 
 import { Button, cn, Popover, PopoverContent, PopoverDescription, PopoverTrigger } from '@posthog/quill-primitives'
 
-type PopoverRootProps = React.ComponentProps<typeof Popover>
 type PopoverContentProps = React.ComponentProps<typeof PopoverContent>
 
 export interface InfotipProps {
@@ -13,42 +12,18 @@ export interface InfotipProps {
     children: React.ReactNode
     side?: PopoverContentProps['side']
     align?: PopoverContentProps['align']
-    /** Milliseconds the pointer rests on the icon before the popup opens. */
-    delay?: number
     className?: string
     contentClassName?: string
 }
 
 const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infotip(
-    { label, children, side = 'top', align = 'center', delay = 100, className, contentClassName },
+    { label, children, side = 'top', align = 'center', className, contentClassName },
     ref
 ) {
-    const pinned = React.useRef(false)
-    // Base UI closes a popover opened by hover when the trigger is clicked more than 500ms later. People
-    // click an info icon to keep the text up, so that click pins the popup, and the next one closes it.
-    const handleOpenChange: PopoverRootProps['onOpenChange'] = (open, details) => {
-        if (open) {
-            pinned.current = details.reason === 'trigger-press'
-            return
-        }
-        if (details.reason === 'trigger-press' && !pinned.current) {
-            pinned.current = true
-            details.cancel()
-            return
-        }
-        if (details.reason === 'trigger-hover' && pinned.current) {
-            details.cancel()
-            return
-        }
-        pinned.current = false
-    }
     return (
-        <Popover onOpenChange={handleOpenChange}>
+        <Popover>
             <PopoverTrigger
                 ref={ref}
-                openOnHover
-                delay={delay}
-                closeDelay={100}
                 render={
                     <Button
                         variant="default"

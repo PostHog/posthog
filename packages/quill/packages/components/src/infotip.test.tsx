@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { Infotip } from './infotip'
@@ -51,29 +51,5 @@ describe('Infotip', () => {
         await userEvent.keyboard('{Enter}')
 
         await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Read the docs')))
-    })
-
-    it('stays open when clicked well after hover opened it, and the next click closes it', async () => {
-        jest.useFakeTimers()
-        try {
-            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-            render(<Infotip label="About mentioned">The answer names your brand.</Infotip>)
-            const trigger = screen.getByLabelText('About mentioned')
-
-            await user.hover(trigger)
-            act(() => jest.advanceTimersByTime(1000))
-            expect(trigger.getAttribute('aria-expanded')).toBe('true')
-
-            await user.click(trigger)
-            await user.unhover(trigger)
-            act(() => jest.advanceTimersByTime(1000))
-            expect(trigger.getAttribute('aria-expanded')).toBe('true')
-
-            await user.click(trigger)
-            act(() => jest.advanceTimersByTime(1000))
-            expect(trigger.getAttribute('aria-expanded')).toBe('false')
-        } finally {
-            jest.useRealTimers()
-        }
     })
 })
