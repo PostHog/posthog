@@ -326,12 +326,24 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
 
 type ConversionGoalFields = Pick<
     ConversionGoalFilter,
-    'conversion_goal_id' | 'conversion_goal_name' | 'schema_map' | 'counts_as_customer' | 'counts_as_revenue'
+    | 'conversion_goal_id'
+    | 'conversion_goal_name'
+    | 'schema_map'
+    | 'counts_as_customer'
+    | 'counts_as_revenue'
+    | 'use_in_recommendations'
 >
 
 function splitConversionGoal(goal: ConversionGoalFilter): { fields: ConversionGoalFields; node: SeriesNode } {
-    const { conversion_goal_id, conversion_goal_name, schema_map, counts_as_customer, counts_as_revenue, ...node } =
-        goal
+    const {
+        conversion_goal_id,
+        conversion_goal_name,
+        schema_map,
+        counts_as_customer,
+        counts_as_revenue,
+        use_in_recommendations,
+        ...node
+    } = goal
     return {
         fields: objectClean({
             conversion_goal_id,
@@ -339,6 +351,7 @@ function splitConversionGoal(goal: ConversionGoalFilter): { fields: ConversionGo
             schema_map,
             counts_as_customer,
             counts_as_revenue,
+            use_in_recommendations,
         }),
         node,
     }

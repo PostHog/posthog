@@ -796,6 +796,7 @@ describe('marketing analytics utils', () => {
             conversion_goal_id: 'goal-1',
             conversion_goal_name: 'Purchases',
             counts_as_customer: true,
+            use_in_recommendations: true,
         }
         const schemaMap = {
             utm_campaign_name: 'utm_campaign',
