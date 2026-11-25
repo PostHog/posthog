@@ -749,7 +749,7 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.parametrize("days_ago", [0, 10], ids=["events-json-recent", "events-json"])
 async def test_insert_into_postgres_activity_exports_ip_when_using_native_events(
     clickhouse_client, activity_environment, postgres_connection, postgres_config, ateam, days_ago: int
