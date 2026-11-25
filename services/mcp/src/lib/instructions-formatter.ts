@@ -35,6 +35,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import INBOX_DIGEST from '@/templates/sections/inbox-digest.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
@@ -102,6 +103,8 @@ export interface InstructionsContext {
     inboxFirstEnabled?: boolean | undefined
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
+    /** Independent of `inboxFirstEnabled`: the digest has its own flag and scopes, which decide whether the tool is advertised. */
+    inboxDigestEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
     learnToolEnabled?: boolean | undefined
     splitWrites?: boolean | undefined
@@ -117,6 +120,12 @@ const ENDPOINTS_ROUTING =
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
+
+const INBOX_DIGEST_TOOL = 'inbox-digest-get'
+
+function inboxToolRef(name: string, execSyntax: boolean): string {
+    return execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+}
 
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
@@ -301,17 +310,23 @@ export class InstructionsFormatter {
         if (!ctx.inboxFirstEnabled) {
             return []
         }
-        const toolRef = (name: string): string =>
-            execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+        const toolRef = (name: string): string => inboxToolRef(name, execSyntax)
         return [
             formatPrompt(INBOX_FIRST, {
                 inbox_list: toolRef('inbox-reports-list'),
                 inbox_retrieve: toolRef('inbox-reports-retrieve'),
                 inbox_claim_line: ctx.inboxClaimEnabled
-                    ? `- When you fix the problem, attach your pull request to the report with ${toolRef('inbox-reports-claim')} and \`pr_url\`. Its merge then resolves the report.`
+                    ? `- When you fix the problem, put the report's \`_posthogUrl\` in your pull request description so reviewers can see the context. Then attach the pull request to the report with ${toolRef('inbox-reports-claim')} and \`pull_requests\`. Its merge then resolves the report.`
                     : '',
             }),
         ]
+    }
+
+    private inboxDigestSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+        if (!ctx.inboxDigestEnabled) {
+            return []
+        }
+        return [formatPrompt(INBOX_DIGEST, { inbox_digest: inboxToolRef(INBOX_DIGEST_TOOL, execSyntax) })]
     }
 
     buildLearnToolDescription(): string {
@@ -368,6 +383,7 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
+                ...this.inboxDigestSections(ctx, false),
                 TOOL_SEARCH,
                 ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                 RETRIEVING_DATA,
@@ -583,6 +599,7 @@ export class InstructionsFormatter {
                 ...(learnSection ? [learnSection] : []),
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
                 ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
+                ...this.inboxDigestSections(ctx, true),
                 ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
@@ -612,6 +629,7 @@ export class InstructionsFormatter {
         const sections = [
             CLI_SYNTAX,
             ...this.inboxFirstSections(ctx, true),
+            ...this.inboxDigestSections(ctx, true),
             ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
