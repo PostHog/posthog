@@ -208,17 +208,26 @@ export const ThreadTurn = memo(function ThreadTurn({
             {renderMissing('output')}
             {errorCallout}
             {turn.trace?.name || traceStats.length > 0 ? (
-                <div className="flex">
+                <div className="flex min-w-0">
                     <Tooltip title="Open trace">
                         <ChipButton
                             icon={<NodeKindGlyph kind="trace" />}
                             onClick={() => onSelectMessage(turn.id, turn.id)}
+                            className="max-w-full min-w-0"
                             data-attr="trace-view-thread-open-turn-trace"
                         >
                             {/* The name is one the customer sets, so autocapture must not record it. */}
-                            {turn.trace?.name ? <span className="ph-no-capture">{turn.trace.name}</span> : null}
-                            {turn.trace?.name && traceStats.length > 0 ? <span aria-hidden> · </span> : null}
-                            <span>{traceStats.join(' · ')}</span>
+                            {turn.trace?.name ? (
+                                <span className="ph-no-capture truncate" title={turn.trace.name}>
+                                    {turn.trace.name}
+                                </span>
+                            ) : null}
+                            {turn.trace?.name && traceStats.length > 0 ? (
+                                <span className="shrink-0" aria-hidden>
+                                    {' · '}
+                                </span>
+                            ) : null}
+                            <span className="shrink-0">{traceStats.join(' · ')}</span>
                         </ChipButton>
                     </Tooltip>
                 </div>

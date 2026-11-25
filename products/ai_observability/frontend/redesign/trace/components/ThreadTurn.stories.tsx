@@ -58,3 +58,16 @@ export const InSessionNarrow: StoryObj<typeof ThreadTurn> = {
     ...InSession,
     decorators: [withWidth(320)],
 }
+export const InSessionLongTraceName: StoryObj<typeof ThreadTurn> = {
+    ...InSessionNarrow,
+    args: {
+        ...InSession.args,
+        turn: {
+            ...sessionTurn,
+            trace: {
+                ...sessionTurn.trace,
+                name: 'support-agent/answer-billing-question-with-invoice-history-and-seat-changes',
+            },
+        },
+    },
+}
