@@ -309,9 +309,12 @@ ORDER BY 1, 2"""
     def build_exposure_rows_left_out(self) -> str:
         """The exposure rows the experiment leaves out, counted by reason. A row whose variant the flag does not
         serve is counted by the value seen, so the user can spot a misspelt variant. The customer's query runs
-        once: every reason comes from one pass over its rows."""
+        once: every reason comes from one pass over its rows, and the cap on the values is applied after."""
         rows = f"{self._prefix}exposure_rows"
         left_out = f"{self._prefix}left_out"
+        counts = f"{self._prefix}left_out_counts"
+        # The cap applies to the unknown variant values only, so a flood of them cannot push out another reason.
+        max_unknown = 50
         variants = ", ".join(_string_literal(variant_key) for variant_key in self.variants)
         unknown_variant = f"({rows}.variant IS NULL OR {rows}.variant NOT IN ({variants}))"
         return f"""WITH {",\n".join(self._exposure_row_ctes())},
@@ -325,16 +328,24 @@ ORDER BY 1, 2"""
         END AS reason,
         COALESCE({rows}.variant, '') AS variant
     FROM {rows}
+),
+{counts} AS (
+    SELECT
+        {left_out}.reason AS reason,
+        IF({left_out}.reason = 'unknown_variant', {left_out}.variant, NULL) AS value,
+        COUNT(*) AS row_count
+    FROM {left_out}
+    WHERE {left_out}.reason IS NOT NULL
+    GROUP BY 1, 2
 )
 SELECT
-    {left_out}.reason AS reason,
-    IF({left_out}.reason = 'unknown_variant', {left_out}.variant, NULL) AS value,
-    COUNT(*) AS row_count
-FROM {left_out}
-WHERE {left_out}.reason IS NOT NULL
-GROUP BY 1, 2
-ORDER BY 3 DESC
-LIMIT 50"""
+    {counts}.reason AS reason,
+    {counts}.value AS value,
+    {counts}.row_count AS row_count
+FROM {counts}
+QUALIFY {counts}.reason != 'unknown_variant'
+    OR ROW_NUMBER() OVER (PARTITION BY {counts}.reason ORDER BY {counts}.row_count DESC) <= {max_unknown}
+ORDER BY 3 DESC"""
 
     def build(self) -> str:
         if self.metric is None:
