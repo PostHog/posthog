@@ -33,10 +33,13 @@ def alert_url(team_id: int, _configuration_id: UUID) -> str:
 
 def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
     details = [MessageDetail(label="Query", value=str(transition.source_config.get("query", "")))]
-    # A metrics firing carries no value only when the alert fired because its series was missing, so
-    # on-call can tell a series that stopped reporting from one that reported a breaching number.
+    # A threshold firing carries no value only when the alert fired because its series was missing, so
+    # on-call can tell a series that stopped reporting from one that reported a breaching number. A
+    # present firing can carry no value with its series returned, because NaN and Inf have no number.
     if transition.kind == AlertEventKind.NO_DATA or (
-        transition.kind == AlertEventKind.FIRING and transition.value is None
+        transition.kind == AlertEventKind.FIRING
+        and transition.value is None
+        and transition.condition.get("kind", "threshold") == "threshold"
     ):
         details.append(MessageDetail(label="Data", value="The query returned no series"))
     if transition.value is not None:
