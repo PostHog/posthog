@@ -19,6 +19,11 @@ rules:
       owners: team-devex
     - match: ['/scripts/backend-full-run-state.js', '/scripts/backend-full-run-state.test.js']
       owners: team-devex
+    - match:
+          - '/scripts/run-product-tests.sh'
+          - '/scripts/test_run_product_tests.py'
+          - '/scripts/product-tests-owned-elsewhere.txt'
+      owners: team-devex
     - match: ['/scripts/ordered-image-alias-alerts.js', '/scripts/ordered-image-alias-alerts.test.js']
       owners: team-cloud-platform
     - match: '/auto-assign-labels.json'
