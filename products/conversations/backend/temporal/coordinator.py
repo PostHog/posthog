@@ -153,6 +153,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # creation time (the initial message), not just from follow-up comments.
     candidates: list[tuple[int, str, datetime, bool, int, bool]] = []
     untriaged_ticket_ids: set[str] = set()
+    forwarded_ticket_ids: set[str] = set()
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
     master_flag_by_org: dict[str, bool] = {}
@@ -184,6 +185,10 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
 
         if is_untriaged:
             untriaged_ticket_ids.add(str(ticket.id))
+        # The scan covers every team, so one ticket's malformed traits must not stop it.
+        traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+        if traits.get("email_forwarded") is True:
+            forwarded_ticket_ids.add(str(ticket.id))
 
         awaiting, clarification_round = _awaiting_clarification_round(ticket)
         if awaiting and clarification_round > MAX_CLARIFICATION_ROUNDS:
@@ -214,6 +219,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
     #      before the first customer comment. That opener is not engagement, so such a ticket is
     #      engaged only by an engaging comment newer than the first customer comment.
+    #      A forwarded ticket opens with a private team note, and its private customer comments are internal mail.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round, _settle_exempt in candidates:
@@ -232,7 +238,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             item_id__in=ticket_ids,
             item_context__automated_update_key__isnull=True,
         ).values_list("item_id", "item_context__author_type", "item_context__is_private", "created_at"):
-            if author_type == "customer":
+            if author_type == "customer" and is_private is not True:
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
                     latest_customer_msg[item_id] = comment_created_at
@@ -275,7 +281,9 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         else:
             first_customer = first_customer_msg.get(ticket_id_str)
             earliest_team = earliest_non_customer_msg.get(ticket_id_str)
-            team_opened = earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            team_opened = ticket_id_str in forwarded_ticket_ids or (
+                earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            )
             if team_opened:
                 # Wait for the customer without recording a skip, because no team reply exists yet.
                 if first_customer is None:
