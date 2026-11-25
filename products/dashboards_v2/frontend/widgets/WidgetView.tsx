@@ -1,12 +1,15 @@
 import posthog from 'posthog-js'
 import { Component, type ComponentType, type ErrorInfo, type ReactNode, Suspense, memo } from 'react'
 
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+
 import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { WidgetComponentProps, WidgetDefinition } from './widgetDefinition'
 import { WidgetLoading } from './WidgetLoading'
 
 interface TileErrorState {
     failed: boolean
+    error?: unknown
     widget: ContentWidget
 }
 
@@ -19,16 +22,25 @@ class TileErrorBoundary extends Component<{ widget: ContentWidget; children: Rea
         return props.widget === state.widget ? null : { failed: false, widget: props.widget }
     }
 
-    static getDerivedStateFromError(): Partial<TileErrorState> {
-        return { failed: true }
+    static getDerivedStateFromError(error: unknown): Partial<TileErrorState> {
+        return { failed: true, error }
     }
 
     override componentDidCatch(error: Error, info: ErrorInfo): void {
+        if (isChunkLoadError(error)) {
+            return
+        }
         posthog.captureException(error, { tag: 'dashboards-v2-widget', componentStack: info.componentStack })
     }
 
     override render(): ReactNode {
-        if (this.state.failed) {
+        const { failed, error } = this.state
+        // A widget whose code failed to download after a deploy needs the page reloaded, which the app's chunk
+        // boundary does, so the error goes on up to it. React caches the failed import, so a retry here can't help.
+        if (failed && isChunkLoadError(error)) {
+            throw error
+        }
+        if (failed) {
             return (
                 <div className="flex h-full items-center justify-center text-secondary text-sm">
                     This widget hit an error.
