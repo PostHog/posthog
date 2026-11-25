@@ -597,15 +597,14 @@ def series_label_keys_query(
         """
             SELECT
                 series_fingerprint,
-                any(cityHash64(arrayStringConcat(arrayConcat(
-                    [service_name],
-                    arraySort(arrayMap((key, val) -> concat('r:', key, '=', val), mapKeys(resource_attributes), mapValues(resource_attributes))),
-                    arraySort(arrayMap(
-                        (key, val) -> concat('a:', key, '=', val),
-                        arrayFilter(key -> key != 'posthog.original_timestamp', mapKeys(attributes)),
-                        arrayFilter((val, key) -> key != 'posthog.original_timestamp', mapValues(attributes), mapKeys(attributes))
+                any(cityHash64(tuple(
+                    service_name,
+                    arraySort(arrayZip(mapKeys(resource_attributes), mapValues(resource_attributes))),
+                    arraySort(arrayFilter(
+                        pair -> tupleElement(pair, 1) != 'posthog.original_timestamp',
+                        arrayZip(mapKeys(attributes), mapValues(attributes))
                     ))
-                ), '\\n'))) AS label_key
+                ))) AS label_key
             FROM posthog.metric_series
             WHERE {metric_name}
               AND {active_since}
