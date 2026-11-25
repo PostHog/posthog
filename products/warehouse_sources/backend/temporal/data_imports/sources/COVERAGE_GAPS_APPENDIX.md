@@ -12695,7 +12695,7 @@ Note: The connector authenticates with a Rollbar project access token, while pro
 
 ## Rootly — gaps
 
-Today (19): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
+Today (22): `action_items`, `alert_events`, `alerts`, `causes`, `environments`, `escalation_policies`, `functionalities`, `incident_events`, `incident_roles`, `incident_types`, `incidents`, `post_mortems`, `pulses`, `schedule_rotation_users`, `schedule_rotations`, `schedules`, `services`, `severities`, `statuses`, `teams`, `users`, `workflows`
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
@@ -12703,10 +12703,10 @@ Diffed against: <https://docs.rootly.com/api-reference>
 - [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
 - [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
 - [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
-- [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
-- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
-- [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
-- [ ] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium)
+- [x] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high) → `incident_roles` (full refresh)
+- [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium) Skipped: `GET /v1/oncalls` computes who is on call at a `since`/`until` time (default now), unpaginated and with no timestamps to sync on.
+- [x] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium) → `schedule_rotations` (full refresh, fan-out over `schedules`)
+- [x] `schedule_rotation_users (list-schedule-rotation-users)` — membership table joining users to rotations (medium) → `schedule_rotation_users` (full refresh, two-level fan-out over `schedules` and their rotations)
 - [ ] `workflow_runs (list-workflow-runs)` — execution history for the workflows we already sync (medium)
 - [ ] `sub_statuses (list-sub-statuses)` — lookup resolving incident sub-status IDs (medium)
 - [ ] `incident_feedbacks (list-incident-feedbacks)` — post-incident satisfaction scoring (medium)
