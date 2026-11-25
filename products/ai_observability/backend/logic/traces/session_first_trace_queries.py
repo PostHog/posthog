@@ -20,6 +20,7 @@ from .trace_expression_queries import (
     trace_session_ids,
 )
 from .trace_queries import event_in, read_ai_events_table
+from .trace_selection_queries import AI_TRACE_EVENTS
 
 SESSION_TITLE_TRACES_QUERY_NAME = "ai_session_title_traces"
 SESSION_PERSON_TRACES_QUERY_NAME = "ai_session_person_traces"
@@ -59,7 +60,7 @@ def _candidates(session_ids: Sequence[str], since: datetime, include_support_tra
             "where": ast.And(
                 exprs=[
                     names_session(AI_EVENTS_COLUMNS, session_ids),
-                    event_in(TRACE_EVENT_NAMES),
+                    event_in(AI_TRACE_EVENTS),
                     parse_expr("timestamp >= {since}", placeholders={"since": ast.Constant(value=since)}),
                     *_support_filter(include_support_traces),
                 ]
@@ -73,6 +74,8 @@ def _candidates(session_ids: Sequence[str], since: datetime, include_support_tra
 
 def _first_traces_query(session_ids: Sequence[str], since: datetime, include_support_traces: bool) -> ast.SelectQuery:
     # A tuple is never null, so the first trace's missing person stays missing instead of falling to a later trace.
+    # A feedback or metric event can be the only one that names the session, so those events are read for the trace's
+    # sessions, while its start and its person come from its trace events.
     query = parse_select(
         """
         SELECT session_id, argMin(tuple(trace_id, trace_person), tuple(trace_start, trace_id))
@@ -96,7 +99,7 @@ def _first_traces_query(session_ids: Sequence[str], since: datetime, include_sup
             "person": trace_person_id(AI_EVENTS_COLUMNS, grouped),
             "where": ast.And(
                 exprs=[
-                    event_in(TRACE_EVENT_NAMES),
+                    event_in(AI_TRACE_EVENTS),
                     parse_expr("timestamp >= {since}", placeholders={"since": ast.Constant(value=since)}),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GlobalIn,
