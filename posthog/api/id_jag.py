@@ -476,8 +476,10 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
     """The active org member this ID-JAG speaks for.
 
     The IdP subject is the stable key. Email only matches a member the first time a subject
-    is seen, and that match is stored, so a later change of email at either end keeps the
-    same account. A member already bound to a different subject is refused: the IdP has
+    is seen, and that match is stored, so a later change of the email in the IdP's tokens
+    keeps the same account. A change of the account's email in PostHog removes the bindings
+    that depend on the old email (see `UserEmailChange`), and the next ID-JAG matches by
+    email again. A member already bound to a different subject is refused: the IdP has
     given their email address to someone else.
     """
     idp_config = verified_id_jag.identity_provider_config

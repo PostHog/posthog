@@ -40,8 +40,10 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
+    ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationExternalProjectLinkApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
@@ -108,6 +110,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointPlanClampApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -302,13 +305,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
@@ -339,7 +343,6 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Evaluation = 'evaluation',
-    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
@@ -652,6 +655,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
@@ -670,7 +674,7 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
+    external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationDomainType {
@@ -758,7 +762,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
@@ -771,9 +775,6 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
-    secret_api_token: string | null
-    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -782,7 +783,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
@@ -953,6 +955,7 @@ export interface TeamType extends TeamBasicType {
     flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
+    available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: TeamWorkflowsConfigApi
@@ -2733,6 +2736,7 @@ export interface EndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     data_freshness_seconds: number
     plan_refresh_floor_seconds: number | null
+    plan_clamp: EndpointPlanClampApi | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -3553,6 +3557,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -5326,8 +5334,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6338,6 +6357,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set while a plan floor rewrite of the cadence stands. Single fetches only */
+    plan_clamp?: DataWarehouseSavedQueryApi['plan_clamp']
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6720,6 +6741,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */
@@ -6750,6 +6772,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

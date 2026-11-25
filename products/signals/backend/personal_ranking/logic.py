@@ -112,7 +112,7 @@ BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 PrecheckOutcome = Literal["hit", "miss", "agreed", "disagreed"]
 PRECHECK_OUTCOMES: tuple[PrecheckOutcome, ...] = ("hit", "miss", "agreed", "disagreed")
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick", "first_summary"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary", "inbox_load"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {

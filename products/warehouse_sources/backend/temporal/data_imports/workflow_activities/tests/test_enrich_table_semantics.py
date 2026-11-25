@@ -9,6 +9,9 @@ from django.db.models.query import QuerySet
 from django.db.utils import OperationalError as DjangoOperationalError
 from django.test import override_settings
 
+import httpx
+import openai
+import anthropic
 from temporalio.testing import ActivityEnvironment
 
 from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
@@ -94,6 +97,15 @@ def _make_schema(
         sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys or []}},
     )
     return schema, table
+
+
+def _gateway_response(status_code: int, headers: dict[str, str] | None = None) -> httpx.Response:
+    return httpx.Response(
+        status_code, headers=headers, request=httpx.Request("POST", "https://gateway.example.com/v1/messages")
+    )
+
+
+_GATEWAY_DENIAL = {"X-PostHog-Denial": "credit_bucket_exhausted"}
 
 
 def _annotations(team: Team, table: DataWarehouseTable) -> dict[str, WarehouseColumnAnnotation]:
@@ -502,17 +514,28 @@ class TestEnrichTableSemanticsSync:
         mock_close.assert_called_once()
         assert result == {"status": "done", "canonical_annotations": 1, "ai_annotations": 0}
 
-    def test_skipped_when_ai_data_processing_not_approved(self):
+    @pytest.mark.parametrize(
+        "org_field, reason",
+        [
+            ("is_ai_data_processing_approved", "ai_data_processing_not_approved"),
+            ("is_active", "organization_inactive"),
+        ],
+    )
+    def test_skipped_when_organization_blocks_llm_calls(self, org_field, reason, _mock_capture_enrichment_event):
         team = _team()
-        team.organization.is_ai_data_processing_approved = False
-        team.organization.save()
+        Organization.objects.filter(pk=team.organization_id).update(**{org_field: False})
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
-        with patch.object(enrich, "_generate_descriptions") as mock_llm:
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_generate_descriptions") as mock_llm,
+        ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
-        assert result["status"] == "skipped"
-        assert result["reason"] == "ai_data_processing_not_approved"
+        assert result == {"status": "skipped", "reason": reason}
         assert _annotations(team, table) == {}
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert events[enrich.EVENT_COMPLETED]["reason"] == reason
 
     def test_skipped_when_team_was_deleted(self):
         # Same fire-and-forget race as the schema case below, but for the team itself.
@@ -827,6 +850,85 @@ class TestEnrichTableSemanticsSync:
         events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
         assert enrich.EVENT_ERROR not in events
         assert events[enrich.EVENT_COMPLETED]["reason"] == "llm_gateway_not_configured"
+
+    @pytest.mark.parametrize(
+        "error, expected_error, reported",
+        [
+            (
+                anthropic.APIStatusError(
+                    "Your organization has been deactivated",
+                    response=_gateway_response(402, _GATEWAY_DENIAL),
+                    body={"type": "error", "error": {"type": "billing_error"}},
+                ),
+                "llm_payment_required",
+                False,
+            ),
+            (
+                openai.APIStatusError(
+                    "Your organization has been deactivated",
+                    response=_gateway_response(402, _GATEWAY_DENIAL),
+                    body=None,
+                ),
+                "llm_payment_required",
+                False,
+            ),
+            (
+                anthropic.APIStatusError(
+                    "Your credit balance is too low",
+                    response=_gateway_response(402),
+                    body={"type": "error", "error": {"type": "billing_error"}},
+                ),
+                "llm_failed",
+                True,
+            ),
+            (
+                openai.APIStatusError("Payment required", response=_gateway_response(402), body=None),
+                "llm_failed",
+                True,
+            ),
+            (
+                anthropic.APIStatusError("Internal server error", response=_gateway_response(500), body=None),
+                "llm_failed",
+                True,
+            ),
+            (
+                openai.APIStatusError("Internal server error", response=_gateway_response(500), body=None),
+                "llm_failed",
+                True,
+            ),
+        ],
+    )
+    def test_gateway_payment_refusal_is_not_reported_as_a_failure(
+        self, error, expected_error, reported, _mock_capture_enrichment_event
+    ):
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", side_effect=error),
+            patch.object(enrich, "capture_exception") as mock_capture,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        assert mock_capture.called is reported
+        assert result == {
+            "status": "partial",
+            "canonical_annotations": 1,
+            "ai_annotations": 0,
+            "error": expected_error,
+        }
+        assert set(_annotations(team, table)) == {"amount"}
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert (enrich.EVENT_ERROR in events) is reported
+        assert events[enrich.EVENT_COMPLETED]["status"] == "partial"
 
     def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
         team = _team()

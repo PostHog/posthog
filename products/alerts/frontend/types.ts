@@ -186,6 +186,8 @@ export interface AlertType extends AlertTypeBase {
     llm_detector_available?: boolean | null
     /** Whether the alert can open PagerDuty incidents, which only the alerts platform sends. */
     pagerduty_available?: boolean
+    /** How many active notification destinations the alert sends to, each counted once. Subscribers are not included. */
+    destination_count?: number
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

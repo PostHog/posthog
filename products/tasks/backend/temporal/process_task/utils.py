@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
     RESUME_SNAPSHOT_KIND,
     InitialPermissionMode,
+    filter_user_sandbox_env_vars,
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
 )
@@ -51,6 +52,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.facade.agent_run_starts import AGENT_PARENT_TASK_ID_STATE_KEY
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, GithubAccess, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
@@ -66,7 +68,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     PRODUCT_ALLOWED_MODELS,
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
-from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, bundled_skills_disabled
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -582,6 +584,7 @@ _UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
     "server_disabled": "a project admin turned this server off",
     "revoked": "a project admin turned this server off for you",
     "not_shared": "share it with this agent in the MCP Store",
+    "owner_only": "only the person who connected it can use it",
 }
 
 
@@ -609,14 +612,18 @@ def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstalla
     ]
 
 
-def include_personal_mcp_for_task(task: Task) -> bool:
+def include_personal_mcp_for_task(task: Task, state: dict[str, Any] | None) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
     resolved member's personal creds. Agent-specific grant filtering happens
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
+    A run that an agent started is autonomous whatever its task's profile says,
+    because no person chose to start it.
     """
+    if AGENT_PARENT_TASK_ID_STATE_KEY in (state or {}):
+        return False
     profile = task.stored_profile
     if profile is not None:
         return profile.personal_mcp
@@ -851,6 +858,22 @@ def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
     return {ENV_DISABLE_BUNDLED_SKILLS: "1"}
 
 
+def posthog_code_keeps_bundled_skills(task_run: TaskRun) -> bool:
+    """Whether a `posthog-code` run's agent can read the bundled `querying-posthog-data` skill.
+
+    Mirrors what provisioning applies: `disable_skills` and the sandbox environment's
+    `ENV_DISABLE_BUNDLED_SKILLS` strip the bundled skills, while the `learn` flag never strips
+    them for this consumer. Pi runs are excluded because the pi agent does not load them.
+    """
+    if task_run.task.runtime == "pi" or (task_run.state or {}).get("disable_skills") is True:
+        return False
+    sandbox_environment = task_run.get_sandbox_environment()
+    applied_variables, _ = filter_user_sandbox_env_vars(
+        (sandbox_environment.environment_variables if sandbox_environment else None) or {}
+    )
+    return not bundled_skills_disabled(applied_variables)
+
+
 # Names capabilities rather than describing the server, because the agent's tool search reads
 # this before the PostHog MCP has ever connected.
 POSTHOG_MCP_DESCRIPTION = (
@@ -921,6 +944,7 @@ def get_sandbox_ph_mcp_configs(
     task_id: str | None = None,
     origin_product: str | None = None,
     exclude_tools: Sequence[str] | None = None,
+    bundled_skills: bool = False,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -931,6 +955,10 @@ def get_sandbox_ph_mcp_configs(
     `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
     (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
     `exec` from advertising gateway tools to runs that mount those servers directly.
+
+    `bundled_skills` sends `x-posthog-mcp-bundled-skills` for a `posthog-code` run whose agent has the
+    bundled skills (see `posthog_code_keeps_bundled_skills`), so the MCP server can point
+    `info execute-sql` at `querying-posthog-data` instead of inlining the full HogQL reference.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
     neither is set, because the instance has no MCP server.
@@ -943,18 +971,18 @@ def get_sandbox_ph_mcp_configs(
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
     headers = [
         {"name": "Authorization", "value": f"Bearer {token}"},
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
-        {
-            "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(
-                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
-            ),
-        },
+        {"name": "x-posthog-mcp-consumer", "value": consumer},
     ]
+    if bundled_skills and consumer == "posthog-code":
+        headers.append({"name": "x-posthog-mcp-bundled-skills", "value": "true"})
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     if origin_product:
@@ -2103,7 +2131,12 @@ DELIVERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 
 def record_delivered_message(
-    run_id: str, message_id: str, *, actor_slack_user_id: str | None, person_message: str | None
+    run_id: str,
+    message_id: str,
+    *,
+    actor_slack_user_id: str | None,
+    person_message: str | None,
+    person_message_ts: str | None = None,
 ) -> None:
     """Correlate a delivered message with its sender's Slack id and the sender's own words, so a
     relay echoing the message id can tag the exact speaker it answers and offer replies that fit
@@ -2111,11 +2144,55 @@ def record_delivered_message(
     this server recorded itself, so a compromised sandbox cannot pick an arbitrary mention target."""
     records = {
         _message_record_key(kind, run_id, message_id): value
-        for kind, value in (("actor", actor_slack_user_id), ("person-message", person_message))
+        for kind, value in (
+            ("actor", actor_slack_user_id),
+            ("person-message", person_message),
+            ("person-message-ts", person_message_ts),
+        )
         if value
     }
     if records:
         get_tasks_cache().set_many(records, timeout=DELIVERED_MESSAGE_TTL_SECONDS)
+
+
+def _opening_record_key(run_id: str) -> str:
+    return f"tasks:slack-opening-message:{run_id}"
+
+
+def record_opening_slack_message(run_id: str, slack_thread_context: dict[str, Any] | None) -> None:
+    """Keep the mention that opened a Slack run, so the relay that answers it can read what the person wrote.
+    The opening turn has no delivered message id, so ``record_delivered_message`` cannot hold it."""
+    if not slack_thread_context:
+        return
+    text = slack_thread_context.get("person_message")
+    if not isinstance(text, str) or not text:
+        return
+    ts = slack_thread_context.get("user_message_ts")
+    try:
+        get_tasks_cache().set(
+            _opening_record_key(run_id),
+            {"text": text, "ts": ts if isinstance(ts, str) else None},
+            timeout=DELIVERED_MESSAGE_TTL_SECONDS,
+        )
+    except Exception:
+        logger.warning("record_opening_slack_message_failed", extra={"run_id": run_id}, exc_info=True)
+
+
+def take_opening_slack_message(run_id: str) -> tuple[str, str | None] | None:
+    """The opening mention and its Slack ts, at most once per run, because only the first answer replies to it."""
+    key = _opening_record_key(run_id)
+    try:
+        cache = get_tasks_cache()
+        recorded = cache.get(key)
+        if recorded is not None:
+            cache.delete(key)
+    except Exception:
+        logger.warning("take_opening_slack_message_failed", extra={"run_id": run_id}, exc_info=True)
+        return None
+    if not isinstance(recorded, dict) or not isinstance(recorded.get("text"), str):
+        return None
+    ts = recorded.get("ts")
+    return recorded["text"], ts if isinstance(ts, str) else None
 
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
@@ -2128,6 +2205,20 @@ def is_explicit_slack_reply(task_run: TaskRun, message_id: str | None) -> bool:
     # The opening turn starts with the sandbox, before per-message sender records exist.
     state = task_run.state or {}
     return state.get("interaction_origin") == "slack" and bool(state.get("slack_actor_slack_user_id"))
+
+
+def turn_person_message_ts(run_id: str | None, message_id: str | None) -> str | None:
+    """The Slack ts of the message that started the turn answering ``message_id``, so a reaction can land on it."""
+    if not (run_id and message_id):
+        return None
+    try:
+        recorded = get_tasks_cache().get(_message_record_key("person-message-ts", run_id, message_id))
+    except Exception:
+        logger.warning(
+            "turn_person_message_ts_lookup_failed", extra={"run_id": run_id, "message_id": message_id}, exc_info=True
+        )
+        return None
+    return recorded if isinstance(recorded, str) and recorded else None
 
 
 def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:

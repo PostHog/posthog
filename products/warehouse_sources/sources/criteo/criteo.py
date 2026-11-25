@@ -1,3 +1,5 @@
+import copy
+import functools
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -26,11 +28,24 @@ from products.warehouse_sources.sources.sdk import (
     SourceInputs,
     SourceResponse,
     build_dependent_resource,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
 )
+
+SEARCH_BODIES: dict[str, dict[str, Any]] = {
+    "Audiences": {"data": {"type": "AudienceSearch", "attributes": {}}},
+    "AudienceSegments": {"data": {"attributes": {}}},
+}
+
+
+def flatten_entity(name: str, item: dict[str, Any]) -> dict[str, Any]:
+    # A segment's own `type` attribute (InMarket, Lookalike, ...) carries more than the constant resource type.
+    return flatten_jsonapi(
+        item, relationships_as_ids=False, on_clash="nested" if name == "AudienceSegments" else "root"
+    )
 
 
 @frozen
@@ -40,11 +55,6 @@ class CriteoResumeConfig:
     fanout_state: dict[str, Any] | None = None
     next_day: str | None = None
     end_day: str | None = None
-
-
-def flatten_entity(row: dict[str, Any]) -> dict[str, Any]:
-    attributes = row.get("attributes") or {}
-    return {**attributes, **{key: value for key, value in row.items() if key != "attributes"}}
 
 
 def report_start_date(config: CriteoSourceConfig) -> date:
@@ -90,9 +100,7 @@ class CriteoClient:
             else SinglePagePaginator(),
         }
         if endpoint.method == "POST":
-            result["json"] = (
-                {"data": {"type": "AudienceSearch", "attributes": {}}} if name == "Audiences" else {"filters": {}}
-            )
+            result["json"] = copy.deepcopy(SEARCH_BODIES.get(name, {"filters": {}}))
         return result
 
     @staticmethod
@@ -207,7 +215,7 @@ class CriteoClient:
                 resume_hook=save_fanout,
                 initial_paginator_state=resume.fanout_state if resume else None,
             )
-            return cast(Resource, child).add_map(flatten_entity)
+            return cast(Resource, child).add_map(functools.partial(flatten_entity, endpoint.name))
 
         def save_offset(state: dict[str, Any] | None) -> None:
             # Full refresh resumes append rows, so a terminal checkpoint prevents a duplicate final page.
@@ -227,7 +235,7 @@ class CriteoClient:
             None,
             resume_hook=save_offset,
             initial_paginator_state={"offset": resume.offset} if resume and resume.offset is not None else None,
-        ).add_map(flatten_entity)
+        ).add_map(functools.partial(flatten_entity, endpoint.name))
 
     def validate(self, schema_name: str | None) -> None:
         self.auth(Request("GET", BASE_URL).prepare())
@@ -260,7 +268,7 @@ class CriteoClient:
             allowed_hosts=[],
             allow_redirects=False,
         )
-        if schema_name == "Ads":
+        if ENDPOINTS[schema_name].fanout:
             advertisers = next(
                 client.paginate(
                     "advertisers/me", paginator=SinglePagePaginator(), data_selector="data", data_selector_required=True
@@ -268,7 +276,7 @@ class CriteoClient:
             )
             if not advertisers:
                 return
-            endpoint["path"] = ENDPOINTS["Ads"].path.replace("{advertiser-id}", str(int(advertisers[0]["id"])))
+            endpoint["path"] = ENDPOINTS[schema_name].path.replace("{advertiser-id}", str(int(advertisers[0]["id"])))
         next(
             client.paginate(
                 path=endpoint["path"] or "",

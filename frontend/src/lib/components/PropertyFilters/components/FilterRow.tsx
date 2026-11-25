@@ -7,9 +7,9 @@ import { IconPlus, IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PathCleaningFilter, PropertyFilterRow } from '~/types'
 

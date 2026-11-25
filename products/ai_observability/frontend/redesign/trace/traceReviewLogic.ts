@@ -12,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { aiObservabilityTracesReviewRetrieve, llmAnalyticsReviewQueueItemsDestroy } from '../../generated/api'
 import type { TraceReviewStatusApi } from '../../generated/api.schemas'
 import { traceReviewsLazyLoaderLogic } from '../../traceReviews/traceReviewsLazyLoaderLogic'
+import type { TraceReview } from '../../traceReviews/types'
 import { encodeTraceIdSegment } from './traceIdSegment'
 
 export interface TraceReviewLogicProps {
@@ -33,8 +34,8 @@ export interface traceReviewLogicActions {
     setTraceAsUnreviewed: (traceId: string) => {
         traceId: string
     } // traceReviewsLazyLoaderLogic
-    setTraceReview: (review: import('../../traceReviews/types').TraceReview) => {
-        review: import('../../traceReviews/types').TraceReview
+    setTraceReview: (review: TraceReview) => {
+        review: TraceReview
     } // traceReviewsLazyLoaderLogic
     loadReviewStatus: (_: void) => void
     loadReviewStatusFailure: (

@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -242,8 +243,8 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
     not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked.")
     untracked = serializers.IntegerField(
-        help_text="Sends that went out with open and click tracking off, as sensitive emails do, counted by when they "
-        "were sent rather than queued. They can't record an open or a click."
+        help_text="Sends that went out with open and click tracking off, counted by when they were queued like the "
+        "other counts. They can't record an open or a click."
     )
     window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
     after_click = TransactionalEmailConversionsSerializer(
@@ -331,6 +332,7 @@ class _PageSchema(AutoSchema):
 
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 
@@ -497,6 +499,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TransactionalEmailResultsQuerySerializer,
         responses={
             200: OpenApiResponse(response=TransactionalEmailResultsSerializer),
+            403: OpenApiResponse(
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or the user "
+                "has no access to workflows in this project or to querying events."
+            ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get what happened after a transactional email",
@@ -509,6 +515,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             outcome = transactional_email_results(
                 self.team,
@@ -526,7 +534,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TransactionalEmailImpactQuerySerializer,
         responses={
             200: OpenApiResponse(response=TransactionalEmailImpactSerializer),
-            403: OpenApiResponse(description="An event was named, and the user has no access to querying events."),
+            403: OpenApiResponse(
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, the user has "
+                "no access to workflows in this project, or an event was named and the user has no access to querying events."
+            ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get how far a transactional email's sends got",

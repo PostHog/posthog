@@ -22,6 +22,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+import openai
+import anthropic
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -291,6 +293,17 @@ def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> lis
     return result
 
 
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own refusals, such as a deactivated organization, with X-PostHog-Denial. A 402
+    # without that header is the provider refusing the gateway's account, which affects every team, so it
+    # must still reach error tracking.
+    return (
+        isinstance(error, (anthropic.APIStatusError, openai.APIStatusError))
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
+
+
 def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Generate and persist semantic annotations for one warehouse table. Safe to re-run."""
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
@@ -305,7 +318,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         team = retry_internal_db_operation(
             lambda: (
                 Team.objects.select_related("organization")
-                .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+                .only(
+                    "id",
+                    "uuid",
+                    "organization_id",
+                    "organization__is_active",
+                    "organization__is_ai_data_processing_approved",
+                )
                 .get(id=team_id)
             )
         )
@@ -318,6 +337,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     def emit_completed(status: str, **props: Any) -> None:
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
+
+    # The gateway refuses every call for a deactivated organization with a 402, and no retry changes
+    # that until the organization is reactivated. A sync after reactivation enriches the table.
+    if not team.organization.is_active:
+        log.info("warehouse_enrichment.skipped", reason="organization_inactive")
+        emit_completed("skipped", reason="organization_inactive")
+        return {"status": "skipped", "reason": "organization_inactive"}
 
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
     # memory to the LLM gateway.
@@ -477,6 +503,24 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
+        if _is_gateway_credit_refusal(e):
+            # The gateway refused the call for billing, for example because the organization was
+            # deactivated after the check above. No retry and no exception report can change that,
+            # so it goes into the completion event and not into error tracking.
+            log.warning("warehouse_enrichment.llm_payment_required", error=str(e), canonical=canonical_count)
+            emit_completed(
+                "partial",
+                canonical_annotations=canonical_count,
+                ai_annotations=0,
+                llm_called=True,
+                reason="llm_payment_required",
+            )
+            return {
+                "status": "partial",
+                "canonical_annotations": canonical_count,
+                "ai_annotations": 0,
+                "error": "llm_payment_required",
+            }
         capture_exception(e)
         log.error(
             "warehouse_enrichment.llm_failed",

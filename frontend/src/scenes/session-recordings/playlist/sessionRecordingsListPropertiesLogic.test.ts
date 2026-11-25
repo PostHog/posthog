@@ -144,6 +144,23 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         })
     })
 
+    it('reads the event list from the taxonomy after it loads, not when the module loads', async () => {
+        // The jest setup fills the shared taxonomy, so load a fresh copy that starts empty, as on a page load.
+        await jest.isolateModulesAsync(async () => {
+            const {
+                buildPropertiesQuery,
+            }: typeof import('./sessionRecordingsListPropertiesLogic') = require('./sessionRecordingsListPropertiesLogic')
+            const {
+                loadCoreFilterDefinitions,
+            }: typeof import('~/taxonomy/loadCoreFilterDefinitions') = require('~/taxonomy/loadCoreFilterDefinitions')
+            await loadCoreFilterDefinitions()
+
+            const query = buildPropertiesQuery(['s1'], mockSessons[0].start_time, mockSessons[0].end_time, [])
+            expect(query).toContain("'$pageview'")
+            expect(query).not.toContain("'$feature_flag_called'")
+        })
+    })
+
     it('does not loads cached properties', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
@@ -206,7 +223,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(issuedQueries).toHaveLength(1)
-        // The WHERE clause lists every core event name, so a pin can only be found absent by looking
+        // The WHERE clause lists the core event names, so a pin can only be found absent by looking
         // at the select list. Searching the whole query trips over an unrelated event that shares the
         // pin's name as a substring.
         const selectList = issuedQueries[0].split('FROM events')[0]

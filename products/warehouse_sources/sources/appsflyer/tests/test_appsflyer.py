@@ -15,6 +15,9 @@ from products.warehouse_sources.sources.appsflyer.appsflyer import (
     RAW_LOOKBACK_DAYS,
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
+    SKAN_DATA_DELAY_DAYS,
+    SKAN_MAX_LOOKBACK_DAYS,
+    SKAN_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -53,11 +56,13 @@ def _csv_response(body: str = _CSV) -> ScriptedResponse:
     return ScriptedResponse(body=body.encode())
 
 
-def _requested_windows(result: DriveResult) -> list[tuple[date, date]]:
+def _requested_windows(
+    result: DriveResult, start_param: str = "from", end_param: str = "to"
+) -> list[tuple[date, date]]:
     windows = []
     for request in result.requests:
-        start = request.param("from")
-        end = request.param("to")
+        start = request.param(start_param)
+        end = request.param(end_param)
         assert start is not None
         assert end is not None
         windows.append((date.fromisoformat(start), date.fromisoformat(end)))
@@ -229,6 +234,17 @@ class TestGetRows:
             ("ad_revenue_organic", "/api/raw-data/export/app/id123/ad_revenue_organic_raw/v5"),
             ("ad_revenue_retargeting", "/api/raw-data/export/app/id123/ad-revenue-raw-retarget/v5"),
             ("master_report", "/api/master-agg-data/v4/app/id123"),
+            ("reinstalls", "/api/raw-data/export/app/id123/reinstalls/v5"),
+            ("reinstalls_organic", "/api/raw-data/export/app/id123/reinstalls_organic/v5"),
+            # The postback slugs mix hyphens and underscores in AppsFlyer's own spec.
+            ("install_postbacks", "/api/raw-data/export/app/id123/postbacks/v5"),
+            ("in_app_event_postbacks", "/api/raw-data/export/app/id123/in-app-events-postbacks/v5"),
+            ("retargeting_install_postbacks", "/api/raw-data/export/app/id123/retarget_install_postbacks/v5"),
+            (
+                "retargeting_in_app_event_postbacks",
+                "/api/raw-data/export/app/id123/retarget_in_app_events_postbacks/v5",
+            ),
+            ("skan_performance_report", "/api/skadnetworks/v3/data/app/id123"),
         ],
     )
     def test_report_slug_matches_appsflyer_api(self, endpoint: str, expected_path: str) -> None:
@@ -279,8 +295,20 @@ class TestUsedUpQuota:
         assert isinstance(result.raised, AppsFlyerRetryableError)
         assert QUOTA_EXHAUSTED_ERROR in str(result.raised)
 
-    def test_rate_limit_without_quota_body_is_not_reported_as_used_up_quota(self) -> None:
-        result = _driver().run("daily_report", always(ScriptedResponse(status=429, body=b"Too many requests")))
+    @pytest.mark.parametrize(
+        "endpoint, status_code",
+        [
+            ("daily_report", 429),
+            # The SKAN API reports its rate limit as a 400, which is permanent for every other report.
+            ("skan_performance_report", 400),
+        ],
+    )
+    def test_rate_limit_without_quota_body_is_not_reported_as_used_up_quota(
+        self, endpoint: str, status_code: int
+    ) -> None:
+        result = _driver().run(
+            endpoint, always(ScriptedResponse(status=status_code, body=b'{"error": "Too many requests"}'))
+        )
 
         assert isinstance(result.raised, AppsFlyerRetryableError)
         assert QUOTA_EXHAUSTED_ERROR not in str(result.raised)
@@ -360,18 +388,44 @@ class TestRawAndMasterWindows:
         for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
             assert next_start == previous_end + timedelta(days=1)
 
-    def test_master_pull_never_exceeds_the_31_day_call_limit(self) -> None:
-        # The Master API rejects a range wider than 31 days, so the backfill has to be windowed.
+    @pytest.mark.parametrize(
+        "endpoint, start_param, end_param, lookback_days, span_days, end_days_ago",
+        [
+            # The Master API rejects a range wider than 31 days.
+            ("master_report", "from", "to", MASTER_MAX_LOOKBACK_DAYS, MASTER_MAX_REQUEST_DAYS, 0),
+            # The SKAN API takes its own date params, caps a call at 90 days, and has no final data
+            # for the last 3 days.
+            (
+                "skan_performance_report",
+                "start_date",
+                "end_date",
+                SKAN_MAX_LOOKBACK_DAYS,
+                SKAN_MAX_REQUEST_DAYS,
+                SKAN_DATA_DELAY_DAYS,
+            ),
+        ],
+    )
+    def test_windowed_aggregate_pull_stays_inside_the_call_limits(
+        self,
+        endpoint: str,
+        start_param: str,
+        end_param: str,
+        lookback_days: int,
+        span_days: int,
+        end_days_ago: int,
+    ) -> None:
         today = datetime.now(UTC).date()
 
-        result = _driver().run("master_report", always(_csv_response()))
+        result = _driver().run(endpoint, always(_csv_response()))
 
         assert result.raised is None
-        windows = _requested_windows(result)
-        assert windows[0][0] == today - timedelta(days=MASTER_MAX_LOOKBACK_DAYS)
-        assert windows[-1][1] == today
+        windows = _requested_windows(result, start_param, end_param)
+        assert windows[0][0] == today - timedelta(days=lookback_days)
+        assert windows[-1][1] == today - timedelta(days=end_days_ago)
         for window_start, window_end in windows:
-            assert 0 <= (window_end - window_start).days < MASTER_MAX_REQUEST_DAYS
+            assert 0 <= (window_end - window_start).days < span_days
+        for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
+            assert next_start == previous_end + timedelta(days=1)
 
     @pytest.mark.parametrize(
         "endpoint, incremental, saved_days_ago, expected_first_from_days_ago, expected_requests",
@@ -496,6 +550,32 @@ class TestRawAndMasterWindows:
             "event_time": "2024-01-01 00:00:00",
             "event_value": "line one\nline two",
         }
+
+
+class TestSkanRows:
+    @pytest.mark.parametrize(
+        "date_value, expected_date",
+        [
+            ("12/8/2021", "2021-12-08"),
+            ("2021-12-08", "2021-12-08"),
+        ],
+    )
+    def test_rows_carry_an_iso_date_and_every_key_column(self, date_value: str, expected_date: str) -> None:
+        # A SKAN 3 style report has no SKAN 4 dimension columns, and a merge needs every key column.
+        csv_body = (
+            "Date,Media Source (pid),Campaign (c),Campaign ID,Site ID,Adset,Adset ID,Ad,Ad ID,Country,"
+            "AF Attribution Flag,Installs\n"
+            f"{date_value},twitter,EU,def,123,,,,,US,,146\n"
+        )
+
+        result = _driver().run("skan_performance_report", always(_csv_response(csv_body)))
+
+        assert result.raised is None
+        row = result.rows[0]
+        assert row["date"] == expected_date
+        assert row["installs"] == "146"
+        assert set(APPSFLYER_ENDPOINTS["skan_performance_report"].primary_keys) <= row.keys()
+        assert row["postback_sequence_index"] == ""
 
 
 class TestAppsFlyerSourceResponse:

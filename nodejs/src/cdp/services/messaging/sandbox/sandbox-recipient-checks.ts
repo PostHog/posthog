@@ -153,7 +153,7 @@ async function isOptedOut(
     ) {
         return true
     }
-    const recipient = await recipients.get({ teamId, identifier: address })
+    const recipient = await recipients.get({ teamId, identifier: address, anyCase: true })
     return (
         !!recipient &&
         (recipients.getPreference(recipient, categoryId) === 'OPTED_OUT' ||

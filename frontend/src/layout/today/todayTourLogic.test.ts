@@ -67,8 +67,12 @@ describe('todayTourLogic', () => {
     test.each([
         { flags: {}, panes: ['home', 'analytics', 'people', 'products', 'settings'] },
         {
-            flags: { [FEATURE_FLAGS.RELEASES_AREA]: true, [FEATURE_FLAGS.MONITOR_AREA]: true },
-            panes: ['home', 'analytics', 'people', 'release', 'monitor', 'products', 'settings'],
+            flags: {
+                [FEATURE_FLAGS.RELEASES_AREA]: true,
+                [FEATURE_FLAGS.MONITOR_AREA]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            },
+            panes: ['home', 'analytics', 'people', 'release', 'monitor', 'automate', 'data', 'products', 'settings'],
         },
     ])('the tour visits only the panes the flags show: $panes', ({ flags, panes }) => {
         expect(tourStepsForFlags(flags).map((step) => step.pane)).toEqual(panes)

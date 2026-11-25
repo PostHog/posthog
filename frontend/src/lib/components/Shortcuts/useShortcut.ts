@@ -31,6 +31,8 @@ interface UseShortcutOptionsBase {
     priority?: number
     /** If true, register the shortcut but hide it from the shortcut menu */
     hidden?: boolean
+    /** Sequence shortcuts only: also fire when the sequence is typed into a text field */
+    matchInEditable?: boolean
 }
 
 interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
@@ -120,6 +122,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         ignoreInEditable = false,
         priority,
         hidden,
+        matchInEditable,
     } = options
 
     const internalRef = useRef<T>(null)
@@ -159,6 +162,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 priority,
                 ignoreInEditable,
                 hidden,
+                matchInEditable,
             })
         } else if (isRefReady && ref.current && interaction !== 'function') {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
@@ -172,6 +176,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 priority,
                 ignoreInEditable,
                 hidden,
+                matchInEditable,
             })
         }
 
@@ -190,6 +195,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         ref,
         priority,
         hidden,
+        matchInEditable,
         registerShortcut,
         unregisterShortcut,
     ])

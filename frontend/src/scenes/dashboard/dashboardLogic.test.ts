@@ -393,6 +393,55 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('parent breadcrumb', () => {
+        it.each([
+            ['the Dashboards list without the flag', {}, {}, { name: 'Dashboards', path: urls.dashboards() }],
+            [
+                'the Analytics list with the flag',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                {},
+                { name: 'Analytics', path: urls.analyticsList() },
+            ],
+            [
+                'the Analytics page that opened it',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/analytics/mine', backName: 'Analytics' },
+                { name: 'Analytics', path: '/analytics/mine' },
+            ],
+            [
+                "a flag's usage link over the Analytics list",
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+            [
+                "a flag's usage link without the flag",
+                {},
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+            [
+                'the Dashboards list for a link to another site',
+                {},
+                { backUrl: 'https://other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
+            [
+                'the Dashboards list for a protocol-relative link',
+                {},
+                { backUrl: '//other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
+        ])('is %s', (_, flags, searchParams, expected) => {
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            router.actions.push(urls.dashboard(5), searchParams)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            expect(logic.values.breadcrumbs[0]).toEqual(expect.objectContaining(expected))
+        })
+    })
+
     describe('loading only the tiles on screen', () => {
         let refreshInsight: jest.SpiedFunction<typeof dashboardUtils.getInsightWithRetry>
         const tiles = Array.from({ length: 15 }, (_, index) =>
@@ -2781,11 +2830,52 @@ describe('dashboardLogic', () => {
                         expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
                         expect(properties?.dashboard_v2_ui).toBe(false)
                     }
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard insight refreshed',
+                        expect.objectContaining({ is_automatic: isAutomatic })
+                    )
                 } finally {
                     refresh.mockRestore()
                 }
             }
         )
+
+        it('marks tiles an automatic refresh delivers through query sharing as automatic', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_QUERY_SHARING], {
+                [FEATURE_FLAGS.HOGQL_QUERY_SHARING]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const tiles = logic.values.insightTiles
+            expect(tiles.length).toBeGreaterThan(0)
+            const stream = jest.spyOn(api, 'stream').mockImplementation(async (_url, options) => {
+                for (const tile of tiles) {
+                    options.onMessage({
+                        id: '',
+                        event: '',
+                        data: JSON.stringify({
+                            type: 'tile',
+                            tile: {
+                                ...tile,
+                                insight: { ...tile.insight, is_cached: false, query_status: { complete: true } },
+                            },
+                        }),
+                    })
+                }
+                options.onMessage({ id: '', event: '', data: JSON.stringify({ type: 'complete' }) })
+            })
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            try {
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh(true)).toFinishAllListeners()
+
+                const tileEvents = capture.mock.calls.filter(([event]) => event === 'dashboard insight refreshed')
+                expect(tileEvents).toHaveLength(tiles.length)
+                for (const [, properties] of tileEvents) {
+                    expect(properties).toMatchObject({ is_automatic: true })
+                }
+            } finally {
+                stream.mockRestore()
+            }
+        })
 
         it.each(['immediate', 'interval'])('skips Last seen for %s automatic refresh telemetry', async (source) => {
             await expectLogic(logic).toFinishAllListeners()

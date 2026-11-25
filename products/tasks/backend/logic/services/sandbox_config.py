@@ -1,5 +1,34 @@
 from django.conf import settings
 
+AGENT_EGRESS_DOMAIN_PATTERN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
+
+
+def sandbox_ai_gateway_worker_url() -> str:
+    return settings.SANDBOX_AI_GATEWAY_WORKER_URL or settings.SANDBOX_AI_GATEWAY_URL or ""
+
+
+def agent_egress_staging_environment() -> bool:
+    return (
+        not settings.DEBUG and settings.CLOUD_DEPLOYMENT == "DEV" and str(settings.SANDBOX_PROVIDER).upper() == "MODAL"
+    )
+
+
+def agent_egress_staging_probe_enabled() -> bool:
+    return agent_egress_staging_environment() and bool(settings.AGENT_EGRESS_STAGING_PROBE_RUN_ID)
+
+
+def agent_egress_enrollment_environment() -> bool:
+    return (settings.DEBUG and str(settings.SANDBOX_PROVIDER).upper() == "MODAL_DOCKER") or (
+        not settings.DEBUG
+        and settings.CLOUD_DEPLOYMENT in {"DEV", "US", "EU"}
+        and (not settings.SANDBOX_PROVIDER or str(settings.SANDBOX_PROVIDER).upper() == "MODAL")
+    )
+
+
+def agent_egress_enrollment_enabled() -> bool:
+    return agent_egress_enrollment_environment() and bool(settings.AGENT_EGRESS_ENROLLMENT_CONFIG)
+
+
 # Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
 # Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
 # instead of burning Modal capacity for hours.

@@ -30,6 +30,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 
 import sqlparse
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import (
@@ -46,6 +47,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.team_first_prewhere import _events_last_year_cache, _recent_events_last_year
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -84,6 +86,7 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -97,16 +100,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohortmembership.sql import (
-    COHORT_MEMBERSHIP_MV_SQL,
-    COHORT_MEMBERSHIP_TABLE_SQL,
-    COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_MV_SQL,
-    DROP_COHORT_MEMBERSHIP_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
-)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
@@ -116,6 +109,7 @@ from posthog.models.event.sql import (
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_TABLE_SQL,
     EVENTS_TABLE_SQL,
+    TRUNCATE_EVENTS_JSON_RECENT_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
@@ -777,6 +771,14 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_project_and_team(self)
         elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+        # The team event volume cache is keyed on team ids, which repeat across tests, so clear it.
+        # Then warm it for this test's team. The cold read compares `computed_at` with the wall clock,
+        # so inside an assertNumQueries or query snapshot block it would add a query whose text
+        # changes on every run. A test that writes a TeamEventVolume row clears the cache again.
+        _events_last_year_cache.clear()
+        if self.team is not None:
+            _recent_events_last_year(self.team.pk)
 
     def tearDown(self):
         from posthog.test.persons import has_unflushed_persons, reset_persons_state
@@ -2164,7 +2166,12 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
             try:
                 future.result()
             except Exception as exc:
-                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                driver_error = exc.__cause__ if isinstance(exc, CHQueryErrorUnknownTable) else exc
+                if (
+                    isinstance(driver_error, ServerException)
+                    and driver_error.code == 60
+                    and "posthog_test." in (driver_error.message or "")
+                ):
                     continue
                 exceptions.append(exc)
 
@@ -2249,7 +2256,6 @@ def _kafka_tables_for_tests() -> list[str]:
         return []
     return [
         KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
         KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
         KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
     ]
@@ -2300,10 +2306,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
         DROP_WEB_BOUNCES_SQL(),
         DROP_WEB_STATS_STAGING_SQL(),
         DROP_WEB_BOUNCES_STAGING_SQL(),
-        DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
-        DROP_COHORT_MEMBERSHIP_MV_SQL(),
         DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
         DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -2318,6 +2320,7 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
         DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
+        TRUNCATE_EVENTS_JSON_RECENT_TABLE_SQL(),
         TRUNCATE_GROUPS_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
@@ -2352,7 +2355,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
         WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
         SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
-        COHORT_MEMBERSHIP_TABLE_SQL(),
         PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
         SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
@@ -2378,7 +2380,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             *_kafka_tables_for_tests(),
-            COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
@@ -2401,7 +2402,6 @@ def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = (
             *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
-            COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             QUERY_LOG_ARCHIVE_V3_MV_SQL(),

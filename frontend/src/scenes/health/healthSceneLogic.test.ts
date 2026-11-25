@@ -37,6 +37,44 @@ describe('healthSceneLogic', () => {
         expect(createSpy).not.toHaveBeenCalled()
     })
 
+    it('counts each category from the summary, not from the first page of issues', async () => {
+        const issue = (id: string): Record<string, unknown> => ({
+            id,
+            kind: 'external_data_failure',
+            severity: 'warning',
+            payload: {},
+            dismissed: false,
+            snoozed_until: null,
+        })
+        getSpy.mockImplementation(async (url: string) =>
+            url.includes('/summary/')
+                ? {
+                      unsnoozed: {
+                          total: 417,
+                          by_severity: { warning: 417 },
+                          by_kind: { external_data_failure: 417 },
+                          worst_severity_by_kind: { external_data_failure: 'warning' },
+                      },
+                      snoozed: {
+                          total: 1,
+                          by_severity: { critical: 1 },
+                          by_kind: { sdk_outdated: 1 },
+                          worst_severity_by_kind: { sdk_outdated: 'critical' },
+                      },
+                  }
+                : { results: [issue('a'), issue('b')], count: 418 }
+        )
+
+        logic = healthSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHealthIssuesSuccess'])
+        await expectLogic(healthSummaryLogic).toDispatchActions(['loadHealthSummarySuccess'])
+
+        const byCategory = Object.fromEntries(logic.values.categorySummaries.map((s) => [s.category, s]))
+        expect(byCategory.pipelines).toMatchObject({ issueCount: 417, worstSeverity: 'warning' })
+        expect(byCategory.sdk).toMatchObject({ issueCount: 1, worstSeverity: 'critical' })
+    })
+
     it('sends the snooze duration and refreshes the badge count', async () => {
         const summaryLogic = healthSummaryLogic()
         summaryLogic.mount()

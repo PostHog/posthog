@@ -39,6 +39,7 @@ REWARDFUL_ENDPOINTS: dict[str, RewardfulEndpointConfig] = {
         # The sale carries the charge, refund and tax amounts the commission was computed from.
         params=(("expand[]", "sale"),),
     ),
+    "sales": RewardfulEndpointConfig(name="sales", path="/sales"),
     "payouts": RewardfulEndpointConfig(name="payouts", path="/payouts"),
     # Rewardful documents no paging for campaigns and describes the response as a bare array.
     "campaigns": RewardfulEndpointConfig(name="campaigns", path="/campaigns", paginated=False),

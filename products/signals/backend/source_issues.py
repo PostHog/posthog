@@ -3,8 +3,9 @@
 A GitHub issue reaches the inbox two ways: the GitHub source ingests it as a signal, or a scout
 reads it and files a report itself. Only the first carried the issue's identity, so a scout's report
 never commented on the issue, and the issue's own signal later grouped by embedding alone and often
-opened a second report. A scout now names the issue when it files the report, and this module is the
-one place that writes and reads that record:
+opened a second report. A scout now names the issue when it files the report, grouping records the
+issue of each GitHub issue signal on the report the signal lands on, and this module is the one place
+that writes and reads that record:
 
 - `append_source_issues` writes one row per new issue and, after commit, starts the GitHub
   writeback for a report that is visible in the inbox.
@@ -113,7 +114,7 @@ def schedule_source_issue_writeback(*, team_id: int, report_id: str, signals: li
     Scout reports skip research, so the inbox notification workflow that comments for a researched
     report never runs for them. Grouping also calls this with the issue's signal when that signal
     joins the report, and the per-issue claim in the writeback keeps that from posting a second
-    comment. The task re-checks the team opt-in and the report status itself.
+    comment, also when another open report of the team already commented on the issue. The task re-checks the team opt-in and the report status itself.
     """
     from products.signals.backend.github_writeback import COMMENT_STATUSES  # noqa: PLC0415 - it imports this module
 

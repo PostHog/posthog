@@ -1,6 +1,19 @@
 import { useActions, useValues } from 'kea'
 
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    Button,
+    Text,
+} from '@posthog/quill'
+
 import { CountedPaginatedResponse } from 'lib/api'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,6 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationMemberType } from '~/types'
 
+import { QuillImpactedMembersTable } from './QuillImpactedMembersTable'
 import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
 
 function impactedMemberColumns(currentUserUuid?: string): LemonTableColumns<OrganizationMemberType> {
@@ -82,12 +96,49 @@ export function RemoveDomainModal(): JSX.Element {
     const { removeDomainPrompt, domainImpact, domainImpactLoading, currentOrganization } =
         useValues(verifiedDomainImpactLogic)
     const { closeRemoveDomainPrompt, confirmRemoveDomain } = useActions(verifiedDomainImpactLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const impactedCount = domainImpact?.count ?? 0
     const showImpact =
         !!currentOrganization?.enforce_verified_domains &&
         !!removeDomainPrompt?.is_verified &&
         (domainImpactLoading || impactedCount > 0)
+    const removeWarning = removeDomainPrompt?.is_verified
+        ? 'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.'
+        : 'This cannot be undone.'
+
+    if (todayRailNav) {
+        return (
+            <AlertDialog open={!!removeDomainPrompt} onOpenChange={(open) => !open && closeRemoveDomainPrompt()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{`Remove ${removeDomainPrompt?.domain ?? 'domain'}?`}</AlertDialogTitle>
+                        <AlertDialogDescription>{removeWarning}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    {showImpact && (
+                        <div className="flex flex-col gap-2">
+                            <Text size="xs" render={<p className="m-0" />}>
+                                {`Logins are restricted to verified email domains. Removing this domain means ${
+                                    impactedCount === 1 ? 'this member' : `these ${impactedCount} members`
+                                } can no longer log in:`}
+                            </Text>
+                            <QuillImpactedMembersTable impact={domainImpact} loading={domainImpactLoading} />
+                        </div>
+                    )}
+                    <AlertDialogFooter>
+                        <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                        <Button
+                            variant="destructive-outline"
+                            onClick={confirmRemoveDomain}
+                            loading={domainImpactLoading}
+                        >
+                            Remove domain
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        )
+    }
 
     return (
         <LemonModal
@@ -112,11 +163,7 @@ export function RemoveDomainModal(): JSX.Element {
             }
         >
             <div className="space-y-2">
-                <p>
-                    {removeDomainPrompt?.is_verified
-                        ? 'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.'
-                        : 'This cannot be undone.'}
-                </p>
+                <p>{removeWarning}</p>
                 {showImpact && (
                     <>
                         <p>
@@ -136,8 +183,43 @@ export function EnforceVerifiedDomainsModal(): JSX.Element {
     const { enforcementPromptOpen, enforcementImpact, enforcementImpactLoading, enforcementRemovalLoading } =
         useValues(verifiedDomainImpactLogic)
     const { closeEnforcementPrompt, confirmEnforceVerifiedDomains } = useActions(verifiedDomainImpactLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const impactedCount = enforcementImpact?.count ?? 0
+
+    if (todayRailNav) {
+        return (
+            <AlertDialog open={enforcementPromptOpen} onOpenChange={(open) => !open && closeEnforcementPrompt()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Restrict logins to verified email domains?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {`${impactedCount === 1 ? '1 member has' : `${impactedCount} members have`} an email address outside your verified domains and will no longer be able to log in. Confirming also removes them from this organization.`}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <QuillImpactedMembersTable impact={enforcementImpact} loading={enforcementImpactLoading} />
+                    <AlertDialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={closeEnforcementPrompt}
+                            disabledReason={enforcementRemovalLoading ? 'Removing members...' : undefined}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive-outline"
+                            onClick={confirmEnforceVerifiedDomains}
+                            loading={enforcementRemovalLoading}
+                        >
+                            {impactedCount === 1
+                                ? 'Remove 1 member and restrict'
+                                : `Remove ${impactedCount} members and restrict`}
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        )
+    }
 
     return (
         <LemonModal

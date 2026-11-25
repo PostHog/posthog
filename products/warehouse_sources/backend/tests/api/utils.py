@@ -86,7 +86,6 @@ def fake_decision_model(choice: str = "c1", confidence: float = 0.9) -> Iterator
     recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
     with (
         patch(f"{recommender}.system_one_configured", return_value=True),
-        patch(f"{recommender}.feature_enabled_or_false", return_value=True),
         patch(f"{recommender}.build_system_one_client", return_value=gateway),
         patch.object(GatewaySystemOneClient, "adecide", new=adecide),
     ):

@@ -12,6 +12,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
+import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
@@ -211,7 +212,12 @@ describe('valves', () => {
         { name: 'first_probe_commit', at: expect.any(String) },
     ]
 
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     const runClusterOf = (options: Partial<FakeCloudOptions> = {}, stalls?: string) => {
+        pinClockAfterMinuteStart()
         const cloud = new FakeCloud({
             now: () => new Date(),
             failover: { takesMs: 20 },
@@ -260,9 +266,35 @@ describe('valves', () => {
         ],
         [
             'records no intent for a failover its preconditions refused',
-            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
-            { error: expect.stringMatching(/^pg\.failover refused: .* was above 1 ACU/) },
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'records no intent for a failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+        ],
+        [
+            'records no intent for a failover whose capacity read has a value that is not a finite number',
+            { liveReaderAcu: { maxima: [1, 1, Number.NaN, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has a value that is not a finite number at /
+                ),
+            },
+        ],
+        [
+            'records no intent for a failover whose capacity read has no status',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] }, omitsCapacityStatus: true },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read came back with no status, not Complete/
+                ),
+            },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
     ])('%s', async (_story, options, onRunHost, recorded) => {
@@ -523,6 +555,25 @@ describe('valves', () => {
             },
         })
 
+        const onEdgeHeld = (): { context: ValveContext; held: Promise<void> } => {
+            let actuated = (): void => undefined
+            const held = new Promise<void>((resolve) => (actuated = resolve))
+            const { actuate } = onEdge().environment
+            return {
+                context: {
+                    ...onEdge(),
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await actuate(action)
+                            actuated()
+                            return hold
+                        },
+                    },
+                },
+                held,
+            }
+        }
+
         const send = (): Promise<string> =>
             ses
                 .send(
@@ -572,6 +623,39 @@ describe('valves', () => {
                 faults: ['ses.reject', 'ses.reject'],
             })
         })
+
+        it.each<[boolean, (number | string | undefined)[][]]>([
+            [
+                true,
+                [
+                    [200, 'ses.ambiguous'],
+                    [200, undefined],
+                ],
+            ],
+            [false, [[200, undefined]]],
+        ])(
+            'drops the connection of the next SES send with ses.ambiguous accepted %s, recording only what SES took',
+            async (accepted, sends) => {
+                const valves = createValves({ pollMs: 5 })
+                const edgeHeld = onEdgeHeld()
+
+                await valves.start(
+                    [{ valve: 'ses.ambiguous', target: 'ses', dose: { accepted, count: 1 }, at: '0ms', for: '1m' }],
+                    edgeHeld.context
+                )
+                await edgeHeld.held
+                const outcomes = [await send(), await send()]
+                const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
+                await valves.releaseAll()
+
+                expect({
+                    outcomes,
+                    sends: truth.records.map(({ status, fault }) => [status, fault]),
+                    error: valves.timeline()[0].error,
+                    observed: valves.timeline()[0].observedAt !== undefined,
+                }).toEqual({ outcomes: ['Error', 'sent'], sends, error: undefined, observed: true })
+            }
+        )
 
         it.each<[string, string, boolean]>([
             ['its hold ends', '100ms', true],

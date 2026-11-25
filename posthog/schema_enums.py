@@ -2231,6 +2231,12 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationDetectedChange(StrEnum):
+    NEGATIVE_KEYWORD = "negative_keyword"
+    BRAND_NEGATIVE = "brand_negative"
+    KEYWORD_ADDED = "keyword_added"
+
+
 class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
     GOOGLE_ADS = "google_ads"
 
@@ -2275,6 +2281,10 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
     PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+    POSTHOG_CONVERSIONS_NOT_READY = "posthog_conversions_not_ready"
+    POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
+    POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
+    POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -2447,6 +2457,12 @@ class MetricsQueryLanguage(StrEnum):
     BUILDER = "builder"
     PROMQL = "promql"
     SQL = "sql"
+
+
+class MetricsQueryProvenanceMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"
 
 
 class MetricsRangeFunction(StrEnum):
@@ -2802,6 +2818,9 @@ class ProductIntentContext(StrEnum):
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = "workflow_email_impact_turn_on_replay"
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = "workflow_survey_trigger_create_survey"
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = "workflow_warehouse_table_trigger_set_up_source"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
     BATCH_EXPORT_UPDATED = "batch_export_updated"

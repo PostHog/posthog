@@ -77,7 +77,9 @@ from products.dashboards.backend.widgets import logs_list
 from products.logs.backend.facade.queries import LogsQueryRunner
 
 DASHBOARD_V2_FLAG = "dashboard-v2"
-# Flags a scenario needs on in both arms, so that only `dashboard-v2` differs between them.
+# The server serves v2 only to a person on both flags, so the "on" arm forces both.
+DASHBOARD_V2_FLAGS = frozenset({DASHBOARD_V2_FLAG, permissions.DASHBOARD_V2_USERS_FLAG})
+# Flags a scenario needs on in both arms, so that only the v2 flags differ between them.
 PRECONDITION_FLAGS = frozenset({"metrics"})
 NOT_MERGED = "not merged yet"
 
@@ -208,14 +210,14 @@ class ScenarioResult:
 
 @contextmanager
 def dashboard_v2(enabled: bool) -> Iterator[None]:
-    """Force `dashboard-v2` through POSTHOG_FEATURE_FLAGS_FORCE_ENABLED's set, `_FORCE_ENABLED_FLAGS`.
+    """Force `dashboard-v2` and `dashboard-v2-users` through POSTHOG_FEATURE_FLAGS_FORCE_ENABLED's set, `_FORCE_ENABLED_FLAGS`.
 
     Modules that imported the set by name hold their own reference, so every holder is patched. Remote
     flag evaluation is pinned to False, so a local flag definition can't turn the "off" arm on.
     """
     original = permissions._FORCE_ENABLED_FLAGS
-    base = (original | PRECONDITION_FLAGS) - {DASHBOARD_V2_FLAG}
-    forced = base | {DASHBOARD_V2_FLAG} if enabled else base
+    base = (original | PRECONDITION_FLAGS) - DASHBOARD_V2_FLAGS
+    forced = base | DASHBOARD_V2_FLAGS if enabled else base
     holders = []
     for module in list(sys.modules.values()):
         try:

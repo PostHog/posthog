@@ -70,6 +70,7 @@ def reuse(access: UserAccessControl, permissions: UserPermissions | None = None)
     if session is None or not isinstance(access.user, User) or not session.can_cache():
         return
     key = _principal_key(access.user)
+    session.users.setdefault(access.user.pk, access.user)
     if access.team is not None:
         session.access.setdefault(key, access)
     elif (membership := access.organization_membership) is not None:
@@ -160,7 +161,7 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
     else:
         organization_id = UUID(resource.id)
     membership = get_cached_organization_membership(organization_id, principal)
-    return membership is not None and membership.level >= level
+    return membership is not None and membership.effective_level >= level
 
 
 def _check_membership_type(session: Session, request: CheckRequest) -> bool:

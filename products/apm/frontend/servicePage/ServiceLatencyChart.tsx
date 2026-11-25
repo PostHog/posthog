@@ -15,12 +15,11 @@ import type { LatencyPercentiles } from './servicePage'
 const NS_PER_MS = 1_000_000
 
 export interface ServiceLatencyChartProps {
-    timeBuckets: string[]
     percentiles: LatencyPercentiles
     loading: boolean
 }
 
-export function ServiceLatencyChart({ timeBuckets, percentiles, loading }: ServiceLatencyChartProps): JSX.Element {
+export function ServiceLatencyChart({ percentiles, loading }: ServiceLatencyChartProps): JSX.Element {
     const theme = useChartTheme()
     const series = useMemo<Series[]>(() => {
         const toMs = (values: number[]): number[] => values.map((ns) => ns / NS_PER_MS)
@@ -41,10 +40,10 @@ export function ServiceLatencyChart({ timeBuckets, percentiles, loading }: Servi
 
     return (
         <div className="relative h-56 flex flex-col" data-attr="apm-service-latency-chart">
-            {timeBuckets.length > 0 ? (
+            {percentiles.times.length > 0 ? (
                 <TimeSeriesLineChart
                     series={series}
-                    labels={timeBuckets}
+                    labels={percentiles.times}
                     theme={theme}
                     config={config}
                     tooltip={(ctx) => (

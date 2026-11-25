@@ -23,6 +23,10 @@ GUARDDOG = [sys.executable, "-m", "guarddog"]
 SCAN_TIMEOUT_SECONDS = 180
 BATCH_DEADLINE_SECONDS = 14 * 60
 SCAN_WORKERS = 8
+# GuardDog cannot download a release the registry has only just published, so a failed download is tried again.
+DOWNLOAD_RULE = "download-package"
+DOWNLOAD_ATTEMPTS = 4
+DOWNLOAD_RETRY_SECONDS = 30
 MAX_PACKAGES = 300
 BLOCKING_LABEL = "high_risk"
 CLEAN_LABEL = "no_risks_detected"
@@ -215,9 +219,19 @@ def not_scanned(package: Package, reason: str) -> Finding:
 
 
 def scan(package: Package, deadline: float) -> Finding:
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        finding, download_failed = scan_once(package, deadline)
+        retry_fits = deadline - time.monotonic() > DOWNLOAD_RETRY_SECONDS
+        if not download_failed or attempt == DOWNLOAD_ATTEMPTS or not retry_fits:
+            return finding
+        time.sleep(DOWNLOAD_RETRY_SECONDS)
+    raise AssertionError("unreachable")
+
+
+def scan_once(package: Package, deadline: float) -> tuple[Finding, bool]:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        return not_scanned(package, "the batch ran out of time")
+        return not_scanned(package, "the batch ran out of time"), False
     excluded = [flag for rule in EXCLUDED_RULES[package.ecosystem] for flag in ("--exclude-rules", rule)]
     command = [
         *GUARDDOG,
@@ -247,20 +261,22 @@ def scan(package: Package, deadline: float) -> Finding:
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
-            return not_scanned(package, "GuardDog timed out")
+            return not_scanned(package, "GuardDog timed out"), False
     try:
         report = json.loads(stdout)
         # GuardDog scores only the rules that ran, so a rule that failed can hide what it would find.
         if report["errors"]:
             failed_rules = ", ".join(sorted(rule for rule in report["errors"] if PLAIN_NAME.fullmatch(str(rule))))
-            return not_scanned(package, f"GuardDog rules failed: {failed_rules or 'unnamed'}")
+            return not_scanned(package, f"GuardDog rules failed: {failed_rules or 'unnamed'}"), DOWNLOAD_RULE in report[
+                "errors"
+            ]
         risk = report["risk_score"]
         rules = tuple(
             sorted(rule for rule, hits in report["results"].items() if hits and not rule.startswith("capability"))
         )
-        return Finding(package, str(risk["label"]), float(risk["score"]), rules)
+        return Finding(package, str(risk["label"]), float(risk["score"]), rules), False
     except (ValueError, KeyError, TypeError):
-        return not_scanned(package, f"GuardDog exited with status {process.returncode} without a usable report")
+        return not_scanned(package, f"GuardDog exited with status {process.returncode} without a usable report"), False
 
 
 def scan_all(packages: Iterable[Package]) -> list[Finding]:

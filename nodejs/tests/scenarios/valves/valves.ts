@@ -9,7 +9,7 @@ import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import { AmbiguousParams, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -24,6 +24,7 @@ export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
     roleExitGraceMs?: number
+    restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
@@ -47,6 +48,7 @@ export interface Valves {
     start(entries: ValveEntry[], context: ValveContext): Promise<void>
     releaseAll(): Promise<void>
     timeline(): ValveTimelineEntry[]
+    refusal: AbortSignal
 }
 
 export const roleKill: ValveDefinition = {
@@ -123,11 +125,42 @@ export const sesReject: ValveDefinition = {
     },
 }
 
+const AmbiguousDose = z.union([
+    z.object({ accepted: AmbiguousParams.shape.accepted, count: z.number().int().min(1) }).strict(),
+    z.object({ accepted: AmbiguousParams.shape.accepted, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const sesAmbiguous: ValveDefinition = {
+    name: 'ses.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'ses.ambiguous', params: { accepted }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
+export const destAmbiguous: ValveDefinition = {
+    name: 'dest.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal(WEBHOOK_HOST),
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'dest.ambiguous', params: { accepted }, match: { host: target }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
     params: z.object({}).strict(),
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
+    restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
     apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
         manifest === undefined
@@ -143,6 +176,8 @@ export const VALVES: ValveDefinition[] = [
     destStatus,
     sesThrottle,
     sesReject,
+    sesAmbiguous,
+    destAmbiguous,
 ]
 
 const POLL_MS = 1000
@@ -153,6 +188,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
+    const refusals = new AbortController()
     let releasing: Promise<void> | undefined
 
     const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
@@ -221,6 +257,9 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             journal()
             if (!observed) {
                 record.error ??= 'applied but not observed'
+                if (actuation.refused?.()) {
+                    refusals.abort({ ...record })
+                }
             } else if (
                 entry.when &&
                 definition.strandsRunningJobs &&
@@ -267,5 +306,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })()),
 
         timeline: () => entries.map((entry) => ({ ...entry })),
+
+        refusal: refusals.signal,
     }
 }

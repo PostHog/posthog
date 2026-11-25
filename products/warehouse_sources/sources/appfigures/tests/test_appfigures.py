@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 import time_machine
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.appfigures._config import AppfiguresSourceConfig
 from products.warehouse_sources.sources.appfigures.appfigures import (
     AppfiguresResumeConfig,
@@ -20,9 +22,12 @@ _PAGE_LIMIT_REASON = (
 )
 
 
-def _driver(aso_countries: str | None = None) -> SourceDriver:
+def _driver(aso_countries: str | None = None, estimate_products: str | None = None) -> SourceDriver:
     return SourceDriver(
-        AppfiguresSource(), AppfiguresSourceConfig(personal_access_token="pat", aso_countries=aso_countries)
+        AppfiguresSource(),
+        AppfiguresSourceConfig(
+            personal_access_token="pat", aso_countries=aso_countries, estimate_products=estimate_products
+        ),
     )
 
 
@@ -121,6 +126,64 @@ class TestIterReport:
         assert [row["date"] for row in result.rows] == ["2024-01-01", "2024-01-31"]
         # State saved after the first window, pointing at the next window's start.
         assert result.saved_states == [AppfiguresResumeConfig(window_start="2024-01-31")]
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_usage_nested_pivots_become_rows_in_date_order(self) -> None:
+        body = {
+            "google_analytics": {
+                "2024-02-15": {"10": {"sessions": 4}},
+                "2024-02-14": {"10": {"sessions": 3, "product_id": 10}},
+            },
+            "apple:analytics": {
+                # Appfigures repeats the date in the metrics; the request grouping is what keys the row.
+                "2024-02-14": {"10": {"sessions": 1, "date": "2024-02-13"}, "11": {"sessions": 2}},
+            },
+        }
+        result = _driver().run(
+            "usage_report",
+            [ScriptedResponse(json=body)],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2024, 2, 14),
+        )
+        assert result.raised is None
+        assert result.params("group_by") == ["network,dates,products"]
+        assert [(row["date"], row["network"], row["product_id"], row["sessions"]) for row in result.rows] == [
+            ("2024-02-14", "google_analytics", "10", 3),
+            ("2024-02-14", "apple:analytics", "10", 1),
+            ("2024-02-14", "apple:analytics", "11", 2),
+            ("2024-02-15", "google_analytics", "10", 4),
+        ]
+
+    @parameterized.expand(
+        [
+            ("blank_covers_own_apps", None, [None]),
+            ("comma_list", "284882215, 310633997", ["284882215,310633997"]),
+            ("mixed_separators_and_duplicates", "1;2 2\n3", ["1,2,3"]),
+            ("non_numeric_tokens_dropped", "abc, 7, com.example.app", ["7"]),
+            ("only_invalid_tokens", "abc", [None]),
+        ]
+    )
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_estimates_products_filter_comes_from_the_form(
+        self, _name: str, estimate_products: str | None, expected: list[str | None]
+    ) -> None:
+        body = {"2024-02-15": {"284882215": {"downloads": 9, "revenue": "1.00"}}}
+        result = _driver(estimate_products=estimate_products).run(
+            "estimates_report",
+            [ScriptedResponse(json=body)],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2024, 2, 15),
+        )
+        assert result.raised is None
+        assert result.params("products") == expected
+        assert [(row["date"], row["product_id"], row["downloads"]) for row in result.rows] == [
+            ("2024-02-15", "284882215", 9)
+        ]
+
+    def test_sales_report_ignores_estimate_products(self) -> None:
+        result = _driver(estimate_products="1,2").run("sales_report", always(ScriptedResponse(json={})))
+        assert result.raised is None
+        assert all(request.param("products") is None for request in result.requests)
 
 
 def _ranks_body(dates: list[str], series: list[dict[str, Any]]) -> dict[str, Any]:
@@ -260,6 +323,73 @@ class TestIterAsoStats:
         assert [request.param("products") for request in result.requests[1:]] == ["3"]
 
 
+def _featured_entry(country: str, position: int) -> dict[str, Any]:
+    return {
+        "country": country,
+        "base_category": {"store": "apple", "name": "Games/Family", "subtype": "Paid", "id": 7009},
+        "viewed_from": "Desktop",
+        "crumbs": ["what's hot"],
+        "start_date": "2024-01-27T00:00:00",
+        "end_date": "2024-01-28T00:00:00",
+        "highest_position": position,
+        "lowest_position": position,
+        "positions": [{"start": "2024-01-27T00:00:00", "end": "2024-01-28T00:00:00", "position": position}],
+    }
+
+
+class TestIterFeatured:
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_fans_out_per_product_and_keys_rows_by_featured_category(self) -> None:
+        result = _driver().run(
+            "featured",
+            [
+                ScriptedResponse(
+                    json={
+                        "1": {"id": 1, "type": "app"},
+                        "2": {"id": 2, "type": "app"},
+                        "3": {"id": 3, "type": "app"},
+                        "9": {"id": 9, "type": "inapp"},
+                    }
+                ),
+                ScriptedResponse(json={"187899": _featured_entry("AR", 56), "187900": _featured_entry("US", 3)}),
+                ScriptedResponse(json={}),
+                ScriptedResponse(json={"187899": _featured_entry("AR", 12)}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths[1:] == [
+            "/v2/featured/full/1/2023-02-15/2024-02-15",
+            "/v2/featured/full/2/2023-02-15/2024-02-15",
+            "/v2/featured/full/3/2023-02-15/2024-02-15",
+        ]
+        assert [(row["product_id"], row["featured_category_id"], row["highest_position"]) for row in result.rows] == [
+            ("1", "187899", 56),
+            ("1", "187900", 3),
+            ("3", "187899", 12),
+        ]
+        assert result.saved_states == [
+            AppfiguresResumeConfig(product_id="2"),
+            AppfiguresResumeConfig(product_id="3"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("saved_product_still_in_catalog", "3", ["3"]),
+            ("saved_product_gone_starts_over", "404", ["1", "3"]),
+        ]
+    )
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_resume(self, _name: str, saved_product: str, expected_products: list[str]) -> None:
+        result = _driver().run(
+            "featured",
+            [ScriptedResponse(json={"1": {"id": 1, "type": "app"}, "3": {"id": 3, "type": "app"}})]
+            + [ScriptedResponse(json={}) for _ in expected_products],
+            resume_state=AppfiguresResumeConfig(product_id=saved_product),
+        )
+        assert result.raised is None
+        assert [path.split("/")[4] for path in result.paths[1:]] == expected_products
+
+
 class TestCheckCredentials:
     @pytest.mark.parametrize("status", [403])
     def test_returns_status_code(self, status: int) -> None:
@@ -283,6 +413,10 @@ class TestAppfiguresSourceResponse:
             ("ranks", ["date", "product_id", "country", "category_id", "category_subtype"], "date"),
             ("aso_keywords", ["date", "product_id", "country", "keyword_id"], "date"),
             ("aso_stats", ["date", "product_id", "country"], "date"),
+            ("usage_report", ["date", "network", "product_id"], "date"),
+            ("estimates_report", ["date", "product_id"], "date"),
+            ("featured", ["product_id", "featured_category_id"], None),
+            ("events", ["id"], None),
             # The /data lookups carry no date field, so they sync unpartitioned.
             ("stores", ["id"], None),
             ("categories", ["id"], None),

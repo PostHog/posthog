@@ -76,6 +76,4 @@ WILDCARD_DNS_EMAIL_DOMAINS: frozenset[str] = frozenset(
     }
 )
 
-# Default access token expiry.
-ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600

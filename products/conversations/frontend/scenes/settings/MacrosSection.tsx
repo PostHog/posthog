@@ -4,15 +4,48 @@ import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
 import { MacroFormModal } from '../../components/Macros/MacroFormModal'
 import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
+import { QuillMacrosTable } from '../../components/QuillMacrosTable/QuillMacrosTable'
 
 export function MacrosSection(): JSX.Element {
     const { macrosSorted, macrosLoading } = useValues(supportMacrosLogic)
     const { openMacroDraft, deleteMacro } = useActions(supportMacrosLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmDeleteMacro = (macro: TicketMacroApi): void =>
+        LemonDialog.open({
+            title: 'Delete this macro?',
+            description:
+                macro.visibility === 'personal'
+                    ? "You won't be able to insert it anymore."
+                    : 'People on your team will no longer be able to insert it.',
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: () => deleteMacro(macro.id),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillMacrosTable
+                    macros={macrosSorted}
+                    loading={macrosLoading}
+                    onCreate={() => openMacroDraft(null)}
+                    onEdit={openMacroDraft}
+                    onDelete={confirmDeleteMacro}
+                />
+                <MacroFormModal />
+            </>
+        )
+    }
 
     const columns: LemonTableColumns<TicketMacroApi> = [
         {
@@ -56,21 +89,7 @@ export function MacrosSection(): JSX.Element {
                         status="danger"
                         icon={<IconTrash />}
                         tooltip="Delete"
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: 'Delete this macro?',
-                                description:
-                                    macro.visibility === 'personal'
-                                        ? "You won't be able to insert it anymore."
-                                        : 'People on your team will no longer be able to insert it.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteMacro(macro.id),
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }
+                        onClick={() => confirmDeleteMacro(macro)}
                     />
                 </div>
             ),

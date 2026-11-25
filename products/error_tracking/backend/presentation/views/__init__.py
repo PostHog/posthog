@@ -8,10 +8,12 @@ from products.error_tracking.backend.presentation.views.git_provider_file_link_r
     GitProviderFileLinksViewSet,
 )
 from products.error_tracking.backend.presentation.views.grouping_rules import ErrorTrackingGroupingRuleViewSet
+from products.error_tracking.backend.presentation.views.issue_tag_rules import ErrorTrackingIssueTagRuleViewSet
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueViewSet
 from products.error_tracking.backend.presentation.views.query import ErrorTrackingQueryViewSet
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
 from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseViewSet
+from products.error_tracking.backend.presentation.views.sentry_migration import ErrorTrackingSentryMigrationViewSet
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsViewSet
 from products.error_tracking.backend.presentation.views.severity_rules import ErrorTrackingSeverityRuleViewSet
 from products.error_tracking.backend.presentation.views.spike_detection_config import (
@@ -25,6 +27,7 @@ from products.error_tracking.backend.presentation.views.symbol_sets import Error
 __all__ = [
     "ErrorTrackingAlertViewSet",
     "ErrorTrackingExternalReferenceViewSet",
+    "ErrorTrackingIssueTagRuleViewSet",
     "ErrorTrackingIssueViewSet",
     "ErrorTrackingQueryViewSet",
     "ErrorTrackingRecommendationViewSet",
@@ -33,6 +36,7 @@ __all__ = [
     "ErrorTrackingFingerprintViewSet",
     "ErrorTrackingGroupingRuleViewSet",
     "ErrorTrackingReleaseViewSet",
+    "ErrorTrackingSentryMigrationViewSet",
     "ErrorTrackingSettingsViewSet",
     "ErrorTrackingSeverityRuleViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",

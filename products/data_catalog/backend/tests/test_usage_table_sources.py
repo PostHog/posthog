@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.data_catalog.backend.facade.contracts import TableSource
 from products.data_catalog.backend.logic.usage_table_sources import (
+    _MAX_SQL_CHARS,
     SessionQuery,
     TableSearch,
     build_table_sources,
@@ -128,7 +129,9 @@ class TestFetchTableSources(ClickhouseTestMixin, BaseTest):
         search = "SELECT table_name, description FROM system.information_schema.tables"
         no_descriptions = "SELECT table_name FROM system.information_schema.tables"
         self._span("mcp", "t1", "person", search, "table_name|description\nrevenue|Money\nevents|Every event")
-        self._query("mcp", "t1", "person", "SELECT 1 FROM revenue JOIN events")
+        sql = "SELECT 1 FROM revenue JOIN events -- "
+        # The final "é" takes two bytes and ends one byte past the cut, so a cut by bytes leaves invalid UTF-8.
+        self._query("mcp", "t1", "person", sql + "x" * (_MAX_SQL_CHARS - len(sql) - 1) + "é")
         self._span("self_driving", "t2", "scout", search, "table_name|description\nscout_table|Money")
         self._query("self_driving", "t2", "scout", "SELECT 1 FROM scout_table")
         self._span("mcp", "t3", "names_only", no_descriptions, "table_name|x\nnames_table|y")

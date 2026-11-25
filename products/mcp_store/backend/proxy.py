@@ -18,6 +18,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
+from .borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL, BorrowedCredentialRefused, is_posthog_connection
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
@@ -118,7 +119,35 @@ def send_mcp_request_with_same_origin_redirect(
     return client.send(redirected_request, stream=stream), redirect_url
 
 
-def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
+def build_upstream_auth_headers(installation: MCPServerInstallation, *, borrowed: bool = False) -> dict[str, str]:
+    """`borrowed` marks a caller other than the credential's owner. BorrowedCredentialRefused is raised when that
+    caller would act with a PostHog credential."""
+    headers = _owner_auth_headers(installation)
+    if borrowed and _is_posthog_connection(installation, headers):
+        raise BorrowedCredentialRefused(BORROWED_POSTHOG_CREDENTIAL_DETAIL)
+    return headers
+
+
+def is_posthog_installation(installation: MCPServerInstallation) -> bool:
+    return _is_posthog_connection(installation, _owner_auth_headers(installation))
+
+
+def borrowed_refusal_detail(installation: MCPServerInstallation, *, borrowed: bool) -> str | None:
+    """The message for a caller who may not use this connection, or None when the call may go ahead."""
+    return BORROWED_POSTHOG_CREDENTIAL_DETAIL if borrowed and is_posthog_installation(installation) else None
+
+
+def _is_posthog_connection(installation: MCPServerInstallation, auth_headers: dict[str, str]) -> bool:
+    return is_posthog_connection(
+        installation.url, auth_headers.get("Authorization", "").removeprefix("Bearer ") or None
+    )
+
+
+def is_borrowed_by(installation: MCPServerInstallation, caller: GatewayCaller | None) -> bool:
+    return caller is None or caller.kind != "member" or caller.user_id != installation.user_id
+
+
+def _owner_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -521,6 +550,10 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
+_PROXY_OWNED_HEADERS = frozenset({"x-posthog-mcp-mode", "x-posthog-mcp-store"})
+_BORROWED_PROXY_OWNED_HEADERS = _PROXY_OWNED_HEADERS | {"x-posthog-project-id", "x-posthog-organization-id"}
+
+
 def proxy_mcp_request(
     request: Any,
     installation: MCPServerInstallation,
@@ -555,6 +588,9 @@ def proxy_mcp_request(
             status=400,
         )
 
+    borrowed = is_borrowed_by(installation, caller)
+    refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
+
     policy_context: PolicyContext | None = None
     audit_entries: list[tuple[str, str]] = []
     if gateway_server is not None and caller is not None:
@@ -565,13 +601,19 @@ def proxy_mcp_request(
             installation=installation,
         )
 
-    enforcement_response = enforce_tool_approval(
-        installation,
-        data,
-        policy_context,
-        audit_entries,
-        caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
-    )
+    enforcement_response: HttpResponse | None = None
+    if refusal_detail is not None:
+        # The tool policy is skipped because resolving an unregistered tool lists tools upstream with the
+        # owner's credential. The audit trail still keeps each attempted call, as blocked.
+        audit_entries = [(tool_name, "blocked") for tool_name in sorted(_requested_tool_names(data))]
+    else:
+        enforcement_response = enforce_tool_approval(
+            installation,
+            data,
+            policy_context,
+            audit_entries,
+            caller_user_id=caller.user_id if caller is not None and caller.kind == "member" else None,
+        )
     if gateway_server is not None and caller is not None and audit_entries:
         _write_audit_events(
             installation,
@@ -582,6 +624,8 @@ def proxy_mcp_request(
             credential_owner_id=credential_owner_id,
             grant_scope=grant_scope,
         )
+    if refusal_detail is not None:
+        return HttpResponse(json.dumps({"error": refusal_detail}), content_type="application/json", status=403)
     if enforcement_response:
         return enforcement_response
 
@@ -595,18 +639,19 @@ def proxy_mcp_request(
             status=413,
         )
 
-    auth_headers = build_upstream_auth_headers(installation)
+    try:
+        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
+    except BorrowedCredentialRefused as exc:
+        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         **auth_headers,
     }
 
+    owned_headers = _BORROWED_PROXY_OWNED_HEADERS if borrowed else _PROXY_OWNED_HEADERS
     for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in {
-            "x-posthog-mcp-mode",
-            "x-posthog-mcp-store",
-        }:
+        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in owned_headers:
             headers[header_name] = request.headers[header_name]
 
     # Store policy must see leaf tools, and shared credentials must not expand nested connectors.

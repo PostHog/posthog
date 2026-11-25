@@ -3,7 +3,8 @@ from unittest import mock
 
 from rest_framework import status
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.api.services.query import process_query_model
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -63,3 +64,29 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
         call = _find_endpoint_feature_call(spy)
         assert call is not None, f"no tag_queries(product=ENDPOINTS, feature=...) call found: {spy.call_args_list}"
         assert call.kwargs["feature"] == Feature.ENDPOINT_EXECUTION
+
+    def test_run_tags_its_query_with_the_execution_id_of_its_log_entry(self):
+        self.client.logout()
+        execution_ids_at_query_time = []
+
+        def run_query(*args, **kwargs):
+            execution_ids_at_query_time.append(get_query_tags().endpoint_execution_id)
+            return process_query_model(*args, **kwargs)
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=run_query),
+            mock.patch("products.endpoints.backend.logs.get_producer") as get_producer,
+        ):
+            response = self.client.post(
+                self.run_url,
+                {"limit": 5},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        execution_id = response.json()["execution_id"]
+        assert execution_ids_at_query_time == [execution_id]
+        [log_entry] = [call.kwargs["data"] for call in get_producer.return_value.produce.call_args_list]
+        assert log_entry["instance_id"] == execution_id
+        assert "refresh=cache access=personal_api_key limit=5" in log_entry["message"]

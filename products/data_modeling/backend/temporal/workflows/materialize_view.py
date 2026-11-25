@@ -17,6 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataModelingJobRunMode
 from products.data_modeling.backend.temporal.activities import (
     ClearCDPStagingInputs,
@@ -47,8 +48,13 @@ from products.data_modeling.backend.temporal.activities import (
     succeed_materialization_activity,
 )
 from products.data_modeling.backend.temporal.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from products.data_modeling.backend.temporal.activities.fail_materialization import FAIL_MATERIALIZATION_MAX_ATTEMPTS
 from products.data_modeling.backend.temporal.metrics import (
+    CANCELLED_STATUS,
+    COMPLETED_STATUS,
+    FAILED_STATUS,
     NO_ERROR_LABEL,
+    QUALITY_BLOCKED_STATUS,
     UNKNOWN_RUN_MODE,
     error_class,
     error_code,
@@ -57,6 +63,8 @@ from products.data_modeling.backend.temporal.metrics import (
     get_node_rows_materialized_metric,
     get_node_storage_delta_mib_metric,
     get_node_total_storage_mib_metric,
+    record_request_to_finish,
+    tag_run_request_on_workflow_span,
     tier_label,
 )
 from products.data_modeling.backend.temporal.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
@@ -98,6 +106,14 @@ def _is_cancellation(error: BaseException) -> bool:
     ) and isinstance(error.cause, temporalio.exceptions.CancelledError)
 
 
+def _status_of_run_ended_by(error: BaseException) -> str | None:
+    if _is_cancellation(error):
+        return CANCELLED_STATUS
+    if temporalio.workflow.is_failure_exception(error):
+        return FAILED_STATUS
+    return None
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class MaterializeViewWorkflowInputs:
     """Inputs for the MaterializeViewWorkflow.
@@ -107,6 +123,8 @@ class MaterializeViewWorkflowInputs:
         dag_id: The DAG the node belongs to.
         node_id: The UUID of the Node to materialize.
         manually_triggered_by_id: The user who asked for this run, when a person did.
+        trigger: What started this run, a MaterializationRunTrigger value.
+        requested_at: The ISO 8601 time of the request that started this run, when its start recorded one.
     """
 
     team_id: int
@@ -116,6 +134,8 @@ class MaterializeViewWorkflowInputs:
     dangerously_execute_raw_sql: bool = False
     manually_triggered_by_id: int | None = None
     skip_trino: bool = False
+    trigger: str = MaterializationRunTrigger.UNKNOWN.value
+    requested_at: str | None = None
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
 
@@ -220,6 +240,24 @@ class MaterializeViewWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
+        tag_run_request_on_workflow_span(inputs.trigger, inputs.requested_at)
+        engine = MANAGED_WAREHOUSE_ENGINE if inputs.managed_warehouse_only else CLICKHOUSE_ENGINE
+        try:
+            result = await self._materialize(inputs)
+        except (Exception, asyncio.CancelledError) as error:
+            ended_status = _status_of_run_ended_by(error)
+            if ended_status is not None:
+                record_request_to_finish(inputs.trigger, inputs.requested_at, engine=engine, status=ended_status)
+            raise
+        record_request_to_finish(
+            inputs.trigger,
+            inputs.requested_at,
+            engine=engine,
+            status=QUALITY_BLOCKED_STATUS if result.quality_blocking_failures else COMPLETED_STATUS,
+        )
+        return result
+
+    async def _materialize(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
         parent_info = temporalio.workflow.info().parent
@@ -497,7 +535,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=3,
+                            maximum_attempts=FAIL_MATERIALIZATION_MAX_ATTEMPTS,
                         ),
                     )
                 except Exception as fail_err:
@@ -681,6 +719,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     schema_name=materialize_result.node_name,
                     last_synced_at=None,
                     saved_query_id=uuid.UUID(materialize_result.saved_query_id),
+                    complete_table_read=materialize_result.person_property_complete_table_read,
                 ),
                 id=f"sync-warehouse-person-properties-{job_id}",
                 id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -884,7 +923,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     update_node=False,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=FAIL_MATERIALIZATION_MAX_ATTEMPTS),
             )
         except Exception as fail_err:
             temporalio.workflow.logger.warning(

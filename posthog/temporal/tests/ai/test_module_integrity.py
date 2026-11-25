@@ -94,6 +94,7 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
             "SignalGroupingRecordCleanupWorkflow",
+            "SignalSpendCleanupWorkflow",
             "BufferSignalsWorkflow",
             "SignalEmitterWorkflow",
             "SignalReportSummaryWorkflow",
@@ -110,6 +111,7 @@ class TestSignalsProductModuleIntegrity:
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
+            "MonitorPRWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -143,6 +145,7 @@ class TestSignalsProductModuleIntegrity:
             "assign_and_emit_signal_activity",
             "assigned_signal_ids_activity",
             "delete_expired_grouping_records_activity",
+            "delete_expired_spend_activity",
             "complete_signal_grouping_activity",
             "capture_signal_dropped_activity",
             "check_signals_quota_limited_activity",
@@ -209,6 +212,8 @@ class TestSignalsProductModuleIntegrity:
             "run_scout_suggestions_activity",
             "stamp_requested_scout_suggestions_activity",
             "run_custom_signal_agent_activity",
+            "research_monitored_pr_activity",
+            "fail_monitored_pr_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

@@ -1,0 +1,97 @@
+{
+    "id": 1,
+    "short_id": "metricsLn",
+    "name": "API request latency (avg)",
+    "derived_name": "MetricsQuery query",
+    "description": null,
+    "query": {
+        "kind": "MetricsQuery",
+        "clauses": [
+            {
+                "name": "a",
+                "filters": [
+                    {
+                        "op": "eq",
+                        "key": "service_name",
+                        "value": "api"
+                    }
+                ],
+                "metricName": "http_request_duration_ms",
+                "metricType": "gauge",
+                "aggregation": "avg"
+            }
+        ],
+        "dateRange": {
+            "date_from": "-30M"
+        },
+        "display": {
+            "goalLines": [
+                {
+                    "label": "Latency alert upper threshold",
+                    "value": 33,
+                    "borderColor": "#d14343",
+                    "displayLabel": false
+                }
+            ]
+        }
+    },
+    "result": [
+        {
+            "clause": "a",
+            "histogramBounds": null,
+            "labels": {},
+            "metricName": "http_request_duration_ms",
+            "points": [
+                {
+                    "time": "2023-02-01T12:00:00Z",
+                    "value": 30
+                },
+                {
+                    "time": "2023-02-01T12:00:30Z",
+                    "value": 32
+                },
+                {
+                    "time": "2023-02-01T12:01:00Z",
+                    "value": 34
+                },
+                {
+                    "time": "2023-02-01T12:01:30Z",
+                    "value": 36
+                },
+                {
+                    "time": "2023-02-01T12:02:00Z",
+                    "value": 30
+                },
+                {
+                    "time": "2023-02-01T12:02:30Z",
+                    "value": 32
+                },
+                {
+                    "time": "2023-02-01T12:03:00Z",
+                    "value": 34
+                },
+                {
+                    "time": "2023-02-01T12:03:30Z",
+                    "value": 36
+                },
+                {
+                    "time": "2023-02-01T12:04:00Z",
+                    "value": 30
+                },
+                {
+                    "time": "2023-02-01T12:04:30Z",
+                    "value": 32
+                },
+                {
+                    "time": "2023-02-01T12:05:00Z",
+                    "value": 34
+                }
+            ],
+            "unit": "ms"
+        }
+    ],
+    "last_refresh": "2023-02-01T12:06:00Z",
+    "dashboards": [],
+    "dashboard_tiles": [],
+    "tags": []
+}

@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -22,6 +23,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
@@ -63,6 +65,10 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _hogql_database_builds(trigger: str) -> float:
+    return REGISTRY.get_sample_value("hogql_database_build_total", {"trigger": trigger}) or 0.0
 
 
 class TestSavedQuery(APIBaseTest):
@@ -953,6 +959,45 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
 
+    def test_create_with_jev_saves_without_model_call(self):
+        with (
+            patch("httpx.AsyncClient.post") as post,
+            patch.object(
+                HogQLQueryExecutor, "plan_prompt_jev", autospec=True, side_effect=HogQLQueryExecutor.plan_prompt_jev
+            ) as plan,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "jev_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": (
+                            "SELECT s.id AS id, jev(s.text, 'Is this a refund request?') AS verdict "
+                            "FROM (SELECT toString(uuid) AS id, toString(event) AS text FROM events LIMIT 100) AS s"
+                        ),
+                    },
+                },
+            )
+
+        assert response.status_code == 201, response.content
+        assert [column["name"] for column in response.json()["columns"]] == ["id", "verdict"]
+        post.assert_not_called()
+        # Each plan runs the jev source query on ClickHouse, so validation and the column read share one.
+        assert plan.call_count == 1
+
+    def test_create_with_jev_over_budget_returns_planner_error(self):
+        query = "SELECT jev(toString(event), 'Topic?') AS a, jev(toString(event), 'Tone?') AS b FROM events LIMIT 600"
+        with patch("httpx.AsyncClient.post") as post:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "jev_view", "query": {"kind": "HogQLQuery", "query": query}},
+            )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"].startswith("Invalid query: jev exceeds the query budget")
+        post.assert_not_called()
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
@@ -1569,7 +1614,33 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.json())
         bounds = response.json()["sync_frequency_bounds"]
         self.assertEqual(response.json()["sync_frequency"], "15min")
-        self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
+        self.assertEqual(
+            bounds["plan_floor"],
+            {"label": expected_label, "blocker": None, "pinned": False} if expected_label else None,
+        )
+
+    def test_retrieve_reports_a_plan_floor_rewrite(self):
+        from products.data_modeling.backend.facade.api import clamp_dag_targets_to_plan_floor, set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(minutes=15))
+
+        with (
+            self._six_hour_plan_floor(True),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+        ):
+            self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        plan_clamp = response.json()["plan_clamp"]
+        self.assertEqual(
+            (plan_clamp["previous_target_seconds"], plan_clamp["plan_floor_seconds"]), (900, 21600), plan_clamp
+        )
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the
@@ -1582,7 +1653,9 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(sorted(blocked), ["12hour", "24hour", "30day", "7day"])
         self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
         self.assertEqual(blocked["24hour"]["blocker"]["name"], "consumer_view")
-        self.assertEqual(bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"]})
+        self.assertEqual(
+            bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"], "pinned": False}
+        )
         self.assertIsNone(bounds["floor"])
 
     def test_the_refusal_names_the_same_view_the_bounds_blamed(self):
@@ -1813,6 +1886,26 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+
+    def test_query_edit_builds_one_database_for_the_caller_and_one_for_lineage(self) -> None:
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event as event from events"}},
+        ).json()
+        triggers = ("saved_query_save", "saved_query_dag_sync", "printer", "direct")
+        builds_before = {trigger: _hogql_database_builds(trigger) for trigger in triggers}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select distinct_id as distinct_id from events"},
+                "edited_history_id": created["latest_history_id"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        builds = {trigger: _hogql_database_builds(trigger) - builds_before[trigger] for trigger in triggers}
+        self.assertEqual(builds, {"saved_query_save": 1, "saved_query_dag_sync": 1, "printer": 0, "direct": 0})
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(

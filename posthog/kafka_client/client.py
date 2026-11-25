@@ -8,7 +8,6 @@ points for producing are in `posthog.kafka_client.routing`:
 * `new_async_producer(topic=...)` for long-lived async producers
 """
 
-import os
 import json
 import time
 import asyncio
@@ -224,12 +223,6 @@ class _KafkaProducer:
         enable_idempotence=False,
         producer_settings: Optional[dict[str, Any]] = None,
     ):
-        hostname = os.environ.get("HOSTNAME", "")
-        if "temporal-worker-data-warehouse" in hostname:
-            import traceback
-
-            logger.info(f"KafkaProducer stack: {traceback.format_stack()}")
-
         if settings.TEST:
             test = True  # Set at runtime so that overriden settings.TEST is supported
         default_profile = settings.KAFKA_PROFILES["default"]

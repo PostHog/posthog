@@ -7,14 +7,14 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.jumpcloud.settings import JUMPCLOUD_ENDPOINTS, JumpcloudEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
-    retry_with_deadline,
+    raise_for_retryable_status,
+    vendor_retry,
 )
 
 # JumpCloud hosts its EU tenants on separate regional bases.
@@ -37,13 +37,6 @@ EVENTS_PAGE_SIZE = 1000
 DEFAULT_EVENTS_LOOKBACK_DAYS = 90
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
-
-
-class JumpcloudRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 @dataclasses.dataclass(frozen=False)
@@ -97,28 +90,7 @@ def _format_rfc3339(value: Any) -> str:
     return str(value)
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """JumpCloud sends ``Retry-After`` in whole seconds on 429. Ignore HTTP-date forms."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Honor a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, JumpcloudRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
-@retry_with_deadline(
-    retry=retry_if_exception_type((JumpcloudRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=_retry_wait,
-    reraise=True,
-)
+@vendor_retry(attempts=MAX_RETRIES)
 def _request(
     session: requests.Session,
     method: str,
@@ -131,12 +103,7 @@ def _request(
     # header is stripped), leaking the credential.
     response = session.request(method, url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
 
-    if response.status_code == 429 or response.status_code >= 500:
-        retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-        raise JumpcloudRetryableError(
-            f"JumpCloud API error (retryable): status={response.status_code}, url={url}",
-            retry_after=retry_after,
-        )
+    raise_for_retryable_status(response, vendor="JumpCloud", url=url)
 
     # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
     # silently parsing the redirect body as data.
@@ -204,9 +171,12 @@ def _fetch_rest_page(
     skip: int,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"limit": _page_size(config), "skip": skip}
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params = {"limit": _page_size(config), config.offset_param: skip}
     if config.sort:
         params["sort"] = config.sort
+    params.update(config.params)
     url = f"{base_url}{path}?{urlencode(params)}"
 
     response = _request(session, "GET", url, logger)
@@ -246,7 +216,7 @@ def _get_rest_rows(
         yield rows
 
         # A short page means we've reached the end of the resource.
-        if len(rows) < _page_size(config):
+        if not config.paginated or len(rows) < _page_size(config):
             break
 
         skip += len(rows)
@@ -279,7 +249,7 @@ def _get_child_rows(
 
         yield rows
 
-        if len(rows) < _page_size(config):
+        if not config.paginated or len(rows) < _page_size(config):
             return
         skip += len(rows)
 

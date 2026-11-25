@@ -43,8 +43,17 @@ const tabScopedEmptyState: SceneProductEmptyState = {
     scenes: [{ scene: Scene.Workflows, tabs: [undefined, 'workflows'] }],
 }
 
+const mockMarkBootPhase = jest.fn()
+jest.mock('lib/utils/bootTiming', () => ({
+    ...jest.requireActual('lib/utils/bootTiming'),
+    markBootPhase: (...args: unknown[]) => mockMarkBootPhase(...args),
+}))
+
+const bootPhasesByFirstMark = (): string[] => [...new Set(mockMarkBootPhase.mock.calls.map(([phase]) => phase))]
+
 describe('ProductEmptyStateGate', () => {
     beforeEach(() => {
+        mockMarkBootPhase.mockClear()
         useMocks({
             get: {
                 '/_preflight/': { cloud: false },
@@ -74,10 +83,30 @@ describe('ProductEmptyStateGate', () => {
         await act(async () => {})
         expect(scene.getReadyVersion()).toBeNull()
         expect(screen.queryByText('the real scene')).toBeNull()
+        expect(bootPhasesByFirstMark()).toEqual(['empty_state_gate_mounted', 'empty_state_gate_flags_ready'])
 
         await act(async () => setup.actions.setDetectedStatus('has-data'))
         expect(scene.getReadyVersion()).not.toBeNull()
         expect(screen.getByText('the real scene')).not.toBeNull()
+        expect(mockMarkBootPhase).toHaveBeenLastCalledWith('empty_state_gate_resolved', {
+            empty_state_gate_render: 'scene',
+        })
+    })
+
+    it.each([
+        [
+            'a status known at mount',
+            emptyState,
+            ['empty_state_gate_mounted', 'empty_state_gate_flags_ready', 'empty_state_gate_resolved'],
+        ],
+        ['an inactive gate', tabScopedEmptyState, ['empty_state_gate_mounted', 'empty_state_gate_flags_ready']],
+    ])('marks the gate phases in order for %s', (_, gatedEmptyState, expectedPhases) => {
+        render(
+            <ProductEmptyStateGate emptyState={gatedEmptyState}>
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+        expect(bootPhasesByFirstMark()).toEqual(expectedPhases)
     })
 
     it.each([
