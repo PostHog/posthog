@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -111,6 +112,7 @@ def _send_data(send: WorkflowEmailSend) -> dict[str, Any]:
 
 class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "activity"]
 

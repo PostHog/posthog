@@ -2,7 +2,10 @@ from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
 from unittest.mock import patch
+
+from django.core.cache import cache
 
 from posthog.models.integration import Integration
 
@@ -12,6 +15,7 @@ from products.slack_app.backend.logic.daily_focus import (
     daily_focus_access,
     next_run_after,
     previous_run_before,
+    turn_on_daily_focus_on_mention,
 )
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
@@ -153,3 +157,45 @@ def test_daily_focus_access_tells_a_relink_from_no_access(
 
     with patch("posthoganalytics.feature_enabled", side_effect=lambda key, *a, **k: flags[key]):
         assert daily_focus_access(workspace_integration, SLACK_USER_ID) is expected
+
+
+@pytest.mark.parametrize(
+    "turned_off_before, expected_next_run",
+    [(False, datetime(2026, 11, 10, 8, 0, tzinfo=UTC)), (True, None)],
+    ids=["never chose", "turned it off"],
+)
+@pytest.mark.django_db
+def test_a_mention_turns_it_on_once_a_day_for_a_person_who_never_chose(
+    workspace_integration, link_user, org_team_user, turned_off_before, expected_next_run
+) -> None:
+    _, team, user = org_team_user
+    cache.clear()
+    link_user(user, user_scopes="search:read.public")
+    SlackUserProfileCache.objects.create(
+        integration=workspace_integration,
+        slack_user_id=SLACK_USER_ID,
+        tz="Europe/Prague",
+        refreshed_at=datetime(2026, 11, 9, 11, 30, tzinfo=UTC),
+    )
+    if turned_off_before:
+        SlackDailyFocus.objects.for_team(team.id).create(
+            team_id=team.id,
+            slack_workspace_id=SLACK_TEAM_ID,
+            slack_user_id=SLACK_USER_ID,
+            integration_id=workspace_integration.id,
+            next_run_at=None,
+        )
+
+    with (
+        time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False),
+        patch("posthoganalytics.feature_enabled", return_value=True) as flag,
+        patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
+    ):
+        turn_on_daily_focus_on_mention(workspace_integration, SLACK_USER_ID)
+        checks = flag.call_count
+        # The rest of the day's mentions cost a cache read: no row read, no flag check.
+        turn_on_daily_focus_on_mention(workspace_integration, SLACK_USER_ID)
+        assert flag.call_count == checks
+
+    row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
+    assert row.next_run_at == expected_next_run

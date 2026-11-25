@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import tracemalloc
@@ -409,6 +410,50 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert converted.text.endswith("{% endif %} (https://example.com/a)")
         converted = convert_version({"html_content": "<a href='-link-'>Go</a>"}, generation="legacy")
         assert converted.text.startswith("Go ({% if variables.link == nil %}-link-{% else %}")
+
+    @parameterized.expand(
+        [
+            ("triple", "{{{first_name}}}"),
+            ("ampersand", "{{& first_name}}"),
+            ("insert", '{{{insert first_name "default=x"}}}'),
+            ("in_a_loop", "{{#each tags}}{{{this}}}{{/each}}"),
+        ]
+    )
+    def test_a_contact_field_never_prints_html(self, _name: str, html: str) -> None:
+        unescaped = re.compile(r"(?:join: \",\"|default: \"x\") \| raw \}\}")
+        assert unescaped.search(convert_version({"html_content": html}).html)
+        converted = convert_version({"html_content": html}, contact_fields=True)
+
+        assert "person.properties." in converted.html
+        assert not unescaped.search(converted.html)
+
+    @parameterized.expand(
+        [
+            ("single_send", True, "person.properties"),
+            ("dynamic", False, "variables"),
+        ]
+    )
+    def test_contact_fields_read_the_person_and_a_send_reads_its_variables(
+        self, _name: str, contact_fields: bool, root: str
+    ) -> None:
+        converted = convert_version(
+            {
+                "subject": "Hi {{first_name}}",
+                "html_content": "<p>{{#if Plan}}{{Plan}}{{/if}} {{#if Sender_Name}}{{Sender_Name}}{{/if}} {{{unsubscribe}}}</p>",
+                "generate_plain_content": False,
+                "plain_content": "{{Plan}}",
+            },
+            contact_fields=contact_fields,
+        )
+
+        assert converted.subject == f'Hi {{{{ {root}.first_name | join: "," }}}}'
+        assert f'{{{{ {root}.Plan | join: "," }}}}' in converted.html
+        assert f"{{% if {root}.Plan" in converted.html
+        assert "{% if variables.Sender_Name" in converted.html
+        assert "{{ variables.Sender_Name" in converted.html
+        assert "{{ unsubscribe_url }}" in converted.html
+        assert converted.text == f'{{{{ {root}.Plan | join: "," }}}}'
+        assert any("print the person's property" in note for note in converted.send_notes) == contact_fields
 
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (

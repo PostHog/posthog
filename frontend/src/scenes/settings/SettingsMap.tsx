@@ -92,6 +92,7 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
+import { SlackAppPersonalSettings } from 'products/slack_app/frontend/settings/SlackAppPersonalSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -2223,6 +2224,28 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Exports',
         to: urls.exports(),
         settings: [],
+    },
+    {
+        level: 'environment',
+        id: 'environment-slack-app',
+        title: 'Slack app',
+        flag: 'SLACK_APP_WEB_SETTINGS',
+        keywords: ['slack', 'reactions', 'channel', 'thread', 'mention'],
+        settings: [
+            {
+                id: 'slack-app-personal',
+                title: (
+                    <>
+                        My Slack settings
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'My Slack settings',
+                description: 'How PostHog works for you when you use it in Slack.',
+                component: <SlackAppPersonalSettings />,
+                keywords: ['slack', 'project', 'thread', 'model', 'tips', 'personal'],
+            },
+        ],
     },
     {
         level: 'environment',

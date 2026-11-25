@@ -21,7 +21,11 @@ from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -195,6 +199,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert results[0]["template_name"] == "Password reset"
         assert results[0]["sending_domain"] == "mail.example.com"
+
+    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    def test_send_list_follows_property_access(self, _flag, access: PropertyAccess, expected: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        message_id = self._send(10, "a@example.com", [("sent", 1, "")])
+
+        responses = [
+            self.client.get(self._url()),
+            self.client.get(self._url(f"{message_id}/")),
+            self.client.get(self._url(f"{message_id}/activity/")),
+            self.client.get(self._url("stats/")),
+        ]
+
+        assert [response.status_code == 403 for response in responses] == [expected == 403] * 4
 
     @parameterized.expand(
         [
