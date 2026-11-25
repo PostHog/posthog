@@ -381,7 +381,7 @@ const effectsOf = (request: DeliveryRecord): Effect[] =>
           ])
     ).map((recipient) => ({ recipient, flowId: request.flowId, request }))
 
-const REPEAT = 'a lease reclaim or a retry inside the job'
+const REPEAT = 'a lease reclaim, a retry inside the job, or a new job under the same id'
 
 function resentPathOf(sends: readonly Effect[]): string | undefined {
     const requests = [...new Set(sends.map(({ request }) => request))]
@@ -391,13 +391,13 @@ function resentPathOf(sends: readonly Effect[]): string | undefined {
     }
     const repeated = [...byJob.values()].filter(({ length }) => length > 1).length
     if (repeated === 0) {
-        return `${byJob.size} jobs sent it: a replay before the queue`
+        return `${byJob.size} invocation ids sent it: a replay before the queue`
     }
     if (byJob.size === 1) {
-        return `one job sent it each time: ${REPEAT}`
+        return `one invocation id sent it each time: ${REPEAT}`
     }
     const repeaters = repeated === 1 ? 'one of them' : `${repeated} of them`
-    return `${byJob.size} jobs sent it, ${repeaters} more than once: a replay before the queue, and ${REPEAT}`
+    return `${byJob.size} invocation ids sent it, ${repeaters} more than once: a replay before the queue, and ${REPEAT}`
 }
 
 const requestsOf = (sends: readonly Effect[]): number => new Set(sends.map(({ request }) => request)).size

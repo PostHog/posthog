@@ -507,7 +507,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one invocation id sent it each time: a lease reclaim, a retry inside the job, or a new job under the same id)`,
                 missing: [],
                 extra: [UNIT],
             },
@@ -553,7 +553,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 2,
-                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one invocation id sent it each time: a lease reclaim, a retry inside the job, or a new job under the same id)`,
                 missing: [UNIT],
                 extra: [UNIT],
             },
@@ -687,19 +687,19 @@ describe('judge', () => {
             'by one job',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a']),
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one invocation id sent it each time: a lease reclaim, a retry inside the job, or a new job under the same id)`,
         ],
         [
             'by two jobs',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (2 invocation ids sent it: a replay before the queue)`,
         ],
         [
             'by two jobs, one of them twice',
             offered(),
             sendsFrom(['flow-1', 'invocation-a'], ['flow-1', 'invocation-a'], ['flow-1', 'invocation-b']),
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 jobs sent it, one of them more than once: a replay before the queue, and a lease reclaim or a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 invocation ids sent it, one of them more than once: a replay before the queue, and a lease reclaim, a retry inside the job, or a new job under the same id)`,
         ],
         [
             'by two jobs, both twice',
@@ -710,7 +710,7 @@ describe('judge', () => {
                 ['flow-1', 'invocation-b'],
                 ['flow-1', 'invocation-b']
             ),
-            `${UNIT} email to ${ADDRESS} from flow-1: accepted 4 times, expected 1 (2 jobs sent it, 2 of them more than once: a replay before the queue, and a lease reclaim or a retry inside the job)`,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 4 times, expected 1 (2 invocation ids sent it, 2 of them more than once: a replay before the queue, and a lease reclaim, a retry inside the job, or a new job under the same id)`,
         ],
         [
             'from the flow that resent, not the flow whose one request copies the recipient',
@@ -719,7 +719,7 @@ describe('judge', () => {
                 await deliver(UNIT, 'email', 'flow-1', [ADDRESS], 'invocation-a')
                 await sendsFrom(['flow-2', 'invocation-b'], ['flow-2', 'invocation-c'])()
             },
-            `${UNIT} email to ${ADDRESS} from flow-2: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
+            `${UNIT} email to ${ADDRESS} from flow-2: accepted 2 times, expected 1 (2 invocation ids sent it: a replay before the queue)`,
         ],
         [
             'never, when one request copies the recipient',
@@ -738,7 +738,7 @@ describe('judge', () => {
         await act()
         await judge.converge(20, NEVER_ABORTED)
 
-        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, { ...NO_RESETS, janitorResets: 1 })
 
         expect(result.violation).toBe(violation)
     })
@@ -755,7 +755,7 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
         expect(result.violation).toBe(
-            `${resentUnit} email to ${resentUnit}@${UNIT_EMAIL_DOMAIN} from flow-1: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`
+            `${resentUnit} email to ${resentUnit}@${UNIT_EMAIL_DOMAIN} from flow-1: accepted 2 times, expected 1 (2 invocation ids sent it: a replay before the queue)`
         )
     })
 
@@ -795,7 +795,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time: a lease reclaim or a retry inside the job)`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one invocation id sent it each time: a lease reclaim, a retry inside the job, or a new job under the same id)`,
                 missing: [],
                 extra: [UNIT],
             },
