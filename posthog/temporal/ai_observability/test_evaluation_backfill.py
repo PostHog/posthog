@@ -505,10 +505,18 @@ class TestEvaluationBackfillWorkflow:
                     evaluation["enabled"] = True
 
         assert [
-            (page.stop_reason, page.dispatched_delta, page.skipped_delta, page.completed_delta) for page in advances
+            (
+                page.stop_reason,
+                page.dispatched_delta,
+                page.skipped_delta,
+                page.completed_delta,
+                page.evaluation_skipped_delta,
+                page.failed_delta,
+            )
+            for page in advances
         ] == [
-            ("evaluation_disabled", 1, 0, 0),
-            (None, 1, 0, 1),
+            ("evaluation_disabled", 1, 0, 0, 0, 1),
+            (None, 1, 0, 1, 0, 0),
         ]
 
     @pytest.mark.asyncio

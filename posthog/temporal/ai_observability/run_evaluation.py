@@ -257,9 +257,6 @@ async def handle_terminal_user_error_result(
     )
 
 
-STOPPED_EVALUATION_ERROR_TYPES = frozenset({"evaluation_disabled", "evaluation_deleted"})
-
-
 def stopped_evaluation_error(evaluation: dict[str, Any]) -> NonReportableApplicationError:
     """The failure of a backfill run whose evaluation was disabled or deleted after the backfill started.
 
@@ -269,7 +266,12 @@ def stopped_evaluation_error(evaluation: dict[str, Any]) -> NonReportableApplica
     backfill reads the error type as its stop reason.
     """
     reason = "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled"
-    return NonReportableApplicationError(f"Backfill run stopped: {reason}", type=reason, non_retryable=True)
+    return NonReportableApplicationError(
+        f"Backfill run stopped: {reason}",
+        {"evaluation_type": evaluation.get("evaluation_type", "llm_judge")},
+        type=reason,
+        non_retryable=True,
+    )
 
 
 def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:

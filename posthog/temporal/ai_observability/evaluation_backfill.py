@@ -37,11 +37,14 @@ from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import USER_ERROR_SPECS, application_error_details
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
-from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
+from posthog.temporal.ai_observability.evaluation_types import (
+    EVALUATION_WORKFLOW_PREFIXES,
+    STOPPED_EVALUATION_ERROR_TYPES,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
-from posthog.temporal.ai_observability.run_evaluation import STOPPED_EVALUATION_ERROR_TYPES, WorkflowResult
+from posthog.temporal.ai_observability.run_evaluation import WorkflowResult
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import unwrap_temporal_cause
 
@@ -835,8 +838,11 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             if is_cancelled_exception(error) and not isinstance(error, ChildWorkflowError):
                 raise
             stop_reason = _failed_run_stop_reason(error)
-            if temporalio.workflow.patched("evaluation-backfill-stopped-run-fails-2026-11") and stop_reason:
-                return BackfillChildOutcome(outcome=ChildOutcome.SKIPPED, stop_reason=stop_reason)
+            # The SDK memoizes patched() per run, so calling it for an ordinary failure replayed from
+            # before the deploy would pin it to False for a later stop. A stopped run holds no
+            # workflow id, so it counts as failed and Retry remaining runs it again.
+            if stop_reason and temporalio.workflow.patched("evaluation-backfill-stopped-run-fails-2026-11"):
+                return BackfillChildOutcome(outcome=ChildOutcome.FAILED, stop_reason=stop_reason)
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
             )
