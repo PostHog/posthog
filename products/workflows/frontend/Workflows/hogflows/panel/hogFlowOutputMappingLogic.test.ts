@@ -587,6 +587,7 @@ describe('hogFlowOutputMappingLogic', () => {
             it.each([
                 ['a name another field already uses', 'summary'],
                 ['an empty name on a saved field', ''],
+                ['a name the task result reserves', 'ci_status'],
             ])('refuses %s and leaves every variable alone', async (_case, name) => {
                 // Field names differ from their variables, so the check has to compare field names.
                 const variables = [

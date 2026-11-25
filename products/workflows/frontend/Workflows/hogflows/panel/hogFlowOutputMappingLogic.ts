@@ -31,6 +31,18 @@ export function sanitizeVariableKey(key: string): string {
     return key.replace(/[^A-Za-z0-9_]+/g, '_')
 }
 
+// Names the task result uses for itself (RUN_OUTPUT_RESERVED_KEYS in the tasks API), which it refuses as fields.
+const RESERVED_AGENT_FIELD_NAMES = new Set([
+    'final_message',
+    'pr_url',
+    'pr_urls',
+    'head_branches',
+    'pr_state',
+    'pr_merged',
+    'ci_status',
+    'commit_push',
+])
+
 // The tasks API also rejects a leading digit, so an agent field name gets an underscore in front.
 export function sanitizeAgentFieldName(name: string): string {
     return sanitizeVariableKey(name).replace(/^(\d)/, '_$1').slice(0, 64)
@@ -301,7 +313,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     // A new field names its variable too; an existing one keeps the variable later steps read.
                     const key = state[index].key || name
                     // Clearing a saved field's name would turn it into a mapping of the whole result.
-                    if (!name && state[index].key) {
+                    if ((!name && state[index].key) || RESERVED_AGENT_FIELD_NAMES.has(name)) {
                         return state
                     }
                     const isNew = !state[index].key
