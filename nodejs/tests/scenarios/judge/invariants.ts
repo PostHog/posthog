@@ -369,13 +369,26 @@ function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, 
     return { min: flows, max: flows }
 }
 
-type Effect = { recipient: string; flowId?: string }
+type Effect = { recipient: string; flowId?: string; invocationId?: string }
 
-const effectsOf = ({ kind, detail, flowId }: DeliveryRecord): Effect[] =>
+const effectsOf = ({ kind, detail, flowId, invocationId }: DeliveryRecord): Effect[] =>
     (kind === 'webhook'
         ? [detail.request?.host ?? '']
         : addressesOf([...(detail.message?.to ?? []), ...(detail.message?.cc ?? []), ...(detail.message?.bcc ?? [])])
-    ).map((recipient) => ({ recipient, flowId }))
+    ).map((recipient) => ({ recipient, flowId, invocationId }))
+
+function resentPathOf(sends: readonly Effect[], janitorResets: number): string | undefined {
+    const jobs = new Set(sends.map(({ invocationId }) => invocationId))
+    if (sends.length < 2 || jobs.has(undefined)) {
+        return undefined
+    }
+    if (jobs.size > 1) {
+        return `${jobs.size} jobs sent it: a replay before the queue`
+    }
+    return janitorResets > 0
+        ? `one job sent it each time, and the janitor reset ${plural(janitorResets, 'job')}: a lease reclaim`
+        : 'one job sent it each time, and the janitor reset no job: a retry inside the job'
+}
 
 type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
 
@@ -387,13 +400,14 @@ type Excess = {
     accepted: number
     expected: number
     excess: number
+    path?: string
 }
 
 const shortfallOf = ({ unitId, actionId, recipient, flows, expected }: Shortfall): string =>
     `${unitId} ${actionId}${recipient === undefined ? '' : ` to ${recipient}`}: accepted ${expected > 1 ? `from ${plural(flows, 'flow')}` : plural(flows, 'time')} by the recovery horizon, expected ${expected}`
 
-const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected }: Excess): string =>
-    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}`
+const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected, path }: Excess): string =>
+    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}${path === undefined ? '' : ` (${path})`}`
 
 export const noLoss: InvariantDefinition = {
     name: 'no_loss',
@@ -448,6 +462,7 @@ export const noLoss: InvariantDefinition = {
                             actionId,
                             recipient,
                             excess,
+                            path: resentPathOf(resent?.[1] ?? sends, evidence.janitorResets),
                             ...(resent
                                 ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
                                 : { accepted: sends.length, expected: max }),

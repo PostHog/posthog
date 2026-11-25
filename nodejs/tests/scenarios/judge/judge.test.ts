@@ -119,7 +119,13 @@ describe('judge', () => {
         await edge.close()
     })
 
-    const deliver = (unitId: string, actionId = 'email', flowId = 'flow-1', cc: string[] = []): Promise<unknown> =>
+    const deliver = (
+        unitId: string,
+        actionId = 'email',
+        flowId = 'flow-1',
+        cc: string[] = [],
+        invocationId = `invocation-${unitId}`
+    ): Promise<unknown> =>
         ses
             .send(
                 new SendEmailCommand({
@@ -134,7 +140,7 @@ describe('judge', () => {
                                     Name: 'X-PostHog-Tracking-Code',
                                     Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
                                         functionId: flowId,
-                                        id: `invocation-${unitId}`,
+                                        id: invocationId,
                                         teamId: 7,
                                         state: { actionId },
                                     }),
@@ -501,7 +507,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
                 missing: [],
                 extra: [UNIT],
             },
@@ -547,7 +553,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 2,
-                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
                 missing: [UNIT],
                 extra: [UNIT],
             },
@@ -668,6 +674,26 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', ...expected })
     })
 
+    it.each<[string, string[], number, string]>([
+        [
+            'by one job in a run whose janitor reset a job',
+            ['invocation-a', 'invocation-a'],
+            1,
+            'one job sent it each time, and the janitor reset 1 job: a lease reclaim',
+        ],
+        ['by two jobs', ['invocation-a', 'invocation-b'], 0, '2 jobs sent it: a replay before the queue'],
+    ])('no_loss names the path that resent a unit %s', async (_story, invocations, janitorResets, path) => {
+        judge.record(offered())
+        for (const invocationId of invocations) {
+            await deliver(UNIT, 'email', 'flow-1', [], invocationId)
+        }
+        await judge.converge(20, NEVER_ABORTED)
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, { ...NO_RESETS, janitorResets })
+
+        expect(result.violation).toBe(`${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (${path})`)
+    })
+
     const onFinalPages =
         (...sends: Array<() => Promise<unknown>>) =>
         async (): Promise<void> => {
@@ -704,7 +730,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1 (one job sent it each time, and the janitor reset no job: a retry inside the job)`,
                 missing: [],
                 extra: [UNIT],
             },
