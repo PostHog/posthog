@@ -327,6 +327,8 @@ Two events that hold the same object therefore hold the same string, so grouping
 A single-property read returns that text, and a constant starting with `[` or `{` compares with it like any other constant.
 A read of a value inside an object or an array extracts it from the property's text, as the legacy table extracts it from the raw document.
 `IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.
+`IS NULL`, `IS NOT NULL`, `isNull` and `isNotNull` on a Numeric, Boolean or DateTime property test the stored value on both tables, without the conversion to the definition type.
+A stored value that the conversion cannot read, such as text in a Numeric property, counts as set.
 Whole-document reads put each stored object and array back and still remove declared defaults.
 A string that is a valid JSON object or array reads as that object or array, because nothing records whether the cleaner stored it or the SDK sent that text.
 An empty property name uses a bound `getSubcolumn` call because ClickHouse rejects empty SQL identifiers.

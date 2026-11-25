@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -174,6 +175,8 @@ STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOr
 # `JSONExtractArrayRaw(properties.items ?? '[]')`.
 NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
 
+NULL_TEST_FUNCTIONS = frozenset({"isNull", "isNotNull"})
+
 
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
@@ -217,6 +220,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
         self._string_compared_operand_ids: frozenset[int] = frozenset()
+        self._null_tested_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
 
@@ -321,6 +325,10 @@ class PropertySwapper(CloningVisitor):
             saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
         )
 
+        saved_null_tested = self._null_tested_operand_ids
+        if node.name in NULL_TEST_FUNCTIONS and len(node.args) == 1:
+            self._null_tested_operand_ids = saved_null_tested | self._field_operand_ids([node.args[0]])
+
         self._inside_call_depth += 1
         try:
             if node.name in JSON_FUNCTIONS and node.args:
@@ -330,6 +338,7 @@ class PropertySwapper(CloningVisitor):
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
+            self._null_tested_operand_ids = saved_null_tested
 
         return self._maybe_extract_exception_string_array(result)
 
@@ -569,11 +578,14 @@ class PropertySwapper(CloningVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         saved_operand_ids = self._string_compared_operand_ids
+        saved_null_tested = self._null_tested_operand_ids
         self._string_compared_operand_ids = saved_operand_ids | self._string_compared_operand_ids_for(node)
+        self._null_tested_operand_ids = saved_null_tested | self._null_tested_operand_ids_for(node)
         try:
             result = super().visit_compare_operation(node)
         finally:
             self._string_compared_operand_ids = saved_operand_ids
+            self._null_tested_operand_ids = saved_null_tested
 
         if (
             not self.setTimeZones
@@ -595,13 +607,36 @@ class PropertySwapper(CloningVisitor):
         """
         if node.op not in cls._EQUALITY_OPS:
             return frozenset()
+        return cls._field_operand_ids(
+            operand
+            for operand, other in ((node.left, node.right), (node.right, node.left))
+            if isinstance(other, ast.Constant) and other.value == ""
+        )
+
+    @classmethod
+    def _null_tested_operand_ids_for(cls, node: ast.CompareOperation) -> frozenset[int]:
+        """Find the operand of an equality check against NULL that is itself a field.
+
+        A null test asks whether the property holds a value. A typed conversion returns NULL for a stored value
+        that it cannot convert, such as text or an object in a Numeric property, so the converted read reports
+        that value as not set. The property must stay unconverted for this comparison.
+        """
+        if node.op not in cls._EQUALITY_OPS:
+            return frozenset()
+        return cls._field_operand_ids(
+            operand
+            for operand, other in ((node.left, node.right), (node.right, node.left))
+            if isinstance(other, ast.Constant) and other.value is None
+        )
+
+    @staticmethod
+    def _field_operand_ids(operands: Iterable[ast.Expr]) -> frozenset[int]:
         operand_ids: set[int] = set()
-        for operand, other in ((node.left, node.right), (node.right, node.left)):
-            if isinstance(other, ast.Constant) and other.value == "":
-                while isinstance(operand, ast.Alias):
-                    operand = operand.expr
-                if isinstance(operand, ast.Field):
-                    operand_ids.add(id(operand))
+        for operand in operands:
+            while isinstance(operand, ast.Alias):
+                operand = operand.expr
+            if isinstance(operand, ast.Field):
+                operand_ids.add(id(operand))
         return frozenset(operand_ids)
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
@@ -838,7 +873,8 @@ class PropertySwapper(CloningVisitor):
         # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
         # toFloatOrDefault). Those ClickHouse functions require a String argument, so
         # leave the raw materialized-column/JSON value in place rather than casting it.
-        if self._suppress_numeric_conversion:
+        # A null test also reads the stored value, because a conversion that fails would report it as not set.
+        if self._suppress_numeric_conversion or id(node) in self._null_tested_operand_ids:
             return node
 
         # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
