@@ -45,12 +45,14 @@ function channelsDecorator(channels: Record<string, unknown>[]): ReturnType<type
             '/api/projects/:team_id/integrations/': INTEGRATIONS,
             '/api/projects/:team_id/slack_app_settings/:id/': SETTINGS,
             '/api/projects/:team_id/slack_app_settings/:id/channels/': { channels },
-            '/api/projects/:team_id/slack_app_workspace_setup/:id/channels/': {
+            '/api/environments/:team_id/integrations/:id/channels': {
                 channels: [
-                    { id: 'C1', name: 'support', is_member: true },
-                    { id: 'C2', name: 'team-mobile', is_member: true },
-                    { id: 'C3', name: 'random', is_member: true },
+                    { id: 'C1', name: 'support', is_private: false, is_ext_shared: false, is_member: true },
+                    { id: 'C2', name: 'team-mobile', is_private: true, is_ext_shared: false, is_member: true },
+                    { id: 'C3', name: 'random', is_private: false, is_ext_shared: false, is_member: true },
+                    { id: 'C4', name: 'partner-acme', is_private: false, is_ext_shared: true, is_member: true },
                 ],
+                lastRefreshedAt: '2023-01-10T00:00:00Z',
             },
         },
     })
@@ -75,6 +77,14 @@ export const WithChannels: Story = {
                 untagged_question_mode: 'auto',
                 updated_by_name: 'Jamie',
                 updated_at: '2023-01-08T10:00:00Z',
+            },
+            {
+                slack_channel_id: 'C2',
+                default_integration_id: 8,
+                default_repository: 'hedgebox/mobile',
+                untagged_question_mode: null,
+                updated_by_name: 'Alex',
+                updated_at: '2023-01-09T10:00:00Z',
             },
             {
                 slack_channel_id: 'C3',
