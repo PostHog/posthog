@@ -1310,10 +1310,17 @@ class TestTransactionalEmail(APIBaseTest):
                 {"category": {**NEWSLETTER, "description": "x" * 1001}, "html": UNSUBSCRIBE_HTML},
                 "max_length",
             ),
+            (
+                "unknown_field",
+                None,
+                {"category": {**NEWSLETTER, "extra_setting": True}, "html": UNSUBSCRIBE_HTML},
+                "invalid_input",
+                "category__extra_setting",
+            ),
         ]
     )
     def test_refuses_a_code_send_in_a_category_it_cant_send_in(
-        self, cdp_post, _flag, capture, _name, make_category, fields, expected_code
+        self, cdp_post, _flag, capture, _name, make_category, fields, expected_code, expected_attr=None
     ):
         self._use_fakes(cdp_post, capture)
         if make_category:
@@ -1331,6 +1338,8 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
+        if expected_attr is not None:
+            assert response.json()["attr"] == expected_attr
         assert self.cdp.received == []
         assert self._sandbox_senders() == sandbox_senders_before
         assert (
