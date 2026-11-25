@@ -25,7 +25,7 @@ export function AgentProjectInstructionsSettings(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const Editor = todayRailNav ? QuillInstructionsEditor : InstructionsEditor
-    const selfDrivingUrl = `${urls.inbox('settings')}#steering`
+    const selfDrivingUrl = urls.settings('environment-self-driving', 'self-driving-steering')
 
     return (
         <div className="flex flex-col gap-2">

@@ -41,16 +41,20 @@ describe('inbox report urls', () => {
             ['archived', urls.inbox('reports')],
             ['not-actionable', urls.inbox('reports')],
             ['runs', urls.inboxRuns()],
-            ['config', urls.inbox('settings')],
+            ['config', urls.settings('environment-self-driving')],
+            ['settings', urls.settings('environment-self-driving')],
             // Live segments and bare report ids are left for their own route handlers.
             ['reports', null],
             ['scouts', null],
             ['sources', null],
-            ['settings', null],
             ['0198a1b2-report-id', null],
             [undefined, null],
         ])('maps %s', (tab, path) => {
             expect(inboxTabRedirectPath(tab)).toBe(path)
+        })
+
+        it.each(['config', 'settings'])('sends a scout template link on %s to the Scouts tab', (tab) => {
+            expect(inboxTabRedirectPath(tab, {}, { createScout: 'payload' })).toBe(urls.inbox('scouts'))
         })
     })
 })

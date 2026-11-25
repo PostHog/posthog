@@ -50,7 +50,7 @@ function SlackCardHeader({ title, description }: { title: string; description: R
     )
 }
 
-/** The Settings tab separates these cards with rules inside its own card. */
+/** The settings page separates these cards with rules inside the Notifications setting. */
 const SLACK_CARD_CLASS_NAME = 'flex flex-col gap-3 border-b border-primary py-2.5 first:pt-0 last:border-b-0 last:pb-0'
 
 /** Shown when there's no Slack workspace connected – links out to integration settings. */
