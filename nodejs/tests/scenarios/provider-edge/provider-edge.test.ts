@@ -249,6 +249,20 @@ describe('provider edge', () => {
         )
     })
 
+    it('holds the next send for an armed accept boundary before a seeded share sees it', async () => {
+        const hold = edge.hold(heldAnswerRule())
+        edge.addFault({
+            ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } }),
+            pick: '1:0',
+        })
+
+        const answer = send(ALICE)
+        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+        await hold.release()
+
+        expect(await answer).toBe('sent')
+    })
+
     it('stops applying a fault once its time window passes', async () => {
         const start = Date.now()
         const clock = jest.spyOn(Date, 'now').mockReturnValue(start)

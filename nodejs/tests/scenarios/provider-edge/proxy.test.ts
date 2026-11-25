@@ -148,21 +148,26 @@ describe('provider edge proxy', () => {
     }
 
     it('picks a webhook that names no unit by its host and path alone, and lists no unit for it', async () => {
-        const hold = edge.hold({
-            ...ruleOf({ name: 'dest.status', params: { code: 503 }, dose: { share: 0.5 } }),
-            pick: '1:0',
-        })
+        const answerUnder = async (target: string): Promise<{ status: number; hits?: string[] }> => {
+            const hold = edge.hold({
+                ...ruleOf({ name: 'dest.status', params: { code: 503 }, dose: { share: 0.5 } }),
+                pick: '17:0',
+            })
+            const response = await request(`https://${WEBHOOK_HOST}${target}`, {
+                method: 'POST',
+                dispatcher: client,
+                body: '{}',
+            })
+            await response.body.text()
+            const hits = hold.hits?.()
+            await hold.release()
+            return { status: response.statusCode, hits }
+        }
 
-        const response = await request(`https://${WEBHOOK_HOST}/hook?sig=one`, {
-            method: 'POST',
-            dispatcher: client,
-            body: '{}',
-        })
-        await response.body.text()
-        const hits = hold.hits?.()
-        await hold.release()
-
-        expect({ status: response.statusCode, hits }).toEqual({ status: 503, hits: [] })
+        expect([await answerUnder('/hook?sig=one'), await answerUnder('/other?sig=one')]).toEqual([
+            { status: 503, hits: [] },
+            { status: 200, hits: [] },
+        ])
     })
 
     it('answers webhooks with the status of a dest.status valve until the valve releases', async () => {

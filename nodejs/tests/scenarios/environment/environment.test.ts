@@ -661,6 +661,7 @@ describe('scenario environment', () => {
                 otherCluster: withSetting({ DATABASE_URL: 'postgres://posthog:two@cluster-b:5432/posthog' }),
                 otherUser: withSetting({ DATABASE_URL: 'postgres://reader:one@cluster-a:5432/posthog' }),
                 certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
+                sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
             }).toEqual({
                 elsewhere: here,
                 settings: expect.not.stringMatching(here),
@@ -668,7 +669,8 @@ describe('scenario environment', () => {
                 processEnv: expect.not.stringMatching(here),
                 otherCluster: database,
                 otherUser: expect.not.stringMatching(database),
-                certificate: here,
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
+                sealingOff: expect.not.stringMatching(here),
             })
             expect(here).toMatch(/^[0-9a-f]{64}$/)
         })

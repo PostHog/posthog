@@ -65,22 +65,23 @@ export type RoleId = ReplicaOf<Role>
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN|CERT|SIGNING|_KEYS?$|_KEY_ID$/
-const URL_AUTHORITY = /\/\/(?:([^:/?#@\s]*)(?::[^/?#@\s]*)?@)?[^/?#\s]*/g
+const URL_HOST_AND_PASSWORD = /\/\/(?:([^:/?#@\s]*)(?::[^/?#@\s]*)?@)?[^/?#\s]*/g
 
-// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config,
-// and a run cluster's own host and generated password do not split runs on it, while its database user does.
+// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config.
+// A run cluster's own secrets, hosts and passwords do not split runs on it either, but an emptied secret does.
+const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
+    SECRET_SETTING.test(key)
+        ? value && 'set'
+        : value?.replace(URL_HOST_AND_PASSWORD, (_, user?: string) => (user ? `//${user}@` : '//'))
+
 export function configHashOf(specs: RoleSpec[]): string {
-    const read = [...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS]
-    const settings = new Set(read.filter((key) => !SECRET_SETTING.test(key)))
+    const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])
     const configs = specs.map(({ role, replica, env }) => [
         role,
         replica,
         Object.entries(env)
             .filter(([key]) => settings.has(key))
-            .map(([key, value]) => [
-                key,
-                value?.replace(URL_AUTHORITY, (_, user?: string) => (user ? `//${user}@` : '//')),
-            ])
+            .map(([key, value]) => [key, fingerprintOf(key, value)])
             .sort(([a], [b]) => a!.localeCompare(b!)),
     ])
     return createHash('sha256').update(JSON.stringify(configs)).digest('hex')
