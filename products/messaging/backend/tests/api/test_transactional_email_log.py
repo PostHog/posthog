@@ -25,7 +25,8 @@ from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import create_access_control, create_property_access_control
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -770,6 +771,22 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "sessions": sessions,
             "link_tagging_enabled": link_tagging_enabled,
         }
+
+    @parameterized.expand([("$current_url",), ("$session_id",)])
+    def test_leaves_sessions_unknown_when_the_user_cannot_read_the_landing_property(self, _flag, hidden_property):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=hidden_property, property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        create_property_access_control(team_id=self.team.id, property_definition_id=definition.id, access_level="none")
+        self.team.workflows_config.email_workflow_run_link_tag_enabled = True
+        self.team.workflows_config.save()
+        self._seed_impact_sends()
+
+        assert self._impact(date_from=(NOW - timedelta(days=29)).isoformat())["sessions"] is None
 
     def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
         self._seed_impact_sends()

@@ -64,7 +64,7 @@ tools:
             can be connected to the email, and sessions is null. sessions counts the sessions with a pageview from the
             email's links. Tell the user, and offer to turn link tagging on. Only after the user agrees, call
             project-settings-update with workflows_config set to {"email_workflow_run_link_tag_enabled": true}. Sends
-            from before the change stay unconnected.
+            from while link tagging was off stay unconnected.
     workflows-transactional-email-results:
         operation: transactional_email_log_results_retrieve
         enabled: true
