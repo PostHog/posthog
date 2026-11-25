@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -31,6 +31,7 @@ interface DashboardTileGroupTabsProps {
     getAddTileOptions?: (groupKey: string) => DashboardTileGroupMenuActions['addTileOptions']
     getEmptyGroupAddAction?: (groupKey: string) => React.ReactNode
     onAddGroup?: () => void
+    loading?: boolean
     children: React.ReactNode
 }
 
@@ -50,6 +51,7 @@ export function DashboardTileGroupTabs({
     getEmptyGroupAddAction,
     getAddTileOptions,
     onAddGroup,
+    loading = false,
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
@@ -162,7 +164,9 @@ export function DashboardTileGroupTabs({
                 )}
             </div>
             <TabsContent value={activeSectionKey}>
-                {activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (
+                {loading && activeSection?.tiles.length === 0 ? (
+                    <Skeleton className="h-64 w-full" aria-label="Loading dashboard tab" />
+                ) : activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (
                     <DashboardTileGroupEmptyTab
                         addAction={getEmptyGroupAddAction?.(activeSection.groupKey)}
                         onRemove={activeMenuActions.onRemove}
