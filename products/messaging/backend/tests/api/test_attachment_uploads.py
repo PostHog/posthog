@@ -16,18 +16,18 @@ from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.token_bucket import Budget, consume
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.presentation.views import message_templates
 from products.messaging.backend.presentation.views.attachment_uploads import (
     AttachmentUploadBurstThrottle,
     AttachmentUploadsRequestSerializer,
     AttachmentUploadTeamBurstThrottle,
-)
-from products.messaging.backend.presentation.views.message_templates import (
-    TransactionalEmailBurstThrottle,
-    TransactionalEmailTeamBurstThrottle,
 )
 
 INVOICE = "a" * 64
@@ -262,13 +262,15 @@ class TestAttachmentUploads(APIBaseTest):
         mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
         client = self._psak_client(["transactional_email:write"]) if auth == "project_secret_api_key" else self.client
 
+        is_rate_limit_enabled.cache_clear()
+        self.addCleanup(is_rate_limit_enabled.cache_clear)
         with (
-            patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
-            patch.object(TransactionalEmailBurstThrottle, "rate", "0/minute"),
-            patch.object(TransactionalEmailTeamBurstThrottle, "rate", "0/minute"),
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=1, per_hour=1)),
             patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
             patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
         ):
+            consume(f"transactional_email_send:{self.team.id}", Budget(burst=1, per_hour=1))
             statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]

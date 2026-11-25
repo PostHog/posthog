@@ -50,12 +50,6 @@ from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
     RemoteConfigThrottle,
 )
-from products.messaging.backend.presentation.views.message_templates import (
-    TransactionalEmailBurstThrottle,
-    TransactionalEmailSustainedThrottle,
-    TransactionalEmailTeamBurstThrottle,
-    TransactionalEmailTeamSustainedThrottle,
-)
 
 
 class TestUserAPI(APIBaseTest):
@@ -1075,6 +1069,16 @@ class TestProjectSecretApiKeyTeamRateThrottle(SimpleTestCase):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
 
 
+class _PrimaryPSAKThrottleForTest(_PSAKThrottleForTest):
+    scope = "test_psak_primary"
+    reads_history_from_primary = True
+
+
+class _PrimaryPSAKTeamThrottleForTest(_PSAKTeamThrottleForTest):
+    scope = "test_psak_team_primary"
+    reads_history_from_primary = True
+
+
 _SendThrottle = rate_limit.PersonalOrProjectSecretApiKeyRateThrottle | rate_limit.ProjectSecretApiKeyTeamRateThrottle
 
 
@@ -1190,10 +1194,8 @@ class TestReserveUnits(BaseTest):
 
     @parameterized.expand(
         [
-            ("burst", TransactionalEmailBurstThrottle, "60"),
-            ("sustained", TransactionalEmailSustainedThrottle, "60"),
-            ("team_burst", TransactionalEmailTeamBurstThrottle, "60"),
-            ("team_sustained", TransactionalEmailTeamSustainedThrottle, "60"),
+            ("per_key_reading_the_primary", _PrimaryPSAKThrottleForTest, "60"),
+            ("per_team_reading_the_primary", _PrimaryPSAKTeamThrottleForTest, "60"),
             ("a_throttle_that_reads_the_replica", _PSAKThrottleForTest, None),
         ]
     )

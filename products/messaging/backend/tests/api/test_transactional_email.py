@@ -1,5 +1,7 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
+from datetime import timedelta
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -9,13 +11,12 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
-from django.core.cache import caches
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import requests
-from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -28,10 +29,11 @@ from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, Us
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
-from posthog.rate_limit import is_rate_limit_enabled
-from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
+from posthog.rate_limit import get_route_from_path, get_team_allow_list, is_rate_limit_enabled
+from posthog.token_bucket import Budget
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -39,12 +41,12 @@ from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.presentation.views import message_templates
 from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
-    TransactionalEmailBurstThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -860,31 +862,56 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
-        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+        [
+            ("lowest_tier", 0, False, None, "secret_key", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("top_tier", 7, False, None, "secret_key", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_on_the_bypass_list", 0, True, None, "secret_key", status.HTTP_202_ACCEPTED),
+            ("top_tier_while_the_cache_is_down", 7, False, "cache_down", "secret_key", status.HTTP_202_ACCEPTED),
+            (
+                "lowest_tier_while_the_tier_lookup_fails",
+                0,
+                False,
+                "lookup_fails",
+                "secret_key",
+                status.HTTP_202_ACCEPTED,
+            ),
+            ("lowest_tier_signed_in_to_the_app", 0, False, None, "session", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_with_an_oauth_token", 0, False, None, "oauth", status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
     )
-    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, listed, third_status
+    def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
+        self, mock_post, _flag, _capture, _name, tier, bypass, fault, credential, third_status
     ):
         self._cdp_accepts(mock_post)
-        client = self._sender_client("secret_key")
-        other_team = self.team.id + 1
-        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
+        client = self.client if credential == "session" else self._sender_client(credential)
+        TeamWorkflowsConfig.objects.update_or_create(team_id=self.team.id, defaults={"email_sending_tier": tier})
+        route = get_route_from_path(self.url)
+        refusals = {"team_id": str(self.team.id), "scope": "transactional_email_send", "path": route, "route": route}
+        refused_before = REGISTRY.get_sample_value("rate_limit_exceeded_total", refusals) or 0
         with (
-            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
+            override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce"),
             override_instance_config("RATE_LIMIT_ENABLED", True),
-            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
-            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+            override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", str(self.team.id) if bypass else ""),
+            patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=2, per_hour=2)),
+            patch.object(message_templates.cache, "get", side_effect=ConnectionError)
+            if fault == "cache_down"
+            else nullcontext(),
+            patch(
+                "products.workflows.backend.utils.email_sending_tiers._resolve_team_email_sending_tier",
+                side_effect=OperationalError,
+            )
+            if fault == "lookup_fails"
+            else nullcontext(),
         ):
-            try:
-                is_rate_limit_enabled.cache_clear()
-                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
-            finally:
-                redis_cache = caches["default"]
-                assert isinstance(redis_cache, RedisCache)
-                redis_cache.delete_pattern("*")
-                is_rate_limit_enabled.cache_clear()
+            is_rate_limit_enabled.cache_clear()
+            get_team_allow_list.cache_clear()
+            self.addCleanup(is_rate_limit_enabled.cache_clear)
+            self.addCleanup(get_team_allow_list.cache_clear)
+            statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
+        refused = (REGISTRY.get_sample_value("rate_limit_exceeded_total", refusals) or 0) - refused_before
+        assert refused == (1 if third_status == status.HTTP_429_TOO_MANY_REQUESTS else 0)
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
@@ -2666,6 +2693,27 @@ class TestTransactionalEmail(APIBaseTest):
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
     def _sender_client(self, sender: str) -> APIClient:
+        if sender == "oauth":
+            application = OAuthApplication.objects.create(
+                name="email sender",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{uuid4().hex}",
+                scope="transactional_email:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+            return client
         if sender == "personal_api_key":
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
