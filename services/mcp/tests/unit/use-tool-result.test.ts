@@ -17,10 +17,10 @@ describe('useToolResult', () => {
                 { results: [2] },
             ],
             [
-                'structuredContent in preference to the _meta channel',
+                'the complete _meta channel in preference to a shortened structuredContent',
                 { results: [1] },
-                { [APP_DATA_META_KEY]: { results: [2] } },
-                { results: [1] },
+                { [APP_DATA_META_KEY]: { results: [1, 2] } },
+                { results: [1, 2] },
             ],
             ['nothing when neither channel carries data', undefined, { ui: { resourceUri: 'ui://x' } }, null],
             ['nothing when the host forwards no _meta at all', undefined, undefined, null],

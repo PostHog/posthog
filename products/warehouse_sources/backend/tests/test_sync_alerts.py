@@ -155,14 +155,24 @@ class TestWarehouseAlerts(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_source_by_table", {"group_by": "schema"}, "schema_id", {"a_failed", "a_halted", "b_failed"}),
+            (
+                "every_source_by_table",
+                {"group_by": "schema"},
+                "schema_id",
+                {"a_failed", "a_halted", "a_cdc_broken", "b_failed"},
+            ),
             (
                 "billing_limits_included",
                 {"group_by": "schema", "include_billing_limits": True},
                 "schema_id",
-                {"a_failed", "a_halted", "a_billing", "b_failed"},
+                {"a_failed", "a_halted", "a_cdc_broken", "a_billing", "b_failed"},
             ),
-            ("one_source_in_scope", {"group_by": "schema", "source_ids": ["a"]}, "schema_id", {"a_failed", "a_halted"}),
+            (
+                "one_source_in_scope",
+                {"group_by": "schema", "source_ids": ["a"]},
+                "schema_id",
+                {"a_failed", "a_halted", "a_cdc_broken"},
+            ),
             ("grouped_by_source", {"group_by": "source"}, "source_id", {"a", "b"}),
         ]
     )
@@ -178,6 +188,19 @@ class TestWarehouseAlerts(APIBaseTest):
             ("a_deleted", "a", Status.FAILED, {"deleted": True}),
             ("a_turned_off", "a", Status.FAILED, {"should_sync": False}),
             ("a_halted", "a", Status.FAILED, {"should_sync": False, "auto_disabled_at": timezone.now()}),
+            # A CDC stop for a deactivated organization is deliberate; any other CDC break still alerts.
+            (
+                "a_org_deactivated",
+                "a",
+                Status.FAILED,
+                {"sync_type_config": {"cdc_broken": {"reason": "organization_deactivated"}}},
+            ),
+            (
+                "a_cdc_broken",
+                "a",
+                Status.FAILED,
+                {"sync_type_config": {"cdc_broken": {"reason": "auto_dropped_critical_lag"}}},
+            ),
             ("b_failed", "b", Status.FAILED, {}),
         ]
         for name, source_name, status_, fields in schemas:
@@ -194,7 +217,7 @@ class TestWarehouseAlerts(APIBaseTest):
             ids[name]: AlertEventKind.FIRING for name in expected
         }
         if grouping_key == "source_id":
-            assert {group.grouping_key: group.value for group in outcome.groups} == {ids["a"]: 2.0, ids["b"]: 1.0}
+            assert {group.grouping_key: group.value for group in outcome.groups} == {ids["a"]: 3.0, ids["b"]: 1.0}
         (delivery,) = evaluation.deliveries
         assert (delivery.sends_messages, delivery.owned_by_platform, delivery.event_ids_by_kind) == (
             True,

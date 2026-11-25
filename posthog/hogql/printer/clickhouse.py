@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -9,7 +10,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import HogQLDialect, cap_flag_call_memory_settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -23,6 +24,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
@@ -100,6 +102,17 @@ def retention_floor_for_table(
             left=ast.Call(name="now", args=[]),
             right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
         ),
+        type=ast.BooleanType(),
+    )
+
+
+def floor_at_start(table_type: ast.TableOrSelectType, field_name: str, start: datetime) -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(
+            chain=[field_name], type=ast.FieldType(name=field_name, table_type=_table_filter_type(table_type))
+        ),
+        right=ast.Constant(value=start),
         type=ast.BooleanType(),
     )
 
@@ -506,6 +519,8 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            if self.context.cap_flag_call_memory:
+                cap_flag_call_memory_settings(merged)
             # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
             # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
             # the global settings, not the table's required settings, so a query printed without settings keeps its
@@ -1129,6 +1144,17 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
+        # Direct property reads keep their stored strings here even when metadata reports a different type.
+        if (
+            node.name in ("toFloatOrZero", "toIntOrZero")
+            and node.args
+            and node.args[0].type is not None
+            and not isinstance(node.args[0].type, ast.PropertyType)
+        ):
+            first_type = node.args[0].type.resolve_constant_type(self.context)
+            if not isinstance(first_type, (ast.StringType, ast.UnknownType)):
+                # OrZero parsers require String inputs even when a projection exposes another scalar type.
+                node = dataclasses.replace(node, args=[ast.Call(name="toString", args=[node.args[0]]), *node.args[1:]])
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized
@@ -1243,6 +1269,27 @@ class ClickHousePrinter(BasePrinter):
             return None
         return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
 
+    def _flag_evaluations_coverage_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        # The TTL drops a monthly partition only when its newest row expires, so the table holds up to a month of rows
+        # older than the coverage start. This floor hides them from every read: a direct query, an events scan that
+        # HogQL moved to this table, and the union's flag_evaluations branch.
+        if (
+            not self.context.apply_events_retention_floor
+            or node_type is None
+            or not isinstance(table_type, ast.TableType)
+            or not isinstance(table_type.table, FlagEvaluationsTable)
+        ):
+            return None
+        return floor_at_start(
+            node_type,
+            table_type.table.events_retention_field,
+            flag_evaluations_coverage_start(self.context.flag_calls_now()),
+        )
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
         if hasattr(table, "to_printed_clickhouse_table_ref"):
@@ -1355,16 +1402,7 @@ class ClickHousePrinter(BasePrinter):
         if retention_start is None:
             return None
 
-        field_table_type = _table_filter_type(node_type)
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(
-                chain=[table.retention_field],
-                type=ast.FieldType(name=table.retention_field, table_type=field_table_type),
-            ),
-            right=ast.Constant(value=retention_start),
-            type=ast.BooleanType(),
-        )
+        return floor_at_start(node_type, table.retention_field, retention_start)
 
     def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
         columns = list(columns)

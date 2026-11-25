@@ -173,7 +173,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             .toMatchValues({ overview: EXAMPLE_PROMPT_SET_OVERVIEW, overviewError: null })
     })
 
-    it('narrows the overview, its tiles and the prompt list to a topic picked from the table', async () => {
+    it('narrows the overview, its tiles and the prompt list to a topic picked from the table, and clears it when the topic is picked again in any letter case', async () => {
         mockOverview.mockImplementation(async (_, params) => ({
             ...EXAMPLE_PROMPT_SET_OVERVIEW,
             engine: params?.engine ?? null,
@@ -199,7 +199,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             expect.objectContaining({ topic: 'Session replay' })
         )
 
-        logic.actions.selectOverviewTopic('Session replay')
+        logic.actions.selectOverviewTopic('session Replay')
         await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
 
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {

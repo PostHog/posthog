@@ -1,31 +1,38 @@
 import './Today.scss'
 
 import { useActions, useValues } from 'kea'
-import { Suspense, useId } from 'react'
+import { useId } from 'react'
 
-import { IconDashboard } from '@posthog/icons'
-import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
+import { IconArrowRight, IconDashboard } from '@posthog/icons'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Skeleton,
+} from '@posthog/quill'
 
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
-import { DashboardPlacement } from '~/types'
+import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
 
 import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayPrimaryDashboardLogic } from './todayPrimaryDashboardLogic'
 import { TodayPrimaryDashboardPicker } from './TodayPrimaryDashboardPicker'
 
-// Only projects with a primary dashboard need the dashboard scene, so it loads in its own chunk rather than with Home.
-const Dashboard = lazyWithRetry(() => import('scenes/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })))
-
 export function TodayPrimaryDashboard(): JSX.Element | null {
     const { homeEditing } = useValues(todayHomeEditLogic)
-    const { primaryDashboardId: dashboardId, useSampleData } = useValues(todayPrimaryDashboardLogic)
+    const { primaryDashboardId, primaryDashboard, primaryDashboardLoading, useSampleData } =
+        useValues(todayPrimaryDashboardLogic)
     const { primaryDashboardOpened } = useActions(todayPrimaryDashboardLogic)
     const titleId = useId()
-    if (useSampleData || (!dashboardId && !homeEditing)) {
+    if (useSampleData || (!primaryDashboardLoading && !primaryDashboard && !homeEditing)) {
         return null
     }
 
@@ -41,7 +48,9 @@ export function TodayPrimaryDashboard(): JSX.Element | null {
                                 variant="outline"
                                 size="sm"
                                 className="-my-1"
-                                aria-label={dashboardId ? 'Change primary dashboard' : 'Choose primary dashboard'}
+                                aria-label={
+                                    primaryDashboardId ? 'Change primary dashboard' : 'Choose primary dashboard'
+                                }
                                 data-attr="today-home-primary-dashboard-edit"
                             >
                                 Edit
@@ -50,23 +59,41 @@ export function TodayPrimaryDashboard(): JSX.Element | null {
                     />
                 ) : null}
             </div>
-            {dashboardId ? (
-                <div className="TodayPrimaryDashboard">
-                    {/* `inert` keeps the tiles' own links and menus out of the tab order; React 18 types lack the attribute */}
-                    <div className="TodayPrimaryDashboard__preview" aria-hidden {...{ inert: '' }}>
-                        <Suspense fallback={null}>
-                            <Dashboard id={String(dashboardId)} placement={DashboardPlacement.ProjectHomepage} />
-                        </Suspense>
+            {primaryDashboardLoading ? (
+                <div className="TodayRow TodayPrimaryDashboard" aria-busy aria-label="Loading">
+                    <Skeleton className="TodayRow__iconSkeleton" />
+                    <div className="flex flex-col gap-2 py-1">
+                        <Skeleton className="h-3.5 w-2/5" />
+                        <Skeleton className="h-3 w-3/5" />
                     </div>
-                    <LinkPrimitive
-                        to={urls.dashboard(dashboardId)}
-                        className="TodayPrimaryDashboard__link"
-                        aria-label="Open primary dashboard"
-                        data-attr="today-home-primary-dashboard-open"
-                        onClick={() => primaryDashboardOpened(dashboardId)}
-                    >
-                        <span className="TodayPrimaryDashboard__cta">Open dashboard</span>
-                    </LinkPrimitive>
+                </div>
+            ) : primaryDashboard ? (
+                <div className="TodayRow TodayPrimaryDashboard" data-interactive>
+                    <TodayObjectIcon type="dashboard" className="TodayRow__icons" />
+                    <div className="min-w-0">
+                        <LinkPrimitive
+                            to={urls.dashboard(primaryDashboard.id)}
+                            className="TodayRow__title TodayRow__link"
+                            data-attr="today-home-primary-dashboard-row"
+                            onClick={() => primaryDashboardOpened(primaryDashboard.id)}
+                        >
+                            {primaryDashboard.name || 'Untitled dashboard'}
+                        </LinkPrimitive>
+                        {primaryDashboard.description ? (
+                            // Links and images stay inert, because the whole row already opens the dashboard
+                            <LazyLemonMarkdown
+                                className="TodayRow__meta TodayPrimaryDashboard__description"
+                                lowKeyHeadings
+                                disableLinks
+                                disableImages="all"
+                            >
+                                {primaryDashboard.description}
+                            </LazyLemonMarkdown>
+                        ) : null}
+                    </div>
+                    <div className="TodayRow__end">
+                        <IconArrowRight className="TodayRow__arrow" aria-hidden />
+                    </div>
                 </div>
             ) : (
                 <Empty className="border border-dashed">

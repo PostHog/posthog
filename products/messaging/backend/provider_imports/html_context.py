@@ -18,8 +18,8 @@ class Place:
     # Text fed but not read yet, such as the tail kept back while a closing tag is looked for. Restoring it means
     # the next branch is read from where this place was, not after what another branch fed.
     unread: str = field(default="", compare=False, repr=False)
-    # The end of `unread` that could still be the start of the closing `-->` or `</name`. Two branches that differ
-    # here can read the same next text differently, so they count as different places.
+    # The end of `unread` that could still be the start of the closing `-->` or `</name`, or of a script's `<!--`. Two
+    # branches that differ here can read the same next text differently, so they count as different places.
     unread_end: str = ""
 
 
@@ -45,8 +45,9 @@ class HtmlContext:
         self.tag_name = ""
         self.closing = False
         self.raw_element = ""
-        # A script's end can hide inside a comment or a string in it, so nothing after one opens is trusted.
+        # Nothing after this point is trusted, such as after a script whose end a comment in it can hide.
         self.untrusted = False
+        self._after_foreign = False
         # A `<` at the end of what was fed, with what follows it so far. The next text decides whether it opens a tag.
         self.partial = ""
 
@@ -59,6 +60,8 @@ class HtmlContext:
             return Place(state=self.state, partial=self.partial, unread=unread, unread_end=unread_end)
         if self.state == "raw":
             unread_end = _closer_start(unread, f"</{self.raw_element}")
+            if self.raw_element == "script":
+                unread_end = unread_end or _closer_start(unread, "<!--")
             return Place(state=self.state, raw_element=self.raw_element, unread=unread, unread_end=unread_end)
         return Place(
             state=self.state,
@@ -84,10 +87,14 @@ class HtmlContext:
     def where(self) -> str:
         if self.partial:
             return "tag"
+        # A title is text with entities and no tags, so an escaped value can't leave it. A value that could complete a
+        # closing tag the text already started isn't one of those.
+        if self.state == "raw" and self.raw_element == "title":
+            return "raw" if _closer_start(self.text[self.position :], "</title") else "title"
         return {"dq": "value", "sq": "value", "text": "text", "raw": "raw", "comment": "comment"}.get(self.state, "tag")
 
     def plain_attribute(self) -> bool:
-        return not self.attribute.startswith("on") and self.attribute not in ("style", "srcset")
+        return not self.attribute.startswith("on") and self.attribute not in ("style", "srcset", "srcdoc")
 
     def _advance(self, target: int) -> None:
         text = self.text
@@ -105,6 +112,8 @@ class HtmlContext:
                 self._open("", opening + 1)
             elif state == "raw":
                 found = _find_end_tag(text, self.raw_element, i)
+                if self.raw_element == "script" and "<!--" in text[i : found if found >= 0 else target]:
+                    self.untrusted = True
                 if found < 0:
                     self.position = max(i, target - _SEARCH_OVERLAP)
                     break
@@ -154,7 +163,9 @@ class HtmlContext:
             opened_raw = not self.closing and self.tag_name in _RAW_ELEMENTS
             self.state = "raw" if opened_raw else "text"
             self.raw_element = self.tag_name if opened_raw else ""
-            self.untrusted = self.untrusted or (opened_raw and self.tag_name == "script")
+            # Inside these a title, script or style can read as markup, so its end is somewhere else.
+            self._after_foreign = self._after_foreign or self.tag_name in ("svg", "math", "select")
+            self.untrusted = self.untrusted or (self._after_foreign and opened_raw)
             return
         if state == "tag_name":
             if character in _HTML_SPACE or character == "/":
@@ -199,5 +210,5 @@ def _closer_start(unread: str, closer: str) -> str:
 
 
 def _find_end_tag(text: str, name: str, start: int) -> int:
-    match = re.compile(rf"</{re.escape(name)}[\t\n\f\r />]", re.IGNORECASE).search(text, start)
+    match = re.compile(rf"</{re.escape(name)}[\t\n\f\r />]", re.IGNORECASE | re.ASCII).search(text, start)
     return match.start() if match else -1

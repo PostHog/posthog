@@ -964,6 +964,13 @@ pub struct Config {
     #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
     pub rayon_semaphore_timeout_ms: u64,
 
+    // When true, the service reads the client address for allowed IPs from the
+    // X-PostHog-Edge-Client-IP header. Turn it on only behind a proxy that overwrites that
+    // header, because a caller can write any value there. When false, a team with allowed IPs
+    // refuses every request, because the service has no client address it can trust.
+    #[envconfig(from = "TRUST_EDGE_CLIENT_IP_HEADER", default = "false")]
+    pub trust_edge_client_ip_header: FlexBool,
+
     // When true, skip all writes to PostgreSQL and Redis.
     // Used to safely deploy and test the personhog migration path
     // without risking any data mutations.
@@ -1400,6 +1407,7 @@ impl Config {
             parallel_eval_threshold: 100,
             max_concurrent_batch_evals: 0,
             rayon_semaphore_timeout_ms: 0,
+            trust_edge_client_ip_header: FlexBool(false),
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
@@ -1607,6 +1615,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert!(!config.flags_v4_response_enabled);
+        assert_eq!(config.trust_edge_client_ip_header, FlexBool(false));
         assert_eq!(config.skip_writes, FlexBool(false));
         // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
         assert_eq!(config.billing_counters_enabled, FlexBool(true));

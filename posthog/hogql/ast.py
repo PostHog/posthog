@@ -183,10 +183,14 @@ class Program(AST):
     declarations: list[Declaration]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldAliasType(Type):
     alias: str
     type: Type
+    # The type the alias projects when a property conversion changes it.
+    # `type` keeps the original PropertyType because property lowering still reads it.
+    constant_type: Optional[ConstantType] = None
+    cte_source_field: DatabaseField | None = field(default=None, init=False, compare=False, repr=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         return self.type.get_child(name, context)
@@ -195,6 +199,8 @@ class FieldAliasType(Type):
         return self.type.has_child(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.constant_type is not None:
+            return self.constant_type
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
@@ -1020,7 +1026,7 @@ class Tuple(Expr):
     exprs: list[Expr]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class PropertyAccess(Expr):
     """The lowered form of a `properties.X` read: "read this key path from this properties field."
 
@@ -1048,6 +1054,8 @@ class PropertyAccess(Expr):
 
     expr: Expr
     keys: list[str | int]
+    # Carried over from `PropertyType.as_json`: a JSON function rewrite asked for the key's JSON text.
+    as_json: bool = False
 
 
 @dataclass(frozen=False, kw_only=True, slots=True)

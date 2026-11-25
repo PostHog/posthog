@@ -229,7 +229,6 @@ describe('insertIntakeBatch', () => {
             )
             const sealing = createInvocationSanitizer({
                 CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
                 CDP_SEALED_STATE_KEYS,
                 ENCRYPTION_SALT_KEYS,
             })
@@ -263,7 +262,7 @@ describe('insertIntakeBatch', () => {
                 topic as IngestionOutputs<IntakeOutput>,
                 deadline - Date.now(),
                 sealing.seal
-            ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
+            ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' })
             expect(outcome).toBe('acked')
             await producer.flush()
 

@@ -171,6 +171,16 @@ _ENDPOINT_LIST: tuple[BexioEndpointConfig, ...] = (
         pagination="single",
         data_selector="data",
     ),
+    BexioEndpointConfig(name="countries", path="/2.0/country", order_by="id"),
+    BexioEndpointConfig(name="languages", path="/2.0/language", order_by="id"),
+    # The salutation and unit lists have no `order_by` parameter.
+    BexioEndpointConfig(name="salutations", path="/2.0/salutation"),
+    BexioEndpointConfig(name="titles", path="/2.0/title", order_by="id"),
+    BexioEndpointConfig(name="contact_branches", path="/2.0/contact_branch", order_by="id"),
+    BexioEndpointConfig(name="task_statuses", path="/2.0/todo_status", order_by="id"),
+    BexioEndpointConfig(name="task_priorities", path="/2.0/todo_priority", order_by="id"),
+    BexioEndpointConfig(name="payment_types", path="/2.0/payment_type", order_by="id"),
+    BexioEndpointConfig(name="units", path="/2.0/unit"),
 )
 
 BEXIO_ENDPOINTS: dict[str, BexioEndpointConfig] = {endpoint.name: endpoint for endpoint in _ENDPOINT_LIST}

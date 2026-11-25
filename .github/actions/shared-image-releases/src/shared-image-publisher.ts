@@ -27,7 +27,7 @@ export interface PublisherOptions {
   repository: string
   registry: string
   force: string[]
-  bootstrap?: Bootstrap
+  bootstrap?: Bootstrap | Bootstrap[]
   budgets: PublisherBudgets
   regctl: string
   helper: string
@@ -47,18 +47,27 @@ export function channelKeys(policy: Policy): string[] {
   return Object.entries(policy.images).flatMap(([image, definition]) => Object.keys(definition.channels).map(channel => `${image}/${channel}`))
 }
 
-export function validateRequests(policy: Policy, force: unknown, bootstrap: unknown): {force: string[]; bootstrap?: Bootstrap} {
+export function validateRequests(policy: Policy, force: unknown, bootstrap: unknown): {force: string[]; bootstrap?: Bootstrap[]} {
   const keys = channelKeys(policy)
   if (!Array.isArray(force) || force.some(key => typeof key !== 'string' || !keys.includes(key))) {
     throw new Error(`Force requires explicit configured channel keys: ${JSON.stringify(force)}`)
   }
   if (bootstrap === undefined) return {force}
-  const seed = bootstrap as Bootstrap
-  if (!seed || typeof seed !== 'object' || Object.keys(seed).sort().join(',') !== 'channel,digest,revision' ||
-      !keys.includes(seed.channel) || !REVISION.test(seed.revision) || !DIGEST.test(seed.digest) || force.length) {
-    throw new Error('Bootstrap requires one configured channel, full seed revision and digest, without force')
-  }
-  return {force, bootstrap: seed}
+  const seeds: unknown[] = Array.isArray(bootstrap) ? bootstrap : [bootstrap]
+  if (!seeds.length) throw new Error('Bootstrap requires at least one seed')
+  if (force.length) throw new Error('Bootstrap requires an empty force list')
+  const named = new Set<string>()
+  seeds.forEach((value, index) => {
+    const seed = value as Bootstrap
+    if (!seed || typeof seed !== 'object' || Object.keys(seed).sort().join(',') !== 'channel,digest,revision' ||
+        typeof seed.channel !== 'string' || typeof seed.revision !== 'string' || typeof seed.digest !== 'string' ||
+        !keys.includes(seed.channel) || !REVISION.test(seed.revision) || !DIGEST.test(seed.digest)) {
+      throw new Error(`Bootstrap requires one configured channel, full seed revision and digest in seed ${index}${typeof seed?.channel === 'string' ? ` (${seed.channel})` : ''}`)
+    }
+    if (named.has(seed.channel)) throw new Error(`Bootstrap requires each channel once: seed ${index} repeats ${seed.channel}`)
+    named.add(seed.channel)
+  })
+  return {force, bootstrap: seeds as Bootstrap[]}
 }
 
 function selectedPolicy(policy: Policy | undefined, image: string, name: string, current: Channel): string | undefined {
@@ -118,17 +127,20 @@ async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, cont
   }
   await verifyImage(registry, existing ? destination : source, seed.digest, seed.revision)
   const publicationResult = existing ?? await registry.publish(source, destination, seed.digest, tag)
-  if (publicationResult.outcome === 'present-at-expected-digest') {
-    const receipt = {
-      version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${source.registry}/${source.repository}`,
-      destination, policyRevision: options.revision, policyDigest: policyDigest(policy.filters[channel.filter]),
-      seedRevision: seed.revision, ordinal: Number(tag.slice(1, 13)), tag, digest: seed.digest, outcome: publicationResult.outcome
-    }
-    const file = path.join(options.evidence, 'bootstrap', image, `${name}.json`)
-    mkdirSync(path.dirname(file), {recursive: true})
-    writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n')
-  }
   return publication(key, publicationResult, tag, seed.digest, Boolean(existing))
+}
+
+function writeReceipt(selected: ResolvedChannel, seed: Bootstrap, tag: string, context: ChannelContext): void {
+  const {image, name, channel, destination, source} = selected
+  const {options, policy} = context
+  const receipt = {
+    version: 1, sourceRepository: CANONICAL_SOURCE_REPOSITORY, sourceImage: `${source.registry}/${source.repository}`,
+    destination, policyRevision: options.revision, policyDigest: policyDigest(policy.filters[channel.filter]),
+    seedRevision: seed.revision, ordinal: Number(tag.slice(1, 13)), tag, digest: seed.digest, outcome: 'present-at-expected-digest'
+  }
+  const file = path.join(options.evidence, 'bootstrap', image, `${name}.json`)
+  mkdirSync(path.dirname(file), {recursive: true})
+  writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n')
 }
 
 async function advanceChannel(selected: ResolvedChannel, force: string[], context: ChannelContext, registry: ReleaseRegistry): Promise<ChannelResult> {
@@ -179,19 +191,23 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
     Object.entries(definition.channels).map(([name, channel]) => ({image, name, channel, key: `${image}/${name}`, destination: {...bindings[image][name], registry: options.registry}, source: {repository: options.repository, registry: options.registry}}))
   )
   if (channels.length > budgets.maxChannels) throw new Error(`Channel fan-out ${channels.length} exceeds budget ${budgets.maxChannels}`)
-  const selected = requests.bootstrap ? channels.filter(channel => channel.key === requests.bootstrap?.channel) : channels
+  const seeds = new Map<string, Bootstrap>(requests.bootstrap?.map(seed => [seed.channel, seed]))
+  const selected = requests.bootstrap ? channels.filter(channel => seeds.has(channel.key)) : channels
   const results: ChannelResult[] = []
   const context = {options, policy, history}
   let next = 0
   const worker = async (): Promise<void> => {
     while (next < selected.length) {
       const channel = selected[next++]
+      const bound = channelBound(deadline, budgets.channelMs)
+      const seed = seeds.get(channel.key)
       let result: ChannelResult
       try {
-        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, Math.min(deadline, Date.now() + budgets.channelMs))
-        result = requests.bootstrap
-          ? await bootstrapChannel(channel, requests.bootstrap, context, registry)
-          : await advanceChannel(channel, requests.force, context, registry)
+        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, bound.deadline)
+        result = await untilDeadline(channel.key, bound, () => seed
+          ? bootstrapChannel(channel, seed, context, registry)
+          : advanceChannel(channel, requests.force, context, registry))
+        if (seed && result.outcome === 'present-at-expected-digest' && result.tag) writeReceipt(channel, seed, result.tag, context)
       } catch (error) {
         result = {channel: channel.key, decision: 'blocked', reason: `${channel.key}: ${String(error)}`}
       }
@@ -203,6 +219,32 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   mkdirSync(options.evidence, {recursive: true})
   writeFileSync(path.join(options.evidence, 'results.json'), JSON.stringify(results, null, 2) + '\n')
   return results
+}
+
+interface ChannelBound {
+  deadline: number
+  reached: string
+}
+
+function channelBound(actionDeadline: number, channelMs: number): ChannelBound {
+  const allowance = Date.now() + channelMs
+  return allowance < actionDeadline
+    ? {deadline: allowance, reached: 'channel deadline reached'}
+    : {deadline: actionDeadline, reached: 'action total reached'}
+}
+
+async function untilDeadline(key: string, bound: ChannelBound, work: () => Promise<ChannelResult>): Promise<ChannelResult> {
+  const reached = new Error(`${key}: ${bound.reached}`)
+  if (Date.now() >= bound.deadline) throw reached
+  let timer: NodeJS.Timeout | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(reached), bound.deadline - Date.now())
+  })
+  try {
+    return await Promise.race([work(), expired])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function verifyImage(registry: ReleaseRegistry, coordinate: Pick<ImageBinding, 'registry' | 'repository'>, digest: string, revision: string): Promise<void> {

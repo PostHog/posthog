@@ -115,9 +115,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         org = Organization.objects.get(id=org_id)
         self.assertTrue(org.is_pending_deletion)
 
-        # Trying to delete again returns 400
-        response_bis = self.client.delete(f"/api/organizations/{org_id}")
-        self.assertEqual(response_bis.status_code, 400)
+        repeat_delete = self.client.delete(f"/api/organizations/{org_id}")
+        self.assertEqual(repeat_delete.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(repeat_delete.json()["code"], "organization_pending_deletion")
 
         mock_capture.assert_has_calls(
             [

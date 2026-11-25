@@ -1,6 +1,7 @@
 use std::future::Future;
 
 pub use crate::core::ids::TeamId;
+use crate::error::{contain_failure, EventError, UnhandledError};
 
 /// An Operator is a stateless function that can be applied in parallel to items in a batch.
 pub trait Operator {
@@ -19,7 +20,7 @@ pub trait Operator {
 
 /// A Value Operator is a specific type of Operator that can be applied to a batch of results.
 /// Handled errors will wrap the output and allow the processing of the batch to continue
-/// Unhandled errors stop the processing of the whole batch
+/// Unhandled errors stop the processing of the whole batch, unless the item's own data caused them
 pub trait ValueOperator {
     type Context: Clone + Send;
     type Item: Send;
@@ -34,13 +35,16 @@ pub trait ValueOperator {
     ) -> impl Future<Output = Result<Result<Self::Item, Self::HandledError>, Self::UnhandledError>> + Send;
 }
 
-impl<T, C, I, HE, UE> Operator for T
+impl<T, C, I> Operator for T
 where
     I: Send,
-    UE: Send,
-    HE: Send,
     C: Clone + Send,
-    T: ValueOperator<Context = C, Item = I, HandledError = HE, UnhandledError = UE> + Sync,
+    T: ValueOperator<
+            Context = C,
+            Item = I,
+            HandledError = EventError,
+            UnhandledError = UnhandledError,
+        > + Sync,
 {
     type Context = T::Context;
     type Input = Result<T::Item, T::HandledError>;
@@ -58,7 +62,10 @@ where
     ) -> Result<Self::Output, Self::Error> {
         match item {
             Err(e) => Ok(Err(e)),
-            Ok(value) => self.execute_value(value, ctx).await,
+            Ok(value) => Ok(
+                contain_failure(self.name(), self.execute_value(value, ctx).await)?
+                    .and_then(|handled| handled),
+            ),
         }
     }
 }
