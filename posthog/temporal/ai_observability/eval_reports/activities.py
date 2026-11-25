@@ -38,6 +38,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AIDataProcessingNotApproved,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
@@ -722,11 +723,17 @@ async def prepare_report_context_activity(
     def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.select_related("evaluation").filter(id=inputs.report_id).first()
+        report = (
+            EvaluationReport.objects.select_related("evaluation", "team__organization")
+            .filter(id=inputs.report_id)
+            .first()
+        )
         if report is None:
             raise ApplicationError(
                 "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
             )
+        if not report.team.organization.is_ai_data_processing_approved:
+            raise AIDataProcessingNotApproved()
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
         if not evaluation_supports_reports(evaluation.output_type, evaluation.target, evaluation.output_config):
@@ -816,7 +823,7 @@ async def run_eval_report_agent_activity(
         def run_agent():
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
-            evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            evaluation_target = _load_approved_evaluation_target(inputs.team_id, inputs.evaluation_id)
             evaluation_output_configs = _load_evaluation_output_configs(inputs.team_id)
             agent_inputs = inputs
             if inputs.output_type in ("numeric", "categorical") and not inputs.output_config:
@@ -849,10 +856,15 @@ async def run_eval_report_agent_activity(
         )
 
 
-def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
+def _load_approved_evaluation_target(team_id: int, evaluation_id: str) -> str:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
-    return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+    target, approved = Evaluation.objects.values_list(
+        "target", "team__organization__is_ai_data_processing_approved"
+    ).get(id=evaluation_id, team_id=team_id)
+    if not approved:
+        raise AIDataProcessingNotApproved()
+    return target
 
 
 def _load_evaluation_output_configs(team_id: int) -> dict[str, dict[str, Any]]:

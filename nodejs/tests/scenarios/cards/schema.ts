@@ -161,13 +161,7 @@ export const Profile = z
         name: z.string(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
-        replicas: z
-            .partialRecord(CdpRole, z.number().int().min(1))
-            .refine((replicas) => (replicas['cdp-api'] ?? 1) === 1, {
-                message: 'cdp-api runs once, since every intake offer goes to replica 0',
-                path: ['cdp-api'],
-            })
-            .default({}),
+        replicas: z.partialRecord(CdpRole, z.number().int().min(1)).default({}),
         backlog: Backlog.optional(),
         load: Load.optional(),
         host: Host.optional(),

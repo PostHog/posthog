@@ -1,45 +1,30 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconListCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
-
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
-import { ScoutRubricsModal } from './ScoutRubricsModal'
+import { scoutDetailActionsLogic } from '../../../logics/scoutDetailActionsLogic'
 
 export function ScoutRubricsButton({ config }: { config: SignalScoutConfigApi }): JSX.Element | null {
-    const { currentTeamId } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
-    const [isOpen, setIsOpen] = useState(false)
+    const logic = scoutDetailActionsLogic({ skillName: config.skill_name })
+    const { canEditRubrics } = useValues(logic)
+    const { openDialog } = useActions(logic)
 
-    if (currentTeamId !== 2 || !user?.is_staff) {
+    if (!canEditRubrics) {
         return null
     }
 
     return (
-        <>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconListCheck />}
-                onClick={() => setIsOpen(true)}
-                data-attr="scout-rubrics-open"
-            >
-                Rubrics
-            </LemonButton>
-            {isOpen && (
-                <ScoutRubricsModal
-                    teamId={currentTeamId}
-                    configId={config.id}
-                    scoutName={scoutDisplayName(config)}
-                    onClose={() => setIsOpen(false)}
-                />
-            )}
-        </>
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconListCheck />}
+            onClick={() => openDialog('rubrics')}
+            data-attr="scout-rubrics-open"
+        >
+            Rubrics
+        </LemonButton>
     )
 }

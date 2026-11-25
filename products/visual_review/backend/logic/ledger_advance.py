@@ -88,6 +88,9 @@ class _Landing:
     # means new evidence arrived, and the check has to run again.
     checked_evidence: dict[UUID, str]
     evidence_applies: frozenset[UUID]
+    # The ledger hash the evidence run read under the approval, for each approval whose evidence applies
+    # and that the evidence run's overlay applied.
+    evidence_ledger_hashes: dict[UUID, str]
 
     def covers(self, approvals: list[BaselineApproval]) -> bool:
         return all(self.checked_evidence.get(approval.id) == approval.evidence_commit_sha for approval in approvals)
@@ -139,6 +142,17 @@ def landing_order(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
     return ordered
 
 
+def ledger_holds_what_evidence_read(evidence_ledger_hash: str | None, current_hash: str) -> bool:
+    """Whether the ledger still holds the picture the evidence run read for the story under the approval.
+
+    `evidence_ledger_hash` is None unless the evidence run's overlay applied the approval. Row 3 then
+    holds for an approval whose base the ledger no longer names: the evidence run compared against the
+    approval and rendered the whole batch over the ledger picture that is still there. That lets a
+    stack layer approved over an open layer below it land after another layer of the stack landed alone.
+    """
+    return evidence_ledger_hash is not None and evidence_ledger_hash == current_hash
+
+
 def landing_verdict(
     approval: BaselineApproval,
     current_hash: str,
@@ -149,6 +163,7 @@ def landing_verdict(
     quarantined: bool,
     has_newer_entry: bool,
     position: int,
+    verified_by_evidence: bool = False,
 ) -> LandingVerdict | None:
     """The landing table's verdict, or None for another pull request's approval that stays open."""
     # An absent identifier and an approved removal both read as the empty hash.
@@ -165,7 +180,7 @@ def landing_verdict(
         return LandingVerdict(
             state=BaselineApprovalState.CONFLICTED, detail=DETAIL_LATER_MERGE_CHANGED_IT, appends_entry=False
         )
-    if not baseline_approvals.base_still_holds(approval, current_hash):
+    if not baseline_approvals.base_still_holds(approval, current_hash) and not verified_by_evidence:
         return LandingVerdict(state=BaselineApprovalState.CONFLICTED, detail=DETAIL_BASELINE_MOVED, appends_entry=False)
     if quarantined:
         return LandingVerdict(state=BaselineApprovalState.PROMOTED, detail=DETAIL_QUARANTINED, appends_entry=True)
@@ -276,6 +291,31 @@ class _LedgerAdvancer:
             )
         return self._evidence_contains[key]
 
+    def _evidence_ledger_hashes(self, approvals: list[BaselineApproval]) -> dict[UUID, str]:
+        """The ledger hash each approval's evidence run froze under it, for the approvals in that run's overlay.
+
+        Evidence is recorded on every candidate of the run, also on one that a conflict or a stack child
+        left out of the overlay. Only an approval in the overlay was what the run compared against.
+        """
+        run_ids = {approval.evidence_run_id for approval in approvals if approval.evidence_run_id is not None}
+        if not run_ids:
+            return {}
+        ledger_hashes_by_run: dict[UUID, dict[UUID, str]] = {}
+        for run in Run.objects.using(WRITER_DB).filter(id__in=run_ids).only("id", "metadata"):
+            record = baseline_record.record_for_run(run)
+            if record is not None:
+                ledger_hashes_by_run[run.id] = {
+                    entry.approval_id: entry.ledger_hash for entry in record.overlay.values()
+                }
+        hashes: dict[UUID, str] = {}
+        for approval in approvals:
+            if approval.evidence_run_id is None:
+                continue
+            overlay = ledger_hashes_by_run.get(approval.evidence_run_id, {})
+            if approval.id in overlay:
+                hashes[approval.id] = overlay[approval.id]
+        return hashes
+
     def plan_landing(self, pr_number: int, merged_head_sha: str) -> _Landing | None:
         """The landing of one merged pull request, or None when GitHub cannot say which evidence applies.
 
@@ -297,6 +337,9 @@ class _LedgerAdvancer:
             merged_head_sha=merged_head_sha,
             checked_evidence={approval.id: approval.evidence_commit_sha for approval in approvals},
             evidence_applies=frozenset(evidence_applies),
+            evidence_ledger_hashes=self._evidence_ledger_hashes(
+                [approval for approval in approvals if approval.id in evidence_applies]
+            ),
         )
 
     def _merged_here(self, pull_request: github_api.PullRequestState, commit_sha: str) -> bool:
@@ -338,29 +381,6 @@ class _LedgerAdvancer:
         if self._open_approvals is not None:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
 
-    def _pull_requests_applying(self, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
-        """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
-
-        A stack child applies its parent's approval through the overlay without owning it, so only its
-        record links the two.
-        """
-        if not approvals:
-            return set()
-        runs = (
-            Run.objects.using(WRITER_DB)
-            .filter(
-                repo_id=self.repo.id,
-                run_type__in={approval.run_type for approval in approvals},
-                status=RunStatus.COMPLETED,
-                superseded_by__isnull=True,
-                pr_number__isnull=False,
-                metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
-            )
-            .values_list("pr_number", "run_type")
-            .distinct()
-        )
-        return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
-
     def _publish_for_landed_identifiers(self) -> None:
         """Publish again for the pull requests with an open approval of an identifier this transaction landed,
         and for the pull requests whose current run applied one of those approvals.
@@ -376,7 +396,7 @@ class _LedgerAdvancer:
             approval for approval in open_approvals if approval.identifier in landed.get(approval.run_type, set())
         ]
         holders = {(approval.pr_number, approval.run_type) for approval in touched}
-        holders |= self._pull_requests_applying(touched)
+        holders |= commit_status.pull_requests_applying(self.repo, touched)
         commit_status.publish_for_pull_requests(self.repo, holders)
 
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:
@@ -408,6 +428,7 @@ class _LedgerAdvancer:
         }
         landed_by_verdict: dict[tuple[BaselineApprovalState, str], list[UUID]] = {}
         entries: list[BaselineEntry] = []
+        closed_without_entry: list[BaselineApproval] = []
         for approval in landing_order(approvals):
             current_hash = current[approval.run_type].get(approval.identifier, "")
             verdict = landing_verdict(
@@ -419,12 +440,17 @@ class _LedgerAdvancer:
                 quarantined=approval.identifier in quarantined[approval.run_type],
                 has_newer_entry=approval.identifier in newer[approval.run_type],
                 position=position,
+                verified_by_evidence=ledger_holds_what_evidence_read(
+                    landing.evidence_ledger_hashes.get(approval.id), current_hash
+                ),
             )
             # Stays open and cached, because its own pull request can merge later in this same pass.
             if verdict is None:
                 continue
             landed_by_verdict.setdefault((verdict.state, verdict.detail), []).append(approval.id)
-            if verdict.appends_entry:
+            if not verdict.appends_entry:
+                closed_without_entry.append(approval)
+            else:
                 entries.append(
                     BaselineEntry(
                         repo=self.repo,
@@ -466,6 +492,7 @@ class _LedgerAdvancer:
             for entry in entries:
                 self._landed_identifiers.setdefault(entry.run_type, set()).add(entry.identifier)
             transaction.on_commit(self._publish_for_landed_identifiers, using=WRITER_DB, robust=True)
+        commit_status.publish_after_approvals_close(self.repo, closed_without_entry)
         landed_ids = {approval_id for approval_ids in landed_by_verdict.values() for approval_id in approval_ids}
         self.approvals_landed += len(landed_ids)
         self._forget(landed_ids)
@@ -657,7 +684,9 @@ class _LedgerAdvancer:
                 (merged_elsewhere, DETAIL_MERGED_ELSEWHERE),
             ):
                 if pr_numbers_to_abandon:
-                    open_approvals.filter(pr_number__in=pr_numbers_to_abandon).update(
+                    abandoned = open_approvals.filter(pr_number__in=pr_numbers_to_abandon)
+                    commit_status.publish_after_approvals_close(self.repo, list(abandoned.only("id", "run_type")))
+                    abandoned.update(
                         state=BaselineApprovalState.ABANDONED, detail=detail, resolved_at=self.now, updated_at=self.now
                     )
             self._read_open_approvals()

@@ -403,6 +403,136 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
+    @parameterized.expand(
+        [
+            ("segments without a cohort", {}, ["false"]),
+            ("segments with a cohort", {"7": 12}, ["id", "country", "false"]),
+        ]
+    )
+    def test_conditions_it_cannot_check_let_nobody_through(
+        self, _name: str, segment_cohorts: dict[str, int], audience: list[str]
+    ) -> None:
+        source = _onboarding_campaign()
+        in_segment = {"type": "segments_negatable", "segments": [7], "negate": False}
+        campaign = {
+            **source.campaign,
+            "attribute_filters": {"or": [{"field": "plan", "operator": "eq", "value": "free"}]},
+            "filters": _encode(
+                [in_segment, {"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]
+            ),
+        }
+        changes: dict[str, dict[str, Any]] = {
+            "1": {"sending_state": "off"},
+            "4": {"multi_conditions": [_encode([{"type": "foreign_event", "event_name": "activated"}, in_segment])]},
+            "5": {"preconditions": _encode([in_segment])},
+            "6": {"conditions": _encode([in_segment])},
+            "7": {"preconditions": "!!unreadable"},
+        }
+        actions = [{**action, **changes.get(action["id"], {})} for action in source.actions]
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=actions, templates=source.templates),
+            ImportOptions(snippets={}, segment_cohorts=segment_cohorts),
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+
+        def keys(filters: dict[str, Any]) -> list[str]:
+            return [item["key"] for item in filters["properties"]]
+
+        assert keys(workflow["trigger"]["filters"]["events"][0]) == ["false"]
+        assert keys(steps["cio_1"]["filters"]) == ["false"]
+        assert keys(steps["cio_4"]["config"]["events"][0]["filters"]["events"][0]) == ["false"]
+        assert keys(steps["cio_5"]["filters"]) == ["false"]
+        assert keys(steps["cio_6"]["config"]["conditions"][0]["filters"]) == (["id"] if segment_cohorts else ["false"])
+        assert keys(steps["cio_7"]["filters"]) == ["false"]
+        assert keys(steps["cio_audience"]["config"]["conditions"][0]["filters"]) == audience
+        edges = {(edge["from"], edge["to"], edge["type"]) for edge in workflow["edges"]}
+        assert {
+            ("trigger_node", "cio_audience", "continue"),
+            ("cio_audience", "cio_1", "branch"),
+            ("cio_audience", "exit_node", "continue"),
+        } <= edges
+        if not segment_cohorts:
+            assert validated_draft(self.team, workflow, EventSource.API) is not None
+
+    @parameterized.expand(
+        [
+            ("checked on the trigger", "transactional", None),
+            ("checked once in the audience step", "seg_attr", ["country", "false"]),
+        ]
+    )
+    def test_people_who_stop_matching_the_entry_filter_get_no_more_messages(
+        self, _name: str, kind: str, audience: list[str] | None
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "type": kind,
+            "filters": _encode([{"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]),
+            "exit_on_trigger_or_filter_not_matched": True,
+            "exit_on_conversion_matched": False,
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+
+        assert workflow["exit_condition"] == "exit_on_trigger_not_matched"
+        steps = {action["id"]: action for action in workflow["actions"]}
+        gate = steps.get("cio_audience")
+        found = gate["config"]["conditions"][0]["filters"]["properties"] if gate else None
+        assert (found and [item["key"] for item in found]) == audience
+
+    @parameterized.expand(
+        [
+            ("a person update on the path", [("1", "10"), ("10", "9")], True),
+            ("a person update no path reaches", [("1", "9")], False),
+        ]
+    )
+    def test_gate_covers_steps_that_change_what_people_get_later(
+        self, _name: str, links: list[tuple[str, str]], gated: bool
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "workflow_action_ids": ["1", "9", "10"],
+            "edges": [{"from": start, "to": end, "type": "continue"} for start, end in links],
+        }
+        update = {
+            "id": "10",
+            "type": "attribute_update_action",
+            "name": "Mark paid",
+            "preconditions": _encode([{"type": "segments_negatable", "segments": [7], "negate": False}]),
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=[*source.actions, update], templates=source.templates), _OPTIONS
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+        assert ("cio_audience" in steps) == gated
+        assert ("cio_10" in steps) == gated
+
+    @parameterized.expand(
+        [
+            ("unreadable", "transactional", "!!unreadable", ["false"]),
+            (
+                "on a segment trigger",
+                "seg_attr",
+                _encode([{"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]),
+                ["country"],
+            ),
+        ]
+    )
+    def test_entry_filter_is_never_dropped(self, _name: str, kind: str, filters: str, audience: list[str]) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": kind, "filters": filters}
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+        found = steps["cio_audience"]["config"]["conditions"][0]["filters"]["properties"]
+        assert [item["key"] for item in found] == audience
+
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
             "id": "5",

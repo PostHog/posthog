@@ -2,7 +2,7 @@
 
 This is the ONLY module other products (and the presentation layer) are
 allowed to import. Internal modules (query runners) stay behind this seam
-so import-linter's strict-mode contract holds.
+so hoglint's `presentation-uses-facade` rule holds.
 """
 
 import math
@@ -19,7 +19,7 @@ from django.db import connection
 
 import structlog
 
-from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -50,6 +50,7 @@ from products.metrics.backend.derived import (
 )
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    DashboardImportInput,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardTemplateSummary,
@@ -105,6 +106,7 @@ from products.metrics.backend.metric_query_runner import (
     _align_to_interval,
     _interval_step,
     _pick_interval,
+    _resolve_interval,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
@@ -135,9 +137,10 @@ from products.metrics.backend.query_counts import (
     record_metric_queries,
     record_promql_query as _record_promql_query,
 )
+from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.recording_rules import logic as recording_rule_logic
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
-from products.metrics.backend.variables import from_dashboard, with_values
+from products.metrics.backend.variables import from_dashboard, from_query, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -806,6 +809,13 @@ def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None
     return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
 
 
+def metrics_query_interval(*, query: MetricsQuery, date_from: dt.datetime, date_to: dt.datetime) -> str:
+    """The bucket interval a MetricsQuery runs at over this range: its own or the auto pick, coarsened to the bucket limit."""
+    return _resolve_interval(
+        date_from, date_to, resolve_query_interval(query.interval, from_query(query.variables), date_from, date_to)
+    )
+
+
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
     """Hold the concurrency slots of a metrics query runner around `run_metric_query`.
 
@@ -1284,6 +1294,28 @@ def list_dashboard_imports(*, team: Team, user: User) -> list[DashboardImportSta
     )
 
     return DashboardImporter(team=team, user=user).recent()
+
+
+def get_dashboard_import_input(*, team: Team, user: User, import_id: str) -> DashboardImportInput | None:
+    """What the user's failed import read. None when the import is not failed or its input expired."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).input(import_id)
+
+
+def dismiss_dashboard_import(*, team: Team, user: User, import_id: str) -> bool:
+    """Hide the user's ended import from the recent imports and delete its input. False when there is no such import.
+
+    Raises `DashboardImportInProgress` while the import runs, and `DashboardImportStorageError` when its stored input
+    could not be deleted. The import then stays listed.
+    """
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).dismiss(import_id)
 
 
 def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:

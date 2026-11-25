@@ -20,7 +20,7 @@ WEB_VITALS_LOOKBACK_DAYS = 30
 class WebVitalsCheck(RollupHealthCheck):
     name = "web_vitals"
     kind = "web_vitals"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     schedule = "30 5 * * *"
     active_since_days = 30
     rollup_model = EventsHealthDaily

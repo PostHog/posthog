@@ -426,6 +426,63 @@ export interface DashboardImportPanelProgressApi {
     state: PanelProgressStateEnumApi
 }
 
+/**
+ * * `searching_metrics` - Searching Metrics
+ * * `reading_labels` - Reading Labels
+ * * `reading_label_values` - Reading Label Values
+ * * `running_query` - Running Query
+ * * `checking_panels` - Checking Panels
+ * * `exploring_logs` - Exploring Logs
+ * * `exploring_traces` - Exploring Traces
+ * * `reading_dashboard` - Reading Dashboard
+ * * `thinking` - Thinking
+ * * `working` - Working
+ */
+export type AgentActivityKindEnumApi = (typeof AgentActivityKindEnumApi)[keyof typeof AgentActivityKindEnumApi]
+
+export const AgentActivityKindEnumApi = {
+    SearchingMetrics: 'searching_metrics',
+    ReadingLabels: 'reading_labels',
+    ReadingLabelValues: 'reading_label_values',
+    RunningQuery: 'running_query',
+    CheckingPanels: 'checking_panels',
+    ExploringLogs: 'exploring_logs',
+    ExploringTraces: 'exploring_traces',
+    ReadingDashboard: 'reading_dashboard',
+    Thinking: 'thinking',
+    Working: 'working',
+} as const
+
+export interface DashboardImportAgentActivityApi {
+    /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+     *
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working */
+    kind: AgentActivityKindEnumApi
+    /** Seconds since the action started. */
+    seconds: number
+    /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+    idle_seconds: number
+    /**
+     * The search term, metric name or attribute key that the action works on, when it has one.
+     * @nullable
+     */
+    subject: string | null
+    /**
+     * Number of panels that a 'checking_panels' action checks.
+     * @nullable
+     */
+    panel_count: number | null
+}
+
 export interface DashboardImportSummaryApi {
     /** Number of panels in the input. */
     total: number
@@ -498,6 +555,8 @@ export interface DashboardImportApi {
     phase: DashboardImportPhaseEnumApi | null
     /** Where each panel is, while the import runs. */
     panel_progress: DashboardImportPanelProgressApi[]
+    /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+    agent_activity: DashboardImportAgentActivityApi | null
     /**
      * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
      * @nullable
@@ -545,6 +604,34 @@ export interface DashboardImportCreateApi {
      * @maxLength 7340032
      */
     image_base64?: string
+}
+
+export interface DashboardImportInputApi {
+    /** What the failed import read.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * The dashboard name the user gave. Null when the user gave none.
+     * @nullable
+     */
+    name: string | null
+    /**
+     * The Grafana dashboard JSON model, when the source is 'grafana'.
+     * @nullable
+     */
+    grafana_json: string | null
+    /**
+     * The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.
+     * @nullable
+     */
+    image_base64: string | null
+    /**
+     * Media type of `image_base64`, for example 'image/png'. Null without a screenshot.
+     * @nullable
+     */
+    image_content_type: string | null
 }
 
 /**

@@ -224,7 +224,9 @@ A change to the verification keeps these true:
 - The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
 - A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
 - A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
-- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- Both review paths, the context fetch and `_attest_gates`, and reviewer routing's proof build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- The review re-run and reviewer routing parse a pending check with `attestation_check` and poll it with `all_reported` (`logic/attestation_checks.py`), so both wait on a workflow entry until `verified_result` returns a result.
+- Each verified result records its run. The context fetch and `_attest_gates` store the newest run they verified under `seen_workflow_runs` in the run's output, raised under the run's row lock and never lowered, and they and the attestation poll refuse a result older than the newest any run of the head stored (`seen_on_head`, a writer-pinned read). A writer's job can hide the newer check run, and a context retry rewrites `check_runs`, so the floor is its own key.
 
 ## The manual trigger (the one exception to label mode)
 
@@ -234,6 +236,19 @@ Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, un
 The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
+A request for a head whose covering run is a completed refusal or escalation reviews that head again only on new evidence (`logic/rerun_evidence.py`).
+A gate denial is stored as a GATED WAIT, so it is never re-run this way.
+The evidence is the title, the body, and what people with a trusted association wrote in reviews, the discussion and unresolved threads, plus resolving or reopening a thread, a bot's finding included.
+Bots never count otherwise, stamphog's own verdicts and machine users included, so a verdict posted after the context read, or a new bot finding, cannot unlock a re-run.
+Unlike `decision_fingerprint`, the hash leaves out the engine and the policy, so a deploy never re-rolls a refusal.
+A field that goes into the hash must be one a person changes, or the cap is the only thing between a noisy bot and repeated LLM runs.
+Evidence that a finished review of the head already saw re-runs nothing, and a head gets at most `_EVIDENCE_RERUNS_PER_HEAD` evidence re-runs that did not fail or get superseded, so nobody can re-roll the reviewer by switching between two descriptions.
+Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
+The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
+
+In ALL mode an added trigger label shares this gate (`_review_label_request_in_all_mode`), after every webhook gate, with the `label` trigger and no provenance.
+A label add moves no head, so it retracts nothing. One that starts no run removes the label and says why in the sticky comment, so the next add fires again.
 
 ## The silent trigger (a clean external review)
 
