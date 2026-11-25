@@ -597,9 +597,6 @@ export interface scoutFleetLogicActions {
     setRosterEvaluatedAt: (evaluatedAt: number) => {
         evaluatedAt: number
     }
-    settleStoppedRuns: () => {
-        value: true
-    }
     setRunNoteDraft: (
         configId: string,
         note: string
@@ -630,6 +627,9 @@ export interface scoutFleetLogicActions {
     }
     setScoutTagFilter: (tags: string[]) => {
         tags: string[]
+    }
+    settleStoppedRuns: () => {
+        value: true
     }
     startRunsPolling: () => {
         value: true
