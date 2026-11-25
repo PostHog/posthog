@@ -13,7 +13,6 @@ from products.messaging.backend.models.email_hard_bounce import (
     EmailHardBounce,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
-from products.messaging.backend.services.recipient_identifier import normalized_identifier
 
 
 def active_suppressions(team_id: int, search: str | None) -> QuerySet[MessageSuppression]:
@@ -162,20 +161,17 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     return sorted(identifier for _, identifier in locked)
 
 
-def hard_delete_suppressions(team_id: int, normalized_address: str, confirm_complaints: bool) -> int:
+def hard_delete_suppressions(team_id: int, identifier: str, confirm_complaints: bool) -> int:
     """Delete every row the team holds for the address, removed ones included, and return how many.
 
-    `normalized_address` comes from `recipient_identifier.normalize`.
+    Matches the key the suppression writers store, the address trimmed and lower-cased in application code.
 
     Raises `ComplaintConfirmationRequired`, and deletes nothing, when the address is actively suppressed for a spam
     complaint and `confirm_complaints` is false.
     """
     with transaction.atomic():
         rows = MessageSuppression.objects.for_team(team_id)
-        matching = rows.annotate(normalized_identifier=normalized_identifier()).filter(
-            normalized_identifier=normalized_address
-        )
-        locked = _lock_confirming_complaints(matching, confirm_complaints)
+        locked = _lock_confirming_complaints(rows.filter(identifier=identifier.strip().lower()), confirm_complaints)
         deleted, _ = rows.filter(id__in=[row_id for row_id, _ in locked]).delete()
     return deleted
 
