@@ -771,6 +771,47 @@ class TestRepeatedKeysAreEventDuplicates(SimpleTestCase):
             ("grouped", "SELECT uuid, max(timestamp) AS ts FROM events GROUP BY uuid", ("uuid",), False),
             ("aggregates_without_grouping", "SELECT any(uuid) AS uuid FROM events", ("uuid",), False),
             ("unparseable", "SELECT FROM", ("uuid",), False),
+            ("star", "SELECT * FROM events", ("uuid",), True),
+            ("qualified_star", "SELECT e.* FROM events AS e", ("uuid",), True),
+            ("second_name_for_the_uuid", "SELECT uuid, uuid AS event_id, timestamp FROM events", ("event_id",), True),
+            ("star_with_a_column_renamed_to_uuid", "SELECT *, event AS uuid FROM events", ("uuid",), False),
+            (
+                "array_join_function_fans_out_an_event",
+                "SELECT uuid, timestamp, arrayJoin([1, 2]) AS tag FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "array_join_function_in_a_filter",
+                "SELECT uuid, timestamp FROM events WHERE arrayJoin([1, 2]) > 0",
+                ("uuid",),
+                False,
+            ),
+            (
+                "cte_named_events",
+                "WITH events AS (SELECT event AS uuid, timestamp FROM posthog.events) SELECT uuid, timestamp FROM events",
+                ("uuid",),
+                False,
+            ),
+            ("events_in_another_namespace", "SELECT uuid, timestamp FROM system.events", ("uuid",), False),
+            (
+                "linked_warehouse_field",
+                "SELECT uuid, timestamp, events.orders.order_id AS order_id FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "unqualified_linked_field",
+                "SELECT uuid, timestamp, orders.order_id AS order_id FROM events",
+                ("uuid",),
+                False,
+            ),
+            (
+                "event_properties_are_columns_of_the_event",
+                "SELECT e.uuid, e.properties.$browser AS browser FROM events AS e WHERE properties.plan = 'pro'",
+                ("uuid",),
+                True,
+            ),
         ]
     )
     def test_only_a_stored_event_row_keyed_on_its_uuid_counts(

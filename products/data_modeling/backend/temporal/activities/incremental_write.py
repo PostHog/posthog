@@ -270,7 +270,9 @@ class UniqueKeyTracker:
         finally:
             if self._closed.is_set():
                 self.close()
-        return concat_batches(kept_slices) if self._drop_repeated_keys else batch
+        if not self._drop_repeated_keys or sum(kept.num_rows for kept in kept_slices) == batch.num_rows:
+            return batch
+        return kept_slices[0] if len(kept_slices) == 1 else concat_batches(kept_slices)
 
     def _check_slice(self, batch: pa.RecordBatch) -> pa.RecordBatch:
         if self._drop_repeated_keys:
@@ -310,6 +312,8 @@ class UniqueKeyTracker:
         first_rows = keys.group_by(self._columns).aggregate([(_ROW_NUMBER, "min")])
         unseen = self._unseen_on_disk(first_rows) if self._spill is not None else self._unseen_in_memory(first_rows)
         self._remember(unseen.select(self._columns))
+        if unseen.num_rows == batch.num_rows:
+            return batch
         return batch.filter(pc.is_in(row_numbers, value_set=unseen.column(_FIRST_ROW_NUMBER).combine_chunks()))
 
     def _unseen_in_memory(self, first_rows: pa.Table) -> pa.Table:

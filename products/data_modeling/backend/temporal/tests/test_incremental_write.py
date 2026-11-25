@@ -124,6 +124,15 @@ def test_dropping_repeated_keys_keeps_the_first_row_of_each_key(
     assert kept == expected
 
 
+@_spill_modes
+def test_dropping_repeated_keys_returns_a_batch_without_repeats_uncopied(max_bytes: int) -> None:
+    tracker = UniqueKeyTracker(("id",), max_bytes=max_bytes, drop_repeated_keys=True)
+    batch = _batch([1, 2, 3], ["a", "b", "c"])
+
+    with patch(f"{_MODULE}.UNIQUE_KEY_CHECK_SLICE_ROWS", 2):
+        assert tracker.check(batch) is batch
+
+
 def test_dropping_repeated_keys_spans_slices_of_one_batch() -> None:
     tracker = UniqueKeyTracker(("id",), drop_repeated_keys=True)
 

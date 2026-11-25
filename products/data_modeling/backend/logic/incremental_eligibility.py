@@ -14,6 +14,7 @@ They have to reject them because they combine partial aggregates across refreshe
 """
 
 from collections.abc import Mapping
+from functools import cache
 from typing import TYPE_CHECKING, Optional
 
 from posthog.schema import HogQLQueryModifiers
@@ -35,6 +36,8 @@ from posthog.hogql.database.models import (
     StructDatabaseField,
     UUIDDatabaseField,
 )
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import contains_row_multiplying_function
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.parser import parse_select
@@ -89,6 +92,8 @@ UNIQUE_KEY_FIELD = "unique_key"
 
 EVENTS_TABLE = "events"
 EVENT_ID_COLUMN = "uuid"
+EVENT_PROPERTIES_COLUMN = "properties"
+STAR = "*"
 
 _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DateTimeType: "datetime",
@@ -260,8 +265,7 @@ def repeated_keys_are_event_duplicates(query: str, unique_key: tuple[str, ...]) 
         return False
     if not isinstance(node, ast.SelectQuery) or not _is_plain_event_projection(node):
         return False
-    event_id = _event_id_output(node)
-    return event_id is not None and event_id in unique_key
+    return bool(_event_id_outputs(node) & set(unique_key))
 
 
 def _is_plain_event_projection(select: ast.SelectQuery) -> bool:
@@ -269,24 +273,60 @@ def _is_plain_event_projection(select: ast.SelectQuery) -> bool:
     return (
         source is not None
         and source.next_join is None
-        and _table_name(source) == EVENTS_TABLE
+        and _reads_the_events_table(source)
+        and EVENTS_TABLE not in (select.ctes or {})
         and not select.array_join_list
         and not _is_grouped(select)
         and not any(has_aggregation(item) for item in select.select)
+        and not contains_row_multiplying_function(select)
+        and _reads_only_event_columns(select)
     )
 
 
-def _event_id_output(select: ast.SelectQuery) -> Optional[str]:
+def _reads_the_events_table(source: ast.JoinExpr) -> bool:
+    if not isinstance(source.table, ast.Field):
+        return False
+    table_name = [str(part) for part in source.table.chain]
+    schema = _built_in_schema()
+    return schema.has_table(table_name) and isinstance(schema.get_table(table_name), EventsTable)
+
+
+@cache
+def _built_in_schema() -> Database:
+    return Database()
+
+
+def _reads_only_event_columns(select: ast.SelectQuery) -> bool:
+    qualifiers = _event_qualifiers(select)
+    collector = _FieldChainCollector()
+    collector.visit(select)
+    for chain in collector.chains:
+        column_path = chain[1:] if len(chain) > 1 and chain[0] in qualifiers else chain
+        if len(column_path) > 1 and column_path[0] != EVENT_PROPERTIES_COLUMN:
+            return False
+    return True
+
+
+def _event_qualifiers(select: ast.SelectQuery) -> set[str]:
     source_alias = select.select_from.alias if select.select_from else None
-    event_id_chains = [
-        [EVENT_ID_COLUMN],
-        *([qualifier, EVENT_ID_COLUMN] for qualifier in (EVENTS_TABLE, source_alias) if qualifier),
-    ]
+    return {EVENTS_TABLE, *([source_alias] if source_alias else [])}
+
+
+def _event_id_outputs(select: ast.SelectQuery) -> set[str]:
+    qualifiers = _event_qualifiers(select)
+    event_ids: set[str] = set()
+    other_outputs: set[str] = set()
     for item in select.select:
         expression = item.expr if isinstance(item, ast.Alias) else item
-        if isinstance(expression, ast.Field) and expression.chain in event_id_chains:
-            return _output_name(item)
-    return None
+        chain = expression.chain if isinstance(expression, ast.Field) else []
+        column = chain[1:] if len(chain) > 1 and chain[0] in qualifiers else chain
+        if column == [STAR]:
+            event_ids.add(EVENT_ID_COLUMN)
+        elif column == [EVENT_ID_COLUMN] and (name := _output_name(item)) is not None:
+            event_ids.add(name)
+        elif (name := _output_name(item)) is not None:
+            other_outputs.add(name)
+    return event_ids - other_outputs
 
 
 def _is_nondeterministic(node: ast.SelectQuery) -> bool:
@@ -920,6 +960,15 @@ class _DataDependentValueFinder(TraversingVisitor):
         if node.name.lower() == "cohort":
             self.found = True
         super().visit_call(node)
+
+
+class _FieldChainCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.chains: list[list[str | int]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.chains.append(node.chain)
 
 
 class _FieldNameCollector(TraversingVisitor):
