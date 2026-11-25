@@ -47,6 +47,8 @@ class RequestScopeShadow:
     level: ScopeLevel
     source: RequestScopeSource | None
     outcome: ShadowOutcome
+    # The id the view uses today, which is the id an explicit request should name.
+    current_scope_id: str
 
 
 _PATH_KWARG_BY_LEVEL = {
@@ -129,10 +131,10 @@ def record_request_scope_shadow(
         return
 
     if resolved is None:
-        shadow = RequestScopeShadow(level=level, source=None, outcome=ShadowOutcome.UNPLACED)
+        shadow = RequestScopeShadow(level=level, source=None, outcome=ShadowOutcome.UNPLACED, current_scope_id=current)
     else:
         outcome = ShadowOutcome.SAME if resolved.scope_id == current else ShadowOutcome.DIFFERENT
-        shadow = RequestScopeShadow(level=level, source=resolved.source, outcome=outcome)
+        shadow = RequestScopeShadow(level=level, source=resolved.source, outcome=outcome, current_scope_id=current)
     setattr(request._request, _REQUEST_SCOPE_SHADOW_ATTR, shadow)
 
 
