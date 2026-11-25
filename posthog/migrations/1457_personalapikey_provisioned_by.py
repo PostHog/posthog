@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1455_user_type"),
+        ("posthog", "1456_integration_row_version"),
     ]
 
     # A nullable column with no constraint and no index is a catalog-only change. 1455 adds the

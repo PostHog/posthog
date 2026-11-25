@@ -5,7 +5,7 @@ from posthog.migration_helpers import AddForeignKeyNotValid
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1456_personalapikey_provisioned_by"),
+        ("posthog", "1457_personalapikey_provisioned_by"),
     ]
 
     # NOT VALID skips the scan of existing rows, so the lock this takes is a brief metadata change.
