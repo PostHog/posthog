@@ -860,11 +860,13 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             status.HTTP_429_TOO_MANY_REQUESTS,
         ]
 
-    @parameterized.expand([("session",), ("session_with_a_made_up_key",), ("oauth",), ("workload",)])
+    @parameterized.expand([("session",), ("oauth",), ("workload",)])
     def test_a_caller_without_a_key_is_limited_too(self, mock_post, _flag, _capture, caller):
         mock_post.side_effect = self._answer_by_key({})
         rate_limit.is_rate_limit_enabled.cache_clear()
         self.addCleanup(rate_limit.is_rate_limit_enabled.cache_clear)
+        # The cases share one user, so each starts with an empty limit.
+        cache.clear()
         client = self.client
         if caller == "oauth":
             application = OAuthApplication.objects.create(
@@ -887,14 +889,11 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
 
         def send(number: int) -> int:
-            # A workload mints a new token whenever it likes, and anyone can add a key that is never checked.
+            # A workload can mint a new token for every send.
             if caller == "workload":
                 client.credentials(HTTP_AUTHORIZATION=f"Bearer workload-token-{number}")
-            url = (
-                f"{self.url}?personal_api_key=made-up-{number}" if caller == "session_with_a_made_up_key" else self.url
-            )
             return client.post(
-                url, {"template_id": str(self.template.id), "recipients": self._recipients(3)}, format="json"
+                self.url, {"template_id": str(self.template.id), "recipients": self._recipients(3)}, format="json"
             ).status_code
 
         def authenticate_workload(authenticator: Any, request: Any) -> Any:

@@ -14,7 +14,7 @@ class _PushSendThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
 
     def get_cache_key(self, request: Any, view: Any) -> str:
         auth = request.successful_authenticator
-        # Only the key that authenticated counts. An unchecked value from the request would let a caller pick its bucket.
+        # Only the key that authenticated counts. A workload token is also a bearer value, and it can be minted again.
         if (
             isinstance(auth, ProjectSecretAPIKeyAuthentication)
             or getattr(auth, "personal_api_key_hash", None) is not None
