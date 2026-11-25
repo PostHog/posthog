@@ -26865,6 +26865,10 @@
                 {
                     "param": "pr_url",
                     "key": "pr_url"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
                 }
             ],
             "injectBody": {},

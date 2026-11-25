@@ -82,6 +82,7 @@ class MonitorPRInput:
     report_id: str
     user_id: int
     pr_url: str
+    note: str = ""
     attempt_key: int = 0
     token_scopes: tuple[str, ...] | None = None
 
@@ -726,6 +727,7 @@ def request_pr_monitoring(
     team: Team,
     user: User,
     pr_url: str,
+    note: str = "",
     token_scopes: Sequence[str] | None = None,
 ) -> PRMonitoringRequestResult:
     from products.signals.backend.temporal.monitor_pr import (
@@ -759,6 +761,7 @@ def request_pr_monitoring(
             report_id=str(report.id),
             user_id=user.id,
             pr_url=pr_url,
+            note=note.strip()[:4000],
             attempt_key=attempt_key(report),
             token_scopes=tuple(token_scopes) if token_scopes is not None else None,
         )

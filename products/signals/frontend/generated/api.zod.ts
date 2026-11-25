@@ -209,12 +209,22 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
  */
 export const signalsMonitorPrCreateBodyPrUrlMax = 500
 
+export const signalsMonitorPrCreateBodyNoteDefault = ``
+export const signalsMonitorPrCreateBodyNoteMax = 4000
+
 export const SignalsMonitorPrCreateBody = /* @__PURE__ */ zod.object({
     pr_url: zod
         .url()
         .max(signalsMonitorPrCreateBodyPrUrlMax)
         .describe(
             "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported."
+        ),
+    note: zod
+        .string()
+        .max(signalsMonitorPrCreateBodyNoteMax)
+        .default(signalsMonitorPrCreateBodyNoteDefault)
+        .describe(
+            'Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.'
         ),
 })
 

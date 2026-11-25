@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportCheck,
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
@@ -39,6 +40,7 @@ from products.signals.backend.monitor_pr import (
     monitor_key,
 )
 from products.signals.backend.monitor_pr_research import _context, research_pull_request
+from products.signals.backend.presentation.monitor_pr import MonitorPRRequestSerializer
 from products.signals.backend.pull_requests import update_pull_request_state
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.tasks import refresh_linked_pull_request_state, refresh_signals_github_repository_cache
@@ -98,6 +100,15 @@ class TestPRMonitoringOutputValidation(SimpleTestCase):
         with self.assertRaises(ValidationError):
             PRMonitoringOutput.model_validate(payload)
 
+    def test_request_serializer_bounds_optional_note(self):
+        default_serializer = MonitorPRRequestSerializer(data={"pr_url": PR_URL})
+        assert default_serializer.is_valid(), default_serializer.errors
+        assert default_serializer.validated_data["note"] == ""
+
+        oversized_serializer = MonitorPRRequestSerializer(data={"pr_url": PR_URL, "note": "x" * 4001})
+        assert not oversized_serializer.is_valid()
+        assert oversized_serializer.errors["note"][0].code == "max_length"
+
 
 class TestMonitorPR(APIBaseTest):
     def setUp(self):
@@ -150,8 +161,9 @@ class TestMonitorPR(APIBaseTest):
             mock.start()
             self.addCleanup(mock.stop)
 
-    def request_report(self, expected_status=202, url=None):
-        response = self.client.post(url or self.url, {"pr_url": PR_URL})
+    def request_report(self, expected_status=202, url=None, note=None):
+        payload = {"pr_url": PR_URL, **({"note": note} if note is not None else {})}
+        response = self.client.post(url or self.url, payload)
         assert response.status_code == expected_status, response.json()
         report = SignalReport.objects.get(id=response.json()["report_id"])
         return report, self.dispatched[-1][1]
@@ -539,7 +551,8 @@ class TestMonitorPR(APIBaseTest):
                 }
             )
             fake_output = duration_output
-            report, inputs = self.request_report()
+            report, inputs = self.request_report(note="  Focus on checkout latency  ")
+            assert inputs.note == "Focus on checkout latency"
             load_pull_request(self.team.id, PR_URL)
             integration_id = Integration.objects.get(team=self.team, kind="github").id
             assert queued_refreshes == [(self.team.id, integration_id)]
@@ -547,7 +560,11 @@ class TestMonitorPR(APIBaseTest):
             async_to_sync(research_pull_request)(inputs)
             assert captured_start.get("branch") is None
             assert "diff --git a/checkout.py" in captured_start["prompt"]
+            assert '"note": "Focus on checkout latency"' in captured_start["prompt"]
             assert "git checkout" not in captured_start["prompt"]
+            assert not SignalReportArtefact.objects.filter(
+                report_id=report.id, type=SignalReportArtefact.ArtefactType.NOTE
+            ).exists()
             assert captured_start["before_task_dispatch"](uuid4()) is None
             assert captured_start["analytics_query_context"] == [{}]
             assert captured_start["context"].github_read_access is False

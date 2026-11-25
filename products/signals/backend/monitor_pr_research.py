@@ -44,6 +44,8 @@ Read the relevant code and existing instrumentation. Use read-only PostHog tools
 actual events and properties, run queries, and verify the metric against this project's data.
 
 Choose ONE primary metric that best measures the intended impact, grounded in observed baseline data.
+The optional note is the person's preferred focus; honor it when measurable in this project's data,
+and when no note is supplied infer the best metric yourself.
 Do not invent event names, observed values, baselines, or evidence of causation.
 
 Return one query-backed primary metric and one metric_threshold check.
@@ -111,6 +113,7 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
                 "number": pr.number,
                 "head_sha": pr.head_sha,
                 "diff": diff,
+                "note": inputs.note,
                 "project_id": inputs.team_id,
             }
         )

@@ -1158,6 +1158,11 @@ export interface MonitorPRRequestApi {
      * @maxLength 500
      */
     pr_url: string
+    /**
+     * Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.
+     * @maxLength 4000
+     */
+    note?: string
 }
 
 /**

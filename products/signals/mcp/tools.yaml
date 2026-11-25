@@ -136,9 +136,10 @@ tools:
             data, and create an inbox report assigned to the person calling this tool. Requires a branch pull request in
             a repository connected to the project's GitHub integrations (fork PRs are not supported). Research starts
             immediately for open, draft, and recently merged PRs. Monitoring starts after research has produced a
-            measurable check and the PR has merged; open PRs wait for merge. If no meaningful metric is available, the
-            report waits for input. Returns the report link and current status, not the completed research. Safe to
-            retry: the same person and PR in this project return the original report.
+            measurable check and the PR has merged; open PRs wait for merge. Optionally include a team-visible note to
+            steer what the research agent focuses on, or omit it so the agent chooses the metric. If no meaningful
+            metric is available, the report waits for input. Returns the report link and current status, not the
+            completed research. Safe to retry: the same person and PR in this project return the original report.
         feature_flag: signals-monitor-pr
         feature_flag_behavior: enable
     inbox-my-settings-get:
