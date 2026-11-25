@@ -516,14 +516,8 @@ async fn serve_v2_entry(
         return Ok(Some(not_modified_response(&etag)));
     }
 
-    // As for the legacy entry, a stale ETag spends the full-response budget too. A request
-    // that then finds no payload spends it again on the legacy entry.
-    if client_etag.is_some() {
-        state
-            .flag_definitions_full_limiter
-            .check_rate_limit_without_request_count(team.id)?;
-    }
-
+    // The payload is read before the full-response budget is spent. A request that falls back
+    // then spends that budget on the legacy path only, and not at all when it ends in a 304.
     let response = match reader
         .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
         .await
@@ -539,6 +533,13 @@ async fn serve_v2_entry(
             return Ok(None);
         }
     };
+
+    // As for the legacy entry, a stale ETag spends the full-response budget too.
+    if client_etag.is_some() {
+        state
+            .flag_definitions_full_limiter
+            .check_rate_limit_without_request_count(team.id)?;
+    }
 
     inc(
         FLAG_DEFINITIONS_ETAG_COUNTER,

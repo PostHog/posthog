@@ -152,6 +152,8 @@ A `v=2` request reads the team's `flags_with_cohorts_v2.json` entry and its ETag
 A team that holds no config version 2 flag has no such entry, and the legacy entry then answers exactly as it does for an unversioned request: same body, same ETag, same 304 handling.
 A missing v2 entry requests no rebuild.
 An ETag without its payload, or a payload that cannot be read, also falls back to the legacy entry.
+The exception is a request that carries that ETag: it gets a 304, because a client holds the v2 ETag only together with the v2 body, which is still current.
+A fallback spends the full-response budget only when the legacy path sends a full response.
 
 Authentication, both rate-limit budgets, the quota check and billing are the same for both feeds.
 `flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the path that took them (`served`) and the SDK name (`library`).

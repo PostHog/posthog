@@ -4082,6 +4082,54 @@ async fn test_incomplete_v2_entry_is_answered_from_the_legacy_entry(
     );
 }
 
+/// A client holds the v2 ETag only together with the v2 body, so a 304 for it stays correct
+/// after the payload is gone. Other requests fall back, and only a full legacy response
+/// spends the full-response budget.
+#[rstest::rstest]
+#[case::etag_without_payload(None)]
+#[case::missing_marker(Some("__missing__".to_string()))]
+#[tokio::test]
+async fn test_v2_etag_without_its_payload_keeps_its_304_and_spends_the_full_budget_once(
+    #[case] payload: Option<String>,
+) {
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    let (context, team, secret_token) = team_with_definitions(&config, false).await;
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_definitions_v2_entry_on(redis, team.id, payload, Some(V2_ETAG))
+        .await
+        .unwrap();
+    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
+    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
+
+    let v2_not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(V2_ETAG))).await;
+    assert_eq!(v2_not_modified.status, 304);
+    assert_eq!(v2_not_modified.etag, Some(weak(V2_ETAG)));
+
+    let legacy_not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(LEGACY_ETAG))).await;
+    assert_eq!(legacy_not_modified.status, 304);
+    assert_eq!(legacy_not_modified.etag, Some(weak(LEGACY_ETAG)));
+
+    let stale = definitions_reply(&server, &versioned, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        stale.status, 200,
+        "no 304 should have spent the full-response budget"
+    );
+    assert_eq!(stale.etag, Some(weak(LEGACY_ETAG)));
+
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(
+        full.status, 429,
+        "the fallback should have spent the full-response budget once"
+    );
+}
+
 #[tokio::test]
 async fn test_v2_request_does_not_request_a_rebuild_for_a_missing_v2_entry() {
     use feature_flags::config::FlexBool;
@@ -4141,11 +4189,12 @@ async fn test_v2_request_without_any_entry_gets_the_503_and_rebuild_of_an_unvers
         definitions_reply(&server, &format!("{unversioned}&v=2"), &secret_token, None).await;
 
     assert_eq!(reply.status, 503);
+    // Before the unversioned request, which would enqueue the same rebuild.
+    assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await);
     assert_eq!(
         definitions_reply(&server, &unversioned, &secret_token, None).await,
         reply
     );
-    assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await);
 }
 
 #[tokio::test]
