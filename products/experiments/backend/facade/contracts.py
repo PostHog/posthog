@@ -893,6 +893,15 @@ class ExperimentActionReference:
 
 
 @frozen
+class ExperimentsUsingCohort:
+    """The experiments that are not archived or deleted and whose exposure criteria or metrics filter on a cohort."""
+
+    count: int
+    # The names of the experiments that the reader may view, in id order. The others count, but stay unnamed.
+    visible_names: tuple[str, ...]
+
+
+@frozen
 class ExperimentListWidgetRow:
     """One experiment in the dashboard experiments list widget."""
 

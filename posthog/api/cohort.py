@@ -159,6 +159,7 @@ from products.cohorts.backend.realtime_state import (
     has_event_criteria,
     resolve_realtime_readiness,
 )
+from products.experiments.backend.facade.cohorts import experiments_using_cohort
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
@@ -2486,6 +2487,21 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         "insights",
                         f"This cohort is used in {count} insight(s): {names_str}. "
                         "Please remove the cohort from these insights before deleting it.",
+                    )
+
+                experiments = experiments_using_cohort(
+                    team=cohort.team,
+                    user=cast(User, request.user) if _token_can_read(request, "experiment") else None,
+                    cohort_id=cohort.id,
+                )
+                if experiments.count:
+                    names = _names_suffix(list(experiments.visible_names), experiments.count)
+                    self._reject_delete(
+                        cohort,
+                        "experiments",
+                        f"This cohort is used in {experiments.count} experiment(s){names}. "
+                        "Remove the cohort from their exposure criteria and metrics, or archive the experiments that "
+                        "have ended, before deleting it.",
                     )
 
                 # Check if cohort is used as criteria in other cohorts
