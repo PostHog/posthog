@@ -6,8 +6,13 @@ import {
 } from './generated/api.schemas'
 import {
     PlatformAlertConfigurationStatus,
+    PlatformAlertStateCount,
+    configurationListRows,
+    configurationStateCounts,
     configurationStatus,
     describeCondition,
+    describeGroup,
+    describeInterval,
     describeOverflow,
     describeSchedule,
     groupLabels,
@@ -91,6 +96,63 @@ describe('platformAlertFormat', () => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
     })
 
+    test('configurationListRows puts the groups of an open alert under it and leaves a closed alert as one row', () => {
+        const groups = [makeAlert(PlatformAlertStateApi.Firing), makeAlert(PlatformAlertStateApi.NotFiring)]
+        const open = makeConfiguration({ id: 'open', alerts: groups })
+        const closed = makeConfiguration({ id: 'closed', alerts: groups })
+        expect(configurationListRows([open, closed], ['open'])).toEqual([
+            { kind: 'alert', configuration: open },
+            { kind: 'group', configuration: open, group: groups[0] },
+            { kind: 'group', configuration: open, group: groups[1] },
+            { kind: 'alert', configuration: closed },
+        ])
+    })
+
+    test('configurationListRows keeps an open alert closed once it has one group left, as it has no toggle', () => {
+        const single = makeConfiguration({ id: 'single', alerts: [makeAlert(PlatformAlertStateApi.Firing)] })
+        expect(configurationListRows([single], ['single'])).toEqual([{ kind: 'alert', configuration: single }])
+    })
+
+    test.each<[string, Partial<PlatformAlertApi>, string]>([
+        [
+            'labels in grouping order',
+            { labels: { severity_text: 'error', service_name: 'checkout' } },
+            'service_name=checkout severity_text=error',
+        ],
+        ['no labels falls back to the key', { grouping_key: 'sha256:abc', labels: {} }, 'sha256:abc'],
+        ['no key', { grouping_key: '' }, 'Ungrouped'],
+    ])('describeGroup: %s', (_, overrides, expected) => {
+        const alert = { ...makeAlert(PlatformAlertStateApi.Firing), ...overrides }
+        expect(describeGroup(alert, ['service_name', 'severity_text'])).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([
+        ['no groups yet', {}, [{ status: 'not_checked', count: 0 }]],
+        [
+            'disabled hides group states',
+            { enabled: false, alerts: [makeAlert(PlatformAlertStateApi.Firing)] },
+            [{ status: 'disabled', count: 1 }],
+        ],
+        [
+            'groups in the same state add up, most urgent state first',
+            {
+                alerts: [
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Firing),
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Errored),
+                ],
+            },
+            [
+                { status: 'errored', count: 1 },
+                { status: 'firing', count: 1 },
+                { status: 'not_firing', count: 2 },
+            ],
+        ],
+    ])('configurationStateCounts: %s', (_, overrides, expected) => {
+        expect(configurationStateCounts(makeConfiguration(overrides))).toEqual(expected)
+    })
+
     test.each<[string, Partial<PlatformAlertConfigurationApi>, string]>([
         ['interval', { check_interval_minutes: 15 }, 'Every 15 min'],
         [
@@ -105,6 +167,20 @@ describe('platformAlertFormat', () => {
         ],
     ])('describeSchedule: %s', (_, overrides, expected) => {
         expect(describeSchedule(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, string]>([
+        ['minutes', { check_interval_minutes: 5 }, '5m'],
+        ['minutes that are not whole hours stay in minutes', { check_interval_minutes: 90 }, '90m'],
+        ['whole hours', { check_interval_minutes: 120 }, '2h'],
+        ['whole days', { check_interval_minutes: 1440 }, '1d'],
+        [
+            'calendar unit ignores the interval',
+            { check_interval_minutes: 15, recurrence_unit: CalendarUnitEnumApi.Month },
+            '1mo',
+        ],
+    ])('describeInterval: %s', (_, overrides, expected) => {
+        expect(describeInterval(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Record<string, unknown>, string]>([

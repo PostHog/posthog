@@ -1,7 +1,8 @@
 import importlib
 from typing import TYPE_CHECKING, Any
 
-# Each tool maps to the submodule that defines it. Resolved lazily via PEP 562 __getattr__
+# Each tool maps to the submodule that defines it. A tool that a product owns maps to the
+# absolute path of that product's facade module instead. Resolved lazily via PEP 562 __getattr__
 # below, so importing one tool — or this package — does not eagerly pull every tool's
 # transitive deps. Notably `create_insight` imports the chat agent, which imports back into
 # `ee.hogai.tools`; eager re-exports here formed an import cycle that only survived by
@@ -24,7 +25,6 @@ _TOOL_MODULES: dict[str, str] = {
     "SwitchModeTool": ".switch_mode",
     "TaskTool": ".task",
     "TodoWriteTool": ".todo_write",
-    "UpsertDashboardTool": ".upsert_dashboard",
 }
 
 __all__ = [
@@ -41,7 +41,6 @@ __all__ = [
     "ExecuteSQLTool",
     "SwitchModeTool",
     "CreateInsightTool",
-    "UpsertDashboardTool",
     "CreateNotebookTool",
 ]
 
@@ -82,4 +81,3 @@ if TYPE_CHECKING:
     from .switch_mode import SwitchModeTool as SwitchModeTool
     from .task import TaskTool as TaskTool
     from .todo_write import TodoWriteTool as TodoWriteTool
-    from .upsert_dashboard import UpsertDashboardTool as UpsertDashboardTool

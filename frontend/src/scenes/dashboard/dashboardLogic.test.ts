@@ -393,6 +393,33 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('parent breadcrumb', () => {
+        it.each([
+            ['the Dashboards list without a back link', {}, { name: 'Dashboards', path: urls.dashboards() }],
+            [
+                "a flag's usage link",
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+            [
+                'the Dashboards list for a link to another site',
+                { backUrl: 'https://other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
+            [
+                'the Dashboards list for a protocol-relative link',
+                { backUrl: '//other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
+        ])('is %s', (_, searchParams, expected) => {
+            router.actions.push(urls.dashboard(5), searchParams)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            expect(logic.values.breadcrumbs[0]).toEqual(expect.objectContaining(expected))
+        })
+    })
+
     describe('loading only the tiles on screen', () => {
         let refreshInsight: jest.SpiedFunction<typeof dashboardUtils.getInsightWithRetry>
         const tiles = Array.from({ length: 15 }, (_, index) =>

@@ -2,10 +2,11 @@
 
 A CIMD client becomes a provisioning partner by publishing an opt-in in its own metadata
 document, with no person at PostHog involved. The review stands in for that person: until it
-accepts the client, the partner's provisioning stays inactive, and a rejection switches it off
-through the ``disabled`` kill switch, which registering again cannot clear. Staff can reverse a
-verdict, and every verdict lands in the run log. The pipeline itself lives in
-``posthog/temporal/cimd_provisioning_review/``.
+accepts the client, the partner's provisioning stays inactive. A declined partner, or one staff
+asked for changes, can ask for another review from its organization's settings. Only staff block,
+and a block sets the ``disabled`` kill switch, which neither registering again nor asking again
+can clear. Staff can reverse any verdict, and every verdict lands in the run log. The pipeline
+itself lives in ``posthog/temporal/cimd_provisioning_review/``.
 """
 
 from django.db import models
@@ -16,8 +17,13 @@ from posthog.models.utils import UUIDModel
 class ProvisioningReviewStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     ACCEPTED = "accepted", "Accepted"
-    REJECTED = "rejected", "Rejected"
-    # The pipeline could not settle it. The partner stays inactive until staff decide.
+    # Not approved, without the kill switch, so the partner's organization can ask for another review.
+    DECLINED = "declined", "Declined"
+    CHANGES_REQUESTED = "changes_requested", "Changes requested"
+    # Blocked by staff with the kill switch. The stored and API value stays "rejected", so readers of it keep working.
+    REJECTED = "rejected", "Blocked"
+    # The pipeline could not settle it, or the partner's organization asked for another review. The
+    # partner stays inactive until staff decide.
     NEEDS_HUMAN = "needs_human", "Needs staff review"
 
 
@@ -38,9 +44,35 @@ class PartnerProvisioningStatus(models.TextChoices):
     NOT_A_PARTNER = "not_a_partner", "Not a provisioning partner"
     IN_REVIEW = "in_review", "In review"
     WAITING_FOR_STAFF = "waiting_for_staff", "Waiting for PostHog staff"
+    CHANGES_REQUESTED = "changes_requested", "Changes requested"
+    DECLINED = "declined", "Declined"
     ON = "on", "On"
     OFF = "off", "Off"
     BLOCKED = "blocked", "Blocked"
+
+
+class PartnerReviewEventKind(models.TextChoices):
+    """What happened on a review, as its partner's organization admins see it in its timeline."""
+
+    REGISTERED = "registered", "Registered"
+    AUTOMATED_REVIEW = "automated_review", "Automated review"
+    STAFF_DECISION = "staff_decision", "PostHog staff decision"
+    STAFF_MESSAGE = "staff_message", "Message from PostHog staff"
+    PARTNER_NOTE = "partner_note", "Note from the partner"
+
+
+class PartnerAuthentication(models.TextChoices):
+    """How the app authenticates at the token endpoint, as its owners see it."""
+
+    NONE = "none", "Public client, PKCE only"
+    CLIENT_SECRET_POST = "client_secret_post", "Client secret"
+    PRIVATE_KEY_JWT = "private_key_jwt", "Signs with a private key"
+
+
+class OrganizationLinkState(models.TextChoices):
+    THIS_ORGANIZATION = "this_organization", "Linked to this organization"
+    OTHER_REGION = "other_region", "Linked to an organization in another region"
+    NOT_LINKED = "not_linked", "Not linked"
 
 
 class CIMDProvisioningReview(UUIDModel):
@@ -51,7 +83,7 @@ class CIMDProvisioningReview(UUIDModel):
     # the pipeline. Tenants of a shared host (a.github.io, b.github.io) are different domains.
     domain = models.CharField(max_length=253, db_index=True)
     status = models.CharField(
-        max_length=16, choices=ProvisioningReviewStatus.choices, default=ProvisioningReviewStatus.PENDING
+        max_length=32, choices=ProvisioningReviewStatus.choices, default=ProvisioningReviewStatus.PENDING
     )
     decided_stage = models.CharField(max_length=32, choices=ProvisioningReviewStage.choices, null=True, blank=True)
     reason = models.TextField(blank=True, default="")

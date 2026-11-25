@@ -74,3 +74,6 @@ export const WithScan: Story = {
 export const Narrow: Story = { decorators: [inMainContent('w-128')] }
 export const NoScanYet: Story = { parameters: { msw: { mocks: governanceMocks(null) } } }
 export const PartlyFailed: Story = { parameters: { msw: { mocks: governanceMocks(PARTLY_FAILED_USAGE_SNAPSHOT) } } }
+export const SomeTopicsHidden: Story = {
+    parameters: { msw: { mocks: governanceMocks({ ...USAGE_SNAPSHOT, hidden_topics: 2 }) } },
+}

@@ -266,7 +266,7 @@ class TestShadowDiff(SimpleTestCase):
 
 @contextmanager
 def _dashboard_v2(enabled: bool) -> Iterator[MagicMock]:
-    flags = {"metrics", SNUFFLE_API_FEATURE_FLAG, *(["dashboard-v2"] if enabled else [])}
+    flags = {"metrics", SNUFFLE_API_FEATURE_FLAG, *(["dashboard-v2", "dashboard-v2-users"] if enabled else [])}
     with (
         patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag in flags),
         patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
@@ -337,11 +337,13 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from=date_from),
         )
 
-    def _refresh(self, query: MetricsQuery) -> list[dict[str, Any]]:
-        response = MetricsQueryRunner(query=query.model_copy(deep=True), team=self.team).run(
+    def _refresh_response(self, query: MetricsQuery) -> Any:
+        return MetricsQueryRunner(query=query.model_copy(deep=True), team=self.team, user=self.user).run(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1
         )
-        return [series.model_dump() for series in response.results]  # type: ignore[union-attr]
+
+    def _refresh(self, query: MetricsQuery) -> list[dict[str, Any]]:
+        return [series.model_dump() for series in self._refresh_response(query).results]
 
     def _full(self, query: MetricsQuery) -> list[dict[str, Any]]:
         response = MetricsQueryRunner(query=query.model_copy(deep=True), team=self.team).calculate()
@@ -371,11 +373,14 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
                 points=[(self.T0 + dt.timedelta(minutes=1), 9.0)],
                 labels={"pod": "new"},
             )
-            merged = self._refresh(query)
+            spliced = self._refresh_response(query)
+            merged = [series.model_dump() for series in spliced.results]
             full = self._full(query)
 
         assert _refresh_modes(report) == ["full", "spliced"]
         assert merged == full
+        # Dashboard frames read their dates and interval from the range the response resolved.
+        assert spliced.resolved_date_range is not None
 
     @parameterized.expand([("1h", "-1h"), ("24h", "-24h")])
     def test_tail_refresh_of_counter_rate_equals_a_full_run(self, _name: str, date_from: str) -> None:
@@ -478,9 +483,9 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
         query = MetricsHistogramQuery(metricName="latency", dateRange=DateRange(date_from="-1h"))
 
         def refresh() -> dict[str, Any]:
-            response = MetricsHistogramQueryRunner(query=query.model_copy(deep=True), team=self.team).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1
-            )
+            response = MetricsHistogramQueryRunner(
+                query=query.model_copy(deep=True), team=self.team, user=self.user
+            ).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
             return {"times": response.times, "bounds": response.bounds, "counts": response.counts}  # type: ignore[union-attr]
 
         with _dashboard_v2(True) as report, time_machine.travel(self.T0, tick=False) as traveller:
