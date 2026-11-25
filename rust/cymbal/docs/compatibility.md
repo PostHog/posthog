@@ -6,6 +6,7 @@ It does not change the HTTP contract with the Node.js error-tracking consumer.
 ## `/process` with one result for each event
 
 A caller that sends `X-PostHog-Ingestion-Response: 1` to `POST /process` gets one result for each event.
+The Node.js error-tracking consumer sends it.
 The request body is the same array of `AnyEvent`-shaped exception events.
 The response follows the ingestion response contract in [`common/ingestion-response`](../../common/ingestion-response/README.md) and carries the same header.
 A cymbal version that does not know the header answers with the array described in the next section and without the header, so the caller picks its parser from the response header.
@@ -26,7 +27,8 @@ Any other failure that can come from a dependency, such as a database or Kafka e
 
 ## `/process` request and response
 
-Without the header, `/process` answers with the contract the Node.js error-tracking consumer uses.
+Without the header, `/process` answers with the array below.
+The Node.js error-tracking consumer still reads it, for a cymbal version that does not know the header.
 
 - The caller sends `POST /process` with an array of `AnyEvent`-shaped exception events.
 - Cymbal returns an array with the same length and ordering as the request.
@@ -43,7 +45,7 @@ That remains valid because cymbal preserves the HTTP boundary and performs priva
 No generated type changes are needed:
 
 - the Node request type remains `CymbalRequest`
-- the Node response type remains `(CymbalResponse | null)[]`
+- the Node value of an `ok` result remains `CymbalResponse`
 - the internal `cymbal.resolution.v1` gRPC messages are not exposed to Node
 
 ## Remote resolution behind the HTTP boundary

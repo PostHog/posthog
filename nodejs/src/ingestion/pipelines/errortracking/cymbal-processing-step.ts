@@ -10,7 +10,6 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
-import { CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
@@ -35,31 +34,6 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
         timestamp: parsedTimestamp.toISO() as ISOTimestamp,
         warnings,
     }
-}
-
-/**
- * Extracts ingestion warnings from Cymbal's response.
- *
- * When Cymbal encounters processing errors (e.g., missing sourcemaps, invalid properties,
- * empty exception list), it attaches them to $cymbal_errors and still returns the event.
- * We convert these to ingestion warnings so users can see them in the PostHog UI.
- */
-function getCymbalProcessingWarnings(response: CymbalResponse, eventUuid: string): PipelineWarning[] {
-    const cymbalErrors = response.properties.$cymbal_errors
-    if (!Array.isArray(cymbalErrors) || cymbalErrors.length === 0) {
-        return []
-    }
-
-    return [
-        {
-            type: 'error_tracking_exception_processing_errors',
-            details: {
-                eventUuid,
-                errors: cymbalErrors,
-            },
-            key: eventUuid, // Debounce by event UUID
-        },
-    ]
 }
 
 /**
@@ -118,9 +92,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                 // We mutate the event directly since it's not used after this step.
                 input.event.properties = response.properties
 
-                // Combine timestamp validation warnings with Cymbal processing warnings
-                const cymbalWarnings = getCymbalProcessingWarnings(response, input.event.uuid)
-                const warnings = [...timestampWarnings, ...cymbalWarnings, ...serviceWarnings]
+                const warnings = [...timestampWarnings, ...serviceWarnings]
 
                 return ok({ ...input, event: input.event }, [], warnings)
             })

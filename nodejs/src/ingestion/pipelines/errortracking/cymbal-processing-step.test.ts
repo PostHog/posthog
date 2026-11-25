@@ -156,7 +156,10 @@ describe('createCymbalProcessingStep', () => {
             reason: 'cymbal_item_fail',
             error: expect.objectContaining({ message: 'invalid_input: cannot process uuid-1' }),
         })
-        expect(isOkResult(results[1]) && results[1].value.event.properties).toEqual({ $exception_fingerprint: 'fp-2' })
+        expect(results[1]).toMatchObject({
+            type: PipelineResultType.OK,
+            value: { event: { uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } } },
+        })
     })
 
     it('passes all properties to Cymbal including GeoIP', async () => {
@@ -341,106 +344,25 @@ describe('createCymbalProcessingStep', () => {
     })
 
     describe('ingestion warnings', () => {
-        it('emits warning when Cymbal returns $cymbal_errors', async () => {
+        it('emits the warnings Cymbal reports for an event', async () => {
             const input = createInput({ uuid: 'event-with-errors' })
-
-            const response = createResponse({
-                uuid: 'event-with-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    $cymbal_errors: ['No sourcemap found for source url: https://example.com/app.js'],
+            const warning = {
+                type: 'error_tracking_exception_processing_errors',
+                details: {
+                    eventUuid: 'event-with-errors',
+                    errors: ['No sourcemap found for source url: https://example.com/app.js'],
                 },
-            })
+                key: 'event-with-errors',
+            }
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([response]))
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([
+                { result: 'ok', value: createResponse({ uuid: 'event-with-errors' }), warnings: [warning] },
+            ])
 
             const results = await step([input])
 
             expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0]).toEqual({
-                    type: 'error_tracking_exception_processing_errors',
-                    details: {
-                        eventUuid: 'event-with-errors',
-                        errors: ['No sourcemap found for source url: https://example.com/app.js'],
-                    },
-                    key: 'event-with-errors',
-                })
-            }
-        })
-
-        it('emits warning with multiple errors', async () => {
-            const input = createInput({ uuid: 'event-multiple-errors' })
-
-            const response = createResponse({
-                uuid: 'event-multiple-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $cymbal_errors: [
-                        'No sourcemap found for source url: https://example.com/app.js',
-                        'Invalid source map: failed to parse',
-                    ],
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([response]))
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0].details.errors).toEqual([
-                    'No sourcemap found for source url: https://example.com/app.js',
-                    'Invalid source map: failed to parse',
-                ])
-            }
-        })
-
-        it('does not emit warning when $cymbal_errors is empty', async () => {
-            const input = createInput({ uuid: 'event-no-errors' })
-
-            const response = createResponse({
-                uuid: 'event-no-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    $cymbal_errors: [],
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([response]))
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
-            }
-        })
-
-        it('does not emit warning when $cymbal_errors is absent', async () => {
-            const input = createInput({ uuid: 'event-no-errors-field' })
-
-            const response = createResponse({
-                uuid: 'event-no-errors-field',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    // No $cymbal_errors field
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([response]))
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
-            }
+            expect(results[0].warnings).toEqual([warning])
         })
 
         it('does not emit warning for suppressed events', async () => {

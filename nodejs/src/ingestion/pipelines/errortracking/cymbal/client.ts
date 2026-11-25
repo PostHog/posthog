@@ -4,7 +4,14 @@ import { z } from 'zod'
 
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
-import { ItemResult, ServiceResponseError, parseItemResults } from '~/ingestion/common/service-response'
+import {
+    ItemResult,
+    SERVICE_RESPONSE_HEADER,
+    SERVICE_RESPONSE_VERSION,
+    ServiceResponseError,
+    parseItemResults,
+    respondedWithItemResults,
+} from '~/ingestion/common/service-response'
 
 import { CymbalRequest, CymbalResponse } from './types'
 
@@ -16,7 +23,34 @@ const CymbalResponseSchema = z.object({
     properties: z.record(z.string(), z.unknown()),
 })
 
+const LegacyResponseSchema = z.array(CymbalResponseSchema.nullable())
+
 export type CymbalResult = ItemResult<CymbalResponse>
+
+/**
+ * A Cymbal pod that does not know the item results header answers with an array that holds the
+ * event, or `null` for an event it suppressed, and reports processing errors only in `$cymbal_errors`.
+ */
+function fromLegacyResult(response: CymbalResponse | null): CymbalResult {
+    if (response === null) {
+        return { result: 'drop', reason: 'suppressed' }
+    }
+    const errors = response.properties.$cymbal_errors
+    if (!Array.isArray(errors) || errors.length === 0) {
+        return { result: 'ok', value: response }
+    }
+    return {
+        result: 'ok',
+        value: response,
+        warnings: [
+            {
+                type: 'error_tracking_exception_processing_errors',
+                details: { eventUuid: response.uuid, errors },
+                key: response.uuid,
+            },
+        ],
+    }
+}
 
 const cymbalRequestDuration = new Histogram({
     name: 'error_tracking_cymbal_request_duration_ms',
@@ -260,7 +294,8 @@ export class CymbalClient {
     /**
      * Fan out a timed-out chunk to individual events. Each event gets a single
      * attempt through processChunk. Events that succeed return their response.
-     * Events that timeout are confirmed poison pills and come back as a `fail` result.
+     * Events that timeout come back as a `retry` result, so one slow event goes to the DLQ
+     * and a batch where every event timed out fails as a whole.
      * Non-timeout errors (5xx, network) are thrown to abort the fan-out and let
      * the retry wrapper handle them.
      */
@@ -285,7 +320,7 @@ export class CymbalClient {
                                 uuid: item.request.uuid,
                                 teamId: item.request.team_id,
                             })
-                            return { result: 'fail', error: { code: 'timeout', message: error.message } }
+                            return { result: 'retry', error: { code: 'deadline_exceeded', message: error.message } }
                         }
                         throw error
                     }
@@ -311,9 +346,8 @@ export class CymbalClient {
                 batchSize: requests.length,
             })
 
-            // 5xx errors and 429 are retriable. So is 404, which a Cymbal pod
-            // that does not serve this route yet answers.
-            const isRetriable = response.status >= 500 || response.status === 429 || response.status === 404
+            // 5xx errors and 429 are retriable
+            const isRetriable = response.status >= 500 || response.status === 429
             throw new CymbalError(`Cymbal returned ${response.status}`, isRetriable)
         }
 
@@ -321,7 +355,9 @@ export class CymbalClient {
 
         let results: CymbalResult[]
         try {
-            results = parseItemResults(rawResults, CymbalResponseSchema, requests.length)
+            results = respondedWithItemResults(response.headers)
+                ? parseItemResults(rawResults, CymbalResponseSchema, requests.length)
+                : this.parseLegacyResults(rawResults, requests.length)
         } catch (error) {
             if (error instanceof ServiceResponseError) {
                 this.recordMetrics('error_invalid_response', durationMs, requests.length)
@@ -331,6 +367,20 @@ export class CymbalClient {
 
         this.recordMetrics('success', durationMs, requests.length)
         return results
+    }
+
+    private parseLegacyResults(body: unknown, expectedLength: number): CymbalResult[] {
+        const parsed = LegacyResponseSchema.safeParse(body)
+        if (!parsed.success) {
+            throw new ServiceResponseError(`Invalid Cymbal response: ${parsed.error.message}`, false)
+        }
+        if (parsed.data.length !== expectedLength) {
+            throw new ServiceResponseError(
+                `Cymbal response length mismatch: got ${parsed.data.length}, expected ${expectedLength}`,
+                false
+            )
+        }
+        return parsed.data.map((response) => fromLegacyResult(response as CymbalResponse | null))
     }
 
     /**
@@ -372,9 +422,12 @@ export class CymbalClient {
     ): Promise<{ response: FetchResponse; durationMs: number }> {
         const startTime = performance.now()
         try {
-            const response = await this.fetch(`${url}/v2/process`, {
+            const response = await this.fetch(`${url}/process`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    [SERVICE_RESPONSE_HEADER]: SERVICE_RESPONSE_VERSION,
+                },
                 body: JSON.stringify(requests),
                 timeoutMs: this.timeoutMs,
             })

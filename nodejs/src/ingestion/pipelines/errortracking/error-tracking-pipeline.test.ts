@@ -882,7 +882,7 @@ describe('ErrorTrackingPipeline', () => {
             expect(props.$browser).toBe('Chrome')
         })
 
-        it('emits ingestion warning when Cymbal returns $cymbal_errors', async () => {
+        it('emits the ingestion warning Cymbal reports for an event', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
             const eventUuid = new UUIDT().toString()
@@ -900,7 +900,19 @@ describe('ErrorTrackingPipeline', () => {
                     ],
                 },
             })
-            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
+            mockCymbalClient.processExceptions.mockResolvedValue([
+                {
+                    result: 'ok',
+                    value: cymbalResponse,
+                    warnings: [
+                        {
+                            type: 'error_tracking_exception_processing_errors',
+                            details: { eventUuid, errors: cymbalResponse.properties.$cymbal_errors },
+                            key: eventUuid,
+                        },
+                    ],
+                },
+            ])
 
             const message = createKafkaMessage({ eventUuid })
 
