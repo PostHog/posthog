@@ -1987,18 +1987,30 @@ QUALITY_HINTS_HELP_TEXT = (
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
-        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+        help_text=(
+            "The authored report's id (null only when a preflight gate skipped the call). Returned even when "
+            "suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the "
+            "open report that already names the issue: edit that report."
+        ),
     )
     report_status = serializers.CharField(
         allow_null=True,
-        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+        help_text=(
+            "Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With "
+            "`source_issue_already_reported`, the current status of the open report."
+        ),
     )
     emitted = serializers.BooleanField(
         help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+        help_text=(
+            "`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` "
+            "| `source_issue_already_reported` | null when a report was authored. "
+            "`source_issue_already_reported` means an open report already names one of your `source_issues`, so "
+            "no report was created: add your findings to the report in `report_id` with edit-report."
+        ),
     )
     safety_explanation = serializers.CharField(
         allow_null=True,

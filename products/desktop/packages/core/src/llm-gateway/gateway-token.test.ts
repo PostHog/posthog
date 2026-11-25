@@ -92,7 +92,6 @@ function setup(
       .fn()
       .mockResolvedValue({ accessToken: "pha_x", apiHost: API_HOST }),
     authenticatedFetch,
-    messagesUrl: () => "",
     usageUrl: () => "",
     defaultModel: "m",
   };

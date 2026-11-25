@@ -34,6 +34,57 @@ class VolatileFunctionDetector:
         return name.lower() in stable_functions
 
 
+# The dollar quote must follow AS in the same statement, so a single-quoted body cannot match through to a later $$ block.
+_FUNCTION_BODY = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b[^;]*?\bAS\s+(\$\w*\$).*?\1",
+    re.IGNORECASE | re.DOTALL,
+)
+_IDENTIFIER = r'(?:"(?:[^"]|"")+"|\w[\w$]*)'
+_ROUTINE_NAME = re.compile(
+    rf"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+(?:{_IDENTIFIER}\s*\.\s*)?({_IDENTIFIER})",
+    re.IGNORECASE,
+)
+_GAP_BEFORE_ARGS = r"(?:\s|/\*.*?\*/|--[^\n]*\n)*"
+_TRIGGER_EXECUTE = re.compile(r"\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b[^;]*", re.IGNORECASE)
+_TRIGGER_EVENT = r"(?:INSERT|UPDATE|DELETE|TRUNCATE)\b(?:\s+OF\s+[\w\s,\"]+?)?"
+_TRIGGER_EVENTS = re.compile(
+    rf"\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+{_TRIGGER_EVENT}(?:\s+OR\s+{_TRIGGER_EVENT})*\s+ON\b", re.IGNORECASE
+)
+
+
+def _calls_created_routine(sql: str, without_bodies: str) -> bool:
+    # A trigger's EXECUTE FUNCTION names the routine without running it now.
+    outside = _TRIGGER_EXECUTE.sub("", without_bodies)
+    forms = set().union(*(_call_forms(name) for name in _ROUTINE_NAME.findall(sql)))
+    if not forms:
+        return False
+    names = "|".join(re.escape(form) for form in forms)
+    return re.search(rf'(?<![\w$"])(?:{names}){_GAP_BEFORE_ARGS}\(', outside, re.IGNORECASE | re.DOTALL) is not None
+
+
+def _call_forms(identifier: str) -> set[str]:
+    # A call can quote any name, and can leave out the quotes only when the name is a plain identifier.
+    name = identifier[1:-1].replace('""', '"') if identifier.startswith('"') else identifier
+    forms = {'"' + name.replace('"', '""') + '"'}
+    if re.fullmatch(r"\w[\w$]*", name):
+        forms.add(name)
+    return forms
+
+
+def sql_run_at_migration_time(sql: str) -> str:
+    """The SQL with function bodies and trigger events taken out, because neither runs during the migration.
+
+    A body runs when the function is called, and BEFORE UPDATE ON names the statement that fires the
+    trigger. Matching DML keywords in either reads a CREATE TRIGGER as a data change. A DO block runs at
+    once, so its body stays. A body also stays when the same SQL calls a routine that it creates, in any
+    form (SELECT f(), SELECT * FROM f(), CALL p()).
+    """
+    without_bodies = _FUNCTION_BODY.sub("CREATE FUNCTION", sql)
+    if not _calls_created_routine(sql, without_bodies):
+        sql = without_bodies
+    return _TRIGGER_EVENTS.sub("ON", sql)
+
+
 class OperationCategorizer:
     """Categorizes migration operations for combination risk analysis."""
 

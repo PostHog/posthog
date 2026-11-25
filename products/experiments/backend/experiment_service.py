@@ -2633,7 +2633,7 @@ class ExperimentService:
         # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
         # off $feature_flag_called would snapshot nobody once the two events stop being emitted
         # together, and an empty snapshot un-enrolls everyone.
-        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        default_exposure_event = resolve_default_exposure_event(start_date)
         _, variant_property = get_exposure_event_and_property(
             flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
         )
@@ -4634,7 +4634,7 @@ class ExperimentService:
                 if prop.type in ("event", "feature", "element", "hogql")
             ]
         else:
-            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
+            target_entities = exposure_event_names(resolve_default_exposure_event(experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context

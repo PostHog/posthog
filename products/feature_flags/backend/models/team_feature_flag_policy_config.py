@@ -1,7 +1,10 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from products.feature_flags.backend.facade.request_blocklist import MAX_BLOCKED_HOST_LENGTH, MAX_BLOCKED_IP_LENGTH
+from products.feature_flags.backend.facade.request_lists import MAX_LISTED_HOST_LENGTH, MAX_LISTED_IP_LENGTH
+
+# The columns that the team metadata cache carries to the flags service.
+REQUEST_LIST_FIELDS = ("blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips")
 
 
 class TeamFeatureFlagPolicyConfig(models.Model):
@@ -30,14 +33,17 @@ class TeamFeatureFlagPolicyConfig(models.Model):
     # forms have no tag input and would otherwise dead-end.
     require_tags = models.BooleanField(default=False)
 
-    # Saving does not normalize these lists, so every writer goes through facade.request_blocklist first.
+    # Saving does not normalize these lists, so every writer goes through facade.request_lists first.
     # db_default lets pods on the previous release insert rows without naming these columns.
     blocked_hosts = ArrayField(
-        models.CharField(max_length=MAX_BLOCKED_HOST_LENGTH), default=list, blank=True, db_default=[]
+        models.CharField(max_length=MAX_LISTED_HOST_LENGTH), default=list, blank=True, db_default=[]
     )
-    blocked_ips = ArrayField(
-        models.CharField(max_length=MAX_BLOCKED_IP_LENGTH), default=list, blank=True, db_default=[]
+    blocked_ips = ArrayField(models.CharField(max_length=MAX_LISTED_IP_LENGTH), default=list, blank=True, db_default=[])
+    # An empty allowed list allows everything. A blocked entry wins over an allowed one.
+    allowed_hosts = ArrayField(
+        models.CharField(max_length=MAX_LISTED_HOST_LENGTH), default=list, blank=True, db_default=[]
     )
+    allowed_ips = ArrayField(models.CharField(max_length=MAX_LISTED_IP_LENGTH), default=list, blank=True, db_default=[])
 
 
 def team_requires_flag_tags(team_id: int) -> bool:

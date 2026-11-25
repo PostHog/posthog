@@ -51,8 +51,9 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.logic.experiments import LIST_DEFERRED_FIELDS
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
@@ -70,9 +71,9 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -644,7 +645,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     def test_list_query_defers_heavy_metric_columns(self) -> None:
         # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
         # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
-        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # is_legacy annotation references them in its predicate (see _list_is_legacy_annotation), so
         # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
         # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
         self._create_experiment_with_action_metrics(0)
@@ -732,18 +733,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
+            # (name, cutoff set, start_date offset from cutoff in days, expected event)
             ("before_cutoff", True, -7, "$feature_flag_called"),
             ("after_cutoff", True, 7, "$experiment_exposure"),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+            ("after_cutoff_without_cutoff_set", False, 7, "$feature_flag_called"),
         ]
     )
     def test_detail_reports_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, cutoff_set: bool, start_offset_days: int, expected_event: str
     ) -> None:
         # The frontend names the exposure event from this field, so it has to agree with what the
         # results queries actually read (resolve_default_exposure_event). Resolution compares
-        # start_date against a fixed constant, so these cases need no clock control.
+        # start_date against a fixed cutoff, so these cases need no clock control.
         experiment = Experiment.objects.create(
             team=self.team,
             name="resolved-exposure-event",
@@ -753,7 +754,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1323,10 +1324,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         with (
             time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
-            patch_exposure_event_flag(enabled=True),
+            override_exposure_event_cutoff(enabled=True),
         ):
             serialized = ExperimentSerializer(
-                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+                get_experiment(team=self.team, experiment_id=experiment.id),
+                context={"team_id": self.team.id, "get_team": lambda: self.team},
             ).data
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
@@ -5390,6 +5392,22 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
         self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
 
+    @parameterized.expand(
+        [("no_query", ""), ("search_misses", "?search=unrelated"), ("search_matches", "?search=denied")]
+    )
+    def test_retrieve_of_a_denied_experiment_ignores_the_list_filters(self, name: str, query: str) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Denied experiment", "denied-experiment-flag")
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, f"denied-{name}@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
     @parameterized.expand([("eligible_flag", True), ("ineligible_flag", False)])
     def test_copy_experiment_to_project_refuses_denied_flag_in_target(self, _name: str, eligible: bool) -> None:
         self._enable_access_control()
@@ -7570,7 +7588,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
                 {},

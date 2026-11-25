@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -11,7 +10,6 @@ import { accountContextLogic, type AccountContextLogicProps, type AccountContext
 import { AccountContextSignals } from './AccountContextSignals'
 import { AccountContextThreads } from './AccountContextThreads'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
-import { CONTEXT_WRITE_DISABLED_REASON } from './constants'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
@@ -130,17 +128,6 @@ export function AccountContextPane({
 
     return (
         <div className="ph-no-capture flex flex-col gap-4" data-attr="account-context-pane">
-            <div className="flex flex-wrap justify-end gap-2">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlus />}
-                    disabledReason={CONTEXT_WRITE_DISABLED_REASON}
-                    data-attr="account-context-add-fact"
-                >
-                    Add fact
-                </LemonButton>
-            </div>
             {content}
         </div>
     )

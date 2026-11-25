@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { toolResponsesShortenedTotal } from '@/hono/metrics'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
@@ -10,6 +11,7 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
+import { maxResponseBytes } from '@/lib/response-budget'
 import { SessionManager } from '@/lib/SessionManager'
 import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
@@ -28,7 +30,7 @@ import {
     rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { type ExecLearnGuide, ExecLearnCatalog, LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -274,6 +276,24 @@ describe('exec tool', () => {
             )
         })
 
+        it('defers whole guides past the response budget to a separate learn command', async () => {
+            const guideOfShare = (id: string, share: number): ExecLearnGuide => ({
+                id,
+                title: id.toUpperCase(),
+                description: id,
+                content: 'x'.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * share)),
+            })
+            const [large, larger, small] = [guideOfShare('a', 0.5), guideOfShare('b', 0.6), guideOfShare('c', 0.1)]
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: new ExecLearnCatalog([large, larger, small]),
+            })
+
+            await expect(exec.handler(mockContext, { command: 'learn a b c' })).resolves.toBe(
+                `## A\n\n${large.content}\n\n## C\n\n${small.content}\n\n` +
+                    '[Not loaded, so that this result fits in one tool response: b. Run `learn b` in a separate command.]'
+            )
+        })
+
         it.each([true, false])(
             'reports unknown guides with recovery instructions (skills enabled: %s)',
             async (skillsEnabled) => {
@@ -413,6 +433,59 @@ describe('exec tool', () => {
             )
             // JSON output keeps `next` and `count`, so it needs no footer.
             expect(json).toBe(JSON.stringify(handlerResult))
+        })
+        it('keeps the chart when a large text result is shortened', async () => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                details: 'More context about the results. '.repeat(120),
+            }
+            const limit = 300
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, {
+                appendTimeSeriesChartData: true,
+                toolResultTokenLimit: limit,
+            })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+
+            expect(result).toContain(CHART_DATA_PREAMBLE)
+            expect(Buffer.byteLength(result)).toBeLessThanOrEqual(maxResponseBytes(limit))
+        })
+
+        it('drops the next-page hint when shortening cuts rows from a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: Array.from({ length: 100 }, (_, id) => ({ id, name: `thing ${id}` })),
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, {
+                toolResultTokenLimit: 300,
+            })
+
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as string
+
+            expect(result).not.toContain('offset=100')
+        })
+
+        it('counts a result it shortens, since the executor then sees one that fits', async () => {
+            const shortened = async (): Promise<number> =>
+                (await toolResponsesShortenedTotal.get()).values.find(
+                    ({ labels }) => labels.tool === 'mock-tool' && labels.budget === 'client'
+                )?.value ?? 0
+            const exec = createExec(
+                [
+                    makeMockTool({
+                        handler: async () => ({ results: Array.from({ length: 500 }, (_, id) => ({ id })) }),
+                    }),
+                ],
+                undefined,
+                { toolResultTokenLimit: 300 }
+            )
+            const before = await shortened()
+
+            await exec.handler(mockContext, { command: 'call mock-tool' })
+
+            expect((await shortened()) - before).toBe(1)
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
@@ -1557,6 +1630,19 @@ describe('exec tool', () => {
             expect(parsed.inputSchema.required ?? []).not.toContain('kind')
         })
 
+        it.each([
+            ['info --json mock-tool', (out: any) => out.inputSchema.properties.url.description, 'Short url.'],
+            ['schema mock-tool url', (out: any) => out.schema.description, 'Full url with the catalog.'],
+        ])('%s serves the matching url description', async (command, pick, expected) => {
+            const tool = makeMockTool({
+                schema: z.object({ url: z.string().describe('Full url with the catalog.') }),
+                infoFieldDescriptions: { url: 'Short url.' },
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command })) as string
+            expect(pick(JSON.parse(result))).toBe(expected)
+        })
+
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
@@ -1601,6 +1687,23 @@ describe('exec tool', () => {
             )
             // No drill-down note for an already-inlined schema
             expect(parsed.note).toBeUndefined()
+        })
+
+        it('keeps the description on the first copy of a repeated sub-schema only', async () => {
+            const repeated = z
+                .object({ key: z.string().describe('Property key to match against the event or person.') })
+                .describe('A property filter. The key names the property and the operator compares its value.')
+            const tool = makeMockTool({
+                schema: z.object({ filter: z.object({ include: repeated, exclude: repeated }) }),
+            })
+            const exec = createExec([tool])
+            const parsed = JSON.parse(
+                (await exec.handler(mockContext, { command: 'schema mock-tool filter' })) as string
+            )
+            expect([
+                parsed.schema.properties.include.description,
+                parsed.schema.properties.exclude.description,
+            ]).toEqual([expect.stringContaining('A property filter'), undefined])
         })
 
         // The bare `schema <tool>` view is the recursive step where models
@@ -1805,17 +1908,17 @@ describe('exec tool', () => {
                 field?: string
                 schema?: {
                     type?: string
-                    items?: { variants?: Array<{ properties?: Record<string, unknown> }> }
+                    items?: { anyOf?: Array<{ properties?: Record<string, unknown> }> }
                 }
             }
 
             expect(drilled.field).toBe('series')
             expect(drilled.schema?.type).toBe('array')
             // The historical bug returned `{ type: "array", properties: {} }` with no
-            // `items` at all. The item schema — here a summarized union of variants —
-            // must now be present, and the variants must carry real field names. The old
-            // empty output exposes none of these keys, so this fails on a regression.
-            const variants = drilled.schema?.items?.variants
+            // `items` at all. The item schema, a union of variants, must now be present,
+            // and the variants must carry real field names. The old empty output exposes
+            // none of these keys, so this fails on a regression.
+            const variants = drilled.schema?.items?.anyOf
             expect(variants?.length).toBeGreaterThan(0)
             const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
             expect(variantFields).toContain('kind')
