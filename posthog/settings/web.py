@@ -1498,9 +1498,8 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
-# PostHog Desktop on the Go ai-gateway: the URL is the ai-gateway host because gateway.* cannot
-# validate a phe_. A dedicated relay-team phs_ keeps the mint ceiling to desktop tokens. Unset
-# refuses as `unconfigured`, which keeps the app on the legacy gateway.
+# PostHog Desktop on the Go ai-gateway. A dedicated relay-team phs_ keeps the mint ceiling to desktop
+# tokens. Unset refuses mints as `unconfigured`.
 DESKTOP_GATEWAY_URL = get_from_env("DESKTOP_GATEWAY_URL", "")
 DESKTOP_GATEWAY_MINT_KEY = get_from_env("DESKTOP_GATEWAY_MINT_KEY", "")
 DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "200")
