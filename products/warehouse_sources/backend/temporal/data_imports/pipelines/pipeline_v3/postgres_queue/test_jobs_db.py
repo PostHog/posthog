@@ -1496,6 +1496,30 @@ class TestGetStaleStrandedRuns:
         assert "sb_run_gate_idx" in plan
         assert "SubPlan" in plan
 
+    @pytest.mark.asyncio
+    async def test_candidate_scan_can_use_the_partial_state_indexes(self, conn):
+        # Each arm of the candidate scan must match a partial index. A single IN list
+        # over the four non-terminal states matches none, and the planner seq-scans
+        # every retained partition on each sweep.
+        from products.warehouse_sources_queue.backend.core.jobs_db import _stranded_candidate_runs_sql
+
+        await self._stale_pending(conn, batch_index=0, run_uuid="claimable")
+        executing = await self._stale_pending(conn, batch_index=1, run_uuid="busy")
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                "EXPLAIN (FORMAT TEXT) " + _stranded_candidate_runs_sql(),
+                {"stale": self.STALE, "limit": 100},
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        assert "sb_schema_busy_idx" in plan
+
 
 @pytest.mark.django_db(transaction=True)
 class TestReconcileAbandonedRuns:
