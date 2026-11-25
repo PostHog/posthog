@@ -41,7 +41,7 @@ export const ValveEntry = z
         for: Duration,
     })
     .strict()
-    .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
+    .refine((entry) => entry.at !== undefined || entry.when !== undefined, 'give at, when or both')
 export type ValveEntry = z.infer<typeof ValveEntry>
 
 export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()

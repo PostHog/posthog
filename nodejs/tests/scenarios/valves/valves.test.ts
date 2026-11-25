@@ -370,13 +370,16 @@ describe('valves', () => {
         ])
     })
 
-    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
+    it.each<[string, string | undefined]>([
+        ['', undefined],
+        [', once its arming delay passed', '20ms'],
+    ])('waits until enough jobs of its teams run on the queue before it kills%s', async (_story, at) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         stack.run(1)
         stack.run(3, 'hogflow')
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([kill({ at, when: RUNNING_ON_EMAIL })], stack.context)
         await stack.nextRead()
         await stack.nextRead()
         expect(stack.gone()).toEqual([])
@@ -723,6 +726,21 @@ describe('valves', () => {
                 observed: valves.timeline()[0].observedAt !== undefined,
                 next: await send(),
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('holds no send and kills nothing before its arming delay passes', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(true)
+
+            await valves.start([{ ...killAfterAccept, at: '1m' }], stack.context)
+            const answered = await send(stack.worker)
+            await valves.releaseAll()
+
+            expect({
+                answered,
+                sentWhenKilled: stack.sentWhenKilled,
+                error: valves.timeline()[0].error,
+            }).toEqual({ answered: 'sent', sentWhenKilled: [], error: 'never applied: released before its offset' })
         })
 
         it.each<[string, boolean, string]>([

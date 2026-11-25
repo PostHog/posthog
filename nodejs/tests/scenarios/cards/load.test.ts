@@ -292,10 +292,26 @@ describe('load', () => {
             'valves.0.when.params.queue: ',
         ],
         [
-            'both at and when',
-            { ...card, valves: [{ ...emailWorkerKill, at: '5s' }] },
+            'a valve with neither at nor when',
+            { ...card, valves: [{ ...emailWorkerKill, when: undefined }] },
             undefined,
-            'valves.0: exactly one of at, when',
+            'valves.0: give at, when or both',
+        ],
+        [
+            'a valve that fires inside the baseline load admission measures',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '5s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            'valves.0.at: the valve can fire 5s into the drive, inside the 30s fault-free baseline that load and host admission measure; set at to 30s or later',
+        ],
+        [
+            'a when valve with no arming delay on a profile with host admission',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [emailWorkerKill] },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 0s into the drive, inside the 30s fault-free baseline that load and host admission measure; set at to 30s or later',
         ],
         [
             'a when predicate the runner does not know',
@@ -725,6 +741,16 @@ describe('load', () => {
         ],
         ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
         [
+            'a when valve armed at the end of the baseline on a profile with admission',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve inside the baseline on a profile without admission',
+            { ...card, valves: [{ ...emailWorkerKill, when: undefined, at: '5s' }] },
+            profile,
+        ],
+        [
             'a kill valve on another role while the profile runs more than one cdp-api',
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
@@ -765,4 +791,22 @@ describe('load', () => {
     ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
     })
+
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+        'loads the chaos card %s on a profile with load and host admission',
+        (id) => {
+            const admitted = {
+                ...profile,
+                traffic: Object.fromEntries(
+                    ['event_email', 'event_webhook', 'transactional_email'].map((name) => [name, { ratePerSecond: 2 }])
+                ),
+                settings: sesSettings,
+                load: emailLoad,
+                host: { cpuCeiling: 0.5 },
+            }
+            const profilePath = write('profile.yaml', admitted)
+
+            expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
+        }
+    )
 })

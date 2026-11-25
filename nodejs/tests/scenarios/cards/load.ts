@@ -7,7 +7,9 @@ import { z } from 'zod'
 import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
+import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
@@ -233,6 +235,20 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
+function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+    if (profile.load === undefined && profile.host === undefined) {
+        return []
+    }
+    return card.valves.flatMap((entry, i) => {
+        const seconds = durationMs(entry.at ?? '0s') / 1000
+        return seconds < MIN_BASELINE_SECONDS
+            ? [
+                  `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure; set at to ${MIN_BASELINE_SECONDS}s or later`,
+              ]
+            : []
+    })
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
@@ -349,6 +365,7 @@ function check(
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
