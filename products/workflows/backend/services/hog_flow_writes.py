@@ -222,30 +222,28 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
         action["id"]: action.get("config") or {} for action in live_steps if isinstance(action.get("id"), str)
     }
     if live_configs:
-        fallback_sensitive = any(config.get("sensitive") is True for config in live_configs)
+        sensitive = any(config.get("sensitive") is True for config in live_configs)
         fallback_click_tracking = _fallback_click_tracking(live_configs) if step_type == "function_email" else None
     elif step_type == "function_email":
         template_tracking = get_transactional_template_tracking(before.team_id, before.id)
         if template_tracking is None:
             return validated_data
-        fallback_sensitive = template_tracking.sensitive
+        sensitive = template_tracking.sensitive
         fallback_click_tracking = template_tracking.click_tracking_enabled
     else:
-        fallback_sensitive = False
+        sensitive = False
         fallback_click_tracking = None
     actions = []
     for action in validated_data["actions"] or []:
         if isinstance(action, dict) and action.get("type") == step_type:
-            action_id = action.get("id")
-            if isinstance(action_id, str) and action_id in live_by_id:
-                step_sensitive = live_by_id[action_id].get("sensitive") is True
-                step_live = live_by_id[action_id].get("click_tracking_enabled")
-                click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
-            else:
-                step_sensitive = fallback_sensitive
-                click_tracking = fallback_click_tracking
-            config = {**(action.get("config") or {}), "sensitive": step_sensitive}
+            config = {**(action.get("config") or {}), "sensitive": sensitive}
             if step_type == "function_email":
+                action_id = action.get("id")
+                if isinstance(action_id, str) and action_id in live_by_id:
+                    step_live = live_by_id[action_id].get("click_tracking_enabled")
+                    click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
+                else:
+                    click_tracking = fallback_click_tracking
                 if click_tracking is None:
                     config.pop("click_tracking_enabled", None)
                 else:
@@ -256,14 +254,23 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
     return {**validated_data, "actions": actions}
 
 
-def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: dict) -> None:
+def save_validated_workflow(
+    *,
+    team_id: int,
+    hog_flow_id: UUID,
+    validated_data: dict | None = None,
+    validate: Callable[[WorkflowEditState], dict | None] | None = None,
+) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
     follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""
     # The save writes every column. Lock the read so that a concurrent write, such as a staff email
-    # sending pause, either lands before this read or waits for this save, and is never overwritten.
+    # sending pause or template sync, either lands before validation or waits for this save.
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
-        _save_live(locked, _track_disabled_from_active(locked, _keep_live_sensitivity(locked, validated_data)))
+        data = validate(to_edit_state(locked)) if validate is not None else validated_data
+        if data is None:
+            return
+        _save_live(locked, _track_disabled_from_active(locked, data))
 
 
 def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:

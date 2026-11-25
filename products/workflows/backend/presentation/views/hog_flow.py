@@ -209,6 +209,7 @@ from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
     WorkflowActor,
+    WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -4591,17 +4592,24 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     )
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
-        validated_data: dict[str, Any] = {"status": target}
-        if enabled:
+
+        def _validate_locked(locked: WorkflowEditState) -> dict[str, Any] | None:
+            if locked.status == HogFlowState.ARCHIVED:
+                raise WorkflowArchived()
+            if locked.status == target:
+                return None
+            if not enabled:
+                return {"status": target}
             serializer = HogFlowSerializer(
-                hog_flow,
+                locked,
                 data={"status": target},
                 partial=True,
                 context={"team_id": team_id, "get_team": lambda: team},
             )
             serializer.is_valid(raise_exception=True)
-            validated_data = dict(serializer.validated_data)
-        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
+            return dict(serializer.validated_data)
+
+        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validate=_validate_locked)
     return str(target)
 
 

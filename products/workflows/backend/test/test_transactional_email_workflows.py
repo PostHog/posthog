@@ -189,26 +189,40 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         else:
             assert email_action["config"]["click_tracking_enabled"] is expected_clicks
 
-    def test_resuming_paused_workflow_keeps_concurrent_click_tracking_update(self):
-        flow_id = create_transactional_email_workflow(
-            team_id=self.team.id,
-            user_id=self.user.id,
-            content=_content(sensitive=False, click_tracking_enabled=None),
+    def test_resuming_paused_workflow_validates_fresh_locked_graph_after_concurrent_template_edit(self):
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Password reset",
+                "content": {"email": {"subject": "Reset your password", "text": "Token: {{ variables.token }}"}},
+                "type": "email",
+                "sensitive": True,
+            },
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        template_id = created.json()["id"]
+        flow_id = make_transactional(
+            self.team.id, UUID(template_id), user_id=self.user.id, from_integration_id=self.sender.id
         )
         HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.DRAFT)
 
-        def _interleave_template_sync(**kwargs):
-            update_transactional_email_workflow(
-                team_id=self.team.id,
-                user_id=self.user.id,
-                hog_flow_id=flow_id,
-                content=_content(sensitive=False, click_tracking_enabled=False),
+        def _interleave_template_update(**kwargs):
+            patched = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
+                {
+                    "content": {"email": {"subject": "Order shipped", "text": "Your order is on the way"}},
+                    "sensitive": False,
+                    "click_tracking_enabled": False,
+                },
+                format="json",
             )
+            assert patched.status_code == 200, patched.json()
             save_validated_workflow(**kwargs)
 
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.save_validated_workflow",
-            side_effect=_interleave_template_sync,
+            side_effect=_interleave_template_update,
         ):
             new_status = set_workflow_enabled(
                 team_id=self.team.id, user_id=self.user.id, workflow_id=flow_id, enabled=True
@@ -217,7 +231,10 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         assert new_status == HogFlow.State.ACTIVE
         reloaded = HogFlow.objects.get(id=flow_id)
         assert reloaded.status == HogFlow.State.ACTIVE
-        assert reloaded.actions[1]["config"]["click_tracking_enabled"] is False
+        config = reloaded.actions[1]["config"]
+        assert config["inputs"]["email"]["value"]["subject"] == "Order shipped"
+        assert config["sensitive"] is False
+        assert config["click_tracking_enabled"] is False
 
     def test_resuming_multi_step_workflow_preserves_each_steps_tracking_and_sensitivity(self):
         flow_id = create_transactional_email_workflow(
