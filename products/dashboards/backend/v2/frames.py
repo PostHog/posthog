@@ -40,6 +40,17 @@ _TIME_SERIES_DISPLAYS = {
     ChartDisplayType.ACTIONS_STACKED_BAR,
     ChartDisplayType.ACTIONS_UNSTACKED_BAR,
 }
+# Trends displays that show one number per series. Metric, heatmaps, box plots and slope graphs carry other shapes and
+# keep their raw result.
+_AGGREGATED_DISPLAYS = {
+    ChartDisplayType.BOLD_NUMBER,
+    ChartDisplayType.ACTIONS_PIE,
+    ChartDisplayType.ACTIONS_DONUT,
+    ChartDisplayType.ACTIONS_PROPORTION_BAR,
+    ChartDisplayType.ACTIONS_BAR_VALUE,
+    ChartDisplayType.ACTIONS_TABLE,
+    ChartDisplayType.WORLD_MAP,
+}
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
 # The label is trimmed after the match: `\s*` around a lazy group backtracks cubically on a run of spaces.
 _LEGEND_LABEL = re.compile(r"\{\{([^{}]+)\}\}")
@@ -195,8 +206,11 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
     rows = result.get("results")
     if not isinstance(rows, list):
         return None
-    if (query.trendsFilter.display if query.trendsFilter else None) not in _TIME_SERIES_DISPLAYS:
+    display = query.trendsFilter.display if query.trendsFilter else None
+    if display in _AGGREGATED_DISPLAYS:
         return trends_aggregated_frames(query, result)
+    if display not in _TIME_SERIES_DISPLAYS:
+        return None
     timezone = ZoneInfo(result.get("timezone") or "UTC")
     interval = query.interval.value if query.interval else "day"
     current = _meta(result.get("resolved_date_range"), interval, previous=False)
@@ -357,9 +371,22 @@ def funnels_frames(source: Mapping[str, Any], result: Mapping[str, Any]) -> Opti
         return []
     if isinstance(rows[0], list):
         return [_funnel_steps_frame(steps) for steps in rows]
+    if isinstance(rows[0], Mapping) and "bins" in rows[0]:
+        # A compared time-to-convert funnel: one histogram per period.
+        frames: list[Frame] = []
+        for histogram in rows:
+            period_frames = _funnel_time_to_convert_frames(histogram)
+            if period_frames is None:
+                return None
+            frames.extend(period_frames)
+        return frames
     if isinstance(rows[0], Mapping) and "days" in rows[0]:
         return _funnel_trends_frames(source, result, rows)
-    return [_funnel_steps_frame(rows)]
+    # A compared funnel tags each step with its period. Rates are only meaningful within one period.
+    periods: dict[Optional[str], list[Mapping[str, Any]]] = {}
+    for step in rows:
+        periods.setdefault(step.get("compare_label"), []).append(step)
+    return [_funnel_steps_frame(steps) for steps in periods.values()]
 
 
 def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
@@ -370,8 +397,12 @@ def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
     breakdown_value = steps[0].get("breakdown_value") if steps else None
     if breakdown_value is not None:
         labels["breakdown_value"] = _breakdown_label(breakdown_value)
+    is_previous = bool(steps) and steps[0].get("compare_label") == "previous"
+    name = labels.get("breakdown_value")
+    if is_previous:
+        name = f"{name} (previous)" if name else "previous"
     return Frame(
-        name=labels.get("breakdown_value"),
+        name=name,
         labels=labels,
         fields=[
             FrameField(
@@ -397,7 +428,7 @@ def _funnel_steps_frame(steps: Sequence[Mapping[str, Any]]) -> Frame:
                 unit="s",
             ),
         ],
-        meta=FrameMeta(),
+        meta=FrameMeta(previous=is_previous),
     )
 
 
@@ -410,20 +441,24 @@ def _funnel_trends_frames(
 ) -> list[Frame]:
     # The runner already gives each day's conversion as a percentage.
     timezone = ZoneInfo(result.get("timezone") or "UTC")
-    meta = _meta(result.get("resolved_date_range"), source.get("interval") or "day", previous=False)
+    interval = source.get("interval") or "day"
+    current = _meta(result.get("resolved_date_range"), interval, previous=False)
+    previous = FrameMeta(interval=interval, previous=True)
     frames: list[Frame] = []
     for row in rows:
         breakdown_value = row.get("breakdown_value")
         labels = {} if breakdown_value is None else {"breakdown_value": _breakdown_label(breakdown_value)}
+        is_previous = row.get("compare_label") == "previous"
+        name = labels.get("breakdown_value", "conversion")
         frames.append(
             Frame(
-                name=labels.get("breakdown_value", "conversion"),
+                name=f"{name} (previous)" if is_previous else name,
                 labels=labels,
                 fields=[
                     FrameField(name="time", type="time", values=_wall_clock_ms(row.get("days") or [], timezone)),
                     FrameField(name="conversion_rate", type="number", values=list(row.get("data") or [])),
                 ],
-                meta=meta,
+                meta=previous if is_previous else current,
             )
         )
     return frames
@@ -433,15 +468,16 @@ def _funnel_time_to_convert_frames(histogram: Mapping[str, Any]) -> Optional[lis
     bins = histogram.get("bins")
     if not isinstance(bins, list):
         return None
+    is_previous = histogram.get("compare_label") == "previous"
     return [
         Frame(
-            name="time to convert",
+            name="time to convert (previous)" if is_previous else "time to convert",
             labels={},
             fields=[
                 FrameField(name="seconds", type="number", values=[bin[0] for bin in bins], unit="s"),
                 FrameField(name="count", type="number", values=[bin[1] for bin in bins]),
             ],
-            meta=FrameMeta(),
+            meta=FrameMeta(previous=is_previous),
         )
     ]
 
@@ -451,12 +487,14 @@ def retention_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
     rows = result.get("results")
     if not isinstance(rows, list):
         return None
-    groups: dict[Optional[str], list[Mapping[str, Any]]] = {}
+    # Grouped by the raw value: a literal "Other" and the overflow bucket share a display label but are different cohorts.
+    groups: dict[str, tuple[Any, list[Mapping[str, Any]]]] = {}
     for row in rows:
-        breakdown_value = row.get("breakdown_value")
-        groups.setdefault(None if breakdown_value is None else _breakdown_label(breakdown_value), []).append(row)
+        raw = row.get("breakdown_value")
+        groups.setdefault(json.dumps(raw, sort_keys=True, default=str), (raw, []))[1].append(row)
     frames: list[Frame] = []
-    for breakdown_value, cohorts in groups.items():
+    for raw_breakdown, cohorts in groups.values():
+        breakdown_value = None if raw_breakdown is None else _breakdown_label(raw_breakdown)
         periods = max((len(cohort.get("values") or []) for cohort in cohorts), default=0)
         widest = max(cohorts, key=lambda cohort: len(cohort.get("values") or []))
         period_names = [value.get("label") or f"Period {index}" for index, value in enumerate(widest["values"] or [])]
@@ -483,8 +521,13 @@ def retention_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
 
 
 def _period_count(cohort: Mapping[str, Any], period: int) -> Optional[float]:
+    # With a sum or avg aggregation the chart shows the aggregated property, not the actor count.
     values = cohort.get("values") or []
-    return values[period].get("count") if period < len(values) else None
+    if period >= len(values):
+        return None
+    value = values[period]
+    aggregated = value.get("aggregation_value")
+    return aggregated if aggregated is not None else value.get("count")
 
 
 # Metrics (builder, SQL and PromQL), ported from PR #138426.

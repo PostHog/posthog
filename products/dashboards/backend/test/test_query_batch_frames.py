@@ -474,6 +474,57 @@ class TestFrameConverters(SimpleTestCase):
 
         assert _shape(frames) == expected
 
+    def test_compared_funnel_steps_get_one_frame_per_period(self) -> None:
+        steps = [
+            {"name": name, "count": count, "compare_label": label}
+            for label, counts in (("current", (4, 2)), ("previous", (10, 1)))
+            for name, count in zip(("$pageview", "signup"), counts)
+        ]
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery"}, {"results": steps})
+
+        assert frames is not None
+        assert [(frame["name"], frame["meta"].get("previous", False)) for frame in frames] == [
+            (None, False),
+            ("previous", True),
+        ]
+        assert [frame["fields"][2]["values"] for frame in frames] == [[100.0, 50.0], [100.0, 10.0]]
+
+    def test_compared_time_to_convert_keeps_both_histograms(self) -> None:
+        results = [
+            {"bins": [[60, 3], [120, 1]], "compare_label": "current"},
+            {"bins": [[60, 2], [120, 0]], "compare_label": "previous"},
+        ]
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery"}, {"results": results})
+
+        assert _shape(frames) == [
+            ("time to convert", {}, [[60, 120], [3, 1]]),
+            ("time to convert (previous)", {}, [[60, 120], [2, 0]]),
+        ]
+
+    @parameterized.expand([("Metric",), ("CalendarHeatmap",), ("BoxPlot",), ("SlopeGraph",)])
+    def test_trends_displays_without_an_aggregate_keep_the_raw_result(self, display: str) -> None:
+        query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        query["trendsFilter"] = {"display": display}
+        result = {"results": [{"label": "$pageview", "data": [1, 2], "days": ["2026-09-18", "2026-09-19"]}]}
+
+        assert frames_for(QueryBatchLanguage.QUERY, query, result) is None
+
+    def test_retention_keeps_the_aggregated_property_and_raw_breakdowns_apart(self) -> None:
+        def cohort(breakdown: str, value: float) -> dict[str, Any]:
+            return {
+                "date": "2026-09-18T00:00:00Z",
+                "breakdown_value": breakdown,
+                "values": [{"count": 1, "aggregation_value": value, "label": "Day 0"}],
+            }
+
+        rows = [cohort("Other", 7.5), cohort("$$_posthog_breakdown_other_$$", 2.0)]
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "RetentionQuery"}, {"results": rows})
+
+        assert [frame["fields"][1]["values"] for frame in (frames or [])] == [[7.5], [2.0]]
+
     def test_kinds_without_frames_return_none(self) -> None:
         assert frames_for(QueryBatchLanguage.QUERY, {"kind": "PathsQuery"}, {"results": []}) is None
 
