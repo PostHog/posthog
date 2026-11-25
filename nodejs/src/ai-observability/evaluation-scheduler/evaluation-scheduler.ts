@@ -10,6 +10,7 @@
  * input/output it needs to grade.
  */
 import * as crypto from 'crypto'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -30,6 +31,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import { clickHouseTimestampToISO } from '~/common/utils/utils'
 import { PluginServerService, RawKafkaEvent } from '~/types'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
@@ -158,7 +160,7 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
 
     // Build globals for HogVM execution
     let personProperties = {}
-    let eventProperties = {}
+    let eventProperties: Record<string, unknown> = {}
 
     try {
         personProperties = parseJSON(event.person_properties || '{}')
@@ -180,23 +182,33 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         })
     }
 
+    // Trigger conditions can filter on event metadata (timestamp, person_id, person_mode and $group_N).
+    // Their bytecode reads these as globals, and HogVM throws when a global is missing.
     const filterGlobals = {
         event: event.event,
+        uuid: event.uuid,
+        timestamp: DateTime.fromISO(event.timestamp).isValid
+            ? event.timestamp
+            : clickHouseTimestampToISO(event.timestamp),
         elements_chain: event.elements_chain || '',
         distinct_id: event.distinct_id,
+        person_id: event.person_id ?? null,
+        person_mode: event.person_mode ?? null,
         person: {
             properties: personProperties,
         },
         properties: eventProperties,
+        ...groupKeyGlobals(eventProperties),
     }
 
     try {
         const execResult = await execHog(condition.bytecode, { globals: filterGlobals })
 
-        if (execResult.error || execResult.execResult?.error) {
+        const error = execResult.error ?? execResult.execResult?.error
+        if (error) {
             logger.error('Error executing bytecode', {
                 conditionId: condition.id,
-                error: execResult.error ?? execResult.execResult?.error,
+                error: error instanceof Error ? error.message : String(error),
             })
             return false
         }
@@ -209,6 +221,14 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         })
         return false
     }
+}
+
+function groupKeyGlobals(eventProperties: Record<string, unknown>): Record<`$group_${number}`, unknown> {
+    const globals: Record<`$group_${number}`, unknown> = {}
+    for (let index = 0; index < 5; index++) {
+        globals[`$group_${index}`] = eventProperties[`$group_${index}`] ?? null
+    }
+    return globals
 }
 
 export type EvaluationMatchResult =

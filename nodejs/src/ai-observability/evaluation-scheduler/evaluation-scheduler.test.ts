@@ -6,6 +6,7 @@ import {
     createEvaluationCondition,
 } from '~/ai-observability/_tests/fixtures'
 import { logger } from '~/common/utils/logger'
+import { ClickHouseTimestamp } from '~/types'
 
 import {
     EvaluationMatcher,
@@ -223,6 +224,59 @@ describe('Evaluation Scheduler', () => {
                     }),
                 })
             )
+        })
+    })
+
+    describe('checkConditionMatch with compiled event metadata filters', () => {
+        let mockExecHog: jest.Mock
+
+        beforeEach(() => {
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog.mockImplementation(jest.requireActual('~/cdp/utils/hog-exec').execHog)
+        })
+
+        afterEach(() => {
+            mockExecHog.mockReset()
+        })
+
+        // Bytecode compiled by compile_filters_bytecode for each event metadata filter the trigger UI offers
+        it.each([
+            [
+                'timestamp is after 2026-01-01',
+                [
+                    '_H',
+                    1,
+                    32,
+                    '2026-01-01',
+                    2,
+                    'toDateTime',
+                    1,
+                    32,
+                    'timestamp',
+                    1,
+                    1,
+                    2,
+                    'toString',
+                    1,
+                    2,
+                    'toDateTime',
+                    1,
+                    13,
+                ],
+            ],
+            ['person_id is person-uuid-1', ['_H', 1, 32, 'person-uuid-1', 32, 'person_id', 1, 1, 11]],
+            ['person_mode is full', ['_H', 1, 32, 'full', 32, 'person_mode', 1, 1, 11]],
+            ['$group_0 is group-key-1', ['_H', 1, 32, 'group-key-1', 32, '$group_0', 1, 1, 11]],
+        ])('matches a condition on %s', async (_name, bytecode) => {
+            const event = createAiGenerationEvent(teamId, {
+                timestamp: '2026-11-25 12:00:00.000000' as ClickHouseTimestamp,
+                person_id: 'person-uuid-1',
+                person_mode: 'full',
+                properties: JSON.stringify({ $ai_model: 'gpt-4', $group_0: 'group-key-1' }),
+            })
+            const condition = createEvaluationCondition({ bytecode, rollout_percentage: 100 })
+
+            await expect(checkConditionMatch(event, condition)).resolves.toBe(true)
         })
     })
 
