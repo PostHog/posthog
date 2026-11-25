@@ -7,6 +7,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from products.posthog_ai.eval_harness.acp_log import parse_log
 from products.posthog_ai.eval_harness.engines.types import ScorerResult
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers.contract import AsyncOnlyScorerMixin, Score, Scorer
@@ -59,8 +60,23 @@ def notice_call(output: dict[str, Any]) -> ToolCall | None:
 
 
 def final_message(output: dict[str, Any]) -> str:
-    parser = LogParser.cached(output.get("raw_log") or "", initial_prompt=output.get("prompt", "") or "")
-    return parser.get_final_agent_message() or output.get("last_message") or ""
+    """Every assistant text block of the run, in order.
+
+    The agent often answers in one message, then calls a tool such as a task summary or action buttons and ends with a
+    one-line remark, so the last text block alone can miss the answer the user read.
+    """
+    messages = (
+        output.get("messages")
+        or parse_log(output.get("raw_log") or "", initial_prompt=output.get("prompt") or "").messages
+    )
+    texts = [
+        block.get("text", "")
+        for message in messages
+        if isinstance(message, dict) and message.get("role") == "assistant" and isinstance(message.get("content"), list)
+        for block in message["content"]
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+    ]
+    return "\n\n".join(texts) or output.get("last_message") or ""
 
 
 def _sentences(message: str) -> list[str]:
