@@ -18,7 +18,7 @@ const EMAIL_NODE_ID = 'transactional_email'
 
 const transactionalEmailWorkflow = (
     messageCategoryId: string | null,
-    stepConfig: Record<string, boolean> = {}
+    stepConfig: Record<string, boolean | string> = {}
 ): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Usage spike detected',
@@ -88,7 +88,7 @@ const categories = [
 
 const emailStepMocks = (
     messageCategoryId: string | null,
-    stepConfig: Record<string, boolean> = {}
+    stepConfig: Record<string, boolean | string> = {}
 ): Parameters<typeof useMocks>[0] => ({
     get: {
         '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, stepConfig),
@@ -137,6 +137,16 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         expect(screen.getByText('Message category')).toBeInTheDocument()
         expect(screen.getByText(shown)).toBeInTheDocument()
         expect(screen.queryByText('Select message type')).not.toBeInTheDocument()
+    })
+
+    it('offers a marketing email step no transactional category', async () => {
+        useMocks(emailStepMocks('cat-newsletter', { message_category_type: 'marketing' }))
+        await renderEmailStep()
+
+        fireEvent.click(screen.getByText('Newsletter'))
+
+        expect(screen.getAllByText('Newsletter')).toHaveLength(2)
+        expect(screen.queryByText('Billing')).not.toBeInTheDocument()
     })
 
     it('turns off connecting clicks to sessions for this email', async () => {
