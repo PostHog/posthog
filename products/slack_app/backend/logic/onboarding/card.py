@@ -1,6 +1,7 @@
 """Only the per-person workflow calls these, through activities, so renders for one person never overlap."""
 
 from dataclasses import replace
+from datetime import datetime
 from typing import Literal
 
 from slack_sdk.errors import SlackApiError
@@ -12,6 +13,7 @@ from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS, STEPS_BY_KEY
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
 from products.slack_app.backend.services.slack_welcome_messages import (
@@ -79,13 +81,32 @@ def _progress_bar(checked: list[_PlannedStep]) -> str:
     return f"{'▰' * finished}{'▱' * (len(checked) - finished)}  {_progress(checked)}"
 
 
+def _has_used_agent(ctx: OnboardingContext, started_at: str | None) -> bool:
+    """Only threads from before the start count, so the mention that starts the onboarding, or a later one, does
+    not change the intro of a thread already posted."""
+    mappings = SlackThreadTaskMapping.objects.filter(
+        slack_workspace_id=ctx.integration.integration_id, mentioning_slack_user_id=ctx.slack_user_id
+    )
+    if started_at is not None:
+        mappings = mappings.filter(created_at__lt=datetime.fromisoformat(started_at))
+    return mappings.exists()
+
+
 def _root_message(
-    ctx: OnboardingContext, checked: list[_PlannedStep], *, ready: bool, ts: str | None = None
+    ctx: OnboardingContext,
+    checked: list[_PlannedStep],
+    *,
+    ready: bool,
+    started_at: str | None,
+    ts: str | None = None,
 ) -> SlackAppOnboardingMessage:
     blocks = (
         [section_block(onboarding_done_text(ctx.slack_user_id))]
         if ready
-        else [section_block(onboarding_intro_text(ctx.slack_user_id)), context_block(_progress_bar(checked))]
+        else [
+            section_block(onboarding_intro_text(ctx.slack_user_id, has_used_agent=_has_used_agent(ctx, started_at))),
+            context_block(_progress_bar(checked)),
+        ]
     )
     return SlackAppOnboardingMessage(
         kind="root",
@@ -184,7 +205,10 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
             _PlannedStep(number=number, step=step, status="pending", shown=False)
             for number, step in enumerate(steps, start=1)
         ]
-        root = replace(_root_message(ctx, checked, ready=False), planned=[step.key for step in steps])
+        root = replace(
+            _root_message(ctx, checked, ready=False, started_at=state.started_at if state else None),
+            planned=[step.key for step in steps],
+        )
         return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
     # A step can apply only after the account link, such as AI consent for an org admin. It joins at the end,
@@ -206,11 +230,11 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
     ]
     current = _current(checked)
     if current is None:
-        edits.append(_root_message(ctx, checked, ready=True, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=True, started_at=state.started_at, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
     if state.root_status != _progress(checked):
-        edits.append(_root_message(ctx, checked, ready=False, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=False, started_at=state.started_at, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
     if current_ts is None:

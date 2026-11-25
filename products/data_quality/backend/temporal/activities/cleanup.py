@@ -8,11 +8,12 @@ from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Greatest
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.heartbeat_sync import heartbeat_from_thread
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import asyncify
 
 from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -49,7 +50,7 @@ def _heartbeat() -> None:
     # Called from the sweep itself so a long pass keeps reporting progress; a direct call outside a
     # worker (a test, a shell) has no activity to report to.
     if activity.in_activity():
-        activity.heartbeat()
+        heartbeat_from_thread()
 
 
 def _delete_in_batches(queryset: "QuerySet[Any]") -> dict[str, int]:
@@ -70,8 +71,9 @@ def _delete_in_batches(queryset: "QuerySet[Any]") -> dict[str, int]:
 
 
 @activity.defn
-async def cleanup_check_runs_activity() -> CleanupOutcome:
-    return await sync_to_async(_cleanup)()
+@asyncify
+def cleanup_check_runs_activity() -> CleanupOutcome:
+    return _cleanup()
 
 
 def _cleanup() -> CleanupOutcome:

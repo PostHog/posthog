@@ -42,6 +42,11 @@ class _ReadSide:
     reading: SideReading
 
 
+_UNREAD_SIDE: Final = _ReadSide(
+    side=contracts.TraceMessagesSide(kind="messages", messages=[]), reading=SideReading(recognized=True)
+)
+
+
 def step_content(
     kind: contracts.TraceNodeKind,
     node_id: str,
@@ -64,7 +69,10 @@ def read_step(
     *,
     build_normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
+    reads_output: bool = True,
 ) -> StepReading:
+    """With `reads_output` off, the input reads as it always does, the output value still telling whether the input is
+    a conversation, and the output side comes back empty without being normalized."""
     # Building the team's normalizer reads and compiles its recipes, so one node read builds it at most once.
     normalizer = built_once(build_normalizer)
     input_prefix, output_prefix = f"{node_id}-in", f"{node_id}-out"
@@ -74,8 +82,19 @@ def read_step(
         input_side = _conversation_side(
             kind, node_id, input_value, output_value, "user", input_prefix, normalizer=normalizer, team_id=team_id
         )
-        output_side = _conversation_side(
-            kind, node_id, output_value, input_value, "assistant", output_prefix, normalizer=normalizer, team_id=team_id
+        output_side = (
+            _conversation_side(
+                kind,
+                node_id,
+                output_value,
+                input_value,
+                "assistant",
+                output_prefix,
+                normalizer=normalizer,
+                team_id=team_id,
+            )
+            if reads_output
+            else _UNREAD_SIDE
         )
         read_input = (
             input_side

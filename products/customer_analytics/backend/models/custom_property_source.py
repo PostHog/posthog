@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
+
 
 class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -37,6 +39,14 @@ class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Up
     # column, seeded from the warehouse column's information_schema description. Keyed by warehouse
     # column so it pairs with column_property_map; entries are optional.
     column_descriptions = models.JSONField(null=True, blank=True, default=None)
+
+    missing_row_behavior = models.CharField(
+        max_length=20,
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
+        db_default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
+        help_text="What happens to mapped person properties when the key leaves a complete table read.",
+    )
 
     is_enabled = models.BooleanField(default=True)
     consecutive_failures = models.PositiveIntegerField(default=0)

@@ -10,7 +10,8 @@ import { EmailSectionTitle } from './fields/EmailSectionTitle'
 
 type Screens = 'all' | 'desktop' | 'mobile'
 
-const SIMPLE_CONDITION = /^\{%-?\s*if\s+([\s\S]+?)\s*-?%\}$/
+// One space each side belongs to the tag. Any other is being typed.
+const SIMPLE_CONDITION = /^\{%-?\s*if\s([\s\S]*?)\s?-?%\}$/
 const END_IF = /^\{%-?\s*endif\s*-?%\}$/
 
 /** The expression of a plain `{% if … %}…{% endif %}`, or null when the condition is written some other way. */
@@ -44,7 +45,7 @@ export function EmailVisibilityFields({ editor, pos }: { editor: Editor; pos: nu
     return (
         <>
             <EmailSectionTitle>Who sees it</EmailSectionTitle>
-            <EmailFieldRow label="Screens">
+            <EmailFieldRow label="Screens" group>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
@@ -63,6 +64,8 @@ export function EmailVisibilityFields({ editor, pos }: { editor: Editor; pos: nu
                 <LemonButton
                     size="xsmall"
                     type="secondary"
+                    fullWidth
+                    center
                     onClick={() => setCondition({ before: '{% if  %}', after: '{% endif %}' })}
                     data-attr="email-editor-visibility-add-condition"
                 >

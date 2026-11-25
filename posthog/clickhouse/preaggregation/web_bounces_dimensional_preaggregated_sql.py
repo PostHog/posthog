@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
+    -- Every host the session viewed, sorted, with '' for events without $host. A host filter matches a session
+    -- when any of these hosts matches, as the live query does per event. `host` holds only one of them.
+    session_hosts Array(String),
 
     -- Aggregate states for bounce-rate and session-duration metrics.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -69,6 +72,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     bounces_count_state AggregateFunction(sum, Int64),
     total_session_duration_state AggregateFunction(sum, Int64),
     total_session_count_state AggregateFunction(sum, Int64),
+    -- Sessions with a non-NULL bounce value. The bounce rate divides by this, so sessions without a pageview
+    -- (app sessions with only $screen) are left out as in the live query.
+    bounce_eligible_sessions_state AggregateFunction(sum, Int64),
 
     -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
@@ -140,7 +146,8 @@ ORDER BY (
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    session_hosts
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1

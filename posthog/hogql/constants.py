@@ -227,6 +227,8 @@ def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
 
 
 # Settings applied on top of all HogQL queries.
+
+
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2

@@ -609,6 +609,21 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreateBodyNoteMax = 4000
+
+export const OauthApplicationsReviewNoteCreateBody = /* @__PURE__ */ zod.object({
+    note: zod
+        .string()
+        .max(oauthApplicationsReviewNoteCreateBodyNoteMax)
+        .describe(
+            'What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.'
+        ),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
@@ -1329,10 +1344,10 @@ export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .enum(['email', 'canvas', 'experiment'])
+        .enum(['email', 'canvas', 'experiment', 'conversations'])
         .optional()
         .describe(
-            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.'
         ),
 })
 
@@ -1351,7 +1366,9 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 export const workloadTrustPoliciesCreateBodyNameMax = 200

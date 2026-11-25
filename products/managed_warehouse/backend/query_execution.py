@@ -86,7 +86,7 @@ def execute_managed_trino_query(
     def paginate(parsed: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         nonlocal paginator
         paginator = HogQLHasMorePaginator.for_hogql_query(
-            parsed, limit_context=limit_context or LimitContext.QUERY, offset=query.offset
+            parsed, limit_context=limit_context or LimitContext.QUERY, offset=query.offset, limit=query.limit
         )
         return paginator.paginate(parsed) if paginator is not None else parsed
 

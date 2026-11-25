@@ -20,6 +20,8 @@ const pathsWithoutProjectId = [
     'cli',
     'device',
     'render_query',
+    // The toolbar sign-in error page that Django serves.
+    'toolbar_oauth',
 ]
 
 // Instance-level pages that live under a product's own path prefix rather than

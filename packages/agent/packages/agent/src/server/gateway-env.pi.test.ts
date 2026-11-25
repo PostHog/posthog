@@ -93,6 +93,7 @@ describe("buildPiProviderRoute", () => {
 
   it("stays on the Python gateway with the run credential when no token was minted", () => {
     routeToGo();
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
     const log = logger();
     const route = buildPiProviderRoute(
       config,
@@ -109,22 +110,22 @@ describe("buildPiProviderRoute", () => {
   });
 
   it("keeps the legacy route unchanged when the product is not routed", () => {
-    process.env.LLM_GATEWAY_URL = "https://gateway.us.posthog.com";
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
     process.env.AI_GATEWAY_TOKEN = "phe_run";
     const route = buildPiProviderRoute(config, { properties }, logger());
 
     expect(route.isAiGateway).toBe(false);
     expect(route.apiKey).toBe("oauth-token");
-    expect(route.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code");
+    expect(route.baseUrl).toBe("http://llm-gateway.internal:8080/posthog_code");
   });
 
-  it("routes by the server's product over the origin", () => {
+  it("routes by the server's product", () => {
     process.env.AI_GATEWAY_URL = "https://ai-gateway.us.posthog.com/v1";
     process.env.AI_GATEWAY_PRODUCTS = "signals";
     process.env.AI_GATEWAY_TOKEN = "phe_run";
     const route = buildPiProviderRoute(
       config,
-      { gatewayProduct: "signals", originProduct: "workflow", properties },
+      { gatewayProduct: "signals", properties },
       logger(),
     );
 

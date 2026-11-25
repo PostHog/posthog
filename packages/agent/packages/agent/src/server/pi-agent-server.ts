@@ -733,7 +733,6 @@ export class PiAgentServer {
     const providerRoute = buildPiProviderRoute(
       this.config,
       {
-        originProduct: launch.originProduct,
         gatewayProduct: launch.policy.billingProduct,
         aiStage: launch.aiStage,
         taskId: payload.task_id,

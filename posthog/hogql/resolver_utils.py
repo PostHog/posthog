@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import dataclasses
 from collections.abc import Callable, Generator, Iterable
 from typing import Optional, cast
 
@@ -381,6 +382,14 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
             yield from extract_select_queries(select_query.select_query)
 
 
+def projecting_select_type(table_type: ast.TableOrSelectType) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
+    if isinstance(table_type, ast.CTETableAliasType):
+        table_type = table_type.cte_table_type
+    if isinstance(table_type, (ast.SelectQueryAliasType, ast.CTETableType)):
+        table_type = table_type.select_query_type
+    return table_type if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)) else None
+
+
 def _collect_table_types(
     select_type: ast.SelectQueryType | ast.SelectSetQueryType, wanted: tuple[type, ...]
 ) -> list[ast.BaseTableType]:
@@ -458,6 +467,22 @@ def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) ->
         return UnknownDatabaseField(name=name, nullable=nullable)
 
 
+def _cte_property_alias_source(
+    name: str,
+    alias: ast.FieldAliasType,
+    fields: dict[str, FieldOrTable],
+    context: HogQLContext,
+) -> FieldOrTable:
+    if alias.cte_source_field is not None:
+        return alias.cte_source_field
+    _recursively_resolve_column(name, alias.type, fields, context)
+    source = fields[name]
+    if isinstance(source, DatabaseField):
+        # Retyping another column clears the CTE table cache. On rebuild, lazy joins may have replaced this field.
+        alias.cte_source_field = source
+    return source
+
+
 def _recursively_resolve_column(
     name: str,
     column: ast.Type,
@@ -465,7 +490,20 @@ def _recursively_resolve_column(
     context: HogQLContext,
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
-        return _recursively_resolve_column(name, column.type, fields, context)
+        constant_type = column.constant_type
+        if not isinstance(column.type, ast.PropertyType):
+            if constant_type is None:
+                return _recursively_resolve_column(name, column.type, fields, context)
+            fields[name] = _constant_type_to_database_field(name, constant_type)
+            return
+
+        source = _cte_property_alias_source(name, column, fields, context)
+        if constant_type is None:
+            fields[name] = source
+            return
+        if isinstance(source, DatabaseField):
+            constant_type = dataclasses.replace(constant_type, nullable=source.is_nullable())
+        fields[name] = _constant_type_to_database_field(name, constant_type)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)
         if db_field:

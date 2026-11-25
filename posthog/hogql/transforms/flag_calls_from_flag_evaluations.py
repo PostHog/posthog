@@ -36,7 +36,9 @@ from posthog.hogql.database.schema.flag_evaluations import (
     flag_evaluations_coverage_start,
     utc_midnight,
 )
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
+    contains_subquery,
     event_field_type,
     top_level_conjuncts,
     unwrap_table_alias_type,
@@ -337,6 +339,8 @@ def _resolve_with_swaps(
             reason = "a name in it would read a different column there"
         elif not _posthog_events_qualifiers_read_scans(swapped):
             reason = "a name in it that starts with posthog.events reads another table"
+        elif _persons_join_hides_subquery(swapped):
+            reason = "a persons join holds a subquery that these checks cannot read"
         elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
             reason = "it reads a property from a different kind of column there"
         else:
@@ -1133,24 +1137,51 @@ class _FeaturePropertyFinder(SyntaxVisitor):
         self.scan = scan
         self.root = root
         self.found: str | None = None
+        self.aliases = dict(select_aliases(root, in_scope_only=True))
+        # The parameter names of the lambdas around the node being visited.
+        self.parameters: list[str] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:
             super().visit_select_query(node)
 
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.parameters.extend(node.args)
+        super().visit_lambda(node)
+        del self.parameters[len(self.parameters) - len(node.args) :]
+
+    def _column(self, expr: ast.Expr, followed: frozenset[str] = frozenset()) -> list[str | int] | None:
+        """The chain below the scan that `expr` reads, following select aliases to the column they name. A lambda
+        parameter hides the name it shares, such as `properties`, but not a qualified read like `e.properties`."""
+        if isinstance(expr, ast.Field) and expr.chain and expr.chain[0] in self.parameters:
+            return None
+        column = self.scan.column(expr)
+        # A qualified read such as `e.properties` names the scan column, whatever a select alias is called.
+        if (
+            column
+            and isinstance(expr, ast.Field)
+            and str(expr.chain[0]) == str(column[0])
+            and column[0] in self.aliases
+            and column[0] not in followed
+        ):
+            source = self._column(self.aliases[str(column[0])], followed | {str(column[0])})
+            if source is not None:
+                return [*source, *column[1:]]
+        return column
+
     def visit_field(self, node: ast.Field) -> None:
-        column = self.scan.column(node)
+        column = self._column(node)
         if column is not None and len(column) > 1 and column[0] == "properties":
             self._note(column[1])
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
-        if self.scan.column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
+        if self._column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
             self._note(node.property.value)
         super().visit_array_access(node)
 
     def visit_call(self, node: ast.Call) -> None:
         if node.name.startswith("JSONExtract") and len(node.args) >= 2:
-            if self.scan.column(node.args[0]) == ["properties"] and isinstance(node.args[1], ast.Constant):
+            if self._column(node.args[0]) == ["properties"] and isinstance(node.args[1], ast.Constant):
                 self._note(node.args[1].value)
         super().visit_call(node)
 
@@ -1177,7 +1208,6 @@ class _EventsScanSwapper(ScanVisitor):
         self.only_in_flag_evaluations = only_in_flag_evaluations
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.swapped = False
-        # A swapped scan reads `properties.$feature/<key>` with no `flag_key` predicate to prune rows.
         self.reads_unkeyed_feature_property = False
         self.flag_key_predicates = 0
         # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
@@ -1323,6 +1353,31 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
     """
     expected = Counter(_bindings(original)) + Counter({_ADDED_FLAG_KEY_READ: flag_key_predicates})
     return Counter(_bindings(swapped)) == expected
+
+
+def _persons_join_hides_subquery(node: ast.AST) -> bool:
+    """Whether a persons join moved a conjunct that holds a subquery out of its constraint.
+
+    The lazy-table pass resolves the moved conjunct later, inside the persons subquery. No traversal of the resolved
+    tree reaches it, so the other checks never see the events scans or property reads in it.
+    """
+    finder = _MovedPersonsFilterFinder()
+    finder.visit(node)
+    return finder.hides_subquery
+
+
+class _MovedPersonsFilterFinder(SyntaxVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hides_subquery = False
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        join_type = unwrap_table_alias_type(node.type)
+        if isinstance(join_type, ast.LazyTableType) and isinstance(join_type.table, PersonsTable):
+            self.hides_subquery = self.hides_subquery or any(
+                contains_subquery(conjunct) for conjunct in join_type.table.moved_filter_conjuncts()
+            )
+        super().visit_join_expr(node)
 
 
 def _posthog_events_qualifiers_read_scans(node: ast.AST) -> bool:
