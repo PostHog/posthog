@@ -1,5 +1,6 @@
 ---
 name: review-hog-resolution-criteria
+disable-model-invocation: true
 description: >
   Implements safe, verifiable fixes from review comments. Explains declined requests and asks a human
   to handle risky changes.

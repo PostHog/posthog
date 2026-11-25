@@ -1,5 +1,5 @@
 id: smoke
-version: 2
+version: 3
 clock: real
 profile: synthetic
 seed: 1
@@ -16,6 +16,7 @@ invariants:
     - name: at_least_once
     - name: duplicate_sends
     - name: refused_at_intake
+    - name: no_loss
 gates:
     duplicate_sends: 0
     refused_at_intake: 0

@@ -1,4 +1,4 @@
-Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
+Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and its nested events, up to the earliest 1,000, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect its event tree.
 
 By default the response returns the retained event properties, subject to response size limits. Set `detail` to `"summary"` for metadata alone when browsing a trace, with no prompts or outputs in it.
 
@@ -25,7 +25,7 @@ The response contains a single trace in JSON format with:
 - `inputTokens` / `outputTokens` — token counts across all generations
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
 - `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)
-- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, holding the retained properties in full by default and metadata only under `detail: "summary"`.
+- `events` — child events in the trace at every nesting depth (not just direct children), subject to the 1,000-event cap and response size limits. Each event has `properties`, holding the retained properties in full by default and metadata only under `detail: "summary"`.
 
 Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.
 
@@ -99,11 +99,13 @@ A withheld property is unchanged in PostHog: it still works as a filter here, an
 
 To protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered, only this response is bounded. Both detail modes limit the complete response, including echoed filters and warnings, which can also be shortened with omission markers. Neither mode guarantees that every event or property fits. When a full-detail read drops events, re-run with `detail: "summary"` for metadata alone. Summary responses can also omit events.
 
+The tool reads at most the earliest 1,000 events of a trace. A longer trace comes back with an `_eventsLimit` object, and its `_truncated.totalEvents` counts only the events read. `totalCost`, `totalLatency`, and the token totals still cover every matching event. `_eventsLimit.note` says how to read the later events with `execute-sql`.
+
 # Reminders
 
 - Always get the `traceId` from `query-llm-traces-list` results — do not guess or fabricate trace IDs.
 - If no date range is provided, the default lookback window is used. For older traces, provide an explicit `dateRange`.
-- The `events` array contains ALL events in the trace (including deeply nested ones), making this suitable for full tree reconstruction.
+- The `events` array contains events at every nesting depth, so you can rebuild the tree, unless `_eventsLimit` or `_truncated` shows that events were left out.
 - Use `query-llm-traces-list` first to find traces, then this tool to inspect a specific one.
 - Only ask for `detail: "full"` on a trace you have already narrowed down. A full-detail read of an unremarkable trace spends context you will need later.
 - When the traces show a failure that keeps happening, offer to score new traces for it automatically with an online evaluation. Load the `creating-online-evaluations` skill to set one up.

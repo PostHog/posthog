@@ -108,7 +108,8 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
 
     def test_callback_with_invalid_state_returns_error(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=invalid_state")
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_with_error_returns_plain_text(self):
         response = self.client.get(
@@ -392,7 +393,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
 
     def test_callback_with_invalid_state_returns_error(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=invalid_state")
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_with_error_returns_plain_text(self):
         response = self.client.get("/toolbar_oauth/callback?error=access_denied&error_description=user+cancelled")
@@ -405,7 +407,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         tampered_state = f"{state[:-1]}x"
         response = self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={tampered_state}")
 
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_escapes_html_in_error_description(self):
         xss_payload = "</script><script>alert(document.cookie)</script>"
@@ -431,7 +434,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             "/toolbar_oauth/authorize/",
             {"redirect": "https://evil.com/page", "code_challenge": "test_challenge"},
         )
-        assert response.status_code == 403
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_authorize_does_not_set_session_marker(self):
         self._authorize_and_get_state()
@@ -481,8 +485,9 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert "redirect_uri:" not in location
         assert "token_endpoint:" not in location
 
-    def test_callback_state_user_mismatch_returns_error(self):
+    def test_callback_state_of_another_user_returns_error_and_revokes_the_code(self):
         state = self._authorize_and_get_state()
+        assert self.client.get(f"/toolbar_oauth/callback?code=owner_code&state={state}").status_code == 302
         other_user = User.objects.create_user(
             email="other-callback@example.com",
             first_name="Other",
@@ -492,8 +497,21 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         )
         self.organization.members.add(other_user)
         self.client.force_login(other_user)
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+        OAuthGrant.objects.create(
+            user=other_user,
+            application=get_or_create_toolbar_oauth_application(user=other_user),
+            code="injected_code",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            scope="openid",
+            code_challenge="test_challenge_value",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=injected_code&state={state}")
+
         assert response.status_code >= 400
+        assert not OAuthGrant.objects.filter(code="injected_code").exists()
 
     def test_callback_state_team_mismatch_returns_error(self):
         state = self._authorize_and_get_state()
@@ -503,18 +521,55 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code >= 400
 
-    def test_callback_state_replay_returns_error(self):
+    def _create_toolbar_grant(self, code: str) -> None:
+        OAuthGrant.objects.create(
+            user=self.user,
+            application=get_or_create_toolbar_oauth_application(user=self.user),
+            code=code,
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            scope="openid",
+            code_challenge="test_challenge_value",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+
+    def test_callback_state_replay_returns_error_and_keeps_only_the_handed_off_code(self):
         state = self._authorize_and_get_state()
-        first = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+        self._create_toolbar_grant("handed_off_code")
+        self._create_toolbar_grant("never_handed_off_code")
+        first = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
         assert first.status_code == 302
-        second = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert second.status_code >= 400
+
+        for code in ["handed_off_code", "never_handed_off_code"]:
+            replay = self.client.get(f"/toolbar_oauth/callback?code={code}&state={state}")
+            assert replay.status_code == 302
+            assert replay["Location"] == "/toolbar_oauth/error"
+
+        assert OAuthGrant.objects.filter(code="handed_off_code").exists()
+        assert not OAuthGrant.objects.filter(code="never_handed_off_code").exists()
 
     @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
-    def test_callback_expired_state_returns_error(self):
+    def test_callback_expired_state_shows_the_error_away_from_the_code_and_revokes_it(self):
         state = self._authorize_and_get_state()
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert response.status_code >= 400
+        self._create_toolbar_grant("unredeemed_code")
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=unredeemed_code&state={state}", follow=True)
+
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
+        assert response.status_code == 400
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"] == {
+            "title": "This toolbar sign-in expired",
+            "message": "Open the toolbar from your site again to start a new sign-in.",
+            "detail": None,
+            "links_to_authorized_urls": False,
+        }
+        assert not OAuthGrant.objects.filter(code="unredeemed_code").exists()
+
+    def test_error_page_without_a_refused_request_leaves_the_error_to_the_app(self):
+        response = self.client.get("/toolbar_oauth/error")
+
+        assert response.status_code == 200
+        assert "toolbar_oauth_error" not in response.context["posthog_app_context"]
 
     def test_callback_app_url_root_domain(self):
         self.team.app_urls = ["https://example.com"]

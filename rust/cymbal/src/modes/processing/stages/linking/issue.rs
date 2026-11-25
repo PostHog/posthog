@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::core::types::notification::SeveritySource;
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
+    error::{contain_failure, UnhandledError},
     issue_resolution::{
         infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
@@ -75,7 +75,7 @@ impl IssueLinker {
     ) -> Result<PipelineItem<Linked>, UnhandledError> {
         match item {
             Err(error) => Ok(Err(error)),
-            Ok(input) => self.link(input, ctx).await.map(Ok),
+            Ok(input) => contain_failure(self.name(), self.link(input, ctx).await),
         }
     }
 
