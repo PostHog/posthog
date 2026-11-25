@@ -22,7 +22,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_ta
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter, has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.validation.rules import expanded_series_count
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
@@ -219,7 +219,6 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
         raise UnsupportedInsightError("Calendar heatmaps are not scored")
     if len(trends.series) > 1 and _formulas(trends) and _has_histogram_breakdown(trends.breakdownFilter):
         # Each series bins its own value range, so the formula reads zeros for the bins that another series lacks.
-        # The bins also move with the fetched range, so a short fetch gives other values than the chart.
         raise UnsupportedInsightError("Formulas over histogram breakdowns are not scored")
     interval_scoring(profile, scoring_interval(trends))
     return trends
@@ -825,9 +824,9 @@ def _formulas(query: TrendsQuery) -> list[str]:
 def _has_histogram_breakdown(breakdown_filter: BreakdownFilter | None) -> bool:
     if breakdown_filter is None:
         return False
-    if breakdown_filter.breakdowns:
-        return any(breakdown.histogram_bin_count is not None for breakdown in breakdown_filter.breakdowns)
-    return breakdown_filter.breakdown is not None and breakdown_filter.breakdown_histogram_bin_count is not None
+    if has_multi_breakdown(breakdown_filter):
+        return any(breakdown.histogram_bin_count is not None for breakdown in breakdown_filter.breakdowns or [])
+    return has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_histogram_bin_count is not None
 
 
 def _series_node_definition(node: Any) -> dict[str, Any]:
