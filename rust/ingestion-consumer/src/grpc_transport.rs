@@ -671,20 +671,24 @@ impl WorkerStreamRunner {
             };
             tokio::pin!(idle_timer);
             loop {
+                // Order matters: see the worker's end before sending new work
+                // onto its stream, and take waiting work before the idle timer
+                // closes the stream.
                 tokio::select! {
-                    next = queue.recv() => return match next {
-                        Some(send) => {
-                            pending.extend(send);
-                            Ok(None)
-                        }
-                        None => Err(StreamEnd::QueueClosed),
-                    },
+                    biased;
                     ack = acks.message() => match ack {
                         // A greeting does not restart the idle window.
                         Ok(Some(IngestStreamResponse {
                             msg: Some(ingest_stream_response::Msg::Ready(_)) | None,
                         })) => continue,
                         ack => return Ok(Some(ack)),
+                    },
+                    next = queue.recv() => return match next {
+                        Some(send) => {
+                            pending.extend(send);
+                            Ok(None)
+                        }
+                        None => Err(StreamEnd::QueueClosed),
                     },
                     _ = &mut idle_timer => return Err(StreamEnd::Idle),
                 }
