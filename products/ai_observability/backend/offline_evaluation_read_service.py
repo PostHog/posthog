@@ -142,18 +142,19 @@ class OfflineEvaluationReadService:
         # nosemgrep: idor-lookup-without-user -- Versions inherit the authorized definitions' exact environment.
         return CompositeScorers.accessible_versions(self._definitions(), team_id=self.team_id)
 
-    def _validate_scorer_selection(self, query: OfflineReadQuery) -> None:
-        if (
-            query.scorer_definition_id is not None
-            and not self._definitions().filter(id=query.scorer_definition_id).exists()
-        ):
-            raise OfflineEvaluationNotFound
+    def _validate_scorer_selection(self, query: OfflineReadQuery) -> str | None:
+        scope = None
+        if query.scorer_definition_id is not None:
+            scope = self._definitions().filter(id=query.scorer_definition_id).values_list("scope", flat=True).first()
+            if scope is None:
+                raise OfflineEvaluationNotFound
         if query.scorer_version_ids:
             versions = self._versions().filter(id__in=query.scorer_version_ids)
             if query.scorer_definition_id is not None:
                 versions = versions.filter(definition_id=query.scorer_definition_id)
             if versions.count() != len(query.scorer_version_ids):
                 raise OfflineEvaluationNotFound
+        return scope
 
     def _results(
         self, query: OfflineReadQuery | None = None, *, model_version: str | None = None
@@ -184,7 +185,9 @@ class OfflineEvaluationReadService:
             raise OfflineEvaluationNotFound
         return item
 
-    def _filter_experiments(self, query: OfflineReadQuery, *, history: bool = False) -> QuerySet[OfflineExperiment]:
+    def _filter_experiments(
+        self, query: OfflineReadQuery, *, history: bool = False, experiment_scorer: bool = False
+    ) -> QuerySet[OfflineExperiment]:
         experiments = ResourceTags.filter(self._experiments(), self.team_id, query.tags, query.tag_match)
         if query.date_from is not None:
             experiments = experiments.filter(started_at__gte=query.date_from)
@@ -215,10 +218,18 @@ class OfflineEvaluationReadService:
             value = getattr(query, field)
             if value is not None:
                 experiments = experiments.filter(**{field: value})
-        if query.model_version is not None and not history:
+        if query.model_version is not None and (not history or experiment_scorer):
             experiments = experiments.filter(model_version=query.model_version)
-        if query.scorer_definition_id is not None or query.scorer_version_ids:
-            experiments = experiments.filter(Exists(self._results(query).filter(item__experiment_id=OuterRef("id"))))
+        if experiment_scorer:
+            versions = self._versions().filter(definition_id=query.scorer_definition_id)
+            if query.scorer_version_ids:
+                versions = versions.filter(id__in=query.scorer_version_ids)
+            experiments = experiments.filter(experiment_scorer_version__in=versions)
+        elif query.scorer_definition_id is not None or query.scorer_version_ids:
+            matches = Q(Exists(self._results(query).filter(item__experiment_id=OuterRef("id"))))
+            if query.scorer_definition_id is None:
+                matches |= Q(experiment_scorer_version_id__in=query.scorer_version_ids)
+            experiments = experiments.filter(matches)
         return experiments
 
     def _cursor_scope(self, query: OfflineReadQuery, scope: str) -> str:
@@ -377,9 +388,13 @@ class OfflineEvaluationReadService:
         return output
 
     def list_experiments(self, query: OfflineReadQuery) -> CursorPage[OfflineExperimentRead]:
-        self._validate_scorer_selection(query)
-        scope = "experiments"
-        experiments = self._filter_experiments(query)
+        scope = self._validate_scorer_selection(query)
+        experiments = self._filter_experiments(query, experiment_scorer=scope == ScoreDefinition.Scope.EXPERIMENT)
+        return self._experiment_page(query, experiments, "experiments")
+
+    def _experiment_page(
+        self, query: OfflineReadQuery, experiments: QuerySet[OfflineExperiment], scope: str
+    ) -> CursorPage[OfflineExperimentRead]:
         count = experiments.count()
         position = self._time_cursor(query, scope)
         if position is not None:
@@ -1000,8 +1015,24 @@ class OfflineEvaluationReadService:
 
     def scorer_history(self, definition_id: UUID, query: OfflineReadQuery) -> CursorPage[OfflineHistoryPoint]:
         query = replace(query, scorer_definition_id=definition_id)
-        self._validate_scorer_selection(query)
+        scorer_scope = self._validate_scorer_selection(query)
         scope = f"history:{definition_id}"
+        if scorer_scope == ScoreDefinition.Scope.EXPERIMENT:
+            runs = self._experiment_page(
+                query, self._filter_experiments(query, history=True, experiment_scorer=True), scope
+            )
+            return CursorPage(
+                count=runs.count,
+                next_cursor=runs.next_cursor,
+                results=[
+                    OfflineHistoryPoint(
+                        experiment=run,
+                        summary=None,
+                        breakdown_value=getattr(run, query.breakdown) if query.breakdown else None,
+                    )
+                    for run in runs.results
+                ],
+            )
         results = self._results(query, model_version=query.model_version).filter(
             scorer_definition_id=definition_id, item__experiment__in=self._filter_experiments(query, history=True)
         )

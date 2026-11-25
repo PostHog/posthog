@@ -51972,6 +51972,11 @@ export namespace Schemas {
       status: string;
       value: number | boolean | string[] | null;
       inputs: ExperimentScoreInput[];
+      /** Definition of the experiment scorer pinned to this run. */
+      definition_id: string;
+      kind: ScoreDefinitionKindEnum;
+      /** Pinned output configuration for interpreting the experiment score. */
+      config: ScoreDefinitionConfig;
       scorer_version_id: string;
       version: number;
       name: string;
@@ -79108,8 +79113,8 @@ export namespace Schemas {
       breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
-      /** Complete summary for one experiment and scorer version. */
-      summary: OfflineScorerSummary;
+      /** Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result. */
+      summary: OfflineScorerSummary | null;
     }
 
     /**
@@ -138683,7 +138688,7 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
-     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     * Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.
      *
      * * `model_version` - Model
      * * `prompt_version` - Prompt version

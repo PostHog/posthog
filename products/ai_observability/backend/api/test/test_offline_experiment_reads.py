@@ -110,6 +110,62 @@ class TestOfflineExperimentReads(APIBaseTest):
             f"offline_scorers/{definition_id or self.definition.id}/history/"
         )
 
+    def test_experiment_scorer_history_uses_pinned_versions_including_runs_without_a_value(self) -> None:
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Release score", kind="numeric", scope="experiment", calculation="composite"
+        )
+        composition = {
+            "expression": "100 * correct",
+            "inputs": [{"alias": "correct", "scorer_version_id": str(self.version.id), "statistic": "pass_rate"}],
+        }
+        original = definition.create_new_version(config={}, composition=composition, created_by=None)
+        current = definition.create_new_version(config={"max": 100}, composition=composition, created_by=None)
+        self.experiment.experiment_scorer_version = original
+        self.experiment.save(update_fields=["experiment_scorer_version"])
+        newer = OfflineExperiment.objects.for_team(self.team.id).create(
+            id=uuid4(),
+            team=self.team,
+            name="No item scores",
+            started_at=self.experiment.started_at + timedelta(minutes=1),
+            finished_at=self.experiment.started_at + timedelta(minutes=2),
+            status="completed",
+            submission_fingerprint="d" * 64,
+            experiment_scorer_version=current,
+            suite_key="support",
+        )
+        url = self._history(str(definition.id))
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        query = {"breakdown": "suite_key", "limit": 1}
+        first = self.client.get(url, query)
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(first.data["count"], 2)
+        point = first.data["results"][0]
+        self.assertIsNone(point["summary"])
+        self.assertEqual(point["experiment"]["id"], str(newer.id))
+        self.assertEqual(point["experiment"]["experiment_score"]["status"], "missing_input")
+        self.assertEqual(point["breakdown_value"], "support")
+        second = self.client.get(url, {**query, "cursor": first.data["next_cursor"]})
+        self.assertEqual(second.data["results"][0]["experiment"]["experiment_score"]["value"], 100)
+        selected = self.client.get(url, {"scorer_version_ids": str(original.id)})
+        self.assertEqual([row["experiment"]["id"] for row in selected.data["results"]], [str(self.experiment.id)])
+        selected_runs = self.client.get(self._endpoint(), {"scorer_version_ids": str(original.id)})
+        self.assertEqual([run["id"] for run in selected_runs.data["results"]], [str(self.experiment.id)])
+        membership = self._member()
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", access_level="viewer", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(self.definition.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"], user=membership.user)
+        restricted = self.client.get(url)
+        self.assertEqual(restricted.status_code, 200, restricted.data)
+        self.assertEqual(restricted.data["count"], 0)
+
     @parameterized.expand(
         [
             ("evaluated_before_edit", -1, None, True),

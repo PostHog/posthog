@@ -379,6 +379,7 @@ class TestOfflineEvaluationReads(TestCase):
         )
         history = self.service.scorer_history(definition.id, OfflineReadQuery())
         for point in history.results:
+            assert point.summary is not None
             self.assertEqual(point.summary, summaries[point.summary.scorer.id])
 
     @parameterized.expand(
@@ -497,6 +498,7 @@ class TestOfflineEvaluationReads(TestCase):
             point = page.results[0]
             self.assertEqual(point.experiment.id, experiment.id)
             self.assertEqual(point.breakdown_value, "model-a" if breakdown == OfflineHistoryBreakdown.MODEL else None)
+            assert point.summary is not None
             self.assertEqual(point.summary.mean, float(index + 1))
             self.assertEqual(point.summary.status_counts.ok, 1)
             self.assertEqual(point.summary.observed_item_count, 2)
@@ -523,6 +525,7 @@ class TestOfflineEvaluationReads(TestCase):
             point = page.results[0]
             values.append(point.breakdown_value)
             missing_count = models.index(point.breakdown_value) + 1
+            assert point.summary is not None
             self.assertEqual(point.summary.observed_item_count, missing_count + 1)
             self.assertEqual(point.summary.distinct_case_count, missing_count + 1)
             self.assertEqual(point.summary.missing_result_count, missing_count)
@@ -559,6 +562,7 @@ class TestOfflineEvaluationReads(TestCase):
         page = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery(breakdown=breakdown))
         self.assertEqual(page.count, 1)
         self.assertEqual(page.results[0].breakdown_value, value)
+        assert page.results[0].summary is not None
         self.assertEqual(page.results[0].summary.observed_item_count, 2)
 
     def test_history_pages_experiment_version_groups_by_execution_time(self) -> None:
@@ -580,6 +584,7 @@ class TestOfflineEvaluationReads(TestCase):
             page = self.service.scorer_history(self.numeric.definition_id, query)
             self.assertEqual(page.count, 4)
             point = page.results[0]
+            assert point.summary is not None
             seen.append((point.experiment.id, point.summary.scorer.id))
             self.assertEqual(
                 point.summary,

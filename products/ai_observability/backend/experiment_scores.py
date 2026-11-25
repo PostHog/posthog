@@ -114,6 +114,9 @@ def calculate_experiment_score(
             except CompositeFormulaError:
                 status = "formula_error"
     return ExperimentScore(
+        definition_id=version.definition_id,
+        kind=version.definition.kind,
+        config=version.config,
         scorer_version_id=version.id,
         version=version.version,
         name=version.definition.name,

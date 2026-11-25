@@ -292,7 +292,6 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                     try {
                         await breakpoint(150)
                         const page = await api.llmAnalyticsScoreDefinitionsList(String(props.teamId), {
-                            scope: 'item',
                             search: values.scorerSearch || undefined,
                             offset: values.scorerOffset,
                             limit: 50,

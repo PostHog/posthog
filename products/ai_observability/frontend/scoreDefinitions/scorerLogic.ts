@@ -38,6 +38,8 @@ export interface ScorerLogicProps {
     suiteKey?: string
 }
 
+type ScorerParent = { name: string; path: string; key: string }
+
 function initialDraft(props: ScorerLogicProps, definition: ScoreDefinitionApi | null): ScoreDefinitionDraft {
     const draft = createDraft(
         props.scorerId === 'new' && props.duplicateFrom ? 'duplicate' : definition ? 'metadata' : 'create',
@@ -67,6 +69,7 @@ export interface scorerLogicValues {
     hasUnsavedChanges: boolean
     isNew: boolean
     loadError: string | null
+    parentBreadcrumb: ScorerParent
     saving: boolean
     willCreateVersion: boolean
 }
@@ -123,7 +126,17 @@ export interface scorerLogicActions {
         value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]
     ) => {
         field: keyof ScoreDefinitionDraft
-        value: boolean | string | string[] | CategoricalScoreOptionApi[] | CompositeInputReadApi[]
+        value:
+            | boolean
+            | string
+            | string[]
+            | CategoricalScoreOptionApi[]
+            | (CompositeInputReadApi &
+                  Pick<
+                      import('../generated/api.schemas').CompositeInputApi,
+                      'category' | 'statistic' | 'version_policy'
+                  >)[]
+            | undefined
     }
     setError: (error: string | null) => {
         error: string | null
@@ -148,6 +161,7 @@ export interface scorerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNew: (arg: any) => boolean
+        parentBreadcrumb: (isNew: boolean, arg: string | undefined) => ScorerParent
         configChanged: (draft: ScoreDefinitionDraft, definition: ScoreDefinitionApi | null) => boolean
         hasChanges: (
             isNew: boolean,
@@ -162,7 +176,11 @@ export interface scorerLogicMeta {
             definition: ScoreDefinitionApi | null
         ) => boolean
         hasUnsavedChanges: (draft: ScoreDefinitionDraft, definition: ScoreDefinitionApi | null, arg: any) => boolean
-        breadcrumbs: (isNew: boolean, definition: ScoreDefinitionApi | null) => Breadcrumb[]
+        breadcrumbs: (
+            parentBreadcrumb: ScorerParent,
+            isNew: boolean,
+            definition: ScoreDefinitionApi | null
+        ) => Breadcrumb[]
     }
 }
 
@@ -263,6 +281,17 @@ export const scorerLogic = kea<scorerLogicType>([
     })),
     selectors({
         isNew: [() => [(_, props) => props.scorerId], (scorerId) => scorerId === 'new'],
+        parentBreadcrumb: [
+            (s) => [s.isNew, (_, props: ScorerLogicProps) => props.experimentId],
+            (isNew: scorerLogicValues['isNew'], experimentId: string | undefined): ScorerParent =>
+                isNew && experimentId
+                    ? {
+                          name: 'Experiment',
+                          path: urls.aiObservabilityOfflineEvaluationExperiment(experimentId),
+                          key: 'AIObservabilityOfflineExperiment',
+                      }
+                    : { name: 'Scorers', path: urls.aiObservabilityScorers(), key: 'AIObservabilityScorers' },
+        ],
         configChanged: [
             (s) => [s.draft, s.definition],
             (draft: ScoreDefinitionDraft, definition: ScoreDefinitionApi | null) =>
@@ -306,9 +335,9 @@ export const scorerLogic = kea<scorerLogicType>([
                 JSON.stringify(draft) !== JSON.stringify(initialDraft(props, definition)),
         ],
         breadcrumbs: [
-            (s) => [s.isNew, s.definition],
-            (isNew: boolean, definition: ScoreDefinitionApi | null): Breadcrumb[] => [
-                { name: 'Scorers', path: urls.aiObservabilityScorers(), key: 'AIObservabilityScorers' },
+            (s) => [s.parentBreadcrumb, s.isNew, s.definition],
+            (parent: ScorerParent, isNew: boolean, definition: ScoreDefinitionApi | null): Breadcrumb[] => [
+                parent,
                 { name: isNew ? 'New scorer' : definition?.name || 'Scorer', key: 'AIObservabilityScorer' },
             ],
         ],

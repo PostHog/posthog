@@ -38,7 +38,10 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
     created_by: null,
 }
 
-export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {
+export function makeOfflineHistoryPoint(
+    index: number,
+    mean: number | null = 4.2
+): OfflineHistoryPointApi & { summary: NonNullable<OfflineHistoryPointApi['summary']> } {
     return {
         experiment: {
             tags: [],

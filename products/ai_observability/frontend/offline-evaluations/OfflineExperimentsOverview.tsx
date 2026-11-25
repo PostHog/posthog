@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
+import { IconChevronRight, IconInfo, IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -27,6 +27,7 @@ import { cleanTagFilters } from '../components/resourceTagFilters'
 import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
 import { experimentScoreLabel } from './ExperimentScoreResult'
+import { explainMixedScorerVersions, formatItemScorerVersions } from './offlineExperimentPresentation'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -58,32 +59,35 @@ export function OfflineExperimentsOverview({
     } = useValues(logic)
     const { setFilters, openChooser, nextPage, previousPage, refresh, loadOfflineSuggestedScorers, toggleScoreTrends } =
         useActions(logic)
-    const versionsByRun = new Map<string, string>()
-    const versionsBySuite = new Map<string, Set<string>>()
-    for (const run of experiments?.results ?? []) {
-        const score = run.experiment_score
-        if (!score?.inputs.length || score.inputs.some((input) => !input.sources.length)) {
-            continue
-        }
-        const versions = score.inputs
-            .map((input) => `${input.alias}: ${input.sources.map((source) => `v${source.version}`).join(', ')}`)
-            .join(' · ')
-        versionsByRun.set(run.id, versions)
-        if (run.suite_key) {
-            const key = JSON.stringify([run.suite_key, score.scorer_version_id])
-            const suiteVersions = versionsBySuite.get(key) ?? new Set<string>()
-            suiteVersions.add(versions)
-            versionsBySuite.set(key, suiteVersions)
-        }
-    }
     const columns: LemonTableColumns<OfflineExperimentReadApi> = [
         {
             title: 'Experiment',
             key: 'name',
             className: '@max-[50rem]:w-1/3',
-            width: '19%',
+            width: '25%',
             render: (_, experiment) => (
-                <Tooltip title={`${experiment.name} · ${experiment.id}`}>
+                <Tooltip
+                    title={
+                        <div>
+                            <strong>{experiment.name}</strong>
+                            <div>{experiment.id}</div>
+                            <div>
+                                {[
+                                    `${experiment.accepted_item_count.toLocaleString()} items`,
+                                    experiment.visible_scorer_definition_count === null
+                                        ? 'Scorers unavailable'
+                                        : `${experiment.visible_scorer_definition_count.toLocaleString()} visible scorers`,
+                                    experiment.visible_result_count === null
+                                        ? 'Results unavailable'
+                                        : `${experiment.visible_result_count.toLocaleString()} visible results`,
+                                    experiment.visible_scorer_version_count === null
+                                        ? 'Scorer version count unavailable'
+                                        : `${experiment.visible_scorer_version_count.toLocaleString()} visible scorer versions`,
+                                ].join(' · ')}
+                            </div>
+                        </div>
+                    }
+                >
                     <Link
                         to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
                         className="block font-semibold truncate @max-[50rem]:max-w-40"
@@ -93,29 +97,6 @@ export function OfflineExperimentsOverview({
                     </Link>
                 </Tooltip>
             ),
-        },
-        {
-            title: 'Experiment score',
-            key: 'experiment_score',
-            isHidden: !experiments?.results.some((run) => run.experiment_score),
-            render: (_, run) => {
-                const score = run.experiment_score
-                if (!score) {
-                    return '—'
-                }
-                const sources = versionsByRun.get(run.id)
-                const changed =
-                    sources &&
-                    (versionsBySuite.get(JSON.stringify([run.suite_key, score.scorer_version_id]))?.size ?? 0) > 1
-                return (
-                    <div>
-                        <Tooltip title={[`${score.name} v${score.version}`, sources].filter(Boolean).join(' · ')}>
-                            <span>{experimentScoreLabel(score)}</span>
-                        </Tooltip>
-                        {changed && <div className="text-xs text-muted">Input versions differ · {sources}</div>}
-                    </div>
-                )
-            },
         },
         {
             title: 'Tags',
@@ -133,9 +114,91 @@ export function OfflineExperimentsOverview({
             ),
         },
         {
+            title: 'Source',
+            key: 'source',
+            className: '@max-[50rem]:hidden',
+            width: '8%',
+            render: (_, experiment) => (
+                <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
+                    <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: 'Experiment score',
+            key: 'experiment_score',
+            width: '18%',
+            isHidden: !experiments?.results.some((run) => run.experiment_score),
+            render: (_, run) => {
+                const score = run.experiment_score
+                if (!score) {
+                    return (
+                        <span className="text-muted" aria-label="No experiment score">
+                            —
+                        </span>
+                    )
+                }
+                const label = experimentScoreLabel(score)
+                const blockedInputs =
+                    score.status === 'mixed_versions'
+                        ? score.inputs.filter((input) => input.status === 'mixed_versions')
+                        : []
+                return (
+                    <Tooltip
+                        title={
+                            <div className="max-w-72 space-y-2 text-sm leading-5">
+                                <div className="font-semibold">
+                                    {score.name} · v{score.version}
+                                </div>
+                                {blockedInputs.length > 0
+                                    ? blockedInputs.map((input) => (
+                                          <div key={input.alias}>{explainMixedScorerVersions(input)}</div>
+                                      ))
+                                    : score.inputs.length > 0 && (
+                                          <dl
+                                              aria-label="Item scorers in this run"
+                                              className="m-0 grid grid-cols-[fit-content(65%)_1fr] gap-x-4 gap-y-1"
+                                          >
+                                              {score.inputs.map((input) => (
+                                                  <div key={input.alias} className="contents">
+                                                      <dt className="break-words">{input.alias}</dt>
+                                                      <dd className="m-0">
+                                                          {formatItemScorerVersions(input) || 'No results'}
+                                                      </dd>
+                                                  </div>
+                                              ))}
+                                          </dl>
+                                      )}
+                            </div>
+                        }
+                    >
+                        <span className="inline-flex max-w-full flex-col align-middle" tabIndex={0}>
+                            <span className="inline-flex items-center gap-1 font-medium tabular-nums">
+                                <span className="break-words min-w-0">{label}</span>
+                                {score.inputs.length > 0 && (
+                                    <IconInfo className="shrink-0 text-muted" aria-label="Score details" />
+                                )}
+                            </span>
+                            {blockedInputs.map((input) => (
+                                <span key={input.alias} className="break-words text-muted">
+                                    “{input.alias}” used {formatItemScorerVersions(input)}
+                                </span>
+                            ))}
+                        </span>
+                    </Tooltip>
+                )
+            },
+        },
+        {
+            title: 'Upload',
+            key: 'status',
+            width: '10%',
+            render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
+        },
+        {
             title: 'Author',
             key: 'created_by',
-            width: '18%',
+            width: '10%',
             className:
                 '[&_.profile-package]:max-w-full @max-[50rem]:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
             render: (_, experiment) =>
@@ -149,58 +212,11 @@ export function OfflineExperimentsOverview({
             title: 'Execution',
             key: 'execution',
             className: '@max-[50rem]:hidden',
-            width: '14%',
+            width: '10%',
             render: (_, experiment) => (
                 <div className="truncate">
                     <TZLabel time={experiment.started_at} />
                 </div>
-            ),
-        },
-        {
-            title: 'Source',
-            key: 'source',
-            className: '@max-[50rem]:hidden',
-            width: '10%',
-            render: (_, experiment) => (
-                <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
-                    <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
-                </Tooltip>
-            ),
-        },
-        {
-            title: 'Upload',
-            key: 'status',
-            width: '10%',
-            render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
-        },
-        {
-            title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,
-            key: 'coverage',
-            className: '@max-[40rem]:hidden',
-            width: '10%',
-            render: (_, experiment) => (
-                <Tooltip
-                    title={[
-                        `${experiment.accepted_item_count.toLocaleString()} items`,
-                        experiment.visible_scorer_definition_count === null
-                            ? 'Scorers unavailable'
-                            : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`,
-                        experiment.visible_result_count === null
-                            ? 'Results unavailable'
-                            : `${experiment.visible_result_count.toLocaleString()} visible results`,
-                        experiment.visible_scorer_version_count === null
-                            ? 'Scorer version count unavailable'
-                            : `${experiment.visible_scorer_version_count} visible scorer versions`,
-                    ].join(' · ')}
-                >
-                    <span className="block truncate text-xs" translate="no">
-                        {`${experiment.accepted_item_count.toLocaleString()} items · ${
-                            experiment.visible_scorer_definition_count === null
-                                ? 'Scorers unavailable'
-                                : `${experiment.visible_scorer_definition_count.toLocaleString()} scorers`
-                        }`}
-                    </span>
-                </Tooltip>
             ),
         },
     ]

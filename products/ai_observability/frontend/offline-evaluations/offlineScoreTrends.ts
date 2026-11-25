@@ -106,7 +106,7 @@ export function previousOfflinePeriod(range: OfflineDateRange): OfflineDateRange
     return { dateFrom: dayjs(range.dateFrom).subtract(duration, 'millisecond').toISOString(), dateTo: range.dateFrom }
 }
 
-export function offlineScoreMetricLabel(scorer: OfflineScorerVersionReadApi): string {
+export function offlineScoreMetricLabel(scorer: Pick<OfflineScorerVersionReadApi, 'kind'>): string {
     if (scorer.kind === 'numeric') {
         return 'Mean score'
     }
@@ -134,7 +134,7 @@ export function aggregateOfflineScoreHistory(points: OfflineHistoryPointApi[]): 
     if (!first) {
         return null
     }
-    const successful = points.map(({ summary }) => summary).filter((summary) => summary.status_counts.ok > 0)
+    const successful = points.flatMap(({ summary }) => (summary && summary.status_counts.ok > 0 ? [summary] : []))
     const count = successful.reduce((total, summary) => total + summary.status_counts.ok, 0)
     const graded = offlineScoreHasPassingRule(first.scorer)
         ? successful.filter((summary) => summary.pass_count != null && summary.fail_count != null)
@@ -257,7 +257,13 @@ export function buildOfflineTrendPanels(
     for (const [periodIndex, period] of periods.entries()) {
         for (const point of period.points) {
             const { summary } = point
-            const scorer = summary.scorer
+            const runScore = point.experiment.experiment_score
+            const scorer = summary?.scorer ?? runScore
+            if (!scorer || (!summary && scorer.kind !== 'numeric')) {
+                continue
+            }
+            const metricLabel = summary ? offlineScoreMetricLabel(scorer) : 'Experiment score'
+            const versionId = 'scorer_version_id' in scorer ? scorer.scorer_version_id : scorer.id
             const configuration = combineVersions
                 ? `${scorer.definition_id}:${scorer.kind}`
                 : `${scorer.kind}:${JSON.stringify(scorer.config)}`
@@ -266,7 +272,7 @@ export function buildOfflineTrendPanels(
             if (!panel) {
                 panel = {
                     key: panelKey,
-                    label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${offlineScoreMetricLabel(scorer)}`,
+                    label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${metricLabel}`,
                     series: [],
                     percentage: scorer.kind !== 'numeric',
                     passingRule: offlineNumericPassingRule(scorer),
@@ -289,7 +295,7 @@ export function buildOfflineTrendPanels(
                 panel.passingRule = null
             }
             const metrics =
-                scorer.kind === 'categorical'
+                summary && scorer.kind === 'categorical'
                     ? summary.categories.map((category) => ({
                           key: category.key,
                           label: category.label,
@@ -298,14 +304,20 @@ export function buildOfflineTrendPanels(
                     : [
                           {
                               key: 'score',
-                              label: offlineScoreMetricLabel(scorer),
-                              value: scorer.kind === 'numeric' ? summary.mean : summary.pass_rate,
+                              label: metricLabel,
+                              value: summary
+                                  ? scorer.kind === 'numeric'
+                                      ? summary.mean
+                                      : summary.pass_rate
+                                  : runScore?.status === 'ok' && typeof runScore.value === 'number'
+                                    ? runScore.value
+                                    : null,
                           },
                       ]
             for (const metric of metrics) {
                 const key = JSON.stringify([
                     period.key,
-                    scorer.id,
+                    versionId,
                     metric.key,
                     breakdown ? (point.breakdown_value ?? null) : null,
                 ])

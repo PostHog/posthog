@@ -53,7 +53,7 @@ const source: ScoreDefinitionApi = {
     updated_at: null,
 }
 
-describe.each([false, true])('scorer scene duplication with Today navigation: %s', (todayRailNav) => {
+describe.each([false, true])('scorer scene with Today navigation: %s', (todayRailNav) => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
@@ -70,6 +70,29 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
     })
 
     afterEach(cleanup)
+
+    it.each([
+        [
+            { experiment: 'origin-run' },
+            'Back to experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('origin-run'),
+        ],
+        [{}, 'Back to scorers', urls.aiObservabilityScorers()],
+    ] as const)('returns Back and Cancel to the origin for %j', async (searchParams, backLabel, destination) => {
+        const params = { scorerId: 'new' }
+        router.actions.push(urls.aiObservabilityScorer('new'), searchParams)
+        const SceneComponent = scene.component
+        render(
+            <BindLogic logic={scorerLogic} props={scene.paramsToProps!({ params, searchParams, hashParams: {} })}>
+                <SceneComponent {...params} />
+            </BindLogic>
+        )
+
+        for (const name of [backLabel, 'Cancel']) {
+            const link = await screen.findByRole('link', { name })
+            expect(link.getAttribute('href')).toBe(`/project/${MOCK_DEFAULT_TEAM.id}${destination}`)
+        }
+    })
 
     it.each(['reported', 'composite'] as const)(
         'copies and saves a %s scorer through the scene route',

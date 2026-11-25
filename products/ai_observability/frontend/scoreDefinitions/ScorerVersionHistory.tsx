@@ -113,7 +113,7 @@ export function ScorerVersionHistory({ definition }: { definition: ScoreDefiniti
                                                                 ? 'Combine versions'
                                                                 : input.version_policy === 'exact'
                                                                   ? 'Exact version'
-                                                                  : "Use the run's version"}
+                                                                  : 'One version per run'}
                                                         </span>
                                                     )}
                                                     <CopyToClipboardInline

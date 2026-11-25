@@ -23,6 +23,8 @@ export function ScorerSummary({
                 <h3 className="mb-3">{heading}</h3>
                 <div className="font-semibold break-words">{draft.shortName || draft.name || 'New scorer'}</div>
                 <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm mt-3 mb-0">
+                    <dt className="text-muted">Target</dt>
+                    <dd className="m-0">{draft.scope === 'experiment' ? 'Experiment' : 'Item'}</dd>
                     <dt className="text-muted">Output</dt>
                     <dd className="m-0">{formatKindLabel(draft.kind)}</dd>
                     <dt className="text-muted">Calculation</dt>
@@ -120,7 +122,7 @@ export function ScorerSummary({
                                                 ? `v${input.version}`
                                                 : input.version_policy === 'combine'
                                                   ? 'Combine versions'
-                                                  : "Run's version"}
+                                                  : 'One version per run'}
                                         </span>
                                     </li>
                                 ))}

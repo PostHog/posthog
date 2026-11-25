@@ -1357,7 +1357,8 @@ tools:
         list: true
         title: Read offline scorer history
         description: >
-            Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version.
+            Read history for a scorer definition UUID. Item scorers return item summaries by experiment and version.
+            Experiment scorers return each pinned run's experiment_score, including runs with an unavailable score.
             Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite,
             dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or
             scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their

@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -30,22 +31,49 @@ export interface CompositeScorerFormProps {
     setDraftField: (field: keyof ScoreDefinitionDraft, value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]) => void
 }
 
-function experimentStatistics(input: Pick<ScoreDefinitionDraft['inputs'][number], 'kind' | 'config'>): {
-    value: NonNullable<ScoreDefinitionDraft['inputs'][number]['statistic']>
-    label: string
-}[] {
+function explainedOption<T extends string>(value: T, label: string, example: string): LemonSelectOptionLeaf<T> {
+    return {
+        value,
+        label,
+        labelInMenu: (
+            <span className="flex flex-col gap-0.5 py-1 whitespace-normal">
+                <span>{label}</span>
+                <span className="text-xs text-muted font-normal">{example}</span>
+            </span>
+        ),
+    }
+}
+
+const versionPolicies = [
+    explainedOption('run', 'One version per run', 'Use v3 or v4. If the run contains both, the score is unavailable.'),
+    explainedOption('exact', 'Exact version', 'Choose v3 to count only the items scored by v3.'),
+    explainedOption(
+        'combine',
+        'Combine versions',
+        'Pool items from v3 and v4. Each item must appear in only one version.'
+    ),
+]
+
+function experimentStatistics(
+    input: Pick<ScoreDefinitionDraft['inputs'][number], 'kind' | 'config'>
+): LemonSelectOptionLeaf<NonNullable<ScoreDefinitionDraft['inputs'][number]['statistic']>>[] {
+    const passRate = explainedOption(
+        'pass_rate',
+        'Pass rate',
+        'Share that meets the passing rule. 8 of 10 passing gives 0.8.'
+    )
     if (input.kind === 'boolean') {
         return [
-            { value: 'pass_rate', label: 'Pass rate' },
-            { value: 'true_rate', label: 'True rate' },
+            passRate,
+            explainedOption('true_rate', 'True rate', 'Share scored true, even when false is the passing value.'),
         ]
     }
     const base =
         input.kind === 'numeric'
-            ? { value: 'mean' as const, label: 'Mean' }
-            : { value: 'category_rate' as const, label: 'Category rate' }
+            ? explainedOption('mean', 'Mean', 'Average of the numeric scores. Scores of 2 and 4 give 3.')
+            : explainedOption('category_rate', 'Category rate', 'Share with the selected category. 3 of 10 gives 0.3.')
     const config = input.kind === 'numeric' ? getNumericConfig(input.config) : getCategoricalConfig(input.config)
-    return config.passing_rule ? [base, { value: 'pass_rate', label: 'Pass rate' }] : [base]
+    return config.passing_rule ? [base, passRate] : [base]
 }
 
 export function CompositeScorerForm({
@@ -146,19 +174,20 @@ export function CompositeScorerForm({
                                         <LemonSelect
                                             value={input.version_policy ?? 'run'}
                                             disabledReason={disabled ? 'Saving scorer' : undefined}
-                                            options={[
-                                                { value: 'run', label: "Use the run's version" },
-                                                { value: 'exact', label: 'Exact version' },
-                                                { value: 'combine', label: 'Combine versions' },
-                                            ]}
+                                            options={versionPolicies}
+                                            data-attr="aio-experiment-input-version-policy"
                                             onChange={(version_policy) => updateInput(index, { version_policy })}
                                         />
                                     </LemonField.Pure>
-                                    <LemonField.Pure label="Statistic">
+                                    <LemonField.Pure
+                                        label="Statistic"
+                                        info="Only items with a successful score count toward these statistics."
+                                    >
                                         <LemonSelect
                                             value={input.statistic}
                                             disabledReason={disabled ? 'Saving scorer' : undefined}
                                             options={experimentStatistics(input)}
+                                            data-attr="aio-experiment-input-statistic"
                                             onChange={(statistic) => updateInput(index, { statistic })}
                                         />
                                     </LemonField.Pure>

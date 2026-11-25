@@ -1129,7 +1129,7 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .enum(['model_version', 'prompt_version', 'application_version', 'suite_key', 'run_source'])
         .optional()
         .describe(
-            "Split history by this property. Model uses each item's model, falling back to the experiment's model.\n\n\* `model_version` - Model\n\* `prompt_version` - Prompt version\n\* `application_version` - Application version\n\* `suite_key` - Suite\n\* `run_source` - Run source"
+            "Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.\n\n\* `model_version` - Model\n\* `prompt_version` - Prompt version\n\* `application_version` - Application version\n\* `suite_key` - Suite\n\* `run_source` - Run source"
         ),
     created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
     created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),

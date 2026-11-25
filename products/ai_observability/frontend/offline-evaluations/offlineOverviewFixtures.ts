@@ -60,7 +60,9 @@ export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ leng
     prompt_version: index < 4 ? 'prompt-v3' : 'prompt-v2',
 }))
 
-export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPointApi[] {
+export function overviewHistory(
+    scorer: ScoreDefinitionApi
+): (OfflineHistoryPointApi & { summary: NonNullable<OfflineHistoryPointApi['summary']> })[] {
     return overviewExperiments
         .filter((experiment) => experiment.status === 'completed')
         .map((experiment, index) => ({

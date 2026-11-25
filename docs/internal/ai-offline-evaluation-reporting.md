@@ -110,6 +110,7 @@ experiment displays without creating a scorer version or changing scoring rules.
 
 An experiment scorer produces one value for a completed run. Create one under **Evaluations → Scorers** or
 use **Set up experiment score** on an existing run to preview a formula with its real results.
+Opening setup from a run takes you back to that experiment when you choose **Back to experiment** or **Cancel**.
 Each input has a name, an item scorer and a statistic. For example, using `correct` and `grounded` as
 pass rates, `0.7 * correct + 0.3 * grounded` gives correctness a 70% weight. Rates range from 0 to 1.
 Other inputs include a numeric mean, the fraction of Boolean values that are true, and the fraction of
@@ -773,7 +774,9 @@ Passing rules classify accepted scores; a failing score still has execution stat
 Each immutable version keeps its own polarity and rule. Changing a scorer creates a new configuration version without reinterpreting historical offline results or saved manual review snapshots.
 Numeric scorers without a passing rule remain neutral. The editor always offers a passing value for boolean scorers and persists the default polarity when saving a configuration.
 
-Experiment summaries and scorer history use the same aggregation rules over all matching results, independently of item pagination or payload availability.
+For item scorers, experiment summaries and scorer history aggregate all matching results independently of item pagination or payload availability.
+For experiment scorers, history returns one row per run pinned to the requested definition and version filters. Each row has a null `summary` and exposes the calculated value or its unavailable status in `experiment.experiment_score`.
+Opening an experiment scorer's history from the scorer editor shows all its versions. Following the link from a run selects its pinned version.
 Different scorer versions remain separate, even when their configurations match.
 
 | Kind        | Summary                                                                                |
@@ -869,9 +872,14 @@ Projects without experiments show a full setup screen with example results and a
 a filter with no matching experiments keeps the overview available. The offline evaluations description and tabs
 stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
-The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
+The recent experiments table shows the name, tags, source, experiment score, upload state, author, and execution time.
+The experiment score column appears when at least one listed run has an assigned scorer. Hover over or focus a score to see the item scorer versions for each formula input.
+When the formula cannot combine versions, the row names the affected input and its versions. Its tooltip explains why the experiment score was not calculated.
+Hover over an experiment name to see its item, result, and scorer counts.
 
-**Choose scores** selects and orders recurring scorer definitions above the experiment list.
+**Choose scores** selects and orders item and experiment scorers above the experiment list.
+Experiment scorers show the pinned result for each run. Numeric cards chart those results by version.
+Boolean and categorical cards list the three most recent run outcomes. Open the scorer history to see the remaining runs.
 When no scores are selected, the overview selects up to three from recent completed experiments, falling back to available scorer definitions.
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
@@ -880,14 +888,16 @@ History pages are bounded; each overview card loads at most five pages of 100 ex
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
 Overview charts show each loaded scorer version as a separate series. Arrows browse version summaries without changing the chart.
-The card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
+For item scorers, the card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
 Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.
 Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
-Long score summaries truncate to fit their container, with the full value available on hover.
+On an experiment, the experiment score and item score summaries share one section. Scorer names open version-specific history in a new tab.
+Item summaries show compact bars for rates and bounded numeric means. Each category has its own rate and the first three are visible by default.
 Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means normally use six significant digits, retaining more precision when rounding would change their passing verdict. Numeric tooltips and threshold labels show the exact value.
-Below the passing and failing counts, each card shows distinct experiments with the scored item count in parentheses. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
+On item scorer cards, the main metric appears beside the title. Categorical cards show the most frequent category and offer a popup with every category rate.
+Passing and failing counts share a line with the distinct experiment count and scored item count. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores.
 Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
@@ -918,7 +928,7 @@ The timeline offers upload state, source, date range, comparison, and exact vers
 The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
-The scorer history `model_version` filter uses this resolved item model, with or without a breakdown. Scores and coverage include only matching items, even when the experiment's default model differs. Experiment list filters continue to match the experiment's model.
+For item scorers, the history `model_version` filter uses this resolved item model, with or without a breakdown. Scores and coverage include only matching items, even when the experiment's default model differs. Experiment scorer history and experiment lists use the experiment's model.
 The other breakdowns use experiment fields. Item reads expose the resolved model.
 Each point summarizes one experiment, scorer version, and breakdown value, with coverage and missing-result counts for that group.
 Unspecified values appear as **Not specified**. Different scorer versions, categories, and comparison periods remain separate.

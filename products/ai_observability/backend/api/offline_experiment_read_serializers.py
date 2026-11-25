@@ -222,7 +222,7 @@ class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
         enum_class=OfflineHistoryBreakdown,
         choices=OfflineHistoryBreakdown.choices,
         required=False,
-        help_text="Split history by this property. Model uses each item's model, falling back to the experiment's model.",
+        help_text="Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.",
     )
 
     class Meta(OfflineHistoryQuerySerializer.Meta):
@@ -252,6 +252,9 @@ class ExperimentScorePreviewSerializer(serializers.Serializer):
 
 
 class ExperimentScoreSerializer(ExperimentScorePreviewSerializer):
+    definition_id = serializers.UUIDField(help_text="Definition of the experiment scorer pinned to this run.")
+    kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices)
+    config = ScoreDefinitionConfigField(help_text="Pinned output configuration for interpreting the experiment score.")
     scorer_version_id = serializers.UUIDField()
     version = serializers.IntegerField()
     name = serializers.CharField()
@@ -531,7 +534,10 @@ class OfflineHistoryPointSerializer(serializers.Serializer):
         help_text="Breakdown value for this summary; null when unspecified or no breakdown is selected.",
     )
     experiment = OfflineExperimentReadSerializer(help_text="Experiment execution and cohort context.")
-    summary = OfflineScorerSummarySerializer(help_text="Complete summary for one experiment and scorer version.")
+    summary = OfflineScorerSummarySerializer(
+        allow_null=True,
+        help_text="Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result.",
+    )
 
 
 @extend_schema_serializer(many=False)

@@ -9,6 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import {
     OFFLINE_HISTORY_BREAKDOWN_LABELS,
@@ -119,6 +120,26 @@ export function OfflineScoreTrendChart({
                                         return null
                                     }
                                     const { experiment, summary } = meta.point
+                                    if (!summary) {
+                                        const score = experiment.experiment_score
+                                        return score ? (
+                                            <TooltipSurface data-attr="offline-score-trend-tooltip">
+                                                <div className="font-semibold">{experiment.name}</div>
+                                                <div>
+                                                    {score.name} · v{score.version}
+                                                </div>
+                                                <strong>{experimentScoreLabel(score)}</strong>
+                                                <div>
+                                                    {dayjs(experiment.started_at)
+                                                        .tz(timezone)
+                                                        .format('MMM D, YYYY HH:mm')}
+                                                </div>
+                                                {onPointClick && (
+                                                    <TooltipFooter>Click to inspect experiment</TooltipFooter>
+                                                )}
+                                            </TooltipSurface>
+                                        ) : null
+                                    }
                                     return (
                                         <TooltipSurface data-attr="offline-score-trend-tooltip">
                                             <div className="font-semibold text-sm break-words">{experiment.name}</div>

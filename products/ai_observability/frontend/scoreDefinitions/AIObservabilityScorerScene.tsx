@@ -17,7 +17,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
 import { QuillAIObservabilityScorerActions } from './QuillAIObservabilityScorerActions'
 import { ScoreDefinitionForm } from './ScoreDefinitionForm'
-import { formatKindLabel } from './scoreDefinitionModalUtils'
+import { ScorerBadges } from './ScorerBadges'
 import { ScorerDependents } from './ScorerDependents'
 import { ScorerLogicProps, scorerLogic } from './scorerLogic'
 import { ScorersScene } from './ScorersScene'
@@ -43,8 +43,19 @@ export const scene: SceneExport<ScorerLogicProps> = {
 }
 
 export function AIObservabilityScorerScene(): JSX.Element {
-    const { definition, definitionLoading, draft, isNew, hasChanges, willCreateVersion, saving, error, loadError } =
-        useValues(scorerLogic)
+    const {
+        definition,
+        definitionLoading,
+        draft,
+        isNew,
+        hasChanges,
+        willCreateVersion,
+        saving,
+        error,
+        loadError,
+        parentBreadcrumb,
+    } = useValues(scorerLogic)
+    const backLabel = `Back to ${parentBreadcrumb.name.toLowerCase()}`
     const {
         loadDefinition,
         save,
@@ -76,7 +87,7 @@ export function AIObservabilityScorerScene(): JSX.Element {
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDefinition }}>
                     {loadError}
                 </LemonBanner>
-                <LemonButton to={urls.aiObservabilityScorers()}>Back to scorers</LemonButton>
+                <LemonButton to={parentBreadcrumb.path}>{backLabel}</LemonButton>
             </ScorersScene>
         )
     }
@@ -88,9 +99,9 @@ export function AIObservabilityScorerScene(): JSX.Element {
                     <LemonButton
                         size="small"
                         icon={<IconArrowLeft />}
-                        aria-label="Back to scorers"
-                        tooltip="Back to scorers"
-                        to={urls.aiObservabilityScorers()}
+                        aria-label={backLabel}
+                        tooltip={backLabel}
+                        to={parentBreadcrumb.path}
                         disabledReason={saving ? 'Saving scorer' : undefined}
                     />
                     <h2 className="text-base font-semibold m-0 truncate" title={definition?.name}>
@@ -150,13 +161,13 @@ export function AIObservabilityScorerScene(): JSX.Element {
                             </LemonMenu>
                         )}
                         <LemonButton
-                            to={urls.aiObservabilityScorers()}
+                            to={parentBreadcrumb.path}
                             type="secondary"
                             size="small"
                             disabledReason={saving ? 'Saving scorer' : undefined}
                             data-attr="llma-scorer-cancel"
                         >
-                            {hasChanges || isNew ? 'Cancel' : 'Back to scorers'}
+                            {hasChanges || isNew ? 'Cancel' : backLabel}
                         </LemonButton>
                         <LemonButton
                             type="primary"
@@ -184,8 +195,7 @@ export function AIObservabilityScorerScene(): JSX.Element {
                     {!isNew && definition && (
                         <div className="flex flex-wrap gap-2 items-center justify-between border-b pb-4">
                             <div className="flex items-center flex-wrap gap-2">
-                                <LemonTag>{formatKindLabel(definition.kind)}</LemonTag>
-                                {definition.calculation === 'composite' && <LemonTag type="info">Composite</LemonTag>}
+                                <ScorerBadges scorer={definition} />
                                 <span className="text-muted text-sm">{`Version ${definition.current_version}`}</span>
                                 <ScorerVersionHistory definition={definition} />
                                 {definition.archived && <LemonTag type="muted">Archived</LemonTag>}

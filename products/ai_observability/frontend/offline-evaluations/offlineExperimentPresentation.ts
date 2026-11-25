@@ -2,10 +2,23 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { OfflineHistoryPointApi } from '../generated/api.schemas'
+import type { ExperimentScoreInputApi, OfflineHistoryPointApi } from '../generated/api.schemas'
+
+const versionList = new Intl.ListFormat('en')
+
+export function formatItemScorerVersions(input: ExperimentScoreInputApi): string {
+    return versionList.format(input.sources.map((source) => `v${source.version}`))
+}
+
+export function explainMixedScorerVersions(input: ExperimentScoreInputApi): string {
+    return `Items were scored with ${formatItemScorerVersions(input)} of “${input.alias}”. This formula can use only one of those versions per run.`
+}
 
 export function offlineExperimentUrl(point: OfflineHistoryPointApi): string {
-    return combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id), {
-        scorer_version_id: point.summary.scorer.id,
-    }).url
+    const url = urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id)
+    return point.summary
+        ? combineUrl(url, {
+              scorer_version_id: point.summary.scorer.id,
+          }).url
+        : url
 }

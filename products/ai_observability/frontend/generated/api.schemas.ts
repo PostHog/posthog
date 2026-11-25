@@ -325,10 +325,143 @@ export interface ExperimentScoreInputApi {
     sources: ExperimentScoreSourceApi[]
 }
 
+/**
+ * * `categorical` - categorical
+ * * `numeric` - numeric
+ * * `boolean` - boolean
+ */
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
+
+export const ScoreDefinitionKindEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScorePassingRuleApi {
+    /**
+     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+     * @items.maxLength 128
+     */
+    categories: string[]
+}
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: CategoricalScorePassingRuleApi | null
+}
+
+/**
+ * * `gte` - At or above
+ * * `lte` - At or below
+ */
+export type NumericScorePassingRuleSerializerOperatorEnumApi =
+    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
+
+export const NumericScorePassingRuleSerializerOperatorEnumApi = {
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+export interface NumericScorePassingRuleApi {
+    /** Pass at or above (gte), or at or below (lte), the threshold.
+     *
+     * * `gte` - At or above
+     * * `lte` - At or below */
+    operator: NumericScorePassingRuleSerializerOperatorEnumApi
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: NumericScorePassingRuleApi | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+     * @nullable
+     */
+    true_is_failure?: boolean | null
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
 export interface ExperimentScoreApi {
     status: string
     value: number | boolean | string[] | null
     inputs: ExperimentScoreInputApi[]
+    /** Definition of the experiment scorer pinned to this run. */
+    definition_id: string
+    kind: ScoreDefinitionKindEnumApi
+    /** Pinned output configuration for interpreting the experiment score. */
+    config: ScoreDefinitionConfigApi
     scorer_version_id: string
     version: number
     name: string
@@ -949,134 +1082,6 @@ export interface CompositeConfigApi {
     /** Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers. */
     inputs: CompositeInputApi[]
 }
-
-/**
- * * `categorical` - categorical
- * * `numeric` - numeric
- * * `boolean` - boolean
- */
-export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
-
-export const ScoreDefinitionKindEnumApi = {
-    Categorical: 'categorical',
-    Numeric: 'numeric',
-    Boolean: 'boolean',
-} as const
-
-export interface CategoricalScoreOptionApi {
-    /**
-     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-     * @maxLength 128
-     */
-    key: string
-    /**
-     * Human-readable option label.
-     * @maxLength 256
-     */
-    label: string
-}
-
-/**
- * * `single` - single
- * * `multiple` - multiple
- */
-export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
-
-export const SelectionModeEnumApi = {
-    Single: 'single',
-    Multiple: 'multiple',
-} as const
-
-export interface CategoricalScorePassingRuleApi {
-    /**
-     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
-     * @items.maxLength 128
-     */
-    categories: string[]
-}
-
-export interface CategoricalScoreDefinitionConfigApi {
-    /** Ordered categorical options available to the scorer. */
-    options: CategoricalScoreOptionApi[]
-    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-     *
-     * * `single` - single
-     * * `multiple` - multiple */
-    selection_mode?: SelectionModeEnumApi
-    /**
-     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    min_selections?: number | null
-    /**
-     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    max_selections?: number | null
-    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
-    passing_rule?: CategoricalScorePassingRuleApi | null
-}
-
-/**
- * * `gte` - At or above
- * * `lte` - At or below
- */
-export type NumericScorePassingRuleSerializerOperatorEnumApi =
-    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
-
-export const NumericScorePassingRuleSerializerOperatorEnumApi = {
-    Gte: 'gte',
-    Lte: 'lte',
-} as const
-
-export interface NumericScorePassingRuleApi {
-    /** Pass at or above (gte), or at or below (lte), the threshold.
-     *
-     * * `gte` - At or above
-     * * `lte` - At or below */
-    operator: NumericScorePassingRuleSerializerOperatorEnumApi
-    /** Finite passing threshold within any configured score bounds. */
-    threshold: number
-}
-
-export interface NumericScoreDefinitionConfigApi {
-    /**
-     * Optional inclusive minimum score.
-     * @nullable
-     */
-    min?: number | null
-    /**
-     * Optional inclusive maximum score.
-     * @nullable
-     */
-    max?: number | null
-    /**
-     * Optional increment step for numeric input, for example 1 or 0.5.
-     * @nullable
-     */
-    step?: number | null
-    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
-    passing_rule?: NumericScorePassingRuleApi | null
-}
-
-export interface BooleanScoreDefinitionConfigApi {
-    /**
-     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
-     * @nullable
-     */
-    true_is_failure?: boolean | null
-    /** Optional label for a true value. */
-    true_label?: string
-    /** Optional label for a false value. */
-    false_label?: string
-}
-
-export type ScoreDefinitionConfigApi =
-    | CategoricalScoreDefinitionConfigApi
-    | NumericScoreDefinitionConfigApi
-    | BooleanScoreDefinitionConfigApi
 
 export interface OfflineScorerVersionReadApi {
     /** Reported or computed from other item scores.
@@ -1711,8 +1716,8 @@ export interface OfflineHistoryPointApi {
     breakdown_value?: string | null
     /** Experiment execution and cohort context. */
     experiment: OfflineExperimentReadApi
-    /** Complete summary for one experiment and scorer version. */
-    summary: OfflineScorerSummaryApi
+    /** Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result. */
+    summary: OfflineScorerSummaryApi | null
 }
 
 /**
@@ -7102,7 +7107,7 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      */
     application_version?: string
     /**
-     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     * Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.
      *
      * * `model_version` - Model
      * * `prompt_version` - Prompt version

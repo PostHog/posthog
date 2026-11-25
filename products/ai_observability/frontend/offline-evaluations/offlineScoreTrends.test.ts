@@ -10,6 +10,34 @@ import {
 import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 describe('offline score trends', () => {
+    it('plots a numeric experiment score of zero and skips an unavailable score from the same pinned version', () => {
+        const { experiment, summary } = makeOfflineHistoryPoint(1)
+        const score = {
+            definition_id: summary.scorer.definition_id,
+            scorer_version_id: summary.scorer.id,
+            version: 1,
+            kind: 'numeric' as const,
+            name: 'Release score',
+            config: { min: 0, max: 100 },
+            status: 'ok',
+            value: 0,
+            inputs: [],
+        }
+        const points = [
+            { experiment: { ...experiment, experiment_score: score }, summary: null },
+            {
+                experiment: {
+                    ...makeOfflineHistoryPoint(2).experiment,
+                    experiment_score: { ...score, status: 'mixed_versions', value: null },
+                },
+                summary: null,
+            },
+        ]
+        const [panel] = buildOfflineTrendPanels([{ key: 'current', label: 'Selected', points }])
+        expect(panel.label).toBe('Experiment score')
+        expect(panel.series[0].points.map(({ y }) => y)).toEqual([0])
+    })
+
     it('separates breakdown values, missing values, versions, and periods', () => {
         const point = makeOfflineHistoryPoint(1, 0.8)
         point.summary.scorer = { ...point.summary.scorer, version: 1 }
