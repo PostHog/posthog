@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = "1"
 meep-protocol = { path = "../meep-protocol" }
 chrono = "0.4"
-gpui-kit = { path = "../meep-render/meep-script/meep-ui/vendor/gpui-kit", version = "=0.9.0" }
+gpui-kit = { version = "=0.9.0" }
 meep-ui = { path = "../meep-render/meep-script/meep-ui" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -7,7 +7,6 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) struct ViewClip {
     mask: Bounds<Pixels>,
-    corners: Option<(Bounds<Pixels>, Corners<Pixels>)>,
 }
 
 /// Records where the view paints: its own bounds, inside the pane's border,
@@ -17,42 +16,8 @@ pub(super) fn clip_probe(shared: Rc<Shared>) -> impl IntoElement {
     canvas(
         |_, _, _| {},
         move |view, _, window, _| {
-            let scale = window.scale_factor();
-            let unscale = |v: ScaledPixels| px(v.0 / scale);
             let mask = window.content_mask().bounds.intersect(&view);
-            let clip = window.corner_clip();
-            let outer = Bounds::new(
-                point(unscale(clip.bounds.origin.x), unscale(clip.bounds.origin.y)),
-                size(
-                    unscale(clip.bounds.size.width),
-                    unscale(clip.bounds.size.height),
-                ),
-            );
-            // An inner edge follows an outer radius less the inset, as in CSS.
-            let inner = |radius: ScaledPixels, dx: Pixels, dy: Pixels| {
-                (unscale(radius) - dx.max(dy)).max(Pixels::ZERO)
-            };
-            let r = clip.corner_radii;
-            let (left, top) = (view.left() - outer.left(), view.top() - outer.top());
-            let (right, bottom) = (outer.right() - view.right(), outer.bottom() - view.bottom());
-            let radii = Corners {
-                top_left: inner(r.top_left, left, top),
-                top_right: inner(r.top_right, right, top),
-                bottom_right: inner(r.bottom_right, right, bottom),
-                bottom_left: inner(r.bottom_left, left, bottom),
-            };
-            let rounded = [
-                radii.top_left,
-                radii.top_right,
-                radii.bottom_right,
-                radii.bottom_left,
-            ]
-            .iter()
-            .any(|r| *r > Pixels::ZERO);
-            shared.clip.set(Some(ViewClip {
-                mask,
-                corners: rounded.then_some((view, radii)),
-            }));
+            shared.clip.set(Some(ViewClip { mask }));
         },
     )
     .absolute()
@@ -126,14 +91,7 @@ impl Element for ViewClipped {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let corners = self.shared.clip.get().and_then(|c| c.corners);
         let mask = self.mask();
-        let child = &mut self.child;
-        window.with_content_mask(mask, |window| match corners {
-            Some((bounds, radii)) => {
-                window.with_corner_clip(bounds, radii, |window| child.paint(window, cx))
-            }
-            None => child.paint(window, cx),
-        });
+        window.with_content_mask(mask, |window| self.child.paint(window, cx));
     }
 }

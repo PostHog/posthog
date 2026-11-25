@@ -1,1 +1,0 @@
-https://github.com/tree-sitter/tree-sitter-rust/tree/master/queries

@@ -3627,7 +3627,6 @@ impl Desktop {
     pub(super) fn choose_chat_files(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         let target = (self.topic_id(), self.chat_task());
         let chosen = cx.prompt_for_paths(PathPromptOptions {
-            show_hidden: false,
             files: true,
             directories: false,
             multiple: true,

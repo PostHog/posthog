@@ -43,16 +43,20 @@ impl BlockEditor {
         };
         let json: Vec<serde_json::Value> = blocks.iter().map(|b| block_to_json(b)).collect();
         let metadata = serde_json::json!({ CLIP_KEY: json, "partial": single_text }).to_string();
-        let html = markdown::to_html(&blocks);
         cx.write_to_clipboard(ClipboardItem {
-            entries: vec![
-                ClipboardEntry::String(ClipboardString {
-                    text,
-                    metadata: Some(metadata),
-                }),
-                ClipboardEntry::Html(html),
-            ],
+            entries: vec![ClipboardEntry::String(ClipboardString {
+                text,
+                metadata: Some(metadata),
+            })],
         });
+        #[cfg(target_os = "macos")]
+        {
+            use objc2_app_kit::{NSPasteboard, NSPasteboardTypeHTML};
+            use objc2_foundation::NSString;
+            let html = NSString::from_str(&markdown::to_html(&blocks));
+            NSPasteboard::generalPasteboard()
+                .setString_forType(&html, unsafe { NSPasteboardTypeHTML });
+        }
         if cut && !self.read_only {
             self.transact(EditKind::Other, window, cx, |e, _, _| {
                 e.delete_selection();
@@ -69,7 +73,12 @@ impl BlockEditor {
         };
         let mut text = String::new();
         let mut metadata = None;
-        let mut html = None;
+        #[cfg(target_os = "macos")]
+        let html = objc2_app_kit::NSPasteboard::generalPasteboard()
+            .stringForType(unsafe { objc2_app_kit::NSPasteboardTypeHTML })
+            .map(|s| s.to_string());
+        #[cfg(not(target_os = "macos"))]
+        let html: Option<String> = None;
         for entry in &item.entries {
             match entry {
                 ClipboardEntry::String(s) => {
@@ -78,7 +87,6 @@ impl BlockEditor {
                         metadata = s.metadata.clone();
                     }
                 }
-                ClipboardEntry::Html(h) => html = Some(h.clone()),
                 _ => {}
             }
         }

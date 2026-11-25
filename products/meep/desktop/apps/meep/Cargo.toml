@@ -43,8 +43,8 @@ sha2 = "0.10"
 tempfile = "3"
 
 [dev-dependencies]
-gpui = { package = "gpui-pre", path = "../../crates/meep-render/meep-script/meep-ui/vendor/gpui-pre", features = ["test-support"] }
-gpui-platform = { package = "gpui-pre-platform", path = "../../crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-platform", features = ["test-support"] }
+gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }
+gpui-platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["test-support"] }
 meep-server = { path = "../../crates/meep-server", features = ["fixture-host"] }
 meep-ai = { path = "../../crates/meep-ai" }
 axum = "0.8"

@@ -1,6 +1,6 @@
 # meep-ui
 
-Copy this directory, including `vendor/`, into your Rust project. The default features provide GPUI layout, typography, navigation, forms, motion, composer surfaces and settings components. The crate re-exports the GPUI kit its components use.
+Copy this directory into your Rust project. The default features provide GPUI layout, typography, navigation, forms, motion, composer surfaces and settings components. The crate re-exports the GPUI kit its components use.
 
 ```toml
 [dependencies]

@@ -311,7 +311,6 @@ impl Desktop {
             return;
         };
         let chosen = cx.prompt_for_paths(PathPromptOptions {
-            show_hidden: false,
             files: true,
             directories: false,
             multiple: true,

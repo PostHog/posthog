@@ -1,21 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "apps/*", "examples/desktop"]
-exclude = [
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-base",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-component",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-kit",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-kit-assets",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-apple",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-ios",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-linux",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-macos",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-platform",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-web",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-wgpu",
-    "crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-windows",
-]
 
 # macOS keeps every codegen object beside an unpacked debug binary, and incremental
 # builds never delete the old ones, so target/debug/deps grew past a million files and

@@ -183,7 +183,7 @@ pub fn set_enabled(enabled: bool) {
 pub(super) fn embed(
     build: &Build,
     node: &Rc<Node>,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
     #[cfg(feature = "ui-tests")]
@@ -238,11 +238,11 @@ pub(super) fn embed(
         region.rendered == Some(epoch)
     });
     if !current {
-        window.invalidate_cached_view(view.entity_id());
+        cx.notify(view.entity_id());
     }
     // Independent: the script view renders on every frame anything in it
     // animates, and that must not redraw the regions it embeds.
-    Some(view.cached(outer.clone()).independent().into_any_element())
+    Some(view.cached(outer.clone()).into_any_element())
 }
 
 impl Render for Region {
