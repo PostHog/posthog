@@ -13,14 +13,24 @@ export type ScorecardProperties = { run_id: string; ended_at: string } & Record<
 
 function invariantProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries([
-        ...result.invariants.flatMap(({ name, passed, observed, gate, violation, unitIds }) => [
-            [`inv_${name}_passed`, passed],
-            [`inv_${name}_observed`, observed],
-            [`inv_${name}_gate`, gate ?? null],
-            [`inv_${name}_violation`, violation ?? null],
-            [`inv_${name}_ids`, unitIds],
-        ]),
-        ['invariants_failed', result.invariants.filter(({ passed }) => !passed).map(({ name }) => name)],
+        ...result.invariants.flatMap(
+            ({ name, passed, observed, gate, violation, unitIds, unjudged, missing, extra }) => [
+                [`inv_${name}_passed`, passed],
+                [`inv_${name}_observed`, observed],
+                [`inv_${name}_gate`, gate ?? null],
+                [`inv_${name}_violation`, violation ?? null],
+                [`inv_${name}_ids`, unitIds],
+                ...(unjudged === undefined ? [] : [[`inv_${name}_unjudged`, unjudged]]),
+                ...(missing === undefined ? [] : [[`inv_${name}_missing_ids`, missing]]),
+                ...(extra === undefined ? [] : [[`inv_${name}_extra_ids`, extra]]),
+            ]
+        ),
+        [
+            'invariants_failed',
+            result.invariants
+                .filter(({ passed, unjudged }) => !passed && unjudged === undefined)
+                .map(({ name }) => name),
+        ],
     ])
 }
 
