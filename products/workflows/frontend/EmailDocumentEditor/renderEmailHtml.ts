@@ -954,8 +954,15 @@ table, td { color: ${safeColor(page.textColor, '#000000')}; }
 @media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
+const COLUMN_STACK_CSS = `  .ph-col { max-width: 100% !important; }
+  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }`
+
+function columnBreakpoint(page: EmailPageStyle): number {
+    return page.bodyWidth + 20
+}
+
 function responsiveCss(page: EmailPageStyle, extra: string[] = []): string {
-    const breakpoint = page.bodyWidth + 20
+    const breakpoint = columnBreakpoint(page)
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
 body { margin: 0; padding: 0; }
@@ -966,8 +973,7 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
 a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: none !important; }
 @media only screen and (max-width: ${breakpoint}px) {
   .ph-body { width: 100% !important; }
-  .ph-col { max-width: 100% !important; }
-  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
+${COLUMN_STACK_CSS}
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${extra.filter(Boolean).join('\n')}
@@ -997,9 +1003,15 @@ export function oldEditorBlockHtml(
     if (text !== null) {
         return { kind: 'text', html: text }
     }
-    // The old editor's export has no rules for the classes that hide a block inside this markup.
-    const screenCss = usesScreenSizes(node.content) ? `<style>${SCREEN_SIZE_CSS}</style>` : ''
-    return { kind: 'html', html: screenCss + renderBlockTable([node], ctx) }
+    // The old editor's export has no rules for the classes in this markup that hide a block or stack columns.
+    const rules = [
+        node.type === 'emailColumns'
+            ? `@media only screen and (max-width: ${columnBreakpoint(page)}px) {\n${COLUMN_STACK_CSS}\n}`
+            : '',
+        usesScreenSizes(node.content) ? SCREEN_SIZE_CSS : '',
+    ].filter(Boolean)
+    const css = rules.length ? `<style>${rules.join('\n')}</style>` : ''
+    return { kind: 'html', html: css + renderBlockTable([node], ctx) }
 }
 
 /** A button's label as markup, with its variables written out. */

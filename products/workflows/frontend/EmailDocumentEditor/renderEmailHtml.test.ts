@@ -319,6 +319,7 @@ describe('renderEmailHtml', () => {
         expect(html).toMatch(/\{% if b %\}<tr><td[^>]*><p[^>]*>Inside<\/p><\/td><\/tr>\{% endif %\}/)
         expect(html).toContain('width="500" style')
         expect(html).toContain('<!--[if mso]><table role="presentation" width="500"')
+        expect(blockStyleToCanvasCss(null, 'emailSection')).toBe('padding:24px 24px 24px 24px')
         expect(renderEmailText(doc(section))).toBe('{% if a %}{% if b %}Inside{% endif %}\n\nLeft\n\nRight{% endif %}')
     })
 

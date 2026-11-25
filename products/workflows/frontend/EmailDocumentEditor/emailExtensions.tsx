@@ -52,7 +52,8 @@ function dividerCanvasCss(style: EmailBlockStyle): string {
 
 /** How a block's style looks on the canvas. The email itself comes from `renderEmailHtml`. */
 export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefined, typeName: string): string {
-    const style = safeEmailStyle(rawStyle)
+    // A section has padding of its own, even with every setting cleared.
+    const style = safeEmailStyle(rawStyle ?? (typeName === 'emailSection' ? {} : null))
     if (!style) {
         return ''
     }

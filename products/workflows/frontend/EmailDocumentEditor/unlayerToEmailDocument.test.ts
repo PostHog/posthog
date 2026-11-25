@@ -902,6 +902,7 @@ describe('unlayerToEmailDocument', () => {
             '#ddeeff',
             '{% if nested %}',
             '.ph-hide-mobile {',
+            '.ph-col { max-width: 100% !important; }',
         ]) {
             expect(json).toContain(expected)
         }
