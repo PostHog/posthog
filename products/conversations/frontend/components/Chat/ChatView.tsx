@@ -4,7 +4,7 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+import type { AiFeedbackReasonEnumApi, TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
 import type {
     AITriageSource,
@@ -83,7 +83,12 @@ export interface ChatViewProps {
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
-    onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    onSubmitAiReplyFeedback?: (
+        messageId: string,
+        rating: AiReplyFeedbackRating,
+        feedbackText?: string,
+        reasons?: AiFeedbackReasonEnumApi[]
+    ) => void
     currentUserId?: number | null
     /** False when the caller lacks ticket editor access (e.g. viewer-only). */
     canEditTicket?: boolean

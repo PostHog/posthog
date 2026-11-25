@@ -2135,7 +2135,7 @@ Note: Parsed the OpenAPI 3.1 spec linked from bird.com/llms.txt (455 operations)
 
 ## Bitbucket — gaps
 
-Today (13): `branches`, `commit_statuses`, `commits`, `deployments`, `environments`, `pipeline_steps`, `pipelines`, `projects`, `pull_request_activity`, `pull_request_comments`, `pull_requests`, `repositories`, `workspace_members`
+Today (14): `branches`, `commit_statuses`, `commits`, `deployments`, `environments`, `pipeline_steps`, `pipelines`, `projects`, `pull_request_activity`, `pull_request_comments`, `pull_request_commits`, `pull_requests`, `repositories`, `workspace_members`
 
 Diffed against: <https://api.bitbucket.org/swagger.json>
 
@@ -2144,13 +2144,13 @@ Diffed against: <https://api.bitbucket.org/swagger.json>
 - [x] `repositories/{workspace}/{repo}/environments` — lookup resolving the environment referenced by the deployments we already sync (high)
 - [x] `workspaces/{workspace}/projects` — lookup grouping the repositories we already sync under a project key (high)
 - [x] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps` — per-step CI durations and outcomes; the pipelines row alone gives no breakdown (high)
-- [ ] `repositories/{workspace}/{repo}/issues` — repo issue tracker records (medium). Removed by Atlassian: the endpoint returns 410 Gone (changelog CHANGE-3071), so there is nothing to sync.
+- [ ] `repositories/{workspace}/{repo}/issues` — repo issue tracker records (medium). Removed by Atlassian: the endpoint returns 410 Gone (changelog CHANGE-3071), so there is nothing to sync. Skipped: removed from the API (410 Gone).
 - [x] `repositories/{workspace}/{repo}/commit/{commit}/statuses` — external build/check status per commit we already sync (medium)
 - [x] `repositories/{workspace}/{repo}/refs/branches` — branch lookup resolving branch names on PRs, pipelines and deployments (medium)
-- [ ] `repositories/{workspace}/{repo}/pullrequests/{id}/commits` — PR-to-commit join enabling change-size metrics (medium)
-- [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps/{uuid}/test_reports/test_cases` — per-test-case CI results for flakiness analysis (medium)
-- [ ] `repositories/{workspace}/{repo}/issues/{id}/comments` — issue discussion volume (medium). Removed with the rest of the issue tracker API (CHANGE-3071).
-- [ ] `repositories/{workspace}/{repo}/issues/{id}/changes` — issue state transition history (low). Removed with the rest of the issue tracker API (CHANGE-3071).
+- [x] `repositories/{workspace}/{repo}/pullrequests/{id}/commits` — PR-to-commit join enabling change-size metrics (medium)
+- [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps/{uuid}/test_reports/test_cases` — per-test-case CI results for flakiness analysis (medium). Skipped: the spec documents no response schema, page shape or id field, and it costs one request per pipeline step.
+- [ ] `repositories/{workspace}/{repo}/issues/{id}/comments` — issue discussion volume (medium). Removed with the rest of the issue tracker API (CHANGE-3071). Skipped: removed from the API (410 Gone).
+- [ ] `repositories/{workspace}/{repo}/issues/{id}/changes` — issue state transition history (low). Removed with the rest of the issue tracker API (CHANGE-3071). Skipped: removed from the API (410 Gone).
 
 Note: `pipeline_steps` and `commit_statuses` cost one request per parent row, so their parent walk
 is bounded — by the incremental watermark once a table has synced, and by a per-repository cap on the
@@ -2373,10 +2373,10 @@ Diffed against: <https://graphql.braintreepayments.com/reference/>
 - [x] `Query.recurringBillingSubscriptions` — recurring revenue / subscription state, unavailable from one-off transactions (high)
 - [ ] `Query.report.transactionLevelFees (TransactionLevelFeeReport)` — per-transaction processing fees — the net-revenue side of transactions we already sync (high). Not a table: the field is deprecated in favour of `report.paymentLevelFees`, and both return only a `url` to a per-date report file rather than a connection of rows.
 - [x] `Merchant.merchantAccounts (MerchantAccountConnection)` — lookup resolving the merchantAccountId carried on every transaction (high)
-- [ ] `Query.recurringBillingSubscriptionPlans` — lookup resolving the plan a subscription references (high)
-- [ ] `Query.verifications (VerificationConnection)` — payment method verification attempts and decline reasons (medium)
-- [ ] `search.payments (PaymentConnection)` — superset of all payment types, including ones never surfacing as card transactions (medium)
-- [ ] `Query.report.paymentLevelFees (PaymentLevelFeeReport)` — fee breakdown for non-transaction payment types (medium)
+- [x] `Query.recurringBillingSubscriptionPlans` — lookup resolving the plan a subscription references (high)
+- [x] `Query.verifications (VerificationConnection)` — payment method verification attempts and decline reasons (medium)
+- [ ] `search.payments (PaymentConnection)` — superset of all payment types, including ones never surfacing as card transactions (medium) Skipped: only Transaction and Refund implement the Payment interface, and both are already synced tables, so this would duplicate their rows.
+- [ ] `Query.report.paymentLevelFees (PaymentLevelFeeReport)` — fee breakdown for non-transaction payment types (medium) Skipped: returns only a url to a per-date report file, not a connection of rows.
 - [ ] `Transaction.statusHistory / status event fields` — state transition timeline (authorized → settled → settlement declined); only the current status is synced today (medium)
 - [ ] `Query.recurringBillingSubscriptionPlanAddOns and ...PlanDiscounts` — lookups for add-on and discount lines priced into subscriptions (low)
 
@@ -8982,10 +8982,10 @@ Note: Lightfield's full resource list is account, contact, email, file, list, me
 
 Re-audited 2026-11-19 against: <https://docs.lightfield.app/llms.txt>
 
-- [ ] `Sequences (GET /v1/sequences)` — outbound sequences with status, channels and activation dates, to analyse outreach programs (high)
-- [ ] `Sequence enrollments (GET /v1/sequences/{id}/enrollments)` — who is enrolled in each sequence and their state, the base for reply and conversion analysis (high)
-- [ ] `Messages (GET /v1/messages)` — sent and received sequence or chat messages, sorted by createdAt, with messages:read scope (medium)
-- [ ] `List members: accounts, contacts, opportunities (GET /v1/lists/{listId}/accounts; /v1/lists/{listId}/contacts; /v1/lists/{listId}/opportunities)` — membership join tables for the lists we already sync (medium)
+- [x] `Sequences (GET /v1/sequences)` — outbound sequences with status, channels and activation dates, to analyse outreach programs (high)
+- [x] `Sequence enrollments (GET /v1/sequences/{id}/enrollments)` — who is enrolled in each sequence and their state, the base for reply and conversion analysis (high)
+- [x] `Messages (GET /v1/messages)` — sent and received sequence or chat messages, sorted by createdAt, with messages:read scope (medium)
+- [x] `List members: accounts, contacts, opportunities (GET /v1/lists/{listId}/accounts; /v1/lists/{listId}/contacts; /v1/lists/{listId}/opportunities)` — membership join tables for the lists we already sync (medium)
 - [ ] `Senders (GET /v1/senders)` — email and LinkedIn senders with health and owner, a lookup for sequences (low)
 - [ ] `Channels (GET /v1/channels)` — channel records, filtered per caller to those they can see (low)
 - [ ] `Meeting recordings (GET /v1/meetings/{id}/recordings)` — recording and transcript file ids for each meeting we already sync (low)

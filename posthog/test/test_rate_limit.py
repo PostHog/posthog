@@ -1185,24 +1185,24 @@ class TestReserveUnits(BaseTest):
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
 
-    def _lagging_reader_caches(self) -> dict[str, Any]:
-        return lagging_reader_caches(self.cache_prefix)
+    def _lagging_reader_caches(self, *, shared_history_prefix: bool = False) -> dict[str, Any]:
+        return lagging_reader_caches(self.cache_prefix, shared_history_prefix=shared_history_prefix)
 
     @parameterized.expand(
         [
-            ("burst", TransactionalEmailBurstThrottle, "60"),
-            ("sustained", TransactionalEmailSustainedThrottle, "60"),
-            ("team_burst", TransactionalEmailTeamBurstThrottle, "60"),
-            ("team_sustained", TransactionalEmailTeamSustainedThrottle, "60"),
-            ("a_throttle_that_reads_the_replica", _PSAKThrottleForTest, None),
+            ("burst", TransactionalEmailBurstThrottle, False, "60"),
+            ("sustained", TransactionalEmailSustainedThrottle, False, "60"),
+            ("team_burst", TransactionalEmailTeamBurstThrottle, False, "60"),
+            ("team_sustained", TransactionalEmailTeamSustainedThrottle, False, "60"),
+            ("a_throttle_that_reads_the_replica", _PSAKThrottleForTest, True, None),
         ]
     )
     def test_a_single_after_a_batch_counts_the_charges_a_lagging_reader_has_not_seen(
-        self, _name, throttle_class, retry_after
+        self, _name, throttle_class, shared_history_prefix, retry_after
     ):
         now = time.time()
         with (
-            override_settings(CACHES=self._lagging_reader_caches()),
+            override_settings(CACHES=self._lagging_reader_caches(shared_history_prefix=shared_history_prefix)),
             patch.object(throttle_class, "rate", "5/minute"),
             patch.object(throttle_class, "timer", lambda _throttle: now),
         ):
@@ -1219,8 +1219,24 @@ class TestReserveUnits(BaseTest):
             finally:
                 for client in (primary_client, reader_client):
                     redis_cache.delete(key, client=client)
+                caches["throttle_history"].delete(key)
 
         self.assertEqual(outcome, retry_after)
+
+    def test_a_reservation_counts_the_units_a_lagging_reader_has_not_seen(self):
+        with (
+            override_settings(CACHES=self._lagging_reader_caches()),
+            patch.object(_PSAKThrottleForTest, "rate", "5/hour"),
+        ):
+            try:
+                self._reserve([_PSAKThrottleForTest], 3)
+                with self.assertRaises(exceptions.Throttled):
+                    self._reserve([_PSAKThrottleForTest], 3)
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
 
     def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")

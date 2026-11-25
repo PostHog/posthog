@@ -26,6 +26,7 @@ DOCUMENTED_PATHS = (
     r"/v5/accounts/subaccounts",
     r"/v3/[^/]+/(?:bounces|complaints|unsubscribes|whitelists)",
     r"/v3/lists/pages",
+    r"/v3/lists/[^/]+",
     r"/v3/lists/[^/]+/members/pages",
     r"/v4/templates",
     r"/v4/templates/[^/]+",
@@ -122,6 +123,10 @@ class FakeMailgun:
             return 200, {"tracking": account.get("tracking", {}).get(name, {"unsubscribe": {"active": False}})}, {}
         if path == "/v3/lists/pages":
             return self._by_pivot(base_url, path, account.get("lists", {}).get(owner, []), query, "address", limit)
+        if match := re.fullmatch(r"/v3/lists/([^/]+)", path):
+            name = unquote(match.group(1))
+            rows = [row for rows in account.get("lists", {}).values() for row in rows if row["address"] == name]
+            return (200, {"list": rows[0]}, {}) if rows else (404, {"message": "Mailing list not found"}, {})
         if match := re.fullmatch(r"/v3/lists/([^/]+)/members/pages", path):
             members = account.get("members", {}).get(unquote(match.group(1)))
             if members is None and not any(

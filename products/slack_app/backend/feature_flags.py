@@ -60,7 +60,6 @@ SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
-SLACK_APP_FRUSTRATION_RESPONSE_FLAG = "slack-app-frustration-response"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 
 
@@ -182,9 +181,9 @@ def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
 
 
 def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
-    """Gate for the "Fork to DM" menu under a reply.
+    """Gate for the fork menu under a reply.
 
-    A fork lands in a DM and is answered there, so it inherits the assistant
+    A fork can land in a DM and be answered there, so it inherits the assistant
     surface's scope requirements wholesale — ``im:history`` in particular, without
     which the forked thread would answer once and then go deaf to follow-ups.
     Gating on the assistant scopes rather than its flag keeps the two rollouts
@@ -248,16 +247,6 @@ def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_
         SLACK_APP_DAILY_SUMMARY_FLAG,
         integration,
         failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Every answered message is classified, and an unhappy one gets a reaction. Each verdict is one model call."""
-    return _workspace_flag_enabled(
-        SLACK_APP_FRUSTRATION_RESPONSE_FLAG,
-        integration,
-        failure_log_key="slack_app_frustration_response_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

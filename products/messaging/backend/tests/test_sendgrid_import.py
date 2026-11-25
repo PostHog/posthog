@@ -294,7 +294,7 @@ class TestSendGridImport(BaseTest):
         assert templates["From a design"].content["email"]["html"] == "<p>News</p>{{ unsubscribe_url }}"
         items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
         assert any("still scheduled" in note for note in items["November news"]["notes"])
-        assert any("first_name" in note for note in items["November news"]["notes"])
+        assert any("person's property" in note for note in items["November news"]["notes"])
         assert any("A/B test" in note for note in items["From a design"]["notes"])
         assert any("example.com/leave" in note for note in items["From a design"]["notes"])
 
