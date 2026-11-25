@@ -54,22 +54,31 @@ Never build a multi-table join on a scheduled run.
 
 ### The series
 
-Prefer the canonical run (`data-catalog-metric-run`) when the budget rules allow it; read each row against `columns`.
-Otherwise, the daily shape, with `< today()` dropping the current partial day:
+The series lives in the `series:business_metrics:<measure>` scratchpad entry: the grain, the fill date, the last stored period, and `period:value` pairs for the last 35 days or 13 periods (and, for a metric with its own dimension column, the pairs per segment for the top 20 segments).
+Each run updates it in this order:
 
-```sql
-SELECT toDate(<ts>) AS day, <measure> AS value
-FROM <table>
-WHERE <ts> >= today() - 35 AND <ts> < today()
-GROUP BY day
-ORDER BY day
-LIMIT 40
-```
+1. **Cache probe.** `data-catalog-metric-run` with `refresh: force_cache`.
+   It never calculates.
+   When the cached rows hold the latest closed period, take the series from them and skip the read.
+2. **Incremental read.** Otherwise read only the periods after the last stored one, plus the 2 most recent stored periods again, with the daily shape below and `< today()` dropping the current partial day:
 
-For a monthly measure, `toStartOfMonth(<ts>)` over 13 closed months, `LIMIT 14`; weekly and quarterly follow the same pattern.
+   ```sql
+   SELECT toDate(<ts>) AS day, <measure> AS value
+   FROM <table>
+   WHERE <ts> >= '<second-to-last stored day>' AND <ts> < today()
+   GROUP BY day
+   ORDER BY day
+   LIMIT 40
+   ```
+
+   For a monthly measure, `toStartOfMonth(<ts>)` from the second-to-last stored month, `LIMIT 14`; weekly and quarterly follow the same pattern.
+3. **Full fill.** Read the whole window (35 days, or 13 periods) with the same SQL and a wider `WHERE` when the entry does not exist, when `filled` is older than 28 days, or when a re-read period differs from its stored value by more than 5%, because a backfill rewrote history.
+   Note the refill reason on the entry.
+4. **Write the entry back** with the periods merged, the oldest dropped past the window, and `last` moved forward.
+
 A missing period in the result is a zero only when the source is fresh.
 Otherwise it is missing data.
-Both daily lenses read this one result; do not run a second series query.
+Both daily lenses read the stored series; do not run a second series query.
 
 ### Step lens (daily)
 

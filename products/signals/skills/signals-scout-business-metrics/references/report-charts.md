@@ -8,6 +8,7 @@ Rules that apply to all three:
 
 - Build each chart from a query you ran this run.
   A chart is stored without being run, so a query you did not run can fail when the reader opens the report, with nothing to tell you.
+  The incremental read covers 3 periods, so run the full-window series query once for chart 1 when you author; it is the first-fill SQL with the window pinned.
 - Pin the window to absolute dates in the SQL.
 - Name the axes in `chartSettings`: `display` without `chartSettings` draws an empty box.
 - Keep one row per x value, or name the second dimension in `seriesBreakdownColumn`.

@@ -3,10 +3,11 @@ name: signals-scout-business-metrics
 disable-model-invocation: true
 scout-display-name: Business metrics
 description: >
-  Signals scout for the business data in the data warehouse. Watches the project's approved
-  data catalog metrics, each at its own grain (daily, weekly, monthly, quarterly), for steps
-  and drifts against a seasonality-matched baseline, then runs a key driver analysis to name
-  the segments that explain each move, under a fixed query budget per run.
+  Signals scout for the business data in the data warehouse. Watches the project's approved,
+  warehouse-backed data catalog metrics, each at its own grain (daily, weekly, monthly,
+  quarterly), for steps and drifts against a seasonality-matched baseline, then runs a key
+  driver analysis to name the segments that explain each move. Reads each series
+  incrementally, cache first, under a fixed query budget per run.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus data_catalog:read, signal_scout_internal:write (scratchpad),
@@ -59,6 +60,10 @@ A metric qualifies only when its result is a **series**: one time column, one or
 Read the shape off `metric-describe` (the SQL's `GROUP BY` and `ORDER BY`) and confirm it on the first run's `columns`.
 These are not measures, so note `shape=not-a-series` on the `watchlist:` entry and never run them again: a cohort grid (`q0`, `q1`, ... columns), a top-N list, a single number, a sub-daily series (hourly health is the APM and logs scouts' territory).
 
+A metric whose `referenced_table_names` include `events`, `persons`, `sessions` or `groups` is **out of scope in this version**: note `shape=events-based` and skip it.
+A long-window query on `events` with a person join reads hundreds of gigabytes and holds gigabytes of memory per run, and those series already have watchers: the anomaly-detection scout for saved insights, and insight alerts.
+Say in the close-out how many metrics you skipped for this reason, so the team knows where coverage ends.
+
 The grain of the time column sets the lens and the cadence:
 
 | Grain     | Lens                                                                                                               | When you judge it                                                  |
@@ -82,9 +87,15 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
 - **Every query you write on a warehouse table carries an absolute time window of at most 63 days (daily grain) or 13 periods (weekly and up), and ends before the current period.**
   No query without a time predicate, no `SELECT *`, no `uniqExact`, no `ORDER BY` without `LIMIT`.
   Read only the columns the question needs: a series query reads two, a decomposition query reads three.
-- **Run the canonical metric itself** (`data-catalog-metric-run`) when its `referenced_table_names` are materialized views or tables of at most 20M rows, whatever its window, or `events` with a window of at most 63 days.
-  The run cannot narrow a HogQL metric's window, so for a metric on `events` or a larger table with a longer window, copy its SQL from `metric-describe`, narrow **only the time predicate** to the window the lens needs, change nothing else, and mark the result non-canonical in the evidence.
-- **Steady state is cheap.** Two system-table reads for the whole run (freshness, below), then one series per measure due this run: daily measures every run, the others only in their judging window.
+- **Cache first.** `data-catalog-metric-run` with `refresh: force_cache` returns the cached result and never calculates.
+  When the cached result holds the latest closed period, the series costs nothing; people and dashboards keep the cache of a used metric warm.
+  Only when the cache is cold or stale do you read, and then incrementally.
+- **Read each series incrementally.** The `series:` scratchpad entry holds the last 35 daily values (or 13 periods) of a measure.
+  Each run reads only the periods after the last stored one, plus the 2 most recent stored periods again, because late rows change them.
+  That is a 3-day window instead of 35.
+  The full window is read once, on the first fill, and again every 28 days or when a re-read period differs from its stored value by more than 5% (a backfill rewrote history).
+  The recipe is in [`references/driver-analysis.md`](references/driver-analysis.md#the-series).
+- **Steady state is cheap.** Two system-table reads for the whole run (freshness, below), then per measure due this run one cache probe and, when the cache is cold, one incremental read: daily measures every run, the others only in their judging window.
   Nothing else runs on a measure unless gate 2 passes.
 - **A metric that carries its own dimension column decomposes from its own rows.** No extra scan: the series by segment is already in the result.
 - **Profile dimensions once** for a metric without one: one query per table covers every candidate column at once (recipe in [`references/driver-analysis.md`](references/driver-analysis.md#choosing-dimensions)).
@@ -99,17 +110,18 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
   | 20M to 200M       | The 2 dimensions with the fewest distinct values, the short base only, no second-level drill-down.                                                                                                                         |
   | Over 200M         | No raw scan. Watch the measure through its own rows only (the canonical run, or its own dimension column). Else write `pattern:business_metrics:<measure>:too-large` and say in the close-out that a materialized view at the metric's grain by the candidate dimensions would make it watchable. |
 
-- **`events` is partitioned by time, so its cost follows the window, not the row count.** The tiers above are for warehouse tables.
-  On `events`, every query copies the metric's own event filter verbatim, reads only the periods in `cur` and `base` (never the full series window), uses event properties only (no person or group joins), and profiles at most 3 dimensions.
-  A metric over 180 days of `events` costs hundreds of gigabytes per run; the same metric narrowed to 35 days costs a fifth of that, and a decomposition over 5 days costs a fortieth.
-- **A query that times out or fails on memory demotes the measure one tier** and writes `pattern:business_metrics:<measure>:slow`, so no later run repeats the scan.
+- **Memory stays small by construction.** Every query you write groups into at most 20 rows (days, periods or segments), uses `uniq` and never `uniqExact`, and joins no person or group table.
+  A dimension with more than 50 distinct values is never a `GROUP BY` key.
+  Bytes read stream through; the aggregation state is what a query holds, and with these rules it is megabytes.
+- **The platform caps every query** at 60 seconds and at a memory limit set in cloud config.
+  A query that hits either demotes the measure one tier and writes `pattern:business_metrics:<measure>:slow`, so no later run repeats the scan.
 - **One query at a time.** Do not fan out.
 
 ## How a run works
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=business_metrics`): the `catalog:`, `watchlist:`, `baseline:`, `pending:`, `noise:` and `addressed:` entries from past runs.
+- `scout-scratchpad-search` (`text=business_metrics`): the `catalog:`, `watchlist:`, `series:`, `baseline:`, `pending:`, `noise:` and `addressed:` entries from past runs.
   The watchlist holds each measure's grain, shape, referenced tables, measure expression, dimension profile and last-judged period.
 - `scout-runs-list` (last 7 days): what prior runs found and ruled out.
 - `inbox-reports-list`: the open reports from this scout, the anomaly-detection scout and the data-warehouse scout.
@@ -118,7 +130,7 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
 ### Pick at most 8 measures
 
 Take `pending:` candidates first, then every daily measure, then the weekly, monthly and quarterly measures that are inside their judging window and not yet judged for the latest closed period, oldest `last_judged` first.
-Prefer measures on materialized views and small tables over measures on `events` or raw tables, because they cost less.
+Prefer measures on materialized views and small tables over measures on large raw tables, because they cost less.
 Do not try to cover every metric in one run.
 
 For a measure that enters the watchlist, call `metric-describe` once and record: the grain, the shape, the referenced tables and their sizes, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), the metric's own dimension column when it has one, and otherwise the dimension profile.
@@ -141,7 +153,6 @@ WHERE deleted = 0 AND should_sync AND table_id IN (<the ids from the first read>
 ```
 
 For a measure on a materialized view, read `status` and `last_run_at` from `system.data_modeling_views` in the same read instead.
-For a measure on `events`, the series itself is the check: the latest complete period has rows.
 Judge freshness by `last_checked_at`, never `last_synced_at`.
 A table with a failed status, or behind its cadence, is **stale: stop for that measure**.
 When the latest complete period has no rows while the schema reads fresh, the data is late, not zero.
@@ -151,7 +162,7 @@ Write `noise:business_metrics:<measure>:stale-<period>` so the next run does not
 
 ### Gate 2: did the measure move?
 
-Score the measure with the lens of its grain, from one series result (the canonical run, or your narrowed copy), with complete periods only.
+Score the measure with the lens of its grain, from the `series:` entry you updated this run (a cached canonical result, or the incremental read), with complete periods only.
 The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily), or at least 20% off the median of the prior periods with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
 The exact rules are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
@@ -179,6 +190,9 @@ content: "read 2026-11-24, 78 approved, 31 series (6 daily, 25 monthly), 47 not-
 
 key:     watchlist:business_metrics:<measure>
 content: "grain=monthly, shape=series+dim(product), tables=[iwa_summary_customer_month (view, materialized)], measure=sum(mrr), last_judged=2026-10"
+
+key:     series:business_metrics:<measure>
+content: "grain=daily, filled=2026-11-01, last=2026-11-24, values=2026-10-21:40.8k,2026-10-22:41.9k,...,2026-11-24:29.1k"
 
 key:     baseline:business_metrics:<measure>
 content: "daily median 28d=41.2k, same-weekday medians Mon..Sun=[...], checked 2026-11-24"
@@ -224,6 +238,7 @@ Every authored report carries these three charts in `charts`, placed from the su
    The reader sees whether the segment broke in the same period as the total.
 
 Build each from a query you ran this run, pinned to absolute dates, with its axes named.
+The incremental read covers 3 periods, so when you author a report, run the full-window series query once (the same SQL as the first fill) for chart 1; a report is rare, so that one read is affordable.
 The exact node shapes and the notebook cells are in [`references/report-charts.md`](references/report-charts.md).
 Three charts a reader studies beat more they scroll past, so add a fourth (the second-level drill-down) only when it carries the finding.
 Prose must stand alone: write "net revenue fell 22%" in the summary, not "the chart below shows the drop", because a Slack delivery draws no chart.
