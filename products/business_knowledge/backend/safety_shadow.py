@@ -155,23 +155,31 @@ async def _shadow_document(doc: PendingDocument, semaphore: asyncio.Semaphore) -
         async with semaphore:
             return await asyncio.to_thread(_decide_window, doc, window)
 
-    try:
-        # Every window runs, with no early stop on an unsafe one, so the token count is the full cost.
-        answers = await asyncio.gather(*(_one(window) for window in windows))
-    except Exception as error:
+    # Every window runs, with no early stop on an unsafe or failed one, so the token count is the full cost
+    # and no request starts after this function returns.
+    outcomes = await asyncio.gather(*(_one(window) for window in windows), return_exceptions=True)
+    answers = [outcome for outcome in outcomes if isinstance(outcome, _WindowAnswer)]
+    input_tokens = sum(answer.input_tokens for answer in answers)
+    model = answers[0].model if answers else None
+    errors = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+    if errors:
+        if not isinstance(errors[0], Exception):
+            raise errors[0]
         # The gateway error text can repeat the state, which holds customer content, so only the type is logged.
         logger.warning(
             "business_knowledge.safety_shadow.decision_failed",
             document_id=str(doc.document_id),
-            error_type=type(error).__name__,
+            error_type=type(errors[0]).__name__,
         )
-        return _ShadowOutcome(status=type(error).__name__, windows=len(windows))
+        return _ShadowOutcome(
+            status=type(errors[0]).__name__, windows=len(windows), input_tokens=input_tokens, model=model
+        )
     return _ShadowOutcome(
         status="ok",
         windows=len(windows),
         max_probability=max(answer.probability for answer in answers),
-        input_tokens=sum(answer.input_tokens for answer in answers),
-        model=answers[0].model,
+        input_tokens=input_tokens,
+        model=model,
     )
 
 
@@ -216,19 +224,19 @@ async def evaluate_shadow(docs: list[PendingDocument], primary_verdicts: dict[UU
     ``primary_verdicts`` maps a document id to the verdict the primary classifier returned.
     """
     try:
-        enabled: dict[int, bool] = {}
-        for team_id in {doc.team_id for doc in docs}:
-            enabled[team_id] = await asyncio.to_thread(_shadow_enabled, team_id)
-        enrolled = [doc for doc in docs if enabled[doc.team_id] and doc.document_id in primary_verdicts]
-        if not enrolled:
-            return
-        semaphore = asyncio.Semaphore(SHADOW_CONCURRENCY)
-
-        async def _evaluate(doc: PendingDocument) -> None:
-            outcome = await _shadow_document(doc, semaphore)
-            _capture(doc, primary_verdicts[doc.document_id], primary_model, outcome)
-
         async with asyncio.timeout(SHADOW_BUDGET_SECONDS):
+            team_ids = sorted({doc.team_id for doc in docs})
+            flags = await asyncio.gather(*(asyncio.to_thread(_shadow_enabled, team_id) for team_id in team_ids))
+            enabled = dict(zip(team_ids, flags))
+            enrolled = [doc for doc in docs if enabled[doc.team_id] and doc.document_id in primary_verdicts]
+            if not enrolled:
+                return
+            semaphore = asyncio.Semaphore(SHADOW_CONCURRENCY)
+
+            async def _evaluate(doc: PendingDocument) -> None:
+                outcome = await _shadow_document(doc, semaphore)
+                _capture(doc, primary_verdicts[doc.document_id], primary_model, outcome)
+
             await asyncio.gather(*(_evaluate(doc) for doc in enrolled), return_exceptions=True)
     except TimeoutError:
         logger.warning("business_knowledge.safety_shadow.budget_exhausted", documents=len(docs))

@@ -461,6 +461,11 @@ class TestSafetyShadow(SimpleTestCase):
             content_hash="h1",
         )
 
+        events: list[dict] = []
+
+        def record_event(*, event: str, distinct_id: str, properties: dict) -> None:
+            events.append(properties)
+
         async def primary_says_safe(model, contents, config, **_posthog_kwargs):  # noqa: ANN001
             return type("Resp", (), {"text": "SAFE"})()
 
@@ -469,11 +474,11 @@ class TestSafetyShadow(SimpleTestCase):
             patch.object(safety_shadow.decision_api, "decisions_available_here", return_value=True),
             patch.object(safety_shadow, "feature_enabled_or_false", return_value=flag),
             patch.object(safety_shadow.decision_api, "decide_when_available", side_effect=decide),
-            patch.object(safety_shadow.posthoganalytics, "capture") as capture,
+            patch.object(safety_shadow.posthoganalytics, "capture", side_effect=record_event),
         ):
             mk.return_value.models.generate_content = AsyncMock(side_effect=primary_says_safe)
             results = asyncio.run(safety.classify_documents([doc]))
-        return results, [call.kwargs["properties"] for call in capture.call_args_list]
+        return results, events
 
     def test_shadow_inspects_every_window_and_reports_the_disagreement(self) -> None:
         def decide(request: DecisionRequest, *, timeout_seconds: float) -> DecisionResult:
@@ -506,14 +511,19 @@ class TestSafetyShadow(SimpleTestCase):
             "disagreement": True,
         }
 
-    def test_shadow_failure_keeps_the_primary_verdict(self) -> None:
+    def test_shadow_failure_keeps_the_primary_verdict_and_counts_finished_windows(self) -> None:
         def decide(request: DecisionRequest, *, timeout_seconds: float) -> DecisionResult:
-            raise RuntimeError("gateway down")
+            assert isinstance(request.state, dict)
+            if "ATTACK" in str(request.state["document"]):
+                raise RuntimeError("gateway down")
+            return DecisionResult(model="jev-test", answers={"unsafe": NoulAnswer(0.05)}, input_tokens=100)
 
-        results, events = self._classify("normal docs", flag=True, decide=decide)
+        results, events = self._classify(self._PAYLOAD_PAST_FIRST_WINDOW_AFTER_MULTIBYTE_TEXT, flag=True, decide=decide)
 
         assert [result.verdict for result in results] == [SafetyVerdict.SAFE]
-        assert [(event["shadow_status"], event["shadow_verdict"]) for event in events] == [("RuntimeError", None)]
+        assert [
+            (event["shadow_status"], event["shadow_verdict"], event["shadow_input_tokens"]) for event in events
+        ] == [("RuntimeError", None, 100 * (events[0]["shadow_windows"] - 1))]
 
     def test_team_outside_the_flag_sends_nothing_to_the_decision_model(self) -> None:
         requests: list[DecisionRequest] = []
