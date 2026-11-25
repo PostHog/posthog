@@ -135,6 +135,10 @@ class TestBunnySourceResponse:
             ("videos", ["videoLibraryId", "guid"], "dateUploaded"),
             ("video_collections", ["videoLibraryId", "guid"], None),
             ("video_library_statistics", ["videoLibraryId", "timestamp"], "timestamp"),
+            ("pull_zone_optimizer_statistics", ["PullZoneId", "Timestamp"], "Timestamp"),
+            ("pull_zone_safehop_statistics", ["PullZoneId", "Timestamp"], "Timestamp"),
+            ("pull_zone_origin_shield_queue_statistics", ["PullZoneId", "Timestamp"], "Timestamp"),
+            ("video_heatmaps", ["videoLibraryId", "videoGuid", "segment"], None),
         ]
     )
     def test_partitioning_matches_endpoint_config(
@@ -155,7 +159,8 @@ class TestBunnySourceResponse:
 
     def test_top_level_endpoints_use_the_globally_unique_id(self) -> None:
         # bunny.net IDs are globally unique, so a single `Id` key is sufficient table-wide.
-        top_level = [c for c in BUNNY_ENDPOINTS.values() if c.parent is None and c.charts is None]
+        # The billing summary is not an object list: it has one row per pull zone, keyed by its id.
+        top_level = [c for c in BUNNY_ENDPOINTS.values() if c.parent is None and c.charts is None and c.paginated]
         assert all(config.primary_keys == ["Id"] for config in top_level)
         assert set(BUNNY_ENDPOINTS) == set(ENDPOINTS)
 
@@ -203,6 +208,108 @@ class TestAccountStatistics:
 
         assert result.raised is None
         assert result.requests[0].param("dateFrom") == "2024-05-02T03:04:05Z"
+
+
+class TestBillingSummary:
+    def test_reads_the_bare_array_in_one_unpaginated_request(self) -> None:
+        rows = [
+            {"PullZoneId": 11, "MonthlyUsage": 1.25, "MonthlyBandwidthUsed": 2048},
+            {"PullZoneId": 12, "MonthlyUsage": 0, "MonthlyBandwidthUsed": 0},
+        ]
+        result = _driver().run("billing_summary", [_raw_response(rows)])
+
+        assert result.raised is None
+        assert result.rows == rows
+        assert len(result.requests) == 1
+        assert result.requests[0].path == "/billing/summary"
+        assert result.requests[0].query == {}
+
+    def test_an_object_body_fails_loudly(self) -> None:
+        result = _driver().run("billing_summary", [_raw_response({"Message": "unexpected"})])
+
+        assert isinstance(result.raised, ValueError)
+
+
+class TestPullZoneStatistics:
+    @parameterized.expand(
+        [
+            ("pull_zone_optimizer_statistics", "/pullzone/5/optimizer/statistics", "TrafficSavedChart", "TrafficSaved"),
+            (
+                "pull_zone_safehop_statistics",
+                "/pullzone/5/safehop/statistics",
+                "RequestsRetriedChart",
+                "RequestsRetried",
+            ),
+            (
+                "pull_zone_origin_shield_queue_statistics",
+                "/pullzone/5/originshield/queuestatistics",
+                "QueuedRequestsChart",
+                "QueuedRequests",
+            ),
+        ]
+    )
+    def test_fans_out_over_pull_zones_and_pivots_the_charts(
+        self, endpoint: str, expected_path: str, chart: str, column: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"Id": 5}]),
+                _raw_response({chart: {"2024-05-02T00:00:00Z": 7, "2024-05-01T00:00:00Z": 3}}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-05-01T00:00:00+00:00",
+        )
+
+        assert result.raised is None
+        assert result.requests[1].path == expected_path
+        assert result.requests[1].headers["accesskey"] == "bunny-key"
+        assert result.requests[1].param("dateFrom") == "2024-05-01T00:00:00Z"
+        assert [(row["PullZoneId"], row["Timestamp"], row[column]) for row in result.rows] == [
+            (5, datetime(2024, 5, 1, tzinfo=UTC), 3),
+            (5, datetime(2024, 5, 2, tzinfo=UTC), 7),
+        ]
+
+
+class TestVideoHeatmaps:
+    def test_walks_each_video_with_the_library_key(self) -> None:
+        result = _driver().run(
+            "video_heatmaps",
+            [
+                _response([{"Id": 7, "ReadOnlyApiKey": "lib-ro"}]),
+                _stream_response([{"guid": "v1"}, {"guid": "v2"}, {"guid": "v3"}, {"title": "no guid"}]),
+                _raw_response({"heatmap": {"10": 40, "2": 100, "not-a-segment": 5}}),
+                # A video deleted after the list was read.
+                _raw_response({"message": "Video not found"}, status_code=404),
+                # A video with no heatmap data yet.
+                _raw_response({"heatmap": None}),
+                _stream_response([]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"videoLibraryId": 7, "videoGuid": "v1", "segment": 2, "intensity": 100},
+            {"videoLibraryId": 7, "videoGuid": "v1", "segment": 10, "intensity": 40},
+        ]
+        heatmap_requests = [r for r in result.requests if r.path.endswith("/heatmap")]
+        assert [r.path for r in heatmap_requests] == [
+            f"/library/7/videos/{guid}/heatmap" for guid in ("v1", "v2", "v3")
+        ]
+        assert {r.headers["accesskey"] for r in heatmap_requests} == {"lib-ro"}
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_an_auth_failure_still_fails_the_table(self, _name: str, status: int) -> None:
+        result = _driver().run(
+            "video_heatmaps",
+            [
+                _response([{"Id": 7, "ReadOnlyApiKey": "lib-ro"}]),
+                _stream_response([{"guid": "v1"}]),
+                _raw_response({"message": "x"}, status_code=status),
+            ],
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestStreamFanout:
