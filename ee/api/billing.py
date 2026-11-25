@@ -22,6 +22,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
@@ -702,7 +703,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     payment_actions = {"activate", "authorize", "authorize_status"}
 
+    @property
+    def _organization_in_path(self) -> bool:
+        return f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id" in self.kwargs
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        if self._organization_in_path:
+            # /api/billing/:organization_id/ names the organization, so no action follows the user's current project.
+            self.param_derived_from_user_current_team = None
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
@@ -1561,8 +1569,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
-            if self.action in self.payment_actions or (
-                self.action == "list" and "organization_id" in self.request.query_params
+            if (
+                self._organization_in_path
+                or self.action in self.payment_actions
+                or (self.action == "list" and "organization_id" in self.request.query_params)
             ):
                 return self.organization
             return self.team.organization
@@ -1576,3 +1586,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise Exception("You cannot interact with the billing service without an organization configured.")
 
         return org
+
+
+class _OrganizationPathBillingSchema(PostHogAutoSchema):
+    # /api/billing/ serves the same actions, so the organization route needs operation ids of its own.
+    def get_operation_id(self) -> str:
+        return "billing_organization_" + super().get_operation_id().removeprefix("billing_")
+
+
+class OrganizationPathBillingViewset(BillingViewset):
+    """The billing API at /api/billing/:organization_id/, which names the organization instead of following the
+    user's current project."""
+
+    schema = _OrganizationPathBillingSchema()

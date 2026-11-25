@@ -1300,6 +1300,40 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         manager.assert_called_once_with(self.organization, {})
 
+    @parameterized.expand(
+        [
+            ("overview", "", "get_billing", {"products": [], "available_product_features": []}),
+            ("coupons", "coupons/overview", "coupons_overview", {}),
+            ("credits", "credits/overview", "credits_overview", {}),
+        ]
+    )
+    def test_organization_in_the_path_wins_over_the_current_project(
+        self, _name: str, path: str, manager_method: str, billing_response: dict[str, Any]
+    ) -> None:
+        organization = Organization.objects.create(name="Another organization")
+        team = Team.objects.create(organization=organization, name="Another project")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_team = team
+        self.user.current_organization = organization
+        self.user.save()
+
+        with patch.object(BillingManager, manager_method, return_value=billing_response) as manager:
+            response = self.client.get(f"/api/billing/{self.organization.id}/{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert manager.call_args.args[0] == self.organization
+
+    def test_organization_in_the_path_requires_membership(self) -> None:
+        organization = Organization.objects.create(name="Organization the user is not in")
+
+        with patch.object(BillingManager, "coupons_overview", return_value={}) as manager:
+            response = self.client.get(f"/api/billing/{organization.id}/coupons/overview")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        manager.assert_not_called()
+
     @parameterized.expand(["", "@current", "invalid"])
     def test_explicit_billing_refresh_rejects_invalid_organization(self, organization_id: str) -> None:
         with patch("ee.api.billing.BillingManager") as manager:
