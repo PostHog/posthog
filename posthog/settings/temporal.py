@@ -109,9 +109,8 @@ HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional
 # Projected ServiceAccount token file (rotating JWT). When set and readable it wins
 # over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
 HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
-# Base URL of the Go ai-gateway that sandbox agents call. SANDBOX_AI_GATEWAY_PRODUCTS names
-# the ai_product values the worker mints tokens for. A run whose product is unlisted, or
-# any gateway-billed run while either setting is unset, fails at provisioning (gateway_token_unavailable).
+# SANDBOX_AI_GATEWAY_PRODUCTS names the ai_product values the worker mints tokens for. A gateway-billed
+# run whose product is unlisted, or with either setting unset, fails with gateway_token_unavailable.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)

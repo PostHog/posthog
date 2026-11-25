@@ -969,9 +969,8 @@ describe("AgentService", () => {
       );
     });
 
-    // The gateway proxy refuses a session it cannot route (blocked org, no
-    // project); a subscription session only stays clear of it when the agent
-    // is told to bill the user's own plan.
+    // The proxy refuses unroutable sessions (blocked org, no project), so a
+    // subscription session must reach the agent marked as own-plan.
     it.each([
       { adapter: "claude", access: { claudeModelAccess: "own-subscription" } },
       { adapter: "codex", access: { codexModelAccess: "own-subscription" } },
