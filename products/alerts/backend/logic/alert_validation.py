@@ -91,7 +91,7 @@ def validate_alert_write(
 
     # A stored flag the insight no longer allows would refuse every write that leaves the config
     # alone, disabling the alert included. Clear it instead; a write that sends the flag is still refused.
-    if "config" not in attrs and check_ongoing_interval_excluded(query, config):
+    if "config" not in attrs and isinstance(config, dict) and check_ongoing_interval_excluded(query, config):
         config = {**config, "check_ongoing_interval": False}
         attrs["config"] = config
 

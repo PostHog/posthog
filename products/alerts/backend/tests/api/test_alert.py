@@ -167,7 +167,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert disabled.status_code == status.HTTP_200_OK, disabled.content
         saved = AlertConfiguration.objects.get(id=alert_id)
         assert saved.enabled is False
-        assert saved.config["check_ongoing_interval"] is False
+        assert (saved.config or {}).get("check_ongoing_interval") is False
 
     def setUp(self):
         super().setUp()
