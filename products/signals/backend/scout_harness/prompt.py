@@ -998,8 +998,8 @@ _SELF_IMPROVEMENT_REPORT_FIELDS = (
     "`user_uuid` on that line, so an author with no GitHub account still gets the report; if your skill body "
     "defines its own reviewer routing, follow the skill instead), and `suggested_prompts` = one action prompt "
     'that names the skill and the change, then resolves the report, such as "Add a warning about <pitfall> to '
-    'the `<your-skill-name>` skill, then mark this report resolved". Send it even though *Suggesting follow-up '
-    "prompts* says to skip obvious prompts and to leave what a person should weigh as a question: with no "
+    'the `<your-skill-name>` skill, then mark this report resolved once the edit is saved". Send it even though '
+    "*Suggesting follow-up prompts* says to skip obvious prompts and to leave what a person should weigh as a question: with no "
     "repository there is no pull request to open, so this prompt is the owner's one-click way to apply the change, "
     "the owner weighs it by choosing to send it, and the edit lands in place, so resolving is safe."
 )
