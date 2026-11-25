@@ -197,26 +197,6 @@ def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) ->
         )
     return text
 
-    # Phase 1: replace all occurrences of each cited ID with a placeholder.
-    placeholders: dict[str, str] = {}
-    for i, cited_id in enumerate(citation_map):
-        placeholder = f"\x00CITE{i}\x00"
-        placeholders[placeholder] = cited_id
-
-        for wrapper in citation_wrappers(cited_id):
-            text = text.replace(wrapper, placeholder)
-        if citation_map[cited_id].generation_id:
-            text = text.replace(cited_id, placeholder)
-
-    # Phase 2: replace placeholders with markdown links.
-    for placeholder, cited_id in placeholders.items():
-        link = citation_map[cited_id]
-        url = _make_citation_link(project_id, link)
-        label = _citation_link_label(cited_id, link)
-        text = text.replace(placeholder, f"[{label}]({url})")
-
-    return text
-
 
 def _strip_redundant_leading_heading(content: str, section_title: str) -> str:
     """Strip a leading markdown heading line if it matches the section title.
