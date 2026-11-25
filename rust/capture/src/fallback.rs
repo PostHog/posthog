@@ -13,7 +13,7 @@ use crate::config::{CaptureMode, Config};
 use crate::outputs::Target;
 use crate::producers::ProducerName;
 use crate::sinks::producer::KafkaProducer;
-use crate::sinks::registry::OutputTable;
+use crate::sinks::registry::{OutputTable, OutputTarget};
 
 pub const CHECK_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK_CHECK";
 pub const FALLBACK_BROKERS_VAR: &str = "KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST";
@@ -77,15 +77,30 @@ pub fn secondary_table(
         }
     };
 
-    let mut secondary = primary.map_producers(|_| ProducerName::Fallback);
-    for (name, target) in secondary.analytics_family_targets_mut() {
-        if let Some((_, topic)) = read(format!("CAPTURE_OUTPUT_{name}_SECONDARY_TOPIC")) {
-            target.topic = Arc::from(topic.as_str());
-        }
-        target.producer = producer(format!("CAPTURE_OUTPUT_{name}_SECONDARY_PRODUCER"))?;
+    let mut configured = HashMap::new();
+    for target in primary.analytics_family_targets() {
+        let name = target.name;
+        let topic = read(format!("CAPTURE_OUTPUT_{name}_SECONDARY_TOPIC"))
+            .map(|(_, topic)| Arc::from(topic.as_str()));
+        let producer = producer(format!("CAPTURE_OUTPUT_{name}_SECONDARY_PRODUCER"))?;
+        configured.insert(name, (topic, producer));
     }
-    secondary.custom_producer = producer("CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER".to_string())?;
-    Ok(secondary)
+    let custom_producer = producer("CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER".to_string())?;
+
+    Ok(primary.map_targets(
+        |target| {
+            let (topic, producer) = configured
+                .get(target.name)
+                .cloned()
+                .unwrap_or((None, ProducerName::Fallback));
+            OutputTarget {
+                name: target.name,
+                topic: topic.unwrap_or_else(|| Arc::clone(&target.topic)),
+                producer,
+            }
+        },
+        custom_producer,
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +135,8 @@ async fn check_target<P: KafkaProducer + 'static>(
     let failures = table
         .check_analytics_family_topics(TOPIC_CHECK_TIMEOUT)
         .await;
-    for (output, _) in table.analytics_family_targets() {
+    for output in table.analytics_family_targets() {
+        let output = output.name;
         let ready = !failures.iter().any(|failure| failure.output == output);
         gauge!(OUTPUT_TOPIC_READY, "target" => target.as_str(), "output" => output).set(if ready {
             1.0
@@ -212,13 +228,13 @@ mod tests {
         let primary = test_outputs();
         let secondary = secondary_table(&primary, &HashMap::new()).unwrap();
 
-        for ((name, p), (_, s)) in primary
+        for (p, s) in primary
             .analytics_family_targets()
             .into_iter()
             .zip(secondary.analytics_family_targets())
         {
-            assert_eq!(s.topic, p.topic, "{name}");
-            assert_eq!(s.producer, ProducerName::Fallback, "{name}");
+            assert_eq!((s.name, &s.topic), (p.name, &p.topic));
+            assert_eq!(s.producer, ProducerName::Fallback, "{}", s.name);
         }
         assert_eq!(
             secondary.session_replay_main.topic,

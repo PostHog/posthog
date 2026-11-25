@@ -120,6 +120,8 @@ impl Destination {
 /// the producer handle once setup resolves it.
 #[derive(Clone, Debug)]
 pub struct OutputTarget<R = ProducerName> {
+    /// The `<OUTPUT>` in its `CAPTURE_OUTPUT_<OUTPUT>_*` variables.
+    pub(crate) name: &'static str,
     // `Arc<str>` so the per-record lookup, metric labels and produce record never allocate.
     pub(crate) topic: Arc<str>,
     pub(crate) producer: R,
@@ -180,10 +182,21 @@ impl<R> OutputTable<R> {
 
     pub fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
         let custom_producer = f(&self.custom_producer);
-        let mut target = |t: &OutputTarget<R>| OutputTarget {
-            topic: Arc::clone(&t.topic),
-            producer: f(&t.producer),
-        };
+        self.map_targets(
+            |t| OutputTarget {
+                name: t.name,
+                topic: Arc::clone(&t.topic),
+                producer: f(&t.producer),
+            },
+            custom_producer,
+        )
+    }
+
+    pub(crate) fn map_targets<T>(
+        &self,
+        mut target: impl FnMut(&OutputTarget<R>) -> OutputTarget<T>,
+        custom_producer: T,
+    ) -> OutputTable<T> {
         OutputTable {
             analytics_main: target(&self.analytics_main),
             analytics_overflow: target(&self.analytics_overflow),
@@ -205,34 +218,19 @@ impl<R> OutputTable<R> {
         self.has_ai_overflow_lane
     }
 
-    /// Session replay is absent: only recordings pods route to it.
-    pub(crate) fn analytics_family_targets(&self) -> [(&'static str, &OutputTarget<R>); 9] {
+    /// The outputs a capture-analytics pod routes to: all but session replay.
+    /// Step 14's per-mode registries replace this hand-written list.
+    pub(crate) fn analytics_family_targets(&self) -> [&OutputTarget<R>; 9] {
         [
-            ("ANALYTICS_MAIN", &self.analytics_main),
-            ("ANALYTICS_OVERFLOW", &self.analytics_overflow),
-            ("ANALYTICS_HISTORICAL", &self.analytics_historical),
-            ("HEATMAPS", &self.heatmaps),
-            ("CLIENT_WARNINGS", &self.client_warnings),
-            ("ERROR_TRACKING", &self.error_tracking),
-            ("DLQ", &self.dlq),
-            ("AI_MAIN", &self.ai_main),
-            ("AI_OVERFLOW", &self.ai_overflow),
-        ]
-    }
-
-    pub(crate) fn analytics_family_targets_mut(
-        &mut self,
-    ) -> [(&'static str, &mut OutputTarget<R>); 9] {
-        [
-            ("ANALYTICS_MAIN", &mut self.analytics_main),
-            ("ANALYTICS_OVERFLOW", &mut self.analytics_overflow),
-            ("ANALYTICS_HISTORICAL", &mut self.analytics_historical),
-            ("HEATMAPS", &mut self.heatmaps),
-            ("CLIENT_WARNINGS", &mut self.client_warnings),
-            ("ERROR_TRACKING", &mut self.error_tracking),
-            ("DLQ", &mut self.dlq),
-            ("AI_MAIN", &mut self.ai_main),
-            ("AI_OVERFLOW", &mut self.ai_overflow),
+            &self.analytics_main,
+            &self.analytics_overflow,
+            &self.analytics_historical,
+            &self.heatmaps,
+            &self.client_warnings,
+            &self.error_tracking,
+            &self.dlq,
+            &self.ai_main,
+            &self.ai_overflow,
         ]
     }
 
@@ -272,8 +270,9 @@ impl<P: KafkaProducer + 'static> OutputTable<Arc<P>> {
         let checks = self
             .analytics_family_targets()
             .into_iter()
-            .filter(|(_, target)| !target.topic.is_empty())
-            .map(|(output, target)| {
+            .filter(|target| !target.topic.is_empty())
+            .map(|target| {
+                let output = target.name;
                 let producer = Arc::clone(&target.producer);
                 let topic = Arc::clone(&target.topic);
                 async move {
@@ -300,37 +299,55 @@ impl<P: KafkaProducer + 'static> OutputTable<Arc<P>> {
 
 impl OutputTable {
     pub fn new(config: &OutputsConfig, has_ai_overflow_lane: bool) -> Self {
-        let target = |topic: &String, producer: ProducerName| OutputTarget {
+        let target = |name, topic: &String, producer| OutputTarget {
+            name,
             topic: Arc::from(topic.as_str()),
             producer,
         };
         Self {
-            analytics_main: target(&config.analytics_main_topic, config.analytics_main_producer),
+            analytics_main: target(
+                "ANALYTICS_MAIN",
+                &config.analytics_main_topic,
+                config.analytics_main_producer,
+            ),
             analytics_overflow: target(
+                "ANALYTICS_OVERFLOW",
                 &config.analytics_overflow_topic,
                 config.analytics_overflow_producer,
             ),
             analytics_historical: target(
+                "ANALYTICS_HISTORICAL",
                 &config.analytics_historical_topic,
                 config.analytics_historical_producer,
             ),
             session_replay_main: target(
+                "SESSION_REPLAY_MAIN",
                 &config.session_replay_main_topic,
                 config.session_replay_main_producer,
             ),
             session_replay_overflow: target(
+                "SESSION_REPLAY_OVERFLOW",
                 &config.session_replay_overflow_topic,
                 config.session_replay_overflow_producer,
             ),
             client_warnings: target(
+                "CLIENT_WARNINGS",
                 &config.client_warnings_topic,
                 config.client_warnings_producer,
             ),
-            heatmaps: target(&config.heatmaps_topic, config.heatmaps_producer),
-            dlq: target(&config.dlq_topic, config.dlq_producer),
-            error_tracking: target(&config.error_tracking_topic, config.error_tracking_producer),
-            ai_main: target(&config.ai_main_topic, config.ai_main_producer),
-            ai_overflow: target(&config.ai_overflow_topic, config.ai_overflow_producer),
+            heatmaps: target("HEATMAPS", &config.heatmaps_topic, config.heatmaps_producer),
+            dlq: target("DLQ", &config.dlq_topic, config.dlq_producer),
+            error_tracking: target(
+                "ERROR_TRACKING",
+                &config.error_tracking_topic,
+                config.error_tracking_producer,
+            ),
+            ai_main: target("AI_MAIN", &config.ai_main_topic, config.ai_main_producer),
+            ai_overflow: target(
+                "AI_OVERFLOW",
+                &config.ai_overflow_topic,
+                config.ai_overflow_producer,
+            ),
             has_ai_overflow_lane,
             custom_producer: config.custom_producer,
         }
@@ -339,22 +356,23 @@ impl OutputTable {
 
 #[cfg(test)]
 pub(crate) fn test_outputs() -> OutputTable {
-    let target = |topic: &str| OutputTarget {
+    let target = |name, topic: &str| OutputTarget {
+        name,
         topic: Arc::from(topic),
         producer: ProducerName::Ingestion,
     };
     OutputTable {
-        analytics_main: target("events_plugin_ingestion"),
-        analytics_overflow: target("events_plugin_ingestion_overflow"),
-        analytics_historical: target("events_plugin_ingestion_historical"),
-        session_replay_main: target("events_plugin_ingestion"),
-        session_replay_overflow: target("replay_overflow"),
-        client_warnings: target("client_ingestion_warning"),
-        heatmaps: target("heatmaps"),
-        dlq: target("events_plugin_ingestion_dlq"),
-        error_tracking: target("error_tracking_events"),
-        ai_main: target("ai_events"),
-        ai_overflow: target("ai_events_overflow"),
+        analytics_main: target("ANALYTICS_MAIN", "events_plugin_ingestion"),
+        analytics_overflow: target("ANALYTICS_OVERFLOW", "events_plugin_ingestion_overflow"),
+        analytics_historical: target("ANALYTICS_HISTORICAL", "events_plugin_ingestion_historical"),
+        session_replay_main: target("SESSION_REPLAY_MAIN", "events_plugin_ingestion"),
+        session_replay_overflow: target("SESSION_REPLAY_OVERFLOW", "replay_overflow"),
+        client_warnings: target("CLIENT_WARNINGS", "client_ingestion_warning"),
+        heatmaps: target("HEATMAPS", "heatmaps"),
+        dlq: target("DLQ", "events_plugin_ingestion_dlq"),
+        error_tracking: target("ERROR_TRACKING", "error_tracking_events"),
+        ai_main: target("AI_MAIN", "ai_events"),
+        ai_overflow: target("AI_OVERFLOW", "ai_events_overflow"),
         has_ai_overflow_lane: true,
         custom_producer: ProducerName::Ingestion,
     }
