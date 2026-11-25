@@ -2,14 +2,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconPullRequest, IconRefresh, IconSidePanel } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { PRMonitoringFilter, PRStateFilter, capturePRAction, pullRequestsLogic } from '../../logics/pullRequestsLogic'
+import {
+    PR_MONITORING_NOTE_MAX_CHARS,
+    PRMonitoringFilter,
+    PRStateFilter,
+    capturePRAction,
+    pullRequestsLogic,
+} from '../../logics/pullRequestsLogic'
 import { SignalReportStatus } from '../../types'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
@@ -41,34 +47,42 @@ function pullRequestStateMeta(pr: PRBrowserItemApi): { label: string; color: str
     return { label: 'Open', color: 'text-success' }
 }
 
+function isRetryablePRStatus(reportStatus: SignalReportStatus | null): boolean {
+    return reportStatus === SignalReportStatus.FAILED || reportStatus === SignalReportStatus.PENDING_INPUT
+}
+
 function PullRequestRowAction({
     prUrl,
     reportStatus,
     isMonitoring,
+    isComposing,
     disabledReason,
-    onMonitor,
+    onToggleComposer,
 }: {
     prUrl: string
     reportStatus: SignalReportStatus | null
     isMonitoring: boolean
+    isComposing: boolean
     disabledReason: string | undefined
-    onMonitor: (url: string) => void
+    onToggleComposer: (url: string) => void
 }): JSX.Element {
-    if (reportStatus === SignalReportStatus.FAILED || reportStatus === SignalReportStatus.PENDING_INPUT) {
+    if (isRetryablePRStatus(reportStatus) && reportStatus) {
         return (
             <div className="flex items-center gap-1">
                 <SignalReportStatusBadge status={reportStatus} />
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    loading={isMonitoring}
-                    disabled={isMonitoring && !disabledReason}
-                    disabledReason={disabledReason}
-                    data-attr="inbox-pr-retry"
-                    onClick={() => onMonitor(prUrl)}
-                >
-                    Retry
-                </LemonButton>
+                {isComposing ? null : (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        loading={isMonitoring}
+                        disabled={isMonitoring && !disabledReason}
+                        disabledReason={disabledReason}
+                        data-attr="inbox-pr-retry"
+                        onClick={() => onToggleComposer(prUrl)}
+                    >
+                        Retry
+                    </LemonButton>
+                )}
             </div>
         )
     }
@@ -79,6 +93,9 @@ function PullRequestRowAction({
             </span>
         )
     }
+    if (isComposing) {
+        return <></>
+    }
     return (
         <LemonButton
             size="xsmall"
@@ -87,18 +104,92 @@ function PullRequestRowAction({
             disabled={isMonitoring && !disabledReason}
             disabledReason={disabledReason}
             data-attr="inbox-pr-monitor"
-            onClick={() => onMonitor(prUrl)}
+            onClick={() => onToggleComposer(prUrl)}
         >
             Monitor
         </LemonButton>
     )
 }
 
+function PullRequestComposer({
+    prUrl,
+    draftNote,
+    isRetry,
+    isMonitoring,
+    disabledReason,
+    onChangeNote,
+    onCancel,
+    onSubmit,
+}: {
+    prUrl: string
+    draftNote: string
+    isRetry: boolean
+    isMonitoring: boolean
+    disabledReason: string | undefined
+    onChangeNote: (url: string, note: string) => void
+    onCancel: () => void
+    onSubmit: (url: string) => void
+}): JSX.Element {
+    const canSubmit = !isMonitoring && !disabledReason
+    return (
+        <div data-attr="inbox-pr-composer" className="flex flex-col gap-2 pl-6 pr-1.5">
+            <LemonTextArea
+                autoFocus
+                stopPropagation
+                minRows={2}
+                maxRows={5}
+                maxLength={PR_MONITORING_NOTE_MAX_CHARS}
+                className="text-xs"
+                value={draftNote}
+                disabled={isMonitoring}
+                aria-label="Optional monitoring guidance"
+                data-attr="inbox-pr-note-input"
+                placeholder="Optional: what metric or flow should PostHog watch? Leave blank to pick automatically."
+                onChange={(value) => onChangeNote(prUrl, value)}
+                onPressCmdEnter={() => {
+                    if (canSubmit) {
+                        onSubmit(prUrl)
+                    }
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape' && !isMonitoring) {
+                        event.stopPropagation()
+                        onCancel()
+                    }
+                }}
+            />
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    disabled={isMonitoring}
+                    data-attr="inbox-pr-cancel-compose"
+                    onClick={onCancel}
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    type="primary"
+                    loading={isMonitoring}
+                    disabled={isMonitoring && !disabledReason}
+                    disabledReason={disabledReason}
+                    data-attr="inbox-pr-submit-monitor"
+                    onClick={() => onSubmit(prUrl)}
+                >
+                    {isRetry ? 'Retry research' : 'Start monitoring'}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
-    const { monitoringUrls } = useValues(pullRequestsLogic)
-    const { monitorPR } = useActions(pullRequestsLogic)
+    const { composingUrl, draftNotes, monitoringUrls } = useValues(pullRequestsLogic)
+    const { closeComposer, monitorPR, openComposer, setDraftNote } = useActions(pullRequestsLogic)
     const { label, color } = pullRequestStateMeta(pr)
     const isMonitoring = Boolean(monitoringUrls[pr.url])
+    const isComposing = composingUrl === pr.url
     const disabledReason =
         pr.monitoring_disabled_reason ??
         (pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined)
@@ -130,41 +221,56 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
     return (
         <div
             data-attr="inbox-pr-row"
-            className="flex items-start gap-1.5 border-b border-primary py-2.5 pl-3 pr-1.5 transition-colors hover:bg-fill-highlight-50"
+            className="flex flex-col gap-2 border-b border-primary py-2.5 pl-3 pr-1.5 transition-colors hover:bg-fill-highlight-50"
         >
-            {reportId ? (
-                <Link
-                    to={inboxReportDetailUrl(reportId, urls.inbox('monitoring'))}
-                    data-attr="inbox-pr-open-report"
-                    onClick={() => capturePRAction('open_report')}
-                    className="flex min-w-0 flex-1 items-start gap-2.5 text-left no-underline hover:no-underline"
-                >
-                    {summary}
-                </Link>
-            ) : (
-                <div className="flex min-w-0 flex-1 items-start gap-2.5">{summary}</div>
-            )}
+            <div className="flex items-start gap-1.5">
+                {reportId ? (
+                    <Link
+                        to={inboxReportDetailUrl(reportId, urls.inbox('monitoring'))}
+                        data-attr="inbox-pr-open-report"
+                        onClick={() => capturePRAction('open_report')}
+                        className="flex min-w-0 flex-1 items-start gap-2.5 text-left no-underline hover:no-underline"
+                    >
+                        {summary}
+                    </Link>
+                ) : (
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">{summary}</div>
+                )}
 
-            <div className="flex shrink-0 items-center gap-0.5">
-                <PullRequestRowAction
+                <div className="flex shrink-0 items-center gap-0.5">
+                    <PullRequestRowAction
+                        prUrl={pr.url}
+                        reportStatus={reportStatus}
+                        isMonitoring={isMonitoring}
+                        isComposing={isComposing}
+                        disabledReason={disabledReason}
+                        onToggleComposer={(url) => (isComposing ? closeComposer() : openComposer(url))}
+                    />
+                    <LemonButton
+                        icon={<IconExternal />}
+                        size="xsmall"
+                        type="tertiary"
+                        to={pr.url}
+                        targetBlank
+                        tooltip="Open on GitHub"
+                        aria-label={`Open ${pr.repository}#${pr.number} on GitHub`}
+                        data-attr="inbox-pr-open-github"
+                        onClick={() => capturePRAction('open_github')}
+                    />
+                </div>
+            </div>
+            {isComposing ? (
+                <PullRequestComposer
                     prUrl={pr.url}
-                    reportStatus={reportStatus}
+                    draftNote={draftNotes[pr.url] ?? ''}
+                    isRetry={isRetryablePRStatus(reportStatus)}
                     isMonitoring={isMonitoring}
                     disabledReason={disabledReason}
-                    onMonitor={monitorPR}
+                    onChangeNote={setDraftNote}
+                    onCancel={closeComposer}
+                    onSubmit={monitorPR}
                 />
-                <LemonButton
-                    icon={<IconExternal />}
-                    size="xsmall"
-                    type="tertiary"
-                    to={pr.url}
-                    targetBlank
-                    tooltip="Open on GitHub"
-                    aria-label={`Open ${pr.repository}#${pr.number} on GitHub`}
-                    data-attr="inbox-pr-open-github"
-                    onClick={() => capturePRAction('open_github')}
-                />
-            </div>
+            ) : null}
         </div>
     )
 }

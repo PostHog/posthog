@@ -131,7 +131,7 @@ describe('pullRequestsLogic', () => {
         monitoringLogic.unmount()
     })
 
-    it('skips loading PRs while collapsed, loads when expanded, and retries failed research', async () => {
+    it('skips loading PRs while collapsed, loads when expanded, and retries failed research with an optional note', async () => {
         localStorage.setItem('products.signals.inbox.pullRequestsLogic.panelOpen', JSON.stringify(false))
 
         logic = pullRequestsLogic()
@@ -143,9 +143,42 @@ describe('pullRequestsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
         expect(listRequests).toBe(1)
 
-        logic.actions.monitorPR('https://github.com/example/widget/pull/3')
+        const prUrl = 'https://github.com/example/widget/pull/3'
+        useMocks({
+            post: {
+                [MONITOR_PR_URL]: () => [503, { detail: 'GitHub temporarily unavailable' }],
+            },
+        })
+        logic.actions.openComposer(prUrl)
+        logic.actions.setDraftNote(prUrl, '  Watch payment retries  ')
+        logic.actions.monitorPR(prUrl)
+        logic.actions.monitorPR(prUrl)
         await expectLogic(logic).toDispatchActions(['monitorPRDone'])
-        expect(monitorPayloads).toEqual([{ pr_url: 'https://github.com/example/widget/pull/3' }])
+        expect(logic.values.composingUrl).toBe(prUrl)
+        expect(logic.values.draftNotes[prUrl]).toBe('  Watch payment retries  ')
+
+        useMocks({
+            post: {
+                [MONITOR_PR_URL]: async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    monitorPayloads.push(body)
+                    return [
+                        202,
+                        {
+                            report_id: 'rep-3',
+                            report_url: 'http://localhost:8000/project/997/inbox/reports/rep-3',
+                            status: 'in_progress',
+                            idempotent_replay: false,
+                        },
+                    ]
+                },
+            },
+        })
+        logic.actions.monitorPR(prUrl)
+        await expectLogic(logic).toDispatchActions(['monitorPRDone'])
+        expect(monitorPayloads).toEqual([{ pr_url: prUrl, note: 'Watch payment retries' }])
+        expect(logic.values.composingUrl).toBeNull()
+        expect(logic.values.draftNotes[prUrl]).toBeUndefined()
         expect(logic.values.page?.results[2].report?.status).toBe('in_progress')
     })
 
