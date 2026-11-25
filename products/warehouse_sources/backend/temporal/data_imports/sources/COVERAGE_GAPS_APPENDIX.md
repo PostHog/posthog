@@ -5414,7 +5414,7 @@ Note: The live SDMX dataflow catalogue was parsed and compared with the three fi
 
 ## Eventbrite — gaps
 
-Today (13): `attendee_report`, `attendees`, `canned_questions`, `categories`, `events`, `formats`, `orders`, `organizations`, `questions`, `sales_report`, `subcategories`, `ticket_classes`, `venues`
+Today (17): `attendee_report`, `attendees`, `canned_questions`, `categories`, `discounts`, `events`, `formats`, `inventory_tiers`, `members`, `orders`, `organizations`, `questions`, `sales_report`, `subcategories`, `ticket_classes`, `ticket_groups`, `venues`
 
 Diffed against: <https://jsapi.apiary.io/apis/eventbriteapiv3public/api-description-document>
 
@@ -5422,10 +5422,10 @@ Diffed against: <https://jsapi.apiary.io/apis/eventbriteapiv3public/api-descript
 - [x] `/reports/attendees/ (Retrieve an Attendee Report)` — aggregated attendee report, the companion headline metric to the sales report (high) — added as `attendee_report`, fanned out per event
 - [x] `/events/{event_id}/questions/ and /events/{event_id}/canned_questions/` — lookup resolving the question ids referenced by the answers embedded in attendee and order records (high) — added as `questions` and `canned_questions`
 - [x] `/subcategories/ (List of Subcategories)` — lookup resolving subcategory_id on events; only top-level categories are synced (high) — added as `subcategories`
-- [ ] `/organizations/{organization_id}/discounts/ (Search Discounts by Organization)` — discount and promo code definitions plus usage counts, needed to explain order pricing (medium)
-- [ ] `/organizations/{organization_id}/ticket_groups/` — ticket group lookup that groups the ticket classes already synced (medium)
-- [ ] `/organizations/{organization_id}/members/ (List Members of an Organization)` — organization membership, resolving who has access to the organizations already synced (medium)
-- [ ] `/events/{event_id}/inventory_tiers/ (List Inventory Tiers by Event)` — capacity/inventory tiers behind ticket classes, needed for sell-through analysis (medium)
+- [x] `/organizations/{organization_id}/discounts/ (Search Discounts by Organization)` — discount and promo code definitions plus usage counts, needed to explain order pricing (medium) — added as `discounts`, fanned out per event with `scope=event`
+- [x] `/organizations/{organization_id}/ticket_groups/` — ticket group lookup that groups the ticket classes already synced (medium) — added as `ticket_groups`, with `status=all`
+- [x] `/organizations/{organization_id}/members/ (List Members of an Organization)` — organization membership, resolving who has access to the organizations already synced (medium) — added as `members`
+- [x] `/events/{event_id}/inventory_tiers/ (List Inventory Tiers by Event)` — capacity/inventory tiers behind ticket classes, needed for sell-through analysis (medium) — added as `inventory_tiers`
 - [ ] `/organizations/{organization_id}/roles/ (List Roles by Organization)` — role lookup that resolves the role ids on organization members (low)
 - [ ] `/events/{event_id}/teams/ and /events/{event_id}/teams/{team_id}/attendees/` — event team structure and team-level attendee membership for team-based events (low)
 - [ ] `/events/{event_id}/pricing/ (List Pricing)` — fee and pricing breakdown per event, complements order line items (low)
