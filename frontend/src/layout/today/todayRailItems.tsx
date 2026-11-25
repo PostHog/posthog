@@ -29,7 +29,7 @@ export interface TodayPane {
 }
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
-    home: { label: 'Home', title: 'Today', icon: <IconHome /> },
+    home: { label: 'Home', title: 'Home', icon: <IconHome /> },
     spaces: {
         label: 'Chats',
         title: 'Chats',

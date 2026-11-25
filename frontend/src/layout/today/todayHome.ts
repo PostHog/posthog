@@ -9,6 +9,7 @@ export function isHomePanePath(path: string): boolean {
         path === urls.inbox() ||
         isUnderPath(path, urls.inbox('reports')) ||
         isUnderPath(path, urls.inbox('monitoring')) ||
+        isUnderPath(path, urls.inbox('settings')) ||
         isUnderPath(path, urls.pulse())
     )
 }

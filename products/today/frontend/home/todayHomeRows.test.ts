@@ -13,13 +13,6 @@ describe('todayHomeRows', () => {
         ],
         [{ [FEATURE_FLAGS.PULSE]: true }, ['today', 'pulse']],
     ])('with flags %o, the Home pane shows the rows %o', (flags, keys) => {
-        expect(homeItems(flags).top.map((row) => row.key)).toEqual(keys)
-    })
-
-    test.each([
-        [{}, []],
-        [{ [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true }, ['inbox-settings']],
-    ])('with flags %o, the Home pane ends with the rows %o', (flags, keys) => {
-        expect(homeItems(flags).bottom.map((row) => row.key)).toEqual(keys)
+        expect(homeItems(flags).map((row) => row.key)).toEqual(keys)
     })
 })

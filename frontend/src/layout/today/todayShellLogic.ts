@@ -261,10 +261,6 @@ function paneAfterNavigation(
     if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
         return shownPane
     }
-    // Inbox settings is the last row of the Home pane, so opening it keeps the pane. Anywhere else it opens Products.
-    if (shownPane === 'home' && isTodayHomePaneEnabled(featureFlags) && isUnderPath(path, urls.inbox('settings'))) {
-        return shownPane
-    }
     return routePane ?? openPane
 }
 

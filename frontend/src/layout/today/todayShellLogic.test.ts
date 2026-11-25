@@ -284,8 +284,8 @@ describe('todayShellLogic', () => {
         ['/project/1/inbox/monitoring', 'home', 'products'],
         ['/project/1/pulse', 'home', 'products'],
         ['/project/1/inbox/sources', 'data', 'products'],
-        ['/project/1/inbox/scouts', 'products', 'products'],
-        ['/project/1/inbox/settings', 'products', 'products'],
+        ['/project/1/inbox/scouts', 'automate', 'automate'],
+        ['/project/1/inbox/settings', 'home', 'products'],
         ['/project/1/inboxes', null, null],
     ])('puts %s under %s with today-home-pane on, and under %s with it off', (pathname, pane, paneWithoutHome) => {
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: true }
@@ -297,7 +297,7 @@ describe('todayShellLogic', () => {
         ['products', '/project/1/inbox/reports', 'products'],
         ['products', '/project/1/home', 'home'],
         ['home', '/project/1/inbox/settings', 'home'],
-        ['analytics', '/project/1/inbox/settings', 'products'],
+        ['analytics', '/project/1/inbox/settings', 'home'],
     ] as const)('with today-home-pane on, the %s pane open on %s shows the %s pane', (openPane, pathname, pane) => {
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_HOME_PANE]: true }
         featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)

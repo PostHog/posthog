@@ -1,9 +1,11 @@
 import { FeatureFlagKey, FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { TodayPaneProduct, paneProductForPath, shownPaneProducts } from '~/layout/today/todayPaneProducts'
+import { TodayPaneProduct, isPaneProductShown, paneProductForPath } from '~/layout/today/todayPaneProducts'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 interface TodayHomeRowSpec {
@@ -23,7 +25,13 @@ interface TodayHomeRowSpec {
 function homeTopSpecs(): TodayHomeRowSpec[] {
     return [
         { key: 'today', label: 'Today', href: urls.projectHomepage(), navHref: urls.projectRoot(), section: '/' },
-        { key: 'inbox-reports', label: 'Inbox reports', href: urls.inbox('reports'), navHref: urls.inbox() },
+        // Named like the inbox's own title and breadcrumb.
+        {
+            key: 'inbox-reports',
+            label: sceneConfigurations[Scene.Inbox].name ?? 'Self-driving inbox',
+            href: urls.inbox('reports'),
+            navHref: urls.inbox(),
+        },
         {
             key: 'inbox-monitoring',
             label: 'Monitoring',
@@ -33,10 +41,6 @@ function homeTopSpecs(): TodayHomeRowSpec[] {
         },
         { key: 'pulse', label: 'Pulse', href: urls.pulse(), navHref: urls.pulse() },
     ]
-}
-
-function homeBottomSpecs(): TodayHomeRowSpec[] {
-    return [{ key: 'inbox-settings', label: 'Inbox settings', href: urls.inbox('settings'), navHref: urls.inbox() }]
 }
 
 function homeRows(pages: FileSystemImport[], specs: TodayHomeRowSpec[]): TodayPaneProduct[] {
@@ -52,22 +56,13 @@ function shownHomeRows(
     featureFlags: FeatureFlagsSet
 ): TodayPaneProduct[] {
     const flagged = specs.filter((spec) => (spec.requiredFlags ?? []).every((flag) => !!featureFlags[flag]))
-    return shownPaneProducts(homeRows(pages, flagged), featureFlags)
+    return homeRows(pages, flagged).filter((product) => isPaneProductShown(product, featureFlags))
 }
 
-export interface HomeProducts {
-    top: TodayPaneProduct[]
-    bottom: TodayPaneProduct[]
-}
-
-export function homeItems(featureFlags: FeatureFlagsSet): HomeProducts {
-    const pages = getNavProductPages()
-    return {
-        top: shownHomeRows(pages, homeTopSpecs(), featureFlags),
-        bottom: shownHomeRows(pages, homeBottomSpecs(), featureFlags),
-    }
+export function homeItems(featureFlags: FeatureFlagsSet): TodayPaneProduct[] {
+    return shownHomeRows(getNavProductPages(), homeTopSpecs(), featureFlags)
 }
 
 export function homeProductForPath(path: string): TodayPaneProduct | undefined {
-    return paneProductForPath(homeRows(getNavProductPages(), [...homeTopSpecs(), ...homeBottomSpecs()]), path)
+    return paneProductForPath(homeRows(getNavProductPages(), homeTopSpecs()), path)
 }
