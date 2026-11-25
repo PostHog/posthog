@@ -54,6 +54,9 @@ function response(overrides: Partial<SourceFilterPreviewResponseApi>): SourceFil
     return {
         status: 'ok',
         error: null,
+        error_code: null,
+        error_start: null,
+        error_end: null,
         catalog_version: 2,
         lookback_days: 7,
         total_count: 0,
@@ -137,6 +140,9 @@ export const InvalidExpression: Story = {
         result: response({
             status: 'invalid_expression',
             error: 'Unknown field "priorty". Use one of the listed fields.',
+            error_code: 'unknown_field',
+            error_start: 37,
+            error_end: 44,
         }),
     },
 }
