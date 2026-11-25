@@ -12,6 +12,11 @@ const SURVEY = {
     surveyId: 'survey-1',
     interestQuestionId: 'interest-q',
     noteQuestionId: 'note-q',
+    choiceQuestion: {
+        id: 'choice-q',
+        question: 'Which one?',
+        choices: [{ value: 'First' }, { value: 'Second' }],
+    },
     surface: 'test',
     accountId: '',
 }
@@ -26,6 +31,7 @@ interface StoredResponse {
 const QUESTIONS = [
     { index: 0, id: 'interest-q' },
     { index: 1, id: 'note-q' },
+    { index: 2, id: 'choice-q' },
 ]
 
 function mergedSurveyResults(): { responses: () => StoredResponse[] } {
@@ -69,6 +75,11 @@ describe('comingSoonInterestLogic', () => {
         initKeaTests()
         logic = comingSoonInterestLogic({ ...SURVEY, accountId })
         logic.mount()
+    }
+
+    const openNote = (): void => {
+        logic.actions.registerInterest()
+        jest.advanceTimersByTime(1000)
     }
 
     beforeEach(() => {
@@ -119,12 +130,16 @@ describe('comingSoonInterestLogic', () => {
         expect(results.responses()).toEqual([stored])
     })
 
-    it('keeps the note open when the second click of a double click lands on the overlay', () => {
+    it.each([
+        ['the overlay', (): void => logic.actions.closeNote()],
+        ['a choice', (): void => logic.actions.setChoice('First')],
+    ])('ignores the second click of a double click when it lands on %s', (_, secondClick) => {
         logic.actions.registerInterest()
         jest.advanceTimersByTime(200)
-        logic.actions.closeNote()
+        secondClick()
 
         expect(logic.values.noteOpen).toBe(true)
+        expect(results.responses()).toEqual([INTEREST])
     })
 
     it('keeps the note and the interest on one submission after a reload', () => {
@@ -189,6 +204,79 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.note).toBe(note)
         expect(logic.values.hasRecordedInterest).toBe(restored)
         expect(localStorage.getItem(legacyKey('note')) === null).toBe(restored)
+    })
+
+    it.each([
+        ['nothing else', (): void => {}, { ...INTEREST, answers: { ...INTEREST.answers, 'choice-q': 'Second' } }],
+        [
+            'a note after it',
+            (): void => {
+                logic.actions.setNote('Billing')
+                logic.actions.submitNote()
+            },
+            {
+                ...INTEREST,
+                completed: true,
+                answers: { ...INTEREST.answers, 'choice-q': 'Second', 'note-q': 'Billing' },
+            },
+        ],
+    ])('stores the latest choice on the one response with %s', (_, next, stored) => {
+        openNote()
+        logic.actions.setChoice('First')
+        logic.actions.setChoice('Second')
+        next()
+
+        expect(results.responses()).toEqual([stored])
+    })
+
+    it('adds a choice to a response that already has a note, and keeps an unsent draft private', () => {
+        logic.actions.registerInterest()
+        logic.actions.setNote('Billing')
+        logic.actions.submitNote()
+        mountFor('')
+
+        openNote()
+        logic.actions.setNote('Unsent draft')
+        logic.actions.setChoice('First')
+
+        expect(results.responses()).toEqual([
+            {
+                ...INTEREST,
+                completed: true,
+                answers: { ...INTEREST.answers, 'note-q': 'Billing', 'choice-q': 'First' },
+            },
+        ])
+    })
+
+    it('records a choice through the note when its send was lost', () => {
+        openNote()
+        jest.mocked(posthog.capture).mockImplementationOnce(() => undefined)
+        logic.actions.setChoice('First')
+        logic.actions.setNote('Billing')
+        logic.actions.submitNote()
+
+        expect(results.responses()).toEqual([
+            {
+                ...INTEREST,
+                completed: true,
+                answers: { ...INTEREST.answers, 'choice-q': 'First', 'note-q': 'Billing' },
+            },
+        ])
+    })
+
+    it('does not undo a choice from another browser when the note is only opened', () => {
+        openNote()
+        logic.actions.setChoice('First')
+        const firstBrowser = Object.entries(localStorage)
+        logic.actions.setChoice('Second')
+        localStorage.clear()
+        firstBrowser.forEach(([key, value]) => localStorage.setItem(key, value))
+        mountFor('')
+
+        logic.actions.registerInterest()
+
+        expect(logic.values.choice).toBe('First')
+        expect(results.responses()).toEqual([{ ...INTEREST, answers: { ...INTEREST.answers, 'choice-q': 'Second' } }])
     })
 
     it('does not send a blank note', () => {
