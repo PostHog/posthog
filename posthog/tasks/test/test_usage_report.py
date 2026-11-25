@@ -26,9 +26,10 @@ from unittest.mock import MagicMock, Mock, patch
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils.timezone import now
 
+import httpx
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
@@ -53,8 +54,11 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.usage_ingestion.billing_usage_records import SHARDED_BILLING_USAGE_RECORDS_TABLE
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
+    AI_GATEWAY_USAGE_KEYS,
+    AI_PREPAID_CREDITS_FLAG,
     MCP_ANALYTICS_EVENT_METRICS,
     USAGE_REPORT_QUEUE_MAX_DEPTH,
+    InstanceMetadata,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -70,6 +74,7 @@ from posthog.tasks.usage_report import (
     _get_teams_with_ai_credits_for_products,
     _UsageRecordRow,
     _wait_for_usage_reports_queue,
+    add_ai_gateway_usage,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -88,6 +93,7 @@ from posthog.tasks.usage_report import (
     iter_billable_teams,
     iter_reports_with_usage_counter_metadata,
     send_all_org_usage_reports,
+    serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
@@ -2619,6 +2625,178 @@ class TestHasNonZeroUsage(SimpleTestCase):
 
         setattr(report, non_zero_field, 1)
         assert has_non_zero_usage(report) is True
+
+
+ORG_FLAGGED = "0190b3a1-1111-7000-8000-000000000001"
+ORG_UNFLAGGED = "0190b3a1-2222-7000-8000-000000000002"
+ORG_WITHOUT_ROWS = "0190b3a1-3333-7000-8000-000000000003"
+AI_GATEWAY_DAY = get_previous_day(at=datetime(2026, 11, 5, 3, 45, tzinfo=UTC))
+
+
+def _gateway_row(
+    org_id: str,
+    product: str,
+    *,
+    interval_start: str = "2026-11-04T00:00:00Z",
+    credit_paid: int = 0,
+    overage: int = 0,
+    free: int = 0,
+) -> dict[str, Any]:
+    return {
+        "org_id": org_id,
+        "product": product,
+        "interval_start": interval_start,
+        "credit_paid_micros": credit_paid,
+        "overage_micros": overage,
+        "free_micros": free,
+    }
+
+
+def _gateway_response(
+    rows: list[dict[str, Any]], *, final_through: str = "2026-11-05T00:05:00Z", status: int = 200
+) -> httpx.Response:
+    body = {"interval": "day", "final_through": final_through, "usage": rows, "next_cursor": None}
+    return httpx.Response(status, json=body, request=httpx.Request("GET", "http://gw"))
+
+
+def _ai_prepaid_credits_for(*organization_ids: str) -> Any:
+    def feature_enabled(flag: str, distinct_id: str, **_kwargs: Any) -> bool:
+        return flag == AI_PREPAID_CREDITS_FLAG and distinct_id in organization_ids
+
+    return feature_enabled
+
+
+@override_settings(AI_GATEWAY_INTERNAL_URL="http://gw", AI_GATEWAY_INTERNAL_TOKEN="tok")
+class TestAIGatewayUsage(SimpleTestCase):
+    def _org_report(self, organization_id: str, **counters: int) -> OrgReport:
+        zeroed: dict[str, Any] = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+        return OrgReport(
+            date="2026-11-04",
+            organization_id=organization_id,
+            organization_name="org",
+            organization_created_at="2024-01-01T00:00:00+00:00",
+            organization_user_count=1,
+            team_count=1,
+            teams={},
+            **{**zeroed, **counters},
+        )
+
+    def _serialized(self, reports: dict[str, OrgReport]) -> dict[str, dict[str, Any]]:
+        metadata = InstanceMetadata(
+            deployment_infrastructure="test",
+            realm="cloud",
+            period={
+                "start_inclusive": AI_GATEWAY_DAY.start.isoformat(),
+                "end_inclusive": AI_GATEWAY_DAY.end.isoformat(),
+            },
+            site_url="https://us.posthog.com",
+            product="cloud",
+            helm=None,
+            clickhouse_version=None,
+            users_who_logged_in=None,
+            users_who_logged_in_count=None,
+            users_who_signed_up=None,
+            users_who_signed_up_count=None,
+            table_sizes=None,
+            plugins_installed=None,
+            plugins_enabled=None,
+            instance_tag="test",
+        )
+        return {org_id: serialize_full_org_report(report, metadata) for org_id, report in reports.items()}
+
+    def test_flagged_organization_gets_all_nine_keys_and_unknown_products_are_skipped(self) -> None:
+        reports = {org_id: self._org_report(org_id) for org_id in (ORG_FLAGGED, ORG_UNFLAGGED, ORG_WITHOUT_ROWS)}
+        rows = [
+            _gateway_row(ORG_FLAGGED, "posthog_ai", credit_paid=12_000_000, overage=250),
+            _gateway_row(ORG_FLAGGED, "posthog_code", credit_paid=999, overage=999, free=999),
+            _gateway_row(ORG_FLAGGED, "replay_vision", free=40_000),
+            _gateway_row(ORG_UNFLAGGED, "posthog_ai", credit_paid=5),
+        ]
+
+        with (
+            patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_gateway_response(rows)),
+            patch(
+                "posthog.tasks.usage_report.posthoganalytics.feature_enabled",
+                side_effect=_ai_prepaid_credits_for(ORG_FLAGGED),
+            ) as mock_flag,
+        ):
+            add_ai_gateway_usage(reports, AI_GATEWAY_DAY)
+
+        serialized = self._serialized(reports)
+        assert {key: serialized[ORG_FLAGGED][key] for key in AI_GATEWAY_USAGE_KEYS} == {
+            "posthog_ai_credit_paid_micros_in_period": 12_000_000,
+            "posthog_ai_overage_micros_in_period": 250,
+            "posthog_ai_free_micros_in_period": 0,
+            "inbox_usage_credit_paid_micros_in_period": 0,
+            "inbox_usage_overage_micros_in_period": 0,
+            "inbox_usage_free_micros_in_period": 0,
+            "replay_vision_credit_paid_micros_in_period": 0,
+            "replay_vision_overage_micros_in_period": 0,
+            "replay_vision_free_micros_in_period": 40_000,
+        }
+        for org_id in (ORG_UNFLAGGED, ORG_WITHOUT_ROWS):
+            assert not set(AI_GATEWAY_USAGE_KEYS) & serialized[org_id].keys()
+        assert {call.args[1] for call in mock_flag.call_args_list} == {ORG_FLAGGED, ORG_UNFLAGGED}
+
+    @parameterized.expand(
+        [
+            ("flag_off", _gateway_response([_gateway_row(ORG_FLAGGED, "posthog_ai", free=1)]), frozenset(), False),
+            (
+                "day_not_final",
+                _gateway_response(
+                    [_gateway_row(ORG_FLAGGED, "posthog_ai", free=1)], final_through="2026-11-04T23:59:00Z"
+                ),
+                frozenset({ORG_FLAGGED}),
+                False,
+            ),
+            ("route_not_found", _gateway_response([], status=404), frozenset({ORG_FLAGGED}), False),
+            ("gateway_not_configured", None, frozenset({ORG_FLAGGED}), False),
+            ("gateway_error", _gateway_response([], status=500), frozenset({ORG_FLAGGED}), True),
+            ("timeout", httpx.ReadTimeout("timed out"), frozenset({ORG_FLAGGED}), True),
+        ]
+    )
+    def test_report_goes_out_unchanged_without_the_keys(
+        self,
+        _name: str,
+        gateway_answer: httpx.Response | Exception | None,
+        flagged: frozenset[str],
+        expect_error_event: bool,
+    ) -> None:
+        reports = {ORG_FLAGGED: self._org_report(ORG_FLAGGED, event_count_in_period=3)}
+        before = self._serialized(reports)
+
+        with (
+            self.settings(AI_GATEWAY_INTERNAL_URL="" if gateway_answer is None else "http://gw"),
+            patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[gateway_answer]) as mock_get,
+            patch(
+                "posthog.tasks.usage_report.posthoganalytics.feature_enabled",
+                side_effect=_ai_prepaid_credits_for(*flagged),
+            ),
+            patch("posthog.tasks.usage_report.capture_exception") as mock_capture_exception,
+        ):
+            add_ai_gateway_usage(reports, AI_GATEWAY_DAY)
+
+        assert self._serialized(reports) == before
+        assert mock_get.called is (gateway_answer is not None)
+        assert mock_capture_exception.called is expect_error_event
+
+    def test_gateway_usage_alone_counts_as_usage(self) -> None:
+        reports = {ORG_FLAGGED: self._org_report(ORG_FLAGGED)}
+        assert has_non_zero_usage(reports[ORG_FLAGGED]) is False
+
+        with (
+            patch(
+                "posthog.llm.gateway_internal_client.httpx.get",
+                return_value=_gateway_response([_gateway_row(ORG_FLAGGED, "inbox_usage", free=1)]),
+            ),
+            patch(
+                "posthog.tasks.usage_report.posthoganalytics.feature_enabled",
+                side_effect=_ai_prepaid_credits_for(ORG_FLAGGED),
+            ),
+        ):
+            add_ai_gateway_usage(reports, AI_GATEWAY_DAY)
+
+        assert has_non_zero_usage(reports[ORG_FLAGGED]) is True
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
@@ -5873,6 +6051,44 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert "usage_sources" not in report
         assert "counter_comparisons" not in report
         usage_records.assert_not_called()
+
+    @parameterized.expand([("gateway_rows", True), ("route_not_found", False)])
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_adds_ai_gateway_usage_for_a_flagged_organization(
+        self, _name: str, route_exists: bool, mock_get_sqs_producer: MagicMock, mock_client: MagicMock
+    ) -> None:
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+        organization_id = str(self.organization.id)
+        period = get_previous_day()
+        expected_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(
+                _get_all_org_reports(period=period)[organization_id], get_instance_metadata(period)
+            )
+        )
+        if route_exists:
+            row = _gateway_row(
+                organization_id, "inbox_usage", interval_start="2021-10-09T00:00:00Z", credit_paid=1_500_000
+            )
+            gateway_answer = _gateway_response([row], final_through="2021-10-10T00:30:00Z")
+            expected_report.update(dict.fromkeys(AI_GATEWAY_USAGE_KEYS, 0))
+            expected_report["inbox_usage_credit_paid_micros_in_period"] = 1_500_000
+        else:
+            gateway_answer = _gateway_response([], status=404)
+
+        with (
+            self.settings(AI_GATEWAY_INTERNAL_URL="http://gw", AI_GATEWAY_INTERNAL_TOKEN="tok"),
+            patch("posthog.llm.gateway_internal_client.httpx.get", return_value=gateway_answer),
+            patch(
+                "posthog.tasks.usage_report.posthoganalytics.feature_enabled",
+                side_effect=_ai_prepaid_credits_for(organization_id),
+            ),
+        ):
+            send_all_org_usage_reports(dry_run=False)
+
+        self._assert_queued_report(mock_producer, expected_report)
 
     @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
