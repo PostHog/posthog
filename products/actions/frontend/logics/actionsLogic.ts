@@ -31,12 +31,14 @@ const DEFAULT_FILTERS: ActionsFilters = {
 export interface actionsLogicValues {
     actionCount: number
     actionsList: ActionType[]
+    actionsLoadFailed: boolean
     actionsResponse: ActionsResponse
     actionsResponseLoading: boolean
     apiParams: string
     breadcrumbs: Breadcrumb[]
     filters: ActionsFilters
     hasActiveFilters: boolean
+    hasLoadedActions: boolean
     page: number
     searchTerm: string
     shouldShowEmptyState: boolean
@@ -175,6 +177,21 @@ export const actionsLogic = kea<actionsLogicType>([
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
                 setSearchTerm: () => 1,
+            },
+        ],
+        hasLoadedActions: [
+            false,
+            {
+                loadActionsSuccess: () => true,
+                loadActionsFailure: () => true,
+            },
+        ],
+        actionsLoadFailed: [
+            false,
+            {
+                loadActions: () => false,
+                loadActionsSuccess: () => false,
+                loadActionsFailure: () => true,
             },
         ],
     }),
