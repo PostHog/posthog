@@ -352,6 +352,7 @@ from products.signals.backend.serializers import (
     RankingOutcomesStatus,
     ReportSignalsResponseSerializer,
     SignalReportActionabilityUpdateSerializer,
+    SignalReportArtefactListQuerySerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -7535,6 +7536,19 @@ def _bound_to_scout_run(request: Request, team: Team) -> bool:
     return run_id_for_sandbox_task(task_id=task_id, team_id=team.parent_team_id or team.id) is not None
 
 
+def _requested_artefact_types(type_filter: str, readable_types: frozenset[str]) -> frozenset[str]:
+    requested = frozenset(value.strip() for value in type_filter.split(",") if value.strip())
+    invalid = requested - readable_types
+    if invalid:
+        raise serializers.ValidationError(
+            {
+                "type": f"Invalid artefact type(s): {', '.join(sorted(invalid))}. "
+                f"Accepted values: {', '.join(sorted(readable_types))}."
+            }
+        )
+    return requested
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's checks",
@@ -7712,21 +7726,6 @@ class SignalReportCheckViewSet(
 
 
 @extend_schema_view(
-    list=extend_schema(
-        summary="List a report's artefacts",
-        description=(
-            "List every artefact on a report — the full work log: signal findings (the evidence "
-            "behind the report), status judgments (safety / actionability / priority, repo "
-            "selection, suggested reviewers — the newest row of each status type is canonical), "
-            "and log entries (code references, commits, task runs, notes). "
-            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
-            "`ranking_score` content keeps only the head fields of each model's metadata; get the "
-            "artefact by id for the full metadata."
-        ),
-        parameters=[_REPORT_ID_PARAMETER],
-        responses={200: SignalReportArtefactSerializer(many=True)},
-        operation_id="signals_report_artefacts_list",
-    ),
     retrieve=extend_schema(
         summary="Get a single artefact",
         description=(
@@ -7801,6 +7800,16 @@ class SignalReportArtefactViewSet(
         ):
             raise serializers.ValidationError({"content": {"channel_id": "Unknown or inaccessible channel."}})
 
+    @cached_property
+    def _hidden_artefact_types(self) -> frozenset[str]:
+        hidden: set[str] = set()
+        if not organization_report_monitoring_enabled(self.organization.id):
+            hidden.add(SignalReportArtefact.ArtefactType.CHECK_OBSERVATION)
+        # Scoring rows are staff-only on every artefact route, not only in the log.
+        if not self.request.user.is_staff:
+            hidden |= SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES
+        return frozenset(hidden)
+
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
         # its artefacts must be too (otherwise a known UUID would bypass deletion).
@@ -7808,14 +7817,8 @@ class SignalReportArtefactViewSet(
             report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
-        if not organization_report_monitoring_enabled(self.organization.id):
-            queryset = queryset.exclude(type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION)
-        # Scoring rows are staff-only on every artefact route, not only in the log.
-        if not self.request.user.is_staff:
-            queryset = queryset.exclude(
-                type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
-                | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES
-            )
+        if self._hidden_artefact_types:
+            queryset = queryset.exclude(type__in=self._hidden_artefact_types)
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
@@ -7828,23 +7831,50 @@ class SignalReportArtefactViewSet(
                         return Response(self.get_serializer(artefact).data)
         return super().retrieve(request, *args, **kwargs)
 
-    def list(self, request, *args, **kwargs):
+    @validated_request(
+        query_serializer=SignalReportArtefactListQuerySerializer,
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportArtefactSerializer(many=True)},
+        summary="List a report's artefacts",
+        description=(
+            "List every artefact on a report — the full work log: signal findings (the evidence "
+            "behind the report), status judgments (safety / actionability / priority, repo "
+            "selection, suggested reviewers — the newest row of each status type is canonical), "
+            "and log entries (code references, commits, task runs, notes). Pass `type` to keep only some "
+            "artefact types. "
+            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
+            "`ranking_score` content keeps only the head fields of each model's metadata; get the "
+            "artefact by id for the full metadata."
+        ),
+        operation_id="signals_report_artefacts_list",
+    )
+    def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
+        readable_types = frozenset(SignalReportArtefact.ArtefactType.values) - self._hidden_artefact_types
+        requested_types = _requested_artefact_types(request.validated_query_data.get("type", ""), readable_types)
+        if requested_types:
+            queryset = queryset.filter(type__in=requested_types)
         # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
         # report's research / implementation runs appear in the log even before the backfill has
         # converted its gate rows. Merged into the materialized log (de-duplicated against the real
         # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
         # timestamp, then paginated as one list so `count` and ordering both account for them.
         real_artefacts = list(queryset)
-        synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
-            report_id=self.parents_query_dict["report_id"],
-            team_id=self.team.id,
-            existing_artefacts=real_artefacts,
+        synthetic = (
+            SignalReport.synthetic_legacy_task_run_artefacts(
+                report_id=self.parents_query_dict["report_id"],
+                team_id=self.team.id,
+                existing_artefacts=real_artefacts,
+            )
+            if not requested_types or SignalReportArtefact.ArtefactType.TASK_RUN in requested_types
+            else []
         )
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
                 synthetic.extend(private_report_artefacts(store, str(self._validated_report_id())))
+        if requested_types:
+            synthetic = [artefact for artefact in synthetic if artefact.type in requested_types]
         log = (
             sorted([*real_artefacts, *synthetic], key=lambda a: (a.created_at, str(a.id)), reverse=True)
             if synthetic
