@@ -599,6 +599,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         created_at: datetime,
         metric_errors: dict[str, dict[str, Any]] | None = None,
         failed_rows: tuple[str, ...] = (),
+        failed_row_message: str = "Unable to resolve field: purchase. Did you mean: purchase_total?",
         completed_rows: tuple[str, ...] = (),
         completed_read_precomputed: bool = False,
     ) -> None:
@@ -623,7 +624,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        error_message="Unable to resolve field: purchase. Did you mean: purchase_total?",
+                        error_message=failed_row_message,
                         query_id=None,
                     )
                 else:
@@ -674,6 +675,34 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("metric_3", finding.evidence)
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
+
+    @parameterized.expand(
+        [
+            ("failed_row_of_the_current_config", False, ("query_limit", "memory_limit")),
+            ("metric_changed_after_the_failure", True, ("unexpected_error", None)),
+        ]
+    )
+    def test_words_an_entry_without_a_calculation_key_from_the_failed_row(
+        self, _name: str, metric_changed: bool, expected: tuple[str, str | None]
+    ) -> None:
+        memory_limit = "Code: 241. DB::Exception: Memory limit (for query) exceeded"
+        self._run(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            created_at=timezone.now() - timedelta(hours=2),
+            metric_errors={"primary": {"step": "calculation", "message": memory_limit, "retriable": False}},
+            failed_rows=("primary",),
+            failed_row_message=memory_limit,
+        )
+        if metric_changed:
+            self.experiment.metrics = [
+                {**_mean("primary"), "source": {"kind": "EventsNode", "event": "checkout"}},
+                _mean("rejected"),
+            ]
+            self.experiment.save()
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        self.assertEqual((finding.evidence["metric_1_failure"], finding.evidence["metric_1_error"]), expected)
 
     @parameterized.expand(
         [
