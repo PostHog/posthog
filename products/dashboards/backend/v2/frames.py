@@ -41,7 +41,8 @@ _TIME_SERIES_DISPLAYS = {
     ChartDisplayType.ACTIONS_UNSTACKED_BAR,
 }
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
-_LEGEND_LABEL = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+# The label is trimmed after the match: `\s*` around a lazy group backtracks cubically on a run of spaces.
+_LEGEND_LABEL = re.compile(r"\{\{([^{}]+)\}\}")
 _TIME_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
@@ -119,7 +120,7 @@ def legend_name(template: str, labels: Mapping[str, str]) -> str:
     parts: list[str] = []
     size = position = 0
     for match in _LEGEND_LABEL.finditer(template):
-        for part in (template[position : match.start()], labels.get(match.group(1), "")):
+        for part in (template[position : match.start()], labels.get(match.group(1).strip(), "")):
             parts.append(part[: MAX_LEGEND_NAME - size])
             size += len(parts[-1])
         position = match.end()

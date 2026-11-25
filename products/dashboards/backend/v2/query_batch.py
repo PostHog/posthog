@@ -859,6 +859,11 @@ class QueryBatch:
             # A panel repeating an entry an earlier chunk served is left unplanned, so its blob is not fetched again.
             planned = plan(index)
             if planned is not None:
+                if self._shapes[index].frames:
+                    # The planned runner holds the query with the target's filters applied, an interval override
+                    # among them, so frames read the query that ran without building a second runner. A duplicate
+                    # that runs fresh skips the loop below, so the shape takes the query here.
+                    self._shapes[index] = replace(self._shapes[index], query=planned.query_runner.query.model_dump())
                 body = _shared_body(served, _served_key(planned, inputs[index], self._shapes[index]))
                 if body is not None:
                     duplicates[index] = body
@@ -882,10 +887,6 @@ class QueryBatch:
                         # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
                         to_run.append(index)
                     continue
-                if self._shapes[index].frames:
-                    # The planned runner holds the query with the target's filters applied, an interval override
-                    # among them, so frames read the query that ran without building a second runner.
-                    self._shapes[index] = replace(self._shapes[index], query=planned.query_runner.query.model_dump())
                 if planned.query_runner.requires_fresh_calculation():
                     # Never served from the cache, cache-only or not, as `/query` never serves it.
                     if item.cache_only:

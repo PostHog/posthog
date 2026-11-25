@@ -264,6 +264,7 @@ class TestFrameConverters(SimpleTestCase):
                 "codex / Chrome",
             ),
             ("long_names_are_cut", "{{x}}" * 200, {"x": "y" * 10_000}, "y" * MAX_LEGEND_NAME),
+            ("unclosed_label_of_spaces", "{{" + " " * 5000 + "x", {}, ("{{" + " " * 5000 + "x")[:MAX_LEGEND_NAME]),
         ]
     )
     def test_legend_template(self, _name: str, template: str, labels: dict[str, str], expected: str) -> None:

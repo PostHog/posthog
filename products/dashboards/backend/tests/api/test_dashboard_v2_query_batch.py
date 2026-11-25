@@ -41,6 +41,7 @@ from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
 from products.dashboards.backend.v2 import query_batch as query_batch_module
+from products.dashboards.backend.v2.frames import frames_for
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
@@ -354,6 +355,22 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             self.assertEqual(line["result"]["cache"]["hit"], False)
         # Panels drawing the same stale entry differently read it once and all run fresh.
         self.assertEqual(reads.call_count, 1)
+
+    def test_stale_repeats_past_the_first_read_chunk_frame_the_query_that_ran(self) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        panels = [_insight("$pageview")] * (query_batch_module.CACHE_READ_CHUNK + 1)
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch("products.dashboards.backend.v2.query_batch.frames_for", wraps=frames_for) as framed,
+        ):
+            self._lines(panels, format="frames")
+
+        # The query that ran carries the panel's time range, which the query in the target does not.
+        queries = [json.dumps(call.args[1], sort_keys=True) for call in framed.call_args_list]
+        self.assertEqual(len(queries), len(panels))
+        self.assertEqual(len(set(queries)), 1)
+        self.assertIn('"after": "-7d"', queries[0])
 
     def test_stale_panels_differing_only_in_legend_refresh_their_query_once(self) -> None:
         self._warm_via_query_endpoint("$pageview")
