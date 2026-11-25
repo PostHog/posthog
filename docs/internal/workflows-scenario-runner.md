@@ -553,6 +553,8 @@ It rejects:
 - a `stopOnBreak` ramp with a step of `0ms`, because a held step repeats its own length;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
+- an `edge_accepted` entry on any valve but `role.kill` or `role.freeze` on the email worker, because the held send is an email worker's;
+- an `edge_accepted` entry under a profile that runs more than one email worker, because the valve stops replica 0 and another replica may own the held send;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
 
 **Hashes.**

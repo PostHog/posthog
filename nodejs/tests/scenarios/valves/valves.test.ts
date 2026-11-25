@@ -660,7 +660,7 @@ describe('valves', () => {
 
         const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
 
-        const withWorker = (running: boolean) => {
+        const withWorker = (running: boolean, acceptedAsDriveEnds = false) => {
             const worker = new AbortController()
             const sentWhenKilled: number[] = []
             let boundaryHeld = (): void => undefined
@@ -671,7 +671,18 @@ describe('valves', () => {
                     actuate: (action) => {
                         if (action.kind === 'edge.fault') {
                             boundaryHeld()
-                            return Promise.resolve(edge.hold(action.rule))
+                            const hold = edge.hold(action.rule)
+                            return Promise.resolve(
+                                acceptedAsDriveEnds
+                                    ? {
+                                          ...hold,
+                                          accepted: (until: AbortSignal) =>
+                                              new Promise<boolean>((resolve) =>
+                                                  until.addEventListener('abort', () => resolve(true), { once: true })
+                                              ),
+                                      }
+                                    : hold
+                            )
                         }
                         if (action.kind !== 'kill' || !running) {
                             return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
@@ -721,9 +732,16 @@ describe('valves', () => {
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
         })
 
-        it('kills nothing and lifts its boundary when SES took no send before the drive ended', async () => {
+        it.each<[string, boolean, string]>([
+            [
+                'SES took no send before the drive ended',
+                false,
+                'never applied: edge_accepted on ses did not happen before the drive ended',
+            ],
+            ['SES took its send as the drive ended', true, 'never applied: the drive ended before the valve applied'],
+        ])('kills nothing and lifts its boundary when %s', async (_story, acceptedAsDriveEnds, error) => {
             const valves = createValves({ pollMs: 5 })
-            const stack = withWorker(true)
+            const stack = withWorker(true, acceptedAsDriveEnds)
 
             await valves.start([killAfterAccept], stack.context)
             await stack.held
@@ -734,7 +752,7 @@ describe('valves', () => {
                 next: await send(),
                 sentWhenKilled: stack.sentWhenKilled,
             }).toEqual({
-                error: 'never applied: edge_accepted on ses did not happen before the drive ended',
+                error,
                 next: 'sent',
                 sentWhenKilled: [],
             })

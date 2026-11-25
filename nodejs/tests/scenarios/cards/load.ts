@@ -182,6 +182,31 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     )
 }
 
+const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+
+function checkAcceptedBoundary(card: Card): string[] {
+    return card.valves.flatMap(({ valve, target, when }, i) =>
+        when?.name === 'edge_accepted' && !(ROLE_STOPPING_VALVES.includes(valve) && target === EMAIL_WORKER)
+            ? [
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.freeze on ${EMAIL_WORKER}`,
+              ]
+            : []
+    )
+}
+
+function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
+    if ((profile.replicas[EMAIL_WORKER] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap(({ valve, when }, i) =>
+        when?.name === 'edge_accepted'
+            ? [
+                  `valves.${i}.target: ${valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+              ]
+            : []
+    )
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
@@ -292,12 +317,14 @@ function check(
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
+        ...checkAcceptedBoundary(card),
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
                   ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),

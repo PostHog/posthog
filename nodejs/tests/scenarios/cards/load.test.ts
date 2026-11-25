@@ -57,6 +57,8 @@ const emailWorkerKill = {
     for: '1s',
 }
 
+const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
+
 describe('load', () => {
     let dir: string
 
@@ -240,6 +242,18 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-api': 2 } },
             `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
         ]),
+        [
+            'edge_accepted on a valve that does not stop the email worker',
+            { ...card, valves: [{ ...emailWorkerKill, target: 'cdp-api', when: edgeAccepted }] },
+            undefined,
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.freeze on cdp-cyclotron-worker-email",
+        ],
+        [
+            'edge_accepted while the profile runs more than one email worker',
+            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
+        ],
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },

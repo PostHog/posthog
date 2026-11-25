@@ -252,7 +252,11 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             return false
         })
         if (!isDue || released.signal.aborted) {
-            record.error ??= withProbeFailure(neverAppliedOf(entry))
+            record.error ??= withProbeFailure(
+                isDue && entry.when?.name === 'edge_accepted'
+                    ? 'never applied: the drive ended before the valve applied'
+                    : neverAppliedOf(entry)
+            )
             await releaseBoundary()
             return
         }
