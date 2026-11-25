@@ -45,10 +45,12 @@ logger = structlog.get_logger(__name__)
 PREVIEW_LOOKBACK_DAYS = 7
 PREVIEW_SAMPLE_LIMIT = 10
 PREVIEW_TIMEOUT_S = 20
+PREVIEW_MAX_CONDITIONS = 8
 
 _PASSES = "__preview_passes"
 _MALFORMED = "__preview_malformed"
 _CREATED_AT = "__preview_created_at"
+_CONDITION_PREFIX = "__preview_condition_"
 _FIELD_PREFIX = "__preview_field_"
 _OLDEST = datetime.min.replace(tzinfo=UTC)
 
@@ -79,6 +81,7 @@ class PreviewRecord:
     passes: bool
     malformed: bool
     fields: dict[str, JsonValue]
+    failed_conditions: tuple[str, ...] | None
 
 
 @frozen
@@ -142,7 +145,7 @@ def preview_source_filter(
         )
 
     try:
-        FilterExpression(expression, source.field_types)
+        filter_conditions = FilterExpression(expression, source.field_types).conditions()
     except FilterValidationError as error:
         return replace(
             outcome(SourceFilterPreviewStatus.INVALID_EXPRESSION, str(error)),
@@ -150,6 +153,8 @@ def preview_source_filter(
             error_start=error.start,
             error_end=error.end,
         )
+    if filter_conditions is not None and len(filter_conditions) > PREVIEW_MAX_CONDITIONS:
+        filter_conditions = None
 
     schemas = _emitting_schemas(team.pk, source_product, source_type)
     if not schemas:
@@ -174,7 +179,16 @@ def preview_source_filter(
         try:
             previews.append(
                 _preview_table(
-                    team, user, database, source, record_columns, table, expression, source_config, scope_ids
+                    team,
+                    user,
+                    database,
+                    source,
+                    record_columns,
+                    table,
+                    expression,
+                    filter_conditions,
+                    source_config,
+                    scope_ids,
                 )
             )
         except TableAccessDeniedError:
@@ -223,6 +237,7 @@ def _preview_table(
     record_columns: PreviewRecordColumns,
     table: _PreviewTable,
     expression: str,
+    filter_conditions: tuple[str, ...] | None,
     source_config: object,
     scope_ids_override: list[str] | None,
 ) -> SourceFilterPreview:
@@ -295,6 +310,14 @@ def _preview_table(
         )
         for name, projection in bindings.projections.items()
     ]
+    condition_predicates = [bindings.predicate(condition) for condition in filter_conditions or ()]
+    condition_selects = [
+        ast.Alias(
+            alias=f"{_CONDITION_PREFIX}{index}",
+            expr=condition.matches if condition is not None else ast.Constant(value=True),
+        )
+        for index, condition in enumerate(condition_predicates)
+    ]
     samples_query = ast.SelectQuery(
         select=[
             ast.Call(name="toString", args=[ast.Field(chain=[record_columns.id])]),
@@ -304,6 +327,7 @@ def _preview_table(
             ast.Alias(alias=_CREATED_AT, expr=parse_expr(config.partition_expression)),
             ast.Alias(alias=_PASSES, expr=clone_expr(passes)),
             ast.Alias(alias=_MALFORMED, expr=clone_expr(malformed)),
+            *condition_selects,
             *field_selects,
         ],
         select_from=source_table(),
@@ -313,7 +337,7 @@ def _preview_table(
     )
     samples = _execute(team, user, database, samples_query)
     field_names = list(bindings.projections)
-    records = [_record(row, field_names) for row in samples.results or []]
+    records = [_record(row, filter_conditions, field_names) for row in samples.results or []]
     return SourceFilterPreview(
         status=SourceFilterPreviewStatus.OK,
         error=None,
@@ -342,8 +366,15 @@ def _execute(
         )
 
 
-def _record(row: tuple[object, ...], field_names: list[str]) -> PreviewRecord:
-    record_id, identifier, title, url, created_at, passes, malformed, *field_values = row
+def _record(row: tuple[object, ...], conditions: tuple[str, ...] | None, field_names: list[str]) -> PreviewRecord:
+    record_id, identifier, title, url, created_at, passes, malformed, *values = row
+    condition_count = len(conditions or ())
+    condition_values, field_values = values[:condition_count], values[condition_count:]
+    failed_conditions = (
+        None
+        if passes or conditions is None
+        else tuple(condition for condition, met in zip(conditions, condition_values) if not met)
+    )
     return PreviewRecord(
         id=str(record_id),
         identifier=None if identifier is None else str(identifier),
@@ -353,6 +384,7 @@ def _record(row: tuple[object, ...], field_names: list[str]) -> PreviewRecord:
         passes=bool(passes),
         malformed=bool(malformed),
         fields={name: cast(JsonValue, value) for name, value in zip(field_names, field_values)},
+        failed_conditions=failed_conditions,
     )
 
 
