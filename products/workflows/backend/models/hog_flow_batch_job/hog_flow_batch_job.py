@@ -17,7 +17,7 @@ from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_audience_cohort,
     realtime_cohort_is_ready,
 )
-from products.workflows.backend.utils.audience_snapshot import AUDIENCE_SNAPSHOT_WAIT_LIMIT, use_audience_snapshot
+from products.workflows.backend.utils.audience_snapshot import AUDIENCE_SNAPSHOT_WAIT_LIMIT
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 if TYPE_CHECKING:
@@ -156,11 +156,7 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
         if wait_for_cohort:
             HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
             instance.status = HogFlowBatchJobState.WAITING
-        snapshot_audience = (
-            realtime_cohort is None
-            and batch_job_audience_type(instance) != "accounts"
-            and use_audience_snapshot(instance.team)
-        )
+        snapshot_audience = realtime_cohort is None and batch_job_audience_type(instance) != "accounts"
         try:
             dispatch_batch_job(
                 instance, realtime_cohort, wait_for_cohort=wait_for_cohort, snapshot_audience=snapshot_audience

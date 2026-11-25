@@ -198,6 +198,32 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.status == expected
 
     @parameterized.expand(
+        [
+            ("failing", {"failure_streak": {"runs": 8}}, {"failure_streak": {"runs": 8, "manual_run_requested": True}}),
+            ("healthy", {}, {}),
+        ]
+    )
+    def test_sync_now_lets_a_failing_schema_run(self, _name: str, config: dict, expected: dict) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type_config == expected
+
+    @parameterized.expand(
         [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
     )
     def test_incremental_fields_stripe(
@@ -2784,6 +2810,41 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert schema.sync_type_config.get("primary_key_columns") == ["_id"]
 
+    def test_incremental_field_change_lets_a_failing_schema_run(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "failure_streak": {"runs": 8},
+            },
+            table=DataWarehouseTable.objects.create(team=self.team),
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "available_on", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200, response.content
+        mock_trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.manual_run_requested is True
+
     def test_switch_synced_incremental_schema_to_append_with_existing_pk(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
@@ -4847,6 +4908,9 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
             ("external_data_source:write", "PATCH", "partial_update", True),
             ("other_scope:read", "GET", "list", False),
             ("other_scope:write", "PATCH", "partial_update", False),
+            ("external_data_source:read", "GET", "destinations", True),
+            ("external_data_source:read", "PATCH", "destinations", False),
+            ("external_data_source:write", "PATCH", "destinations", True),
         ]
     )
     def test_api_key_scope_gating(self, scope, method, action, should_have_access):
@@ -4862,6 +4926,12 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
         elif action == "partial_update":
             url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/"
             response = self.client.patch(url, {"should_sync": False}, format="json", headers=headers)
+        elif action == "destinations":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations/"
+            if method == "GET":
+                response = self.client.get(url, headers=headers)
+            else:
+                response = self.client.patch(url, {"destination_ids": None}, format="json", headers=headers)
         else:
             self.fail(f"Unknown action: {action}")
 
@@ -6052,6 +6122,11 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema.status = ExternalDataSchema.Status.FAILED
         schema.should_sync = True
         schema.latest_error = "failed for key 123 " + "y" * 2000
+        # Every run found nothing new, so only the check stamp exists.
+        schema.last_synced_at = None
+        schema.last_checked_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+        # A completion time, later than the stored check; it must not replace it.
+        schema.sync_type_config = {"last_full_run_at": "2026-11-20T08:10:00+00:00"}
         schema.save()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")
@@ -6070,6 +6145,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 "sync_type",
                 "status",
                 "last_synced_at",
+                "last_checked_at",
                 "latest_error",
             }
             assert row["source_id"] == str(source.id)
@@ -6079,6 +6155,20 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         else:
             assert {"table", "sync_frequency", "incremental_field", "webhook_not_registered"} <= set(row)
             assert len(row["latest_error"]) > 2000
+        assert row["last_synced_at"] is None
+        assert row["last_checked_at"] == "2026-11-20T08:00:00Z"
+
+    def test_last_checked_at_ignores_the_legacy_completion_stamp(self) -> None:
+        # Before the column existed, a run that loaded rows stamped its start in `last_synced_at` and its
+        # finish in `last_full_run_at`. Reading the finish would show that run as a later empty one.
+        _, schema = self._create()
+        schema.last_synced_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+        schema.sync_type_config = {"last_full_run_at": "2026-11-20T08:10:00+00:00"}
+        schema.save()
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+
+        assert detail["last_checked_at"] == detail["last_synced_at"]
 
     def test_list_compact_rejects_invalid_flag(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?compact=nope")
@@ -7123,8 +7213,12 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
             )
 
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/logs/"
-        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.Database.create_for"
+        ) as database:
+            second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
 
+        database.assert_not_called()
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
 

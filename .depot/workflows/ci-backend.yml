@@ -361,6 +361,9 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        # Django reads this file at startup to route each product app to its database,
+                        # so a routing change reaches every test while no Python file changes.
+                        - products/db_routing.yaml
                         # Tests read these MCP manifests from disk. Each one is a turbo input of
                         # its reader (tasks directly, posthog_ai through feature_flags'
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
@@ -487,6 +490,12 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_quarantine.json
+                        # Every product's tests load these, but no product package owns them, so Turbo
+                        # marks no product affected and discovery would test nothing. Listing them
+                        # here sends them down the same path as a posthog/ edit.
+                        - products/__init__.py
+                        - products/conftest.py
+                        - products/db_routing.yaml
                         # Python reads only the generated products.json, and ci-frontend fails a
                         # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
                         - frontend/src/products.json

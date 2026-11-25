@@ -1020,7 +1020,7 @@ class Tuple(Expr):
     exprs: list[Expr]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class PropertyAccess(Expr):
     """The lowered form of a `properties.X` read: "read this key path from this properties field."
 
@@ -1048,6 +1048,8 @@ class PropertyAccess(Expr):
 
     expr: Expr
     keys: list[str | int]
+    # Carried over from `PropertyType.as_json`: a JSON function rewrite asked for the key's JSON text.
+    as_json: bool = False
 
 
 @dataclass(frozen=False, kw_only=True, slots=True)

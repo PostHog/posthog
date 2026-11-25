@@ -40,9 +40,10 @@ export interface ExecutableFile {
 
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
 // `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
+// `posthogApi` marks a request `sendRequest` sends to the PostHog API, whose answer can carry notices.
 export type RuntimeFetch = (
     input: string | URL | Request,
-    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
+    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean; posthogApi?: boolean }
 ) => Promise<Response>
 
 // The operating system's secret store: Keychain on macOS, Credential Manager on Windows and Secret
@@ -354,7 +355,7 @@ export function processRuntime(): Runtime {
             process.stderr.write(text)
         },
         fetch: (input, options) => {
-            const { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = options ?? {}
+            const { timeoutMs, skipRateLimit: _skipRateLimit, posthogApi: _posthogApi, ...init } = options ?? {}
             return globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }

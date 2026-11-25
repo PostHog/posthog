@@ -14,15 +14,14 @@ from nanoid import generate
 from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.utils import get_token
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -32,7 +31,6 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 
@@ -738,6 +736,14 @@ class DraftStatusResponseSerializer(serializers.Serializer):
     has_draft = serializers.BooleanField()
 
 
+class ProductToursRemoved(APIException):
+    status_code = status.HTTP_410_GONE
+    default_detail = (
+        "Product tours is no longer available. You can't create or edit tours, and existing tours no longer display."
+    )
+    default_code = "product_tours_removed"
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -772,6 +778,10 @@ class ProductTourViewSet(
         "discard_draft",
     ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        raise ProductToursRemoved()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method in ("POST", "PATCH"):
@@ -970,112 +980,9 @@ class ProductTourViewSet(
         )
 
 
-class ProductTourAPISerializer(serializers.ModelSerializer):
-    """
-    Serializer for the exposed /api/product_tours endpoint, to be used in posthog-js.
-    Only exposes fields needed by the SDK, no sensitive data.
-    """
-
-    tour_type = serializers.SerializerMethodField()
-    internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
-    linked_flag_key = serializers.SerializerMethodField()
-    steps = serializers.SerializerMethodField()
-    conditions = serializers.SerializerMethodField()
-    appearance = serializers.SerializerMethodField()
-    display_frequency = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ProductTour
-        fields = [
-            "id",
-            "name",
-            "tour_type",
-            "internal_targeting_flag_key",
-            "linked_flag_key",
-            "steps",
-            "conditions",
-            "appearance",
-            "display_frequency",
-            "auto_launch",
-            "start_date",
-            "end_date",
-        ]
-        read_only_fields = fields
-
-    def get_tour_type(self, tour: ProductTour) -> str:
-        if not tour.content:
-            return "tour"
-
-        tour_type = tour.content.get("type", "tour")
-        if tour_type == "announcement":
-            steps = tour.content.get("steps", [])
-            if len(steps) > 0:
-                return "banner" if steps[0].get("type") == "banner" else "announcement"
-
-        return tour_type
-
-    def get_linked_flag_key(self, tour: ProductTour) -> str | None:
-        return tour.linked_flag.key if tour.linked_flag else None
-
-    def get_steps(self, tour: ProductTour) -> list:
-        steps = tour.content.get("steps", []) if tour.content else []
-        return [normalize_step(s) for s in steps]
-
-    def get_conditions(self, tour: ProductTour) -> dict | None:
-        return tour.content.get("conditions") if tour.content else None
-
-    def get_appearance(self, tour: ProductTour) -> dict | None:
-        return tour.content.get("appearance") if tour.content else None
-
-    def get_display_frequency(self, tour: ProductTour) -> str | None:
-        return tour.content.get("displayFrequency") if tour.content else None
-
-
-def get_product_tours_response(team: Team) -> dict:
-    """Get active product tours for a team."""
-    tours = ProductTourAPISerializer(
-        # nosemgrep: environment-model-scoped-by-project -- the project route stores tours on the primary environment, so every environment's SDK reads the project's tours
-        ProductTour.objects.filter(
-            team__project_id=team.project_id,
-            archived=False,
-            start_date__isnull=False,
-        ).select_related("internal_targeting_flag", "linked_flag"),
-        many=True,
-    ).data
-
-    return {"product_tours": tours}
-
-
 @csrf_exempt
 def product_tours(request):
-    token = get_token(None, request)
-
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "product_tours",
-                "Project token not provided. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "product_tours",
-                "Project token invalid. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    return cors_response(request, JsonResponse(get_product_tours_response(team)))
+    return cors_response(request, JsonResponse({"product_tours": []}))

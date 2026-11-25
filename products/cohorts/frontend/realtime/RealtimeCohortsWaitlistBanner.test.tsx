@@ -7,7 +7,9 @@ import type { ReactNode } from 'react'
 
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
 import { RealtimeCohortsWaitlistBanner } from './RealtimeCohortsWaitlistBanner'
@@ -45,6 +47,7 @@ const CONCEPT_FEATURE = {
     stage: 'concept',
     payload: { survey_id: 'survey-1' },
 }
+const BETA_FEATURE = { ...CONCEPT_FEATURE, stage: 'beta' }
 
 function setupMocks(
     earlyAccessFeatures: Array<{
@@ -54,15 +57,19 @@ function setupMocks(
         payload?: Record<string, unknown>
     }>,
     {
-        isDismissed = false,
+        waitlistDismissed = false,
+        betaDismissed = false,
         realtimeCohortsServing = false,
         setupStatus = 'has-data',
         joinedInThisBrowser = false,
+        cloud = true,
     }: {
-        isDismissed?: boolean
+        waitlistDismissed?: boolean
+        betaDismissed?: boolean
         realtimeCohortsServing?: boolean
         setupStatus?: string
         joinedInThisBrowser?: boolean
+        cloud?: boolean
     } = {}
 ): void {
     mockedUseRealtimeCohortsServing.mockReturnValue(realtimeCohortsServing)
@@ -76,7 +83,16 @@ function setupMocks(
         if (logic === cohortsSetupLogic) {
             return { setupStatus }
         }
-        return { isDismissed }
+        if (logic === preflightLogic) {
+            return { preflight: { cloud, is_debug: false } }
+        }
+        if (logic === lemonBannerLogic({ dismissKey: 'realtime-cohorts-waitlist' })) {
+            return { isDismissed: waitlistDismissed }
+        }
+        if (logic === lemonBannerLogic({ dismissKey: 'realtime-cohorts-beta-opt-in' })) {
+            return { isDismissed: betaDismissed }
+        }
+        throw new Error('unexpected logic')
     })
     mockedUseActions.mockImplementation((logic: unknown) =>
         logic === featurePreviewsLogic
@@ -95,8 +111,11 @@ describe('RealtimeCohortsWaitlistBanner', () => {
         jest.clearAllMocks()
     })
 
-    it('offers the waitlist while the feature is at the concept stage', () => {
-        setupMocks([CONCEPT_FEATURE])
+    it.each([
+        ['the feature is at the concept stage', {}],
+        ['the feature is at the concept stage and only the beta banner was dismissed', { betaDismissed: true }],
+    ])('offers the waitlist when %s', (_label, options) => {
+        setupMocks([CONCEPT_FEATURE], options)
 
         render(<RealtimeCohortsWaitlistBanner />)
 
@@ -129,11 +148,41 @@ describe('RealtimeCohortsWaitlistBanner', () => {
     })
 
     it.each([
-        ['the feature preview does not exist', []],
-        ['the feature has moved past concept', [{ ...CONCEPT_FEATURE, stage: 'beta' }]],
-        ['the user is already on the waitlist', [{ ...CONCEPT_FEATURE, enabled: true }]],
-    ])('renders nothing when %s', (_label, earlyAccessFeatures) => {
-        setupMocks(earlyAccessFeatures)
+        ['the beta has opened', [BETA_FEATURE], {}],
+        ['the beta has opened and only the waitlist was dismissed', [BETA_FEATURE], { waitlistDismissed: true }],
+    ])('offers the beta opt-in for the whole project when %s', (_label, earlyAccessFeatures, options) => {
+        setupMocks(earlyAccessFeatures, options)
+
+        render(<RealtimeCohortsWaitlistBanner />)
+
+        expect(mockLoadEarlyAccessFeatures).toHaveBeenCalled()
+        expect(screen.getByText('Realtime cohorts are in beta')).toBeInTheDocument()
+        expect(screen.getByText(/Joining turns on the beta for everyone in this project/)).toBeInTheDocument()
+        expect(screen.getByTestId('viewed-realtime-cohorts-beta-opt-in-banner-shown')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Join the beta'))
+
+        expect(mockUpdateEarlyAccessFeatureEnrollment).toHaveBeenCalledWith(
+            FEATURE_FLAGS.REALTIME_COHORTS,
+            true,
+            'beta'
+        )
+        expect(lemonToast.success).toHaveBeenCalled()
+    })
+
+    it.each([
+        ['the feature preview does not exist', [], {}],
+        ['the feature is at a stage with no banner', [{ ...CONCEPT_FEATURE, stage: 'alpha' }], {}],
+        ['the user is already on the waitlist', [{ ...CONCEPT_FEATURE, enabled: true }], {}],
+        ['the user already opted in to the beta', [{ ...BETA_FEATURE, enabled: true }], {}],
+        ['the beta banner was dismissed', [BETA_FEATURE], { betaDismissed: true }],
+        [
+            'the waitlist was dismissed and the feature is still at concept',
+            [CONCEPT_FEATURE],
+            { waitlistDismissed: true },
+        ],
+    ])('renders nothing when %s', (_label, earlyAccessFeatures, options) => {
+        setupMocks(earlyAccessFeatures, options)
 
         const { container } = render(<RealtimeCohortsWaitlistBanner />)
 
@@ -141,13 +190,14 @@ describe('RealtimeCohortsWaitlistBanner', () => {
     })
 
     it.each([
-        ['the banner was dismissed', { isDismissed: true }],
-        ['the team already sees realtime cohorts', { realtimeCohortsServing: true }],
-        ['the project has no cohorts yet', { setupStatus: 'needs-setup' }],
-        ['cohort detection has not answered yet', { setupStatus: 'loading' }],
-        ['this browser already joined the waitlist', { joinedInThisBrowser: true }],
-    ])('renders nothing and does not load features when %s', (_label, options) => {
-        setupMocks([CONCEPT_FEATURE], options)
+        ['both banners were dismissed', [CONCEPT_FEATURE], { waitlistDismissed: true, betaDismissed: true }],
+        ['the team already sees realtime cohorts', [CONCEPT_FEATURE], { realtimeCohortsServing: true }],
+        ['the project has no cohorts yet', [CONCEPT_FEATURE], { setupStatus: 'needs-setup' }],
+        ['cohort detection has not answered yet', [CONCEPT_FEATURE], { setupStatus: 'loading' }],
+        ['this browser already joined the waitlist', [CONCEPT_FEATURE], { joinedInThisBrowser: true }],
+        ['the instance ignores client-side flags', [BETA_FEATURE], { cloud: false }],
+    ])('renders nothing and does not load features when %s', (_label, earlyAccessFeatures, options) => {
+        setupMocks(earlyAccessFeatures, options)
 
         const { container } = render(<RealtimeCohortsWaitlistBanner />)
 

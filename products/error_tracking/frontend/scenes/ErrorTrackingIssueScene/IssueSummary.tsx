@@ -10,6 +10,7 @@ import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { urls } from 'scenes/urls'
 
 import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
+import { errorTrackingEditAccessDisabledReason } from '../../utils'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssuePaneSectionHeader } from './IssuePaneSectionHeader'
 import { IssuePaneSectionName } from './IssuePaneSectionName'
@@ -23,8 +24,11 @@ export interface IssueSummarySectionProps {
     open: boolean
     canManageAiSettings: boolean
     loading: boolean
+    // Set when the person may not start a summary, which needs editor access to error tracking.
+    summarizeDisabledReason?: string | null
     onToggle: () => void
     onRetry: () => void
+    onSummarize: () => void
     onFeedback: (feedback: IssueSummaryFeedback) => void
 }
 
@@ -66,9 +70,45 @@ function SummaryNote({
         case 'writing':
             return <>No summary yet. Summaries take a minute to write after an issue is first seen.</>
         case 'not_generated':
-            return <>No summary. Summaries are written when an issue is first seen.</>
+            return <>No summary to show for this issue.</>
         case 'restricted':
             return <>No summary. Summaries use event data you don't have access to.</>
+        case 'setting_off':
+            return (
+                <>
+                    No summary. Issue summaries are off for this project.{' '}
+                    <Link
+                        to={urls.settings('environment-error-tracking', 'error-tracking-ai-features')}
+                        className="whitespace-nowrap"
+                        data-attr="error-tracking-issue-summary-settings"
+                    >
+                        Manage AI features
+                    </Link>
+                </>
+            )
+        case 'out_of_credits':
+            return canManageAiSettings ? (
+                <>
+                    No summary. Your organization reached its AI credits limit.{' '}
+                    <Link
+                        to={urls.organizationBilling()}
+                        className="whitespace-nowrap"
+                        data-attr="error-tracking-issue-summary-billing"
+                    >
+                        Manage billing
+                    </Link>
+                </>
+            ) : (
+                <>No summary. Your organization reached its AI credits limit. Ask an organization admin to raise it.</>
+            )
+        case 'rate_limited':
+            return <>This project asked for too many summaries. Try again in a few minutes.</>
+        case 'in_progress':
+            return <>A summary is being written. Check again in a minute.</>
+        case 'no_exception':
+            return <>No summary. This issue has no stack trace to summarize.</>
+        case 'summarize_failed':
+            return <>Couldn't write the summary.</>
         case 'ai_not_approved':
             return canManageAiSettings ? (
                 <>
@@ -99,8 +139,10 @@ export function IssueSummarySection({
     open,
     canManageAiSettings,
     loading,
+    summarizeDisabledReason,
     onToggle,
     onRetry,
+    onSummarize,
     onFeedback,
 }: IssueSummarySectionProps): JSX.Element | null {
     if (view === 'hidden') {
@@ -118,7 +160,7 @@ export function IssueSummarySection({
                 <div className="min-w-0 flex-1 text-xs text-secondary leading-snug">
                     <SummaryNote view={view} canManageAiSettings={canManageAiSettings} />
                 </div>
-                {view === 'failed' || view === 'writing' ? (
+                {view === 'failed' || view === 'writing' || view === 'in_progress' ? (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -132,6 +174,24 @@ export function IssueSummarySection({
                     >
                         {view === 'failed' ? 'Try again' : 'Check again'}
                     </LemonButton>
+                ) : view === 'not_generated' || view === 'summarize_failed' || view === 'rate_limited' ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                        <span className="text-xs text-secondary whitespace-nowrap">Uses AI credits</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={onSummarize}
+                            loading={loading}
+                            disabledReason={summarizeDisabledReason}
+                            data-attr={
+                                view === 'not_generated'
+                                    ? 'error-tracking-issue-summary-summarize'
+                                    : 'error-tracking-issue-summary-summarize-retry'
+                            }
+                        >
+                            {view === 'not_generated' ? 'Summarize' : 'Try again'}
+                        </LemonButton>
+                    </div>
                 ) : null}
             </div>
         )
@@ -212,7 +272,7 @@ export function IssueSummary(): JSX.Element | null {
     const { issueId, issue } = useValues(errorTrackingIssueSceneLogic)
     const logic = issueSummaryLogic({ issueId, firstSeen: issue?.first_seen ?? null })
     const { view, summary, feedback, summaryResponseLoading } = useValues(logic)
-    const { loadSummary, sendFeedback } = useActions(logic)
+    const { loadSummary, summarize, sendFeedback } = useActions(logic)
     const { summaryOpen } = useValues(issuePaneSectionsLogic)
     const { setSummaryOpen } = useActions(issuePaneSectionsLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
@@ -224,8 +284,10 @@ export function IssueSummary(): JSX.Element | null {
             open={summaryOpen}
             canManageAiSettings={!!isAdminOrOwner}
             loading={summaryResponseLoading}
+            summarizeDisabledReason={errorTrackingEditAccessDisabledReason()}
             onToggle={() => setSummaryOpen(!summaryOpen)}
             onRetry={loadSummary}
+            onSummarize={summarize}
             onFeedback={sendFeedback}
         />
     )

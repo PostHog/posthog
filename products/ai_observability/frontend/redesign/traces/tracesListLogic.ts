@@ -17,6 +17,20 @@ import {
     type TraceListItemApi,
 } from '../../generated/api.schemas'
 import type { ListTableState } from '../lists/components/ListTable'
+import {
+    appendedPages,
+    canStepBack,
+    canStepForward,
+    firstPageParams,
+    isRefreshing,
+    itemsOf,
+    listRequestParams,
+    listStateOf,
+    nextPageStep,
+    pageIndexAfterLoad,
+    readAbortablePage,
+    shownPageOf,
+} from '../lists/cursorPaging'
 import { ListFilters, ListFiltersLogicProps, listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { tracesListTracking } from './tracesListTracking'
@@ -159,19 +173,12 @@ export const tracesListLogic = kea<tracesListLogicType>([
             {
                 loadTracesPage: async (params: AiObservabilityTracesListParams, breakpoint): Promise<TraceListApi> => {
                     cache.pageRequestedAt = performance.now()
-                    const controller = new AbortController()
-                    // The next read and the unmount abort this one, so a superseded scan frees its query slot. A
-                    // hidden tab keeps it, so coming back shows no failed load.
-                    cache.disposables.add(() => () => controller.abort(), 'pageRequest', { pauseOnPageHidden: false })
-                    const page = await aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), params, {
-                        signal: controller.signal,
-                    }).catch((error: unknown) => {
-                        // A superseded request must not show its failure over the newer selection.
-                        breakpoint()
-                        throw error
-                    })
-                    breakpoint()
-                    return page
+                    return readAbortablePage(
+                        cache,
+                        (signal) =>
+                            aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), params, { signal }),
+                        breakpoint
+                    )
                 },
             },
         ],
@@ -181,7 +188,7 @@ export const tracesListLogic = kea<tracesListLogicType>([
             [] as TraceListApi[],
             {
                 selectionChanged: () => [],
-                loadTracesPageSuccess: (pages, { page, payload }) => (payload?.cursor ? [...pages, page] : [page]),
+                loadTracesPageSuccess: (pages, { page, payload }) => appendedPages(pages, page, payload),
             },
         ],
         pageIndex: [
@@ -189,15 +196,14 @@ export const tracesListLogic = kea<tracesListLogicType>([
             {
                 selectionChanged: () => 0,
                 setPageIndex: (_, { pageIndex }) => pageIndex,
-                loadTracesPageSuccess: (pageIndex, { payload }) => (payload?.cursor ? pageIndex + 1 : 0),
+                loadTracesPageSuccess: (pageIndex, { payload }) => pageIndexAfterLoad(pageIndex, payload),
             },
         ],
-        // The params of the first page in memory. A next page reads with them, not with filters typed since.
         pagesParams: [
             null as AiObservabilityTracesListParams | null,
             {
                 selectionChanged: () => null,
-                loadTracesPageSuccess: (current, { payload }) => (payload && !payload.cursor ? payload : current),
+                loadTracesPageSuccess: (current, { payload }) => firstPageParams(current, payload),
             },
         ],
         pageFailed: [
@@ -222,30 +228,25 @@ export const tracesListLogic = kea<tracesListLogicType>([
                 filterTestAccounts: boolean,
                 searchEnabled: boolean
             ): AiObservabilityTracesListParams => ({
-                date_from: dateFrom,
-                date_to: dateTo ?? undefined,
-                properties: filters.propertyFilters.length > 0 ? JSON.stringify(filters.propertyFilters) : undefined,
-                filter_test_accounts: filterTestAccounts,
-                search: (searchEnabled && filters.search) || undefined,
+                ...listRequestParams(filters, { dateFrom, dateTo, filterTestAccounts, searchEnabled }),
                 view: toView(filters.quickFilter),
                 limit: TRACES_PAGE_SIZE,
             }),
         ],
         shownPage: [
             (s) => [s.pages, s.pageIndex],
-            (pages: TraceListApi[], pageIndex: number): TraceListApi | null => pages[pageIndex] ?? null,
+            (pages: TraceListApi[], pageIndex: number): TraceListApi | null => shownPageOf(pages, pageIndex),
         ],
-        items: [(s) => [s.shownPage], (shownPage: TraceListApi | null): TraceListItemApi[] => shownPage?.items ?? []],
+        items: [(s) => [s.shownPage], (shownPage: TraceListApi | null): TraceListItemApi[] => itemsOf(shownPage)],
         counts: [(s) => [s.pages], (pages: TraceListApi[]): TraceListCountsApi | null => pages[0]?.counts ?? null],
-        // A page that lands moves the index on from where it was requested, so stepping back meanwhile would undo it.
         canShowPrevious: [
             (s) => [s.pageIndex, s.pageLoading],
-            (pageIndex: number, pageLoading: boolean): boolean => pageIndex > 0 && !pageLoading,
+            (pageIndex: number, pageLoading: boolean): boolean => canStepBack(pageIndex, pageLoading),
         ],
-        canShowNext: [(s) => [s.shownPage], (shownPage: TraceListApi | null): boolean => !!shownPage?.nextCursor],
+        canShowNext: [(s) => [s.shownPage], (shownPage: TraceListApi | null): boolean => canStepForward(shownPage)],
         refreshing: [
             (s) => [s.pageLoading, s.pages],
-            (pageLoading: boolean, pages: TraceListApi[]): boolean => pageLoading && pages.length > 0,
+            (pageLoading: boolean, pages: TraceListApi[]): boolean => isRefreshing(pageLoading, pages),
         ],
         state: [
             (s) => [s.pages, s.pageFailed, s.pagesParams],
@@ -253,16 +254,7 @@ export const tracesListLogic = kea<tracesListLogicType>([
                 pages: TraceListApi[],
                 pageFailed: boolean,
                 pagesParams: AiObservabilityTracesListParams | null
-            ): ListTableState => {
-                const firstPage = pages[0]
-                if (!firstPage) {
-                    return pageFailed ? 'error' : 'loading'
-                }
-                if (firstPage.items.length === 0) {
-                    return narrowsSelection(pagesParams) ? 'empty-filtered' : 'empty'
-                }
-                return 'ready'
-            },
+            ): ListTableState => listStateOf(pages, pageFailed, pagesParams, narrowsSelection),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -280,15 +272,11 @@ export const tracesListLogic = kea<tracesListLogicType>([
             }
         },
         showNextPage: () => {
-            const { pages, pageIndex, pagesParams, pageLoading } = values
-            if (pages[pageIndex + 1]) {
-                actions.setPageIndex(pageIndex + 1)
-                return
-            }
-            const cursor = pages[pageIndex]?.nextCursor
-            // A read in flight is either this next page or a first page that replaces the pages.
-            if (cursor && pagesParams && !pageLoading) {
-                actions.loadTracesPage({ ...pagesParams, cursor })
+            const step = nextPageStep(values)
+            if (step && 'show' in step) {
+                actions.setPageIndex(step.show)
+            } else if (step) {
+                actions.loadTracesPage(step.load)
             }
         },
         loadTracesPageSuccess: ({ page, payload }) => {

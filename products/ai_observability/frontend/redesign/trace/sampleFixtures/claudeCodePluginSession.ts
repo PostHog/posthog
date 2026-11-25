@@ -333,6 +333,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
+                waitMs: null,
                 ...messagesSides(stepInput(lastStep), stepOutput(lastStep)),
                 error: null,
             },

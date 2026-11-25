@@ -344,6 +344,23 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.last_heartbeat_at is not None, heartbeat_stored)
 
+    def test_origin_run_ids_since_finds_every_run_of_the_origin_in_the_window(self) -> None:
+        since = django_timezone.now() - timedelta(days=1)
+        origin = Task.OriginProduct.AUTORESEARCH
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        counted = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        on_deleted_task = TaskRun.objects.create(
+            task=self._make_task(origin_product=origin, deleted=True), team=self.team
+        )
+        before_window = TaskRun.objects.create(task=self._make_task(origin_product=origin), team=self.team)
+        TaskRun.objects.filter(id=before_window.id).update(created_at=since - timedelta(minutes=1))
+        TaskRun.objects.create(task=self._make_task(), team=self.team)
+        TaskRun.objects.create(task=self._make_task(team=other_team, origin_product=origin), team=other_team)
+
+        run_ids = facade.origin_run_ids_since(team_id=self.team.id, origin_product=origin, since=since)
+
+        self.assertCountEqual(run_ids, [counted.id, on_deleted_task.id])
+
     def test_heartbeat_does_not_reach_a_run_of_another_task(self) -> None:
         other_run = TaskRun.objects.create(
             task=self._make_task(), team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL

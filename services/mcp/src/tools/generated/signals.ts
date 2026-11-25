@@ -1633,6 +1633,9 @@ const inboxSourceFilterPreview = (): ToolBase<
         if (params.expression !== undefined) {
             body['expression'] = params.expression
         }
+        if (params.scope_ids !== undefined) {
+            body['scope_ids'] = params.scope_ids
+        }
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
@@ -1905,6 +1908,7 @@ const scoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -3572,6 +3576,7 @@ const signalsScoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })

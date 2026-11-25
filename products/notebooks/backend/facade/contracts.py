@@ -18,6 +18,42 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+@dataclass(frozen=True, kw_only=True)
+class AppBlockSource:
+    id: str
+    kind: str
+    title: str = ""
+    variable: str = ""
+    node_id: str = ""
+    display: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppReleaseReview:
+    has_previous: bool
+    problems: list[str]
+    results_as_of: datetime | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRelease:
+    revision: int
+    published_at: datetime | None
+    results_as_of: datetime | None
+    title: str
+    markdown: str
+    layout: dict[str, Any]
+    variables: list[dict[str, Any]]
+    has_previous: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppViewerQuery:
+    node_id: str
+    query: str
+    matches_defaults: bool
+
+
 class NotebookRunBusy(Exception):
     """Raised when the notebook already has a cell running.
 
