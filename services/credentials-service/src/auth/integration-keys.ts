@@ -104,7 +104,9 @@ export class IntegrationKeyLoader {
     /** As `load()`, from one snapshot of the directory. */
     loadFrom(files: Record<string, string>): void {
         const keys = parseIntegrationPublicKeys(files)
-        if (Object.keys(keys).length === 0) {
+        // A warm reload accepts an empty key set, because removing the last file revokes the last
+        // caller. Only boot refuses it, so that a pod never starts with no callers.
+        if (Object.keys(keys).length === 0 && !this.loaded) {
             throw new Error(`no ${PUBLIC_KEY_SUFFIX} files in ${this.dir}`)
         }
         this.keys = keys
@@ -115,17 +117,37 @@ export class IntegrationKeyLoader {
 
     /**
      * Reload, keeping the previous keys if the directory is unreadable or invalid, so a
-     * malformed edit cannot lock a running fleet out. The metrics make that visible when a
-     * revocation does not land.
+     * malformed edit cannot lock a running fleet out. An invalid directory still revokes every
+     * deployment whose file it removed. The metrics make a refused edit visible.
      */
     async reload(): Promise<void> {
+        const files = await readMount(this.dir)
         try {
-            await this.load()
+            if (files === null) {
+                throw new Error(`could not read ${this.dir}`)
+            }
+            this.loadFrom(files)
         } catch (err) {
             integrationKeyReloadFailuresTotal.inc()
             logger.error('auth:integration_keys_reload_failed', {
                 error: err instanceof Error ? err.message : String(err),
             })
+            if (files !== null) {
+                this.dropDeploymentsNotIn(files)
+            }
+        }
+    }
+
+    /** Drop every held deployment whose file is gone, so a refused edit still revokes it. */
+    private dropDeploymentsNotIn(files: Record<string, string>): void {
+        const dropped = Object.keys(this.keys).filter(
+            (deployment) => !hasOwn(files, `${deployment}${PUBLIC_KEY_SUFFIX}`)
+        )
+        if (dropped.length > 0) {
+            this.keys = Object.fromEntries(
+                Object.entries(this.keys).filter(([deployment]) => !dropped.includes(deployment))
+            )
+            logger.warn('auth:integration_keys_dropped_from_refused_snapshot', { deployments: dropped.sort() })
         }
     }
 
