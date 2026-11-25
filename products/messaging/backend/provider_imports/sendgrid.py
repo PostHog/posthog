@@ -332,7 +332,7 @@ class SendGridImportProvider(ImportProvider):
             feature_flag=CONTACTS_FLAG,
             hidden_note="Contacts don't become people.",
         ),
-        replace(new_people_step("SendGrid"), feature_flag=CONTACTS_FLAG),
+        new_people_step("SendGrid", CONTACTS_FLAG),
     )
 
     def check_credentials(
