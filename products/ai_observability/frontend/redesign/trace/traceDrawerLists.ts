@@ -111,8 +111,9 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to evaluations',
         rowClick: false,
     },
+    // The split and the full page show the same conversation, so one list serves both.
     'session-turns': {
-        pathMatcher: /^\/ai-observability\/sessions$/,
+        pathMatcher: /^\/ai-observability\/sessions(\/[^/]+)?$/,
         backTo: 'session',
         backLabel: 'Back to session',
         rowClick: false,
