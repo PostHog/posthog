@@ -475,6 +475,30 @@ class TestFailMaterializationActivity:
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
 
+    # When the last attempt cannot mark the job failed, the job stays Running with nothing
+    # else watching it, so that attempt has to reach error tracking. Earlier attempts retry.
+    @pytest.mark.parametrize("attempt,expect_captured", [(1, False), (3, True)])
+    async def test_reports_when_the_last_attempt_cannot_mark_the_job_failed(
+        self, activity_environment, ateam, anode, adag, attempt, expect_captured
+    ):
+        activity_environment.info = replace(activity_environment.info, attempt=attempt)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(uuid4()),
+            error="Query failed: timeout",
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.fail_materialization.capture_exception"
+        ) as capture:
+            with pytest.raises(DataModelingJob.DoesNotExist):
+                await activity_environment.run(fail_materialization_activity, inputs)
+
+        assert capture.called is expect_captured
+        if expect_captured:
+            assert isinstance(capture.call_args.args[0], DataModelingJob.DoesNotExist)
+
     @pytest.mark.parametrize(
         "status,error",
         [
