@@ -1241,9 +1241,9 @@ Re-audited 2026-11-19 against: <https://api.attio.com/openapi/api>
 - [x] `Attributes (GET /v2/{target}/{identifier}/attributes)` — schema for every object and list, needed to read custom field values in records (high)
 - [x] `Select options and statuses (GET /v2/{target}/{identifier}/attributes/{attribute}/options; GET /v2/{target}/{identifier}/attributes/{attribute}/statuses)` — resolve option and status ids on deals and list entries to titles (high)
 - [x] `Objects (GET /v2/objects)` — lists system and custom objects, so custom objects can be discovered and their records synced (high)
-- [ ] `Threads (GET /v2/threads; GET /v2/threads/{thread_id})` — comment threads on records and entries, with comments per thread (medium)
-- [ ] `Meetings (GET /v2/meetings)` — calendar meetings with participants and linked records; beta (medium)
-- [ ] `Call recordings (GET /v2/meetings/{meeting_id}/call_recordings; GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}/transcript)` — recordings and transcripts per meeting; fan-out under meetings (low)
+- [x] `Threads (GET /v2/threads; GET /v2/threads/{thread_id})` — comment threads on records and entries, with comments per thread (medium). Built as `threads` from the list route, which carries up to 80 comments per thread; the per-thread comment pages were not added.
+- [x] `Meetings (GET /v2/meetings)` — calendar meetings with participants and linked records; beta (medium)
+- [x] `Call recordings (GET /v2/meetings/{meeting_id}/call_recordings; GET /v2/meetings/{meeting_id}/call_recordings/{call_recording_id}/transcript)` — recordings and transcripts per meeting; fan-out under meetings (low). Built as `call_recordings`; the transcript route was not added because Attio marks it deprecated.
 
 Note (2026-11-19): Parsed the live OpenAPI spec (api.attio.com/openapi/api, 55 paths) against the 10 tables. Only activities is built from the earlier list. Attribute, option and status routes take a target of objects or lists plus an identifier, so they need fan-out over objects and lists. List entry query is a POST with offset paging. Excluded writes, webhooks, files, views, SQL (Enterprise only) and the alpha emails route.
 
@@ -9099,10 +9099,10 @@ Today (5): `keys`, `models`, `spend_logs`, `teams`, `users`
 
 Diffed against: <https://github.com/BerriAI/litellm/tree/main/litellm/proxy/management_endpoints>
 
-- [ ] `Organizations (GET /organization/list)` — organizations that own teams, resolves organization_id on teams (high)
-- [ ] `Budgets (GET /budget/list)` — budget definitions linked to keys, users and teams (high)
-- [ ] `Customers / end users (GET /customer/list)` — end users billed through the proxy, with spend and budget fields (medium)
-- [ ] `Tags (GET /tag/list)` — spend tags and their budgets, for cost attribution (medium)
+- [x] `Organizations (GET /organization/list)` — organizations that own teams, resolves organization_id on teams (high)
+- [x] `Budgets (GET /budget/list)` — budget definitions linked to keys, users and teams (high)
+- [x] `Customers / end users (GET /customer/list)` — end users billed through the proxy, with spend and budget fields (medium)
+- [x] `Tags (GET /tag/list)` — spend tags and their budgets, for cost attribution (medium)
 - [ ] `Daily user activity (GET /user/daily/activity)` — pre-aggregated daily spend and tokens per user, model and key (medium)
 - [ ] `Daily team activity (GET /team/daily/activity)` — pre-aggregated daily spend per team (medium)
 - [ ] `Daily tag activity (GET /tag/daily/activity)` — pre-aggregated daily spend per tag (low)
@@ -9228,13 +9228,13 @@ Today (8): `comments`, `contributors`, `keys`, `languages`, `projects`, `screens
 
 Diffed against: <https://developers.lokalise.com/llms.txt>
 
-- [ ] `Team users (GET /teams/{team_id}/users)` — who has access to the team, with role and creation date, to resolve user ids on comments, tasks and audit data (medium)
+- [x] `Team users (GET /teams/{team_id}/users)` — who has access to the team, with role and creation date, to resolve user ids on comments, tasks and audit data (medium)
 - [ ] `Teams (GET /teams)` — lookup for the team ids that every team-scoped route needs, and the fan-out parent for team users, groups and orders (medium)
 - [ ] `User groups (GET /teams/{team_id}/groups)` — group names, member ids and project and language permissions for access reviews (medium)
-- [ ] `Translation orders (GET /teams/{team_id}/orders)` — translation vendor orders with cost, word counts and status to track localization spend (high)
-- [ ] `Custom translation statuses (GET /projects/{project_id}/custom_translation_statuses)` — lookup for the status ids carried on translations (medium)
+- [x] `Translation orders (GET /teams/{team_id}/orders)` — translation vendor orders with cost, word counts and status to track localization spend (high)
+- [x] `Custom translation statuses (GET /projects/{project_id}/custom_translation_statuses)` — lookup for the status ids carried on translations (medium)
 - [ ] `Glossary terms (GET /projects/{project_id}/glossary)` — terminology table that localization teams audit for consistency (low)
-- [ ] `Branches (GET /projects/{project_id}/branches)` — branch names and creators, needed to scope keys and translations in branched projects (medium)
+- [x] `Branches (GET /projects/{project_id}/branches)` — branch names and creators, needed to scope keys and translations in branched projects (medium)
 - [ ] `Project files (GET /projects/{project_id}/files)` — source files with key counts per project (low)
 - [ ] `Snapshots (GET /projects/{project_id}/snapshots)` — project backup history with timestamps (low)
 - [ ] `Audit logs (GET /v1/audit-logs)` — OCSF API activity events for security and change history; needs the Audit Logs plan feature (low)
@@ -11152,7 +11152,7 @@ Note (2026-11-19): Re-read the apidoc page. The new read endpoint is dependents.
 
 ## Paddle — gaps
 
-Today (8): `adjustments`, `customers`, `discounts`, `explore_metrics`, `prices`, `products`, `subscriptions`, `transactions`
+Today (12): `adjustments`, `customer_addresses`, `customer_businesses`, `customers`, `discount_groups`, `discounts`, `explore_metrics`, `prices`, `products`, `subscription_history`, `subscriptions`, `transactions`
 
 Diffed against: <https://developer.paddle.com/api-reference/metrics/run-explore-metrics-query>
 
@@ -11162,10 +11162,10 @@ Note: Added from the Explore metrics changelog (API version 1, 2026-08-27). The 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/PaddleHQ/paddle-openapi/main/v1/openapi.yaml>
 
-- [ ] `Customer addresses (GET /customers/{customer_id}/addresses)` — resolves address_id on subscriptions and transactions into country and postal code, for revenue by region (high)
-- [ ] `Customer businesses (GET /customers/{customer_id}/businesses)` — resolves business_id on subscriptions and transactions into the business name and tax identifier (high)
-- [ ] `Subscription history (GET /subscriptions/{subscription_id}/history)` — state change history per subscription, for churn, pause and plan change analysis (medium)
-- [ ] `Discount groups (GET /discount-groups)` — lookup for the discount group that each synced discount belongs to (medium)
+- [x] `Customer addresses (GET /customers/{customer_id}/addresses)` — resolves address_id on subscriptions and transactions into country and postal code, for revenue by region (high). Added as `customer_addresses` (fan-out over customers, active and archived, full refresh)
+- [x] `Customer businesses (GET /customers/{customer_id}/businesses)` — resolves business_id on subscriptions and transactions into the business name and tax identifier (high). Added as `customer_businesses` (fan-out over customers, active and archived, full refresh)
+- [x] `Subscription history (GET /subscriptions/{subscription_id}/history)` — state change history per subscription, for churn, pause and plan change analysis (medium). Added as `subscription_history` (fan-out over subscriptions, incremental on `occurred_at[GTE]`)
+- [x] `Discount groups (GET /discount-groups)` — lookup for the discount group that each synced discount belongs to (medium). Added as `discount_groups` (full refresh)
 - [ ] `Events (GET /events)` — account event log of entity changes, an audit trail of what changed and when (low)
 - [ ] `Customer payment methods (GET /customers/{customer_id}/payment-methods)` — saved payment method types per customer, for payment mix analysis (low)
 - [ ] `Customer credit balances (GET /customers/{customer_id}/credit-balances)` — current account credit per currency for each customer (low)
@@ -11268,16 +11268,16 @@ Note (2026-11-19): Read the v5 overview page and the per-object guide pages. Eac
 
 ## Particle — **thin**
 
-Today (2): `devices`, `events`
+Today (6): `device_diagnostics`, `device_groups`, `devices`, `events`, `sim_data_usage`, `sims`
 
 Diffed against: <https://docs.particle.io/reference/cloud-apis/api.md>
 
-- [ ] `SIMs (GET /v1/sims)` — cellular SIM inventory with status and last activity, for fleet connectivity and cost tracking (high)
-- [ ] `SIM data usage (GET /v1/sims/:iccid/data_usage; GET /v1/products/:productIdOrSlug/sims/data_usage)` — daily cellular data usage per SIM, the main cost driver for a device fleet (high)
+- [x] `SIMs (GET /v1/sims)` — cellular SIM inventory with status and last activity, for fleet connectivity and cost tracking (high)
+- [x] `SIM data usage (GET /v1/sims/:iccid/data_usage; GET /v1/products/:productIdOrSlug/sims/data_usage)` — daily cellular data usage per SIM, the main cost driver for a device fleet (high)
 - [ ] `Product firmware releases (GET /v1/products/:productIdOrSlug/firmware)` — firmware versions per product, resolves the firmware version on synced devices (medium)
-- [ ] `Device groups (GET /v1/products/:productIdOrSlug/groups)` — device group names used to segment the product fleet (medium)
+- [x] `Device groups (GET /v1/products/:productIdOrSlug/groups)` — device group names used to segment the product fleet (medium)
 - [ ] `Device locations (GET /v1/products/:productIdOrSlug/locations)` — last known location per device in a product fleet (medium)
-- [ ] `Last device diagnostics (GET /v1/diagnostics/:deviceId/last)` — latest health vitals per device such as signal and battery, for fleet health analysis (medium)
+- [x] `Last device diagnostics (GET /v1/diagnostics/:deviceId/last)` — latest health vitals per device such as signal and battery, for fleet health analysis (medium)
 - [ ] `Product customers (GET /v1/products/:productIdOrSlug/customers)` — customer accounts that own devices in a product (low)
 - [ ] `Logic functions (GET /v1/logic/functions; GET /v1/logic/functions/:logicFunctionId/runs)` — Logic function definitions and their execution history (low)
 - [ ] `Product device orders (GET /v1/products/:productIdOrSlug/device_orders)` — orders of devices added to a product (low)

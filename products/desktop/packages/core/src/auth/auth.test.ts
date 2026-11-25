@@ -515,7 +515,7 @@ describe("AuthService", () => {
   });
 
   it.each([
-    "https://gateway.us.posthog.com/posthog_code/v1/messages",
+    "https://ai-gateway.us.posthog.com/v1/messages",
     "https://mcp.posthog.com/mcp",
   ])("still sends the bearer to %s", async (url) => {
     seedStoredSession({ selectedProjectId: 42 });
