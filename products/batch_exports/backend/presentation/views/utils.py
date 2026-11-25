@@ -25,7 +25,9 @@ HOGQL_MODIFIERS_HELP_TEXT = (
 
 
 class BatchExportsDisabledMixin:
-    """Answer 400 when a request would start work on an instance that runs no batch exports."""
+    # Answers 400 when a request would start work on an instance that runs no batch exports.
+    # This is a comment, not a docstring, because drf-spectacular would publish a docstring as
+    # the description of every endpoint on the viewset.
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, BatchExportsDisabledError):
