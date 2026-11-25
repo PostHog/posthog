@@ -357,7 +357,6 @@ def draft_manifest_sync(
         client
         if client is not None
         else build_anthropic_client(
-            product=CUSTOM_SOURCE_BUILDER_PRODUCT,
             ai_product=CUSTOM_SOURCE_BUILDER_PRODUCT,
             distinct_id=team_distinct_id(team_id),
             team_id=team_id,
