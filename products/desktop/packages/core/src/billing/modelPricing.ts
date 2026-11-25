@@ -8,10 +8,9 @@ import {
 
 /**
  * Rates and rendered strings both come from the generated catalog, which takes
- * them from products/tasks/backend/model_catalog.py, which quotes the rates the
- * AI gateway (PostHog/ai-gateway) bills. Nothing in this repo checks those
- * quoted rates against the gateway's own price table, so a gateway price change
- * needs a catalog update to keep the chip price and the billed price equal.
+ * them from products/tasks/backend/model_catalog.py. Nothing checks those rates
+ * against PostHog/ai-gateway's price table, so a gateway price change needs a
+ * catalog update or the chip price drifts from the billed price.
  */
 
 export type ModelListPrice = ModelCost;
