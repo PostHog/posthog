@@ -56,6 +56,7 @@ const REGISTRATION = {
     authentication: 'none' as const,
     scopes: [],
     uses_default_scopes: false,
+    needs_signing_key: false,
     can_create_accounts: true,
     can_provision_resources: true,
     organization_link: 'this_organization' as const,

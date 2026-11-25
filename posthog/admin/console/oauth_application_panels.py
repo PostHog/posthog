@@ -38,8 +38,8 @@ TIER_LABELS = {
     PartnerTier.JWKS_ATTESTED: "Authenticated client, attested organization",
 }
 SIGNING_REQUIRED_MESSAGE = (
-    "A provisioning partner that can create accounts or pays for its customers must sign its requests with a "
-    "private key. Make it a confidential client with a jwks_uri in Django admin first."
+    "A provisioning partner must sign its requests with a private key. "
+    "Make it a confidential client with a jwks_uri in Django admin first."
 )
 
 

@@ -727,6 +727,7 @@ class RegisteredPartnerDetails:
     authentication: PartnerAuthentication
     scopes: list[str]
     uses_default_scopes: bool
+    needs_signing_key: bool
     can_create_accounts: bool
     can_provision_resources: bool
     organization_link: OrganizationLinkState
@@ -770,6 +771,7 @@ def registered_partner_details(
         authentication=PartnerAuthentication(app.token_endpoint_auth_method.value),
         scopes=sorted(effective_ceiling(app.ceiling_scopes)),
         uses_default_scopes=_uses_default_scopes(app.ceiling_scopes),
+        needs_signing_key=app.cannot_meet_provisioning_signature,
         can_create_accounts=app.provisioning.can_create_accounts,
         can_provision_resources=app.provisioning.can_provision_resources,
         organization_link=link,

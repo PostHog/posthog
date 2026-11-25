@@ -66,6 +66,7 @@ const ANSWERED = {
         authentication: 'private_key_jwt',
         scopes: ['organization:read', 'project:write'],
         uses_default_scopes: false,
+        needs_signing_key: false,
         can_create_accounts: true,
         can_provision_resources: true,
         organization_link: 'this_organization',
@@ -81,6 +82,9 @@ const DECLINED = {
         ...ANSWERED.registration,
         scopes: ['action:read', 'dashboard:read', 'insight:read', 'insight:write', 'project:read'],
         uses_default_scopes: true,
+        authentication: 'none',
+        jwks_uri: '',
+        needs_signing_key: true,
     },
     provisioning_status: 'declined',
     provisioning_review: {

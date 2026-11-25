@@ -80582,6 +80582,8 @@ export namespace Schemas {
       readonly scopes: readonly string[];
       /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
       readonly uses_default_scopes: boolean;
+      /** Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with. */
+      readonly needs_signing_key: boolean;
       /** Whether the app can create PostHog accounts once provisioning is on. */
       readonly can_create_accounts: boolean;
       /** Whether the app can create projects and resources once provisioning is on. */

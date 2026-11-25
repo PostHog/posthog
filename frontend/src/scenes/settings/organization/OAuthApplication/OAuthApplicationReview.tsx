@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.schemas'
 
@@ -10,7 +10,7 @@ import {
     PROVISIONING_STATUS_TAG_TYPES,
     oauthAppActions,
 } from '../oauthAppProvisioningStatus'
-import { PROVISIONING_REVIEW_EXPLAINER } from './oauthApplicationLabels'
+import { PROVISIONING_REVIEW_EXPLAINER, SIGNING_KEY_REQUIRED } from './oauthApplicationLabels'
 import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
 import { OAuthAppReviewProgress } from './OAuthAppReviewProgress'
@@ -30,6 +30,18 @@ export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicat
                 </LemonTag>
             </div>
             <p className="m-0 text-secondary">{PROVISIONING_REVIEW_EXPLAINER}</p>
+            {app.registration.needs_signing_key && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'How to sign requests',
+                        to: SIGNING_KEY_REQUIRED.docsUrl,
+                        targetBlank: true,
+                    }}
+                >
+                    <strong>{SIGNING_KEY_REQUIRED.title}.</strong> {SIGNING_KEY_REQUIRED.description}
+                </LemonBanner>
+            )}
             <p className="m-0">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
             {review && <OAuthAppReviewProgress review={review} />}
             {review && <OAuthAppReviewTimeline events={review.timeline} />}
