@@ -10,7 +10,7 @@ import requests
 import structlog
 from cryptography.fernet import InvalidToken
 from requests import HTTPError, RequestException, Timeout
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, stop_after_delay, wait_exponential
 
 from posthog.dataclasses import frozen
 from posthog.egress.vercel import vercel_request
@@ -25,6 +25,8 @@ INSTALLATION_TOKEN_CACHE_SALT = "vercel_installation_token"
 INSTALLATION_TOKEN_MAX_AGE_SECONDS = 3600
 # A cached token must outlive the request it authorizes, including that request's retries.
 INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS = 300
+# Callers include a webhook delivery with an 8 second budget, so every token request and its retries fit in this.
+INSTALLATION_TOKEN_REQUEST_SECONDS = 5
 
 token_cache = caches["vercel_installation_tokens"]
 
@@ -393,7 +395,7 @@ class VercelAPIClient:
             )
 
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(3) | stop_after_delay(INSTALLATION_TOKEN_REQUEST_SECONDS),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
         retry=retry_if_exception(lambda exc: isinstance(exc, InstallationTokenError) and exc.is_transient),
         reraise=True,
@@ -509,7 +511,9 @@ def get_installation_access_token(installation_id: str, *, fresh: bool = False) 
     if not client_id or not client_secret:
         raise InstallationTokenError("Vercel integration not configured", code="not_configured")
 
-    token = VercelAPIClient(bearer_token=None).request_installation_token(installation_id, client_id, client_secret)
+    token = VercelAPIClient(bearer_token=None, timeout=INSTALLATION_TOKEN_REQUEST_SECONDS).request_installation_token(
+        installation_id, client_id, client_secret
+    )
 
     cache_timeout = min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
     if cache_timeout > 0:
