@@ -464,6 +464,22 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
 _DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
 
 
+def delete_entry_keeping_failed_delete_tracked(hypercache: HyperCache, identifier: str | int) -> None:
+    """Delete a cache entry, and keep its expiry tracking member when a delete fails.
+
+    The member moves to a retry score first, as in cleanup_stale_expiry_tracking. After a failed delete,
+    that cleanup still finds the entry of a deleted team and deletes it.
+    """
+    sorted_set_key = hypercache.expiry_sorted_set_key
+    if not sorted_set_key:
+        hypercache.delete_cache_entry(identifier, strict_mirror=True)
+        return
+
+    retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
+    get_client(hypercache.redis_url).zadd(sorted_set_key, {str(identifier): retry_score})
+    hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
+
+
 def _retrack_if_still_stored(
     hypercache: HyperCache, identifier: str | int, redis_client: redis.Redis, sorted_set_key: str, retry_score: float
 ) -> bool:

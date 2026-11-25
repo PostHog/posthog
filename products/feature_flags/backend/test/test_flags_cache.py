@@ -54,6 +54,7 @@ from products.feature_flags.backend.flags_cache import (
     _serialize_cohort,
     _strip_null_values,
     awaited_cohort_invalidation_deliveries,
+    cleanup_stale_expiry_tracking,
     clear_flags_cache,
     coalesced_cohort_flags_cache_rebuilds,
     flags_hypercache,
@@ -1439,6 +1440,26 @@ class TestServiceFlagsCeleryTasks(BaseTest):
     def setUp(self):
         super().setUp()
         clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def test_failed_clear_leaves_the_entry_for_the_daily_cleanup(self):
+        from products.feature_flags.backend.tasks import clear_team_evaluation_cache
+
+        team = Team.objects.create(organization=self.organization, name="Doomed team")
+        team_id = team.id
+        update_flags_cache(team)
+        cache_key = flags_hypercache.get_cache_key(team_id)
+        self.addCleanup(flags_hypercache.delete_cache_entry, team_id)
+        with patch.object(clear_team_evaluation_cache, "delay"):
+            team.delete()
+
+        with patch.object(object_storage, "delete", side_effect=ConnectionError("s3 down")):
+            with self.assertRaises(ConnectionError):
+                clear_team_evaluation_cache(team_id)
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        cleanup_stale_expiry_tracking()
+
+        assert object_storage.read(cache_key, missing_ok=True) is None
 
     def test_update_team_service_flags_cache_task(self):
         """Test the Celery task that updates service flags cache."""

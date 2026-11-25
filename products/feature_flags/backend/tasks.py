@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.storage.cache_expiry_manager import delete_entry_keeping_failed_delete_tracked
 from posthog.storage.hypercache_manager import (
     HYPERCACHE_SIGNAL_UPDATE_COUNTER,
     get_cache_stats as get_cache_stats_generic,
@@ -248,7 +249,7 @@ def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id
 @skip_team_scope_audit
 def clear_team_evaluation_cache(team_id: int) -> None:
     """Clear the /flags evaluation cache for a team, on team deletion or from staff tooling."""
-    flags_hypercache.delete_cache_entry(team_id, strict_mirror=True)
+    delete_entry_keeping_failed_delete_tracked(flags_hypercache, team_id)
 
 
 # The task retries because no rebuild can repair the entry once the Team row is gone.
