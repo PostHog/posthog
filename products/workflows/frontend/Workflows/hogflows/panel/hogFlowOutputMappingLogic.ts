@@ -300,6 +300,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     const path = name ? `output.${name}` : ''
                     // A new field names its variable too; an existing one keeps the variable later steps read.
                     const key = state[index].key || name
+                    // Clearing a saved field's name would turn it into a mapping of the whole result.
+                    if (!name && state[index].key) {
+                        return state
+                    }
                     if (name && state.some((m, i) => i !== index && (m.result_path === path || m.key === key))) {
                         return state
                     }
@@ -362,7 +366,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props, selectors }) => {
+    listeners(({ actions, values, props }) => {
         const persistMappings = (newMappings: OutputMapping[]): void => {
             const selectedNode = values.selectedNode
             if (!selectedNode) {
@@ -422,9 +426,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
                 persistMappings(values.mappings)
             },
-            setAgentField: ({ index }, _, __, previousState) => {
+            setAgentField: ({ index }) => {
                 const key = values.mappings[index]?.key
-                if (key && !selectors.mappings(previousState)[index]?.key) {
+                // Also brings back a variable deleted in the variables tab, so type and description edits land.
+                if (key) {
                     ensureVariable(key, key)
                 }
                 persistMappings(values.mappings)

@@ -567,7 +567,10 @@ describe('hogFlowOutputMappingLogic', () => {
                 expect(wfLogic.values.workflow.variables).toEqual(variables)
             })
 
-            it('refuses a name another field already uses and leaves every variable alone', async () => {
+            it.each([
+                ['a name another field already uses', 'summary'],
+                ['an empty name on a saved field', ''],
+            ])('refuses %s and leaves every variable alone', async (_case, name) => {
                 const variables = [
                     { key: 'summary', label: 'summary', type: 'string', default: '' },
                     { key: 'score', label: 'score', type: 'number', default: '' },
@@ -579,7 +582,7 @@ describe('hogFlowOutputMappingLogic', () => {
                 ]
                 logic.actions.initMappings(mappings)
 
-                logic.actions.setAgentField(1, 'summary')
+                logic.actions.setAgentField(1, name)
 
                 expect(logic.values.mappings).toEqual(mappings)
                 expect(wfLogic.values.workflow.variables).toEqual(variables)

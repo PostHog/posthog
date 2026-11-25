@@ -72,6 +72,29 @@ function AgentFieldNameInput({
     )
 }
 
+// Commits on blur, so a half-typed path is never saved and an `output.<name>` path gets the agent field checks.
+function ResultPathInput({ path, onCommit }: { path: string; onCommit: (path: string) => void }): JSX.Element {
+    const [draft, setDraft] = useState(path)
+    useEffect(() => setDraft(path), [path])
+    const commit = (): void => {
+        if (draft !== path) {
+            onCommit(draft.trim())
+        }
+        setDraft(path)
+    }
+    return (
+        <LemonInput
+            size="small"
+            prefix={<span>result.</span>}
+            value={draft}
+            placeholder="Whole result"
+            onChange={setDraft}
+            onBlur={commit}
+            onPressEnter={commit}
+        />
+    )
+}
+
 export function AiTaskReturns(): JSX.Element {
     const { logicProps, workflow } = useValues(workflowLogic)
     const { mappings } = useValues(hogFlowOutputMappingLogic(logicProps))
@@ -121,13 +144,17 @@ export function AiTaskReturns(): JSX.Element {
                         )
                         if (!isAgentField) {
                             return [
-                                <LemonInput
+                                <ResultPathInput
                                     key={`name-${index}`}
-                                    size="small"
-                                    prefix={<span>result.</span>}
-                                    value={mapping.result_path}
-                                    placeholder="Whole result"
-                                    onChange={(path) => updateMappingResultPath(index, path)}
+                                    path={mapping.result_path}
+                                    onCommit={(path) => {
+                                        const agentField = AGENT_FIELD_PATH.exec(path)?.[1]
+                                        if (agentField) {
+                                            setAgentField(index, agentField)
+                                        } else {
+                                            updateMappingResultPath(index, path)
+                                        }
+                                    }}
                                 />,
                                 <span key={`type-${index}`} className="text-xs text-secondary px-2">
                                     {builtInLabel(mapping.result_path)}
