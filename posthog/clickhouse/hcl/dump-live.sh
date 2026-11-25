@@ -59,6 +59,8 @@ else
     "events_ingestion localhost 9600 posthog"
     "small     localhost 9700 posthog"
     "medium    localhost 9800 posthog"
+    "events    localhost 9900 posthog"
+    "flags     localhost 10000 posthog"
   )
 fi
 

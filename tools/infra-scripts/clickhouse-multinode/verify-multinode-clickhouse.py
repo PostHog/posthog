@@ -46,6 +46,8 @@ NODES: list[Node] = [
     Node("clickhouse-ingestion-events", "localhost", 9600, "events_ingestion"),
     Node("clickhouse-ingestion-small", "localhost", 9700, "small"),
     Node("clickhouse-ingestion-medium", "localhost", 9800, "medium"),
+    Node("clickhouse-events", "localhost", 9900, "events"),
+    Node("clickhouse-flags", "localhost", 10000, "flags"),
 ]
 
 # Logical cluster -> expected member hosts (sorted). Each multinode XML file
@@ -59,6 +61,8 @@ EXPECTED_CLUSTERS: dict[str, list[str]] = {
         "clickhouse-ai-events",
         "clickhouse-aux",
         "clickhouse-data",
+        "clickhouse-events",
+        "clickhouse-flags",
         "clickhouse-ingestion-events",
         "clickhouse-ingestion-medium",
         "clickhouse-ingestion-small",

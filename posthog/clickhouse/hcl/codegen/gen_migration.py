@@ -64,6 +64,7 @@ ROLE_ORDER = [
     "flags",
     "ops",
     "events_ingestion",
+    "events",
     "small",
     "medium",
     "ingestion_metrics",
