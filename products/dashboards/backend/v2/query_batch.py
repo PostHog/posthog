@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import partial
 from queue import Empty, Queue
@@ -52,7 +53,6 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.team import Team
@@ -463,24 +463,14 @@ def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) ->
     return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _line_shape(
-    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat, *, team: Team
-) -> _LineShape:
-    frames = result_format == ResultFormat.FRAMES
-    query = resolved.query if resolved is not None else {}
-    if frames and resolved is not None and resolved.filters:
-        # The runner applies the target's filters, an interval override among them, so frames read the query that ran.
-        try:
-            query = apply_dashboard_filters_to_dict(query, resolved.filters, team)
-        except Exception:
-            logger.warning("dashboard_v2_query_batch_frame_filters_failed", exc_info=True)
+def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
     return _LineShape(
         language=item.target.language,
-        query=query,
+        query=resolved.query if resolved is not None else {},
         canonical=canonical_query(item, resolved),
         legend=item.target.legend,
         target_format=item.target.format,
-        frames=frames,
+        frames=result_format == ResultFormat.FRAMES,
     )
 
 
@@ -604,6 +594,18 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape)
         legend=shape.legend if shape.frames else None,
         target_format=shape.target_format if shape.frames else None,
     )
+
+
+def _entry_key(key: _ServedKey) -> _ServedKey:
+    """The key without presentation. Whether a stale entry runs fresh depends on the entry, not on how it is drawn."""
+    return replace(key, legend=None, target_format=None)
+
+
+def _shared_body(served: dict[_ServedKey, bytes], key: _ServedKey) -> Optional[bytes]:
+    body = served.get(key)
+    if body is None and served.get(_entry_key(key)) == _RUN_FRESH:
+        return _RUN_FRESH
+    return body
 
 
 def _fetch_span(
@@ -1009,7 +1011,7 @@ class QueryBatch:
                     self._read_bytes += stored_bytes or len(
                         _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
                     )
-                    served[same_entry] = _RUN_FRESH
+                    served[same_entry] = served[_entry_key(same_entry)] = _RUN_FRESH
                     del response
                     to_run.append(index)
                     continue
