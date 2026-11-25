@@ -4,10 +4,10 @@ name: Weekly MCP tool health report
 # weekly-flaky-report.yml: the script reads the `$mcp_tool_call` events the MCP server captures
 # and maps each tool to the team that owns its definition through the packages/owners-yaml
 # resolver, which is why the sparse checkout includes the ownership and tool definition files.
-# Each owning team's rows go to that team's channel when vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is
-# 'true', and stay in the digest thread otherwise. Each owning team also gets one Signals inbox
-# report, suggested to the members of the PostHog role named after its GitHub team; unowned tools
-# stay in the digest only.
+# Each owning team's new and worsening findings go to that team's channel when
+# vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is 'true'. Otherwise, they stay in the digest thread.
+# Each owning team gets one Signals inbox report for all its qualifying tools, suggested to
+# members of the PostHog role named after its GitHub team. Unowned tools stay in the digest.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project that records MCP tool calls.
@@ -76,8 +76,8 @@ jobs:
                   POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   SLACK_CHANNEL: '#team-context-and-mcp'
-                  # 'true' posts each team's rows to that team's channel. Any other value keeps the
-                  # rows in the digest thread, labeled with the channel they would reach.
+                  # 'true' posts new and worsening findings to team channels. Otherwise the
+                  # findings stay in the digest thread, labeled with the channel they would reach.
                   MCP_TOOL_HEALTH_TEAM_CHANNELS: ${{ vars.MCP_TOOL_HEALTH_TEAM_CHANNELS }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   SIGNALS_PROJECT_ID: ${{ vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID }}

@@ -24,6 +24,7 @@ import {
     GITHUB_REPOSITORY,
     hogql,
     HOST,
+    linkedCell,
     postToSlack,
     PROJECT_ID,
     requestPosthog,
@@ -59,11 +60,14 @@ const SIGNALS_BUDGET_MS = 10 * 60_000
 
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 25
-// A tool qualifies only past all three floors, so a handful of calls from one account never
-// reads as a broken tool.
 const MIN_ERRORS = 50
 const MIN_ERROR_RATE_PCT = 10
 const MIN_USERS = 5
+const MIN_BACKEND_ERRORS = 5
+const MIN_BACKEND_USERS = 3
+const MIN_RATE_INCREASE = 5
+const QUERY_ROW_LIMIT = 1000
+const SLACK_TOOL_ROWS = 99
 
 const TOOL_DEFINITION_GLOBS = ['products/*/mcp/*.yaml', 'services/mcp/definitions/*.yaml']
 // Tools with no YAML entry are handwritten in the MCP server. The registry maps each one to its
@@ -76,41 +80,117 @@ const HANDWRITTEN_TOOL_REGISTRY = `${HANDWRITTEN_TOOL_PATH}/index.ts`
 // messages carry project ids and UUIDs in their API paths, so masking them groups one failure as
 // one message.
 const TOOL_HEALTH_QUERY = `
-    SELECT tool, calls, errors, users, top_error
+    SELECT tool, is_current, calls, errors, users, command_errors, validation_errors, backend_errors, backend_users, top_error
     FROM (
         SELECT
-            coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+            tool,
+            if(timestamp >= now() - INTERVAL ${REPORT_WINDOW_DAYS} DAY, 1, 0) AS is_current,
             count() AS calls,
-            countIf(toBool(properties.$mcp_is_error)) AS errors,
-            uniqIf(person_id, toBool(properties.$mcp_is_error)) AS users,
-            arrayElement(topK(1)(if(toBool(properties.$mcp_is_error), replaceRegexpAll(substring(toString(properties.$mcp_error_message), 1, 160), '/[0-9a-f]{8}-[0-9a-f-]+|/[0-9]+', '/#'), NULL)), 1) AS top_error
-        FROM events
-        WHERE event = '$mcp_tool_call'
-            AND timestamp >= now() - INTERVAL ${REPORT_WINDOW_DAYS} DAY
-        GROUP BY tool
+            countIf(is_error) AS errors,
+            uniqIf(person_id, is_error) AS users,
+            countIf(is_error AND is_command_error) AS command_errors,
+            countIf(is_error AND error_type = 'validation' AND NOT is_command_error) AS validation_errors,
+            countIf(is_error AND is_backend_error) AS backend_errors,
+            uniqIf(person_id, is_error AND is_backend_error) AS backend_users,
+            arrayElement(topK(1)(if(is_error, replaceRegexpAll(substring(error_message, 1, 160), '/[0-9a-f]{8}-[0-9a-f-]+|/[0-9]+', '/#'), NULL)), 1) AS top_error
+        FROM (
+            SELECT
+                timestamp,
+                person_id,
+                coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
+                toBool(properties.$mcp_is_error) AS is_error,
+                toString(properties.$mcp_error_type) AS error_type,
+                toString(properties.$mcp_error_message) AS error_message,
+                startsWith(error_message, 'Exec command rejected:') AS is_command_error,
+                error_type IN ('api_5xx', 'timeout', 'memory_limit') AND NOT is_command_error AS is_backend_error
+            FROM events
+            WHERE event = '$mcp_tool_call'
+                AND timestamp >= now() - INTERVAL ${2 * REPORT_WINDOW_DAYS} DAY
+                AND timestamp < now()
+        )
+        GROUP BY tool, is_current
     )
     WHERE tool NOT IN ('', 'exec')
-        AND errors >= {min_errors}
-        AND errors * 100 >= calls * {min_error_rate_pct}
-        AND users >= {min_users}
-    ORDER BY errors DESC
-    LIMIT ${TOP_N}`
+        AND (
+            (errors >= {min_errors} AND errors * 100 >= calls * {min_error_rate_pct} AND users >= {min_users})
+            OR (backend_errors >= {min_backend_errors} AND backend_users >= {min_backend_users})
+        )
+    LIMIT ${QUERY_ROW_LIMIT}`
 
 const TOOL_HEALTH_VALUES = {
     min_errors: MIN_ERRORS,
     min_error_rate_pct: MIN_ERROR_RATE_PCT,
     min_users: MIN_USERS,
+    min_backend_errors: MIN_BACKEND_ERRORS,
+    min_backend_users: MIN_BACKEND_USERS,
 }
 
 async function fetchFailingTools(runHogql = hogql) {
     const result = await runHogql(TOOL_HEALTH_QUERY, TOOL_HEALTH_VALUES)
-    return (result.results || []).map(([tool, calls, errors, users, topError]) => ({
-        tool,
-        calls: Number(calls),
-        errors: Number(errors),
-        users: Number(users),
-        topError: topError || '',
-    }))
+    if (result.results.length >= QUERY_ROW_LIMIT) {
+        throw new Error('MCP tool health query reached its row limit.')
+    }
+    return result.results.map(
+        ([
+            tool,
+            current,
+            calls,
+            errors,
+            users,
+            commandErrors,
+            validationErrors,
+            backendErrors,
+            backendUsers,
+            topError,
+        ]) => ({
+            tool,
+            current: Number(current) === 1,
+            calls: Number(calls),
+            errors: Number(errors),
+            users: Number(users),
+            commandErrors: Number(commandErrors),
+            validationErrors: Number(validationErrors),
+            backendErrors: Number(backendErrors),
+            backendUsers: Number(backendUsers),
+            topError: topError || '',
+        })
+    )
+}
+
+function backendQualifies({ backendErrors, backendUsers }) {
+    return backendErrors >= MIN_BACKEND_ERRORS && backendUsers >= MIN_BACKEND_USERS
+}
+
+function reportItems(results) {
+    const previous = new Map(results.filter((item) => !item.current).map((item) => [item.tool, item]))
+    const items = results
+        .filter((item) => item.current)
+        .map((item) => {
+            const prior = previous.get(item.tool)
+            previous.delete(item.tool)
+            if (!prior) {
+                return { ...item, change: 'New' }
+            }
+            const rateWorsened =
+                (item.errors * prior.calls - prior.errors * item.calls) * 100 >=
+                MIN_RATE_INCREASE * item.calls * prior.calls
+            let changeDetail
+            if (backendQualifies(item) && !backendQualifies(prior)) {
+                changeDetail = 'Backend failures now qualify'
+            } else if (backendQualifies(item) && item.backendErrors - prior.backendErrors >= MIN_BACKEND_ERRORS) {
+                changeDetail = `Backend failures ${prior.backendErrors} → ${item.backendErrors}`
+            } else if (rateWorsened) {
+                changeDetail = `Error rate ${formatRate(prior.errors, prior.calls)} → ${formatRate(item.errors, item.calls)}`
+            }
+            return { ...item, change: changeDetail ? 'Worsening' : 'Recurring', changeDetail }
+        })
+    items.sort(
+        (a, b) =>
+            Number(backendQualifies(b)) - Number(backendQualifies(a)) ||
+            b.errors - a.errors ||
+            a.tool.localeCompare(b.tool)
+    )
+    return [...items, ...Array.from(previous.values(), (item) => ({ ...item, change: 'Below threshold' }))]
 }
 
 // Tool names are the keys directly under `tools:` and `wrappers:` in each definition file. A line
@@ -193,13 +273,35 @@ function formatRate(errors, calls) {
     return `${Math.round((errors * 100) / calls)}%`
 }
 
-function tableRows(items, ownerFor) {
+function toolQualityUrl(now, tool) {
+    const start = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+    const url = new URL(`/project/${PROJECT_ID}/mcp-analytics/tool-quality/${encodeURIComponent(tool)}`, HOST)
+    url.searchParams.set('date_from', start.toISOString())
+    url.searchParams.set('date_to', now.toISOString())
+    return url.toString()
+}
+
+function errorBreakdown(item) {
+    const { errors, commandErrors, validationErrors, backendErrors } = item
+    return [
+        ['Backend', backendErrors],
+        ['Command', commandErrors],
+        ['Validation', validationErrors],
+        ['Other', errors - backendErrors - commandErrors - validationErrors],
+    ]
+        .filter(([, count]) => count > 0)
+        .map(([label, count]) => `${label} ${count}`)
+        .join(' · ')
+}
+
+function tableRows(now, items, ownerFor) {
     return items.map((item) => [
-        cell(item.tool),
+        linkedCell([{ text: item.tool, url: toolQualityUrl(now, item.tool) }]),
         cell(teamLabel(ownerFor(item).owner)),
-        cell(String(item.errors)),
-        cell(formatRate(item.errors, item.calls)),
+        cell(item.changeDetail ? `${item.change} · ${item.changeDetail}` : item.change),
+        cell(`${item.errors}/${item.calls} (${formatRate(item.errors, item.calls)})`),
         cell(String(item.users)),
+        cell(errorBreakdown(item)),
         cell(item.topError || 'no message captured'),
     ])
 }
@@ -208,21 +310,23 @@ function toolTable(rows) {
     return {
         type: 'table',
         column_settings: [
+            { align: 'left', is_wrapped: true },
             { align: 'left' },
-            { align: 'left' },
+            { align: 'left', is_wrapped: true },
             { align: 'right' },
             { align: 'right' },
-            { align: 'right' },
-            { align: 'left' },
+            { align: 'left', is_wrapped: true },
+            { align: 'left', is_wrapped: true },
         ],
         rows: [
             [
-                cell('tool'),
-                cell('owner'),
-                cell('failed calls'),
-                cell('error rate'),
-                cell('users hit'),
-                cell('top error'),
+                cell('Tool'),
+                cell('Owner'),
+                cell('Since last week'),
+                cell('Failed calls'),
+                cell('Users hit'),
+                cell('Failure counts'),
+                cell('Top error'),
             ],
             ...rows,
         ],
@@ -233,19 +337,61 @@ function reportTitle(now, scope) {
     return `*Weekly MCP tool health - ${now.toISOString().slice(0, 10)}* _(${scope})_`
 }
 
-const FLOOR_NOTE = `A tool is listed when it failed at least ${MIN_ERRORS} calls, on at least ${MIN_ERROR_RATE_PCT}% of its calls, for at least ${MIN_USERS} users, in the last ${REPORT_WINDOW_DAYS} days.`
+const FLOOR_NOTE = `A tool qualifies with ${MIN_ERRORS}+ failed calls, a ${MIN_ERROR_RATE_PCT}%+ error rate, and ${MIN_USERS}+ users affected. Backend errors (5xx, timeouts, or memory limits) qualify at ${MIN_BACKEND_ERRORS}+ failures affecting ${MIN_BACKEND_USERS}+ users.`
 
-function buildBlocks(now, rows) {
+function buildBlocks(now, rows, belowThreshold) {
     const blocks = [
         {
             type: 'section',
             text: { type: 'mrkdwn', text: reportTitle(now, `all teams, last ${REPORT_WINDOW_DAYS} days`) },
         },
-        toolTable(rows),
-        { type: 'context', elements: [{ type: 'mrkdwn', text: FLOOR_NOTE }] },
     ]
+    if (rows.length) {
+        blocks.push(toolTable(rows.slice(0, TOP_N)))
+    }
+    if (rows.length > TOP_N) {
+        blocks.push({
+            type: 'context',
+            elements: [
+                {
+                    type: 'mrkdwn',
+                    text: `Showing ${TOP_N} of ${rows.length} qualifying tools. See Signals for the full team reports.`,
+                },
+            ],
+        })
+    }
+    if (belowThreshold.length) {
+        const examples = belowThreshold
+            .slice(0, TOP_N)
+            .map(({ tool }) => tool)
+            .join(', ')
+        blocks.push({
+            type: 'section',
+            text: {
+                type: 'plain_text',
+                text: `Below the reporting threshold this week (${belowThreshold.length})\n${examples.length > 2700 ? `${examples.slice(0, 2699)}…` : examples}`,
+            },
+        })
+    }
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: FLOOR_NOTE }] })
     const editBlock = editWorkflowBlock()
     return editBlock ? [...blocks, editBlock] : blocks
+}
+
+function teamTableBlocks(rows) {
+    const blocks = [toolTable(rows.slice(0, SLACK_TOOL_ROWS))]
+    if (rows.length > SLACK_TOOL_ROWS) {
+        blocks.push({
+            type: 'context',
+            elements: [
+                {
+                    type: 'mrkdwn',
+                    text: `Showing ${SLACK_TOOL_ROWS} of ${rows.length} tools. See Signals for the full team report.`,
+                },
+            ],
+        })
+    }
+    return blocks
 }
 
 function buildTeamBlocks(now, { owner, rows }, digestUrl) {
@@ -254,8 +400,11 @@ function buildTeamBlocks(now, { owner, rows }, digestUrl) {
         `${FLOOR_NOTE} Wrong owner or a tool that should be off? Tell ${FEEDBACK_CHANNEL}.`,
     ]
     return [
-        { type: 'section', text: { type: 'mrkdwn', text: reportTitle(now, `owned by ${teamLabel(owner)}`) } },
-        toolTable(rows),
+        {
+            type: 'section',
+            text: { type: 'mrkdwn', text: reportTitle(now, `new or worsening for ${teamLabel(owner)}`) },
+        },
+        ...teamTableBlocks(rows),
         { type: 'context', elements: [{ type: 'mrkdwn', text: footer.join(' · ') }] },
     ]
 }
@@ -264,7 +413,7 @@ function buildTeamBlocks(now, { owner, rows }, digestUrl) {
 function buildThreadSliceBlocks({ owner, channel, rows }, reason) {
     return [
         { type: 'section', text: { type: 'mrkdwn', text: `*${teamLabel(owner)}* _(${reason} ${channel})_` } },
-        toolTable(rows),
+        ...teamTableBlocks(rows),
     ]
 }
 
@@ -300,8 +449,9 @@ function ownedTeams(items, ownerFor) {
     return [...byOwner.values()].sort((a, b) => b.items.length - a.items.length)
 }
 
-function toolLine(item) {
-    return `\`${item.tool}\` failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. Top error: ${item.topError || 'no message captured'}`
+function toolLine(now, item) {
+    const change = item.changeDetail ? `${item.change} (${item.changeDetail})` : item.change
+    return `${change}: [\`${item.tool}\`](${toolQualityUrl(now, item.tool)}) failed ${item.errors} of ${item.calls} calls (${formatRate(item.errors, item.calls)}) for ${item.users} users. ${errorBreakdown(item)}. Top error: ${item.topError || 'no message captured'}`
 }
 
 function signalReport(now, { owner, items }, reviewerUuids) {
@@ -320,16 +470,17 @@ function signalReport(now, { owner, items }, reviewerUuids) {
         summary: [
             `${count} failing for AI agents in the PostHog MCP server, and the ${teamLabel(owner)} team owns their definitions.`,
             '',
-            ...items.map((item) => `- ${toolLine(item)}`),
+            ...items.map((item) => `- ${toolLine(now, item)}`),
             '',
             `${FLOOR_NOTE} Wrong owner or a tool that should be off? Tell ${FEEDBACK_CHANNEL}.`,
         ].join('\n'),
         evidence: items.map((item) => ({
             source_id: item.tool,
-            description: `Defined in ${item.selector}: ${toolLine(item)}`,
+            description: `Defined in ${item.selector}: ${toolLine(now, item)}`,
         })),
         actionability: 'immediately_actionable',
-        actionability_explanation: `Each tool failed for at least ${MIN_USERS} users on at least ${MIN_ERROR_RATE_PCT}% of its calls in the last ${REPORT_WINDOW_DAYS} days, and the top error names where to look.`,
+        actionability_explanation:
+            'Each tool crossed a weekly reporting threshold. The error breakdown and tool quality link give the owning team somewhere to start investigating.',
         repository: GITHUB_REPOSITORY,
         tags: ['mcp-tool-health', owner],
         idempotency_key: `mcp-tool-health:${week}:${owner}`,
@@ -422,18 +573,18 @@ async function main() {
         return
     }
     const now = new Date()
-    const failing = await fetchFailingTools()
-    if (failing.length === 0) {
-        console.info('No MCP tool above the failure floor this week - nothing to post.')
+    const findings = reportItems(await fetchFailingTools())
+    if (findings.length === 0) {
+        console.info('No MCP tools crossed a reporting threshold in either week.')
         return
     }
     const index = toolDefinitionIndex()
-    const items = failing.map((item) => ({ ...item, selector: definitionPathFor(item.tool, index) }))
+    const belowThreshold = findings.filter((item) => !item.current)
+    const items = findings
+        .filter((item) => item.current)
+        .map((item) => ({ ...item, selector: definitionPathFor(item.tool, index) }))
     const ownerFor = resolveOwners(items, (path) => [path], OWNERS_PRODUCER)
-    const rows = tableRows(items, ownerFor)
-    const entries = items.map((item, i) => ({ ...ownerFor(item), row: rows[i] }))
-    const blocks = buildBlocks(now, rows)
-    const teamDigests = buildTeamDigests(entries)
+    const { blocks, teamDigests } = slackReport(now, items, belowThreshold, ownerFor)
     const signalTeams = ownedTeams(items, ownerFor)
     if (DRY_RUN) {
         // Actions logs on this public repo are readable by anyone, so a dry run prints only the routing.
@@ -473,6 +624,14 @@ async function main() {
     }
 }
 
+function slackReport(now, items, belowThreshold, ownerFor) {
+    const rows = tableRows(now, items, ownerFor)
+    const entries = items.flatMap((item, i) =>
+        item.change === 'Recurring' ? [] : [{ ...ownerFor(item), row: rows[i] }]
+    )
+    return { blocks: buildBlocks(now, rows, belowThreshold), teamDigests: buildTeamDigests(entries) }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     main().catch((err) => {
         console.error(err)
@@ -488,8 +647,10 @@ export {
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,
     ownedTeams,
+    reportItems,
     roleMembers,
     signalReport,
+    slackReport,
     teamPostsWithheld,
     teamReport,
     toolDefinitionIndex,

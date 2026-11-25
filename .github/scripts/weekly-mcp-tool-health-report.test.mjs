@@ -9,8 +9,10 @@ import {
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,
     ownedTeams,
+    reportItems,
     roleMembers,
     signalReport,
+    slackReport,
     teamPostsWithheld,
     teamReport,
     toolDefinitionIndex,
@@ -106,11 +108,102 @@ describe('weekly MCP tool health report', () => {
         }
     })
 
-    it('reads query rows into tool records', async () => {
+    it('reads current and previous query rows into tool records', async () => {
         const tools = await fetchFailingTools(async () => ({
-            results: [['survey-get', '120', '30', '7', null]],
+            results: [['survey-get', '1', '120', '30', '7', '12', '8', '5', '3', null]],
         }))
-        assert.deepEqual(tools, [{ tool: 'survey-get', calls: 120, errors: 30, users: 7, topError: '' }])
+        assert.deepEqual(tools, [
+            {
+                tool: 'survey-get',
+                current: true,
+                calls: 120,
+                errors: 30,
+                users: 7,
+                commandErrors: 12,
+                validationErrors: 8,
+                backendErrors: 5,
+                backendUsers: 3,
+                topError: '',
+            },
+        ])
+    })
+
+    it('marks a qualifying tool new when it was below threshold last week', () => {
+        assert.equal(reportItems([{ tool: 'survey-get', current: true }])[0].change, 'New')
+    })
+
+    it('marks a tool with backend failures newly above threshold as worsening', () => {
+        const previous = {
+            tool: 'survey-get',
+            current: false,
+            calls: 600,
+            errors: 60,
+            backendErrors: 4,
+            backendUsers: 3,
+        }
+        assert.equal(reportItems([previous, { ...previous, current: true, backendErrors: 5 }])[0].change, 'Worsening')
+    })
+
+    it('marks an increase of five backend failures as worsening when the overall rate is unchanged', () => {
+        const previous = {
+            tool: 'survey-get',
+            current: false,
+            calls: 600,
+            errors: 60,
+            backendErrors: 5,
+            backendUsers: 3,
+        }
+        assert.equal(reportItems([previous, { ...previous, current: true, backendErrors: 10 }])[0].change, 'Worsening')
+    })
+
+    it('marks an unchanged issue recurring', () => {
+        const previous = {
+            tool: 'survey-get',
+            current: false,
+            calls: 600,
+            errors: 60,
+            backendErrors: 0,
+            backendUsers: 0,
+        }
+        assert.equal(reportItems([previous, { ...previous, current: true }])[0].change, 'Recurring')
+    })
+
+    it('marks a tool that only qualified last week as below threshold', () => {
+        assert.equal(reportItems([{ tool: 'survey-get', current: false }])[0].change, 'Below threshold')
+    })
+
+    it('marks an increase of exactly five percentage points as worsening', () => {
+        const previous = { tool: 'survey-get', current: false, calls: 600, errors: 90 }
+        assert.equal(
+            reportItems([previous, { ...previous, current: true, errors: 120 }])[0].changeDetail,
+            'Error rate 15% → 20%'
+        )
+    })
+
+    it('keeps the digest row limit out of team delivery', () => {
+        const items = Array.from({ length: 26 }, (_, i) => ({
+            tool: `tool-${i}`,
+            owner: i === 25 ? 'team-last' : 'team-first',
+            change: 'New',
+            calls: 600,
+            errors: 100,
+            users: 30,
+            commandErrors: 0,
+            validationErrors: 0,
+            backendErrors: 0,
+        }))
+        const ownerFor = ({ owner }) => ({ owner, slack: `#${owner}` })
+        const { blocks, teamDigests } = slackReport(new Date('2026-10-26T00:00:00Z'), items, [], ownerFor)
+        assert.deepEqual(
+            [blocks.find(({ type }) => type === 'table').rows.length, teamDigests.map(({ owner }) => owner)],
+            [26, ['team-first', 'team-last']]
+        )
+    })
+
+    it('keeps recurring findings out of team Slack posts', () => {
+        const items = [{ tool: 'survey-get', change: 'Recurring' }]
+        const ownerFor = () => ({ owner: 'team-surveys', slack: '#team-surveys' })
+        assert.deepEqual(slackReport(new Date('2026-10-26T00:00:00Z'), items, [], ownerFor).teamDigests, [])
     })
 
     for (const { label, enabled, digestChannel = '#team-context-and-mcp', expected } of [
@@ -149,7 +242,17 @@ describe('weekly MCP tool health report', () => {
 
     describe('signals to owning teams', () => {
         const NOW = new Date('2026-10-26T13:50:00Z')
-        const TOOL = { tool: 'survey-get', calls: 120, errors: 30, users: 7, topError: 'GET /api/#/ -> 500' }
+        const TOOL = {
+            tool: 'survey-get',
+            calls: 120,
+            errors: 30,
+            users: 7,
+            commandErrors: 2,
+            validationErrors: 6,
+            backendErrors: 12,
+            change: 'Recurring',
+            topError: 'GET /api/#/ -> 500',
+        }
         const SURVEYS = { owner: 'team-surveys', items: [TOOL] }
 
         it('groups failing tools by owning team and leaves unowned tools out', () => {
