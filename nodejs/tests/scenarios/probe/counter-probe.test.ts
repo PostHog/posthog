@@ -59,6 +59,6 @@ describe('counter probe', () => {
 
         const counted = await createCounterProbe(CLICKHOUSE).counted({ teams: [ours, alsoOurs], from })
 
-        expect(counted).toEqual({ email_sent: 6, email_delivered: 0, email_bounced: 1, email_failed: 4 })
+        expect(counted).toEqual({ email_sent: 6, email_delivered: 0, email_failed: 4 })
     })
 })

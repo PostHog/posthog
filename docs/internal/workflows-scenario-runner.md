@@ -849,16 +849,17 @@ export type JournalEntry = {
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
   - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
-    - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered`, `email_bounced` and `email_failed`.
+    - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
     - The sink's count for each counter comes from the truth of this run's units:
       - `email_sent`: 2xx `ses.send` records.
       - `email_delivered`: 0, because the edge publishes no delivery notifications.
-      - `email_bounced`: bounce notifications that the SES webhook answered with a 2xx.
       - `email_failed`: sends of one flow that the edge refused and never accepted. A throttle (`TooManyRequestsException` or `ThrottlingException`) is left out, because the worker reschedules a throttled send and counts no failure for it.
     - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when no counter changed for 15 seconds, even when the counts already match the sink, so a late duplicate still shows. A failed read starts the 15 seconds again. After 60 seconds it keeps the last read and marks it incomplete. The reading is saved as `counters.json`.
     - Keys: `owed`, the email messages the journal owes by the recovery horizon, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift.
     - A side that cannot be read is `null` and censored, and its `_unmeasured` property says why. When ClickHouse cannot be read, the drift and `<counter>_counted` hold the read's last error, and `owed` and the sink counts stay. When the truth cannot be read, the drift and `<counter>_sink` are unknown, and `<counter>_counted` stays. When the run did not converge, sends could still land while the counters were read, so the drift is unknown and both sides stay. Without a recovery horizon, `owed` is unknown.
-    - `email_sent_events`, the count of `$workflows_email_sent` events, is always `null` and censored for now. Its `_unmeasured` property says why: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
+    - Two keys are always `null` and censored for now, and their `_unmeasured` property says why:
+      - `email_sent_events`, the count of `$workflows_email_sent` events: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
+      - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe

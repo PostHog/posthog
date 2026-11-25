@@ -1,7 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
-export const COUNTERS = ['email_sent', 'email_delivered', 'email_bounced', 'email_failed'] as const
+export const COUNTERS = ['email_sent', 'email_delivered', 'email_failed'] as const
 
 export type Counter = (typeof COUNTERS)[number]
 

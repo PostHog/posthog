@@ -22,8 +22,7 @@ const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
 }
 
 function sinkCountsOf(evidence: Evidence): Counted {
-    const ours = ofThisRun(evidence)
-    const sends = ours.filter(({ kind }) => kind === 'ses.send')
+    const sends = ofThisRun(evidence).filter(({ kind }) => kind === 'ses.send')
     const keyOf = ({ unitId, actionId, flowId }: TruthRecord): string =>
         `${deliveryKey(unitId!, actionId ?? '')} ${flowId ?? ''}`
     const accepted = new Set(sends.filter(({ status }) => isAccepted(status)).map(keyOf))
@@ -31,9 +30,6 @@ function sinkCountsOf(evidence: Evidence): Counted {
     return {
         email_sent: sends.filter(({ status }) => isAccepted(status)).length,
         email_delivered: 0,
-        email_bounced: ours.filter(
-            ({ kind, status, detail }) => kind === 'ses.feedback' && detail.feedback && isAccepted(status)
-        ).length,
         email_failed: [...refused].filter((key) => !accepted.has(key)).length,
     }
 }
@@ -86,10 +82,16 @@ const unknown = (reason: string): { value: null; censored: true; unmeasured: str
     unmeasured: reason,
 })
 
-const EVENTS_UNMEASURED = {
-    key: 'email_sent_events',
-    ...unknown('the scenario stack runs no ingestion, so no $workflows_email_sent event can be counted'),
-}
+const UNMEASURED = [
+    {
+        key: 'email_sent_events',
+        ...unknown('the scenario stack runs no ingestion, so no $workflows_email_sent event can be counted'),
+    },
+    {
+        key: 'email_bounced',
+        ...unknown('the edge records a bounce only after the SES webhook answers, so the sink can trail the counter'),
+    },
+]
 
 export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
@@ -126,7 +128,7 @@ export const counterDrift: MeasurementDefinition = {
                 { key: `${counter}_counted`, ...(read ? { value: read.counted[counter], ...incomplete } : noCount) },
                 { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },
             ]),
-            EVENTS_UNMEASURED,
+            ...UNMEASURED,
         ]
     },
 }

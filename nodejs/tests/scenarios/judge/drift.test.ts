@@ -43,7 +43,6 @@ const answered = (
 const counted = (partial: Partial<Counted> = {}): Counted => ({
     email_sent: 0,
     email_delivered: 0,
-    email_bounced: 0,
     email_failed: 0,
     ...partial,
 })
@@ -98,22 +97,22 @@ describe('counter drift', () => {
         answered(10, 'run-7', 429),
         answered(11, 'run-8', 429),
     ]
-    const sink = { owed: 7, email_sent_sink: 3, email_bounced_sink: 1, email_failed_sink: 2 }
+    const sink = { owed: 7, email_sent_sink: 3, email_failed_sink: 2 }
 
     it.each<[string, Counted, Record<string, number | null>]>([
         [
             'records zero drift when every counter saw what the sink saw',
-            counted({ email_sent: 3, email_bounced: 1, email_failed: 2 }),
-            { email_sent: 0, email_delivered: 0, email_bounced: 0, email_failed: 0 },
+            counted({ email_sent: 3, email_failed: 2 }),
+            { email_sent: 0, email_delivered: 0, email_failed: 0, email_bounced: null },
         ],
         [
             'records the sends a lost metrics flush never counted as negative drift',
-            counted({ email_bounced: 1, email_failed: 2 }),
+            counted({ email_failed: 2 }),
             { email_sent: -3, email_sent_counted: 0 },
         ],
         [
             'records counts past the sink as positive drift',
-            counted({ email_sent: 3, email_delivered: 3, email_bounced: 1, email_failed: 2 }),
+            counted({ email_sent: 3, email_delivered: 3, email_failed: 2 }),
             { email_delivered: 3, email_delivered_sink: 0 },
         ],
     ])('%s', (_name, read, expected) => {
@@ -155,6 +154,12 @@ describe('counter drift', () => {
             { counters: { counted: counted() } },
             'email_sent_events',
             /ingestion/,
+        ],
+        [
+            'names the bounce count unmeasured, since the edge records a bounce only after the webhook answers',
+            { counters: { counted: counted() } },
+            'email_bounced',
+            /after the SES webhook answers/,
         ],
         [
             'records why the counters could not be read',
