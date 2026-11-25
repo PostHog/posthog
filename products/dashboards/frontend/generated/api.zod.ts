@@ -375,6 +375,111 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
         ),
 })
 
+/**
+ * Run many panels' queries in one request and stream each result back as it is ready. Every query is read as the requesting user, keyed by its content, and cached hits come first.
+ */
+export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax = 200
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax = 200000
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneToMax = 100
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax = 100
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemIntervalMax = 20
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemMaxDataPointsMax = 10000
+
+export const dashboardV2QueryBatchCreateBodyQueriesItemSwrDefault = false
+export const dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault = false
+export const dashboardV2QueryBatchCreateBodyQueriesItemTileMax = 64
+
+export const dashboardV2QueryBatchCreateBodyQueriesMax = 500
+
+export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
+    queries: zod
+        .array(
+            zod.object({
+                target: zod
+                    .object({
+                        refId: zod
+                            .string()
+                            .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax)
+                            .describe("The panel's ID for this query. Not used for caching."),
+                        language: zod
+                            .enum(['insight', 'hogql', 'promql', 'logql'])
+                            .describe(
+                                '\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL'
+                            )
+                            .describe(
+                                "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `\/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.\n\n\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL"
+                            ),
+                        query: zod
+                            .string()
+                            .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneQueryMax)
+                            .describe('The query text, read according to `language`.'),
+                    })
+                    .describe('What to run.'),
+                time: zod
+                    .object({
+                        to: zod
+                            .string()
+                            .max(dashboardV2QueryBatchCreateBodyQueriesItemTimeOneToMax)
+                            .describe('End of the range: `now`, `now-1h`, or ISO 8601.'),
+                        from: zod
+                            .string()
+                            .max(dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax)
+                            .describe('Start of the range: `now-7d`, `now-30m`, or ISO 8601.'),
+                    })
+                    .describe(
+                        "The panel's time range. Relative expressions keep the cache key the same across reloads."
+                    ),
+                variables: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe('SQL variable values by variable ID, as `\/query` takes in `variables_override`.'),
+                interval: zod
+                    .string()
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemIntervalMax)
+                    .optional()
+                    .describe(
+                        'For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.'
+                    ),
+                maxDataPoints: zod
+                    .number()
+                    .min(1)
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemMaxDataPointsMax)
+                    .optional()
+                    .describe(
+                        'For promql and logql targets: the most points per series. Sets the step with `interval`.'
+                    ),
+                swr: zod
+                    .boolean()
+                    .default(dashboardV2QueryBatchCreateBodyQueriesItemSwrDefault)
+                    .describe(
+                        'Serve a stale cached result at once and recompute it in the background for the next read.'
+                    ),
+                cacheOnly: zod
+                    .boolean()
+                    .default(dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault)
+                    .describe('Answer from the cache only, stale or not. Never runs or refreshes the query.'),
+                tile: zod
+                    .string()
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemTileMax)
+                    .optional()
+                    .describe("The tile this target belongs to. Only labels the query's run in the query log."),
+            })
+        )
+        .max(dashboardV2QueryBatchCreateBodyQueriesMax)
+        .describe("The panels' queries, at most 500."),
+    dashboard: zod
+        .number()
+        .nullish()
+        .describe(
+            "The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else."
+        ),
+})
+
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')

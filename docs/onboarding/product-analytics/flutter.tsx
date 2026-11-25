@@ -61,7 +61,7 @@ export const getFlutterInstallSteps = (
                                             </activity>
                                             <meta-data android:name="com.posthog.posthog.PROJECT_TOKEN" android:value="<ph_project_token>" />
                                             <meta-data android:name="com.posthog.posthog.POSTHOG_HOST" android:value="<ph_client_api_host>" />
-                                            <meta-data android:name="com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS" android:value="true" />
+                                            <meta-data android:name="com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS" android:value="true" />
                                             <meta-data android:name="com.posthog.posthog.DEBUG" android:value="true" />
                                           </application>
                                         `,

@@ -1607,6 +1607,9 @@ const inboxSourceFilterPreview = (): ToolBase<
         if (params.expression !== undefined) {
             body['expression'] = params.expression
         }
+        if (params.scope_ids !== undefined) {
+            body['scope_ids'] = params.scope_ids
+        }
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,

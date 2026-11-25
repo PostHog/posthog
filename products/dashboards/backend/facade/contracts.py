@@ -6,6 +6,7 @@ No Django imports: the facade maps dashboard and tile rows to these, and callers
 product hold only these.
 """
 
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -21,6 +22,7 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
+    QueryBatchLanguage,
 )
 
 GRID_COLUMNS = 12
@@ -29,6 +31,10 @@ MAX_TEXT_TILE_LENGTH = 4000
 
 class DashboardNotFound(Exception):
     """A requested dashboard is not one this team can place an insight on."""
+
+
+class QueryBatchBusy(Exception):
+    """Too many query batches are reading or running for this process or team to take another one now."""
 
 
 class DashboardNotEditable(Exception):
@@ -394,3 +400,65 @@ class DashboardExtras:
     share_token: str | None
     is_shared: bool
     quick_filter_ids: list[str] | None
+
+
+FrameFieldType = Literal["time", "number"]
+
+
+@frozen
+class FrameField:
+    """One column of a frame: the time of each point, or its values."""
+
+    name: str
+    type: FrameFieldType
+    # A time field holds epoch milliseconds. A number field holds null for a gap.
+    values: Sequence[float | None]
+    unit: str | None = None
+
+
+@frozen
+class FrameMeta:
+    """What a frame covers: its bucket size and date range."""
+
+    # PostHog's interval name: second_15 to week for metrics, minute to month for trends.
+    interval: str | None
+    date_from: datetime | None
+    date_to: datetime | None
+    # The same series over the compared period, with that period's dates.
+    previous: bool = False
+
+
+@frozen
+class Frame:
+    """One chart-ready series, the contract between a tile's query and its chart (Dash's `DataFrame`)."""
+
+    name: str
+    labels: dict[str, str]
+    fields: list[FrameField]
+    meta: FrameMeta
+
+
+@frozen
+class QueryBatchTarget:
+    """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
+    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`.
+    For `promql` and `logql`, it is the expression, run as a range query over the batch's time range."""
+
+    ref_id: str
+    language: QueryBatchLanguage
+    query: str
+
+
+@frozen
+class QueryBatchInput:
+    """One query of a batch. `date_from` and `date_to` are expressions like `now-7d` and `now`."""
+
+    target: QueryBatchTarget
+    date_from: str
+    date_to: str
+    variables: dict[str, Any] | None = None
+    interval: str | None = None
+    swr: bool = False
+    cache_only: bool = False
+    max_data_points: int | None = None
+    tile: str | None = None
