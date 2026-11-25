@@ -12,6 +12,8 @@ export interface TraceCellValueProps {
     status?: TraceCellStatus
     /** The skeleton's width while loading, as a Tailwind width class. */
     skeletonWidth?: string
+    /** What a failed read says, where no list reload reads it again. */
+    failedMessage?: string
     /** The rendered value, or null when there is none. */
     children: ReactNode
 }
@@ -19,6 +21,7 @@ export interface TraceCellValueProps {
 export function TraceCellValue({
     status = 'ready',
     skeletonWidth = 'w-16',
+    failedMessage = LOAD_FAILED,
     children,
 }: TraceCellValueProps): JSX.Element {
     if (status === 'loading') {
@@ -26,8 +29,8 @@ export function TraceCellValue({
     }
     if (status === 'error') {
         return (
-            <Tooltip title={LOAD_FAILED}>
-                <span role="img" aria-label={LOAD_FAILED} className="inline-flex text-muted">
+            <Tooltip title={failedMessage}>
+                <span role="img" aria-label={failedMessage} className="inline-flex text-muted">
                     <IconWarning />
                 </span>
             </Tooltip>

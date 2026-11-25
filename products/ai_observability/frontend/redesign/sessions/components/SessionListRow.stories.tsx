@@ -15,6 +15,7 @@ const meta: Meta<typeof SessionListRow> = {
         title: ready(makeSessionPreview(item.id)),
         person: ready(makeSessionPersonItem(item.id).person),
         isOpen: false,
+        href: '/ai-observability/sessions?session=session-1',
     },
     decorators: [
         (StoryComponent) => (

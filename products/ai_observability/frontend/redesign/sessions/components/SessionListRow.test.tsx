@@ -15,6 +15,7 @@ function renderRow(overrides: Partial<SessionListRowProps> = {}): void {
             title={ready(makeSessionPreview(ITEM.id))}
             person={ready(makeSessionPersonItem(ITEM.id).person)}
             isOpen={false}
+            href="/ai-observability/sessions?session=session-1"
             {...overrides}
         />
     )

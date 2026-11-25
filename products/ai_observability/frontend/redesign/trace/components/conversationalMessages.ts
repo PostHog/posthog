@@ -8,7 +8,7 @@ export function conversationalSideMessages(side: NodeSideContent): ThreadMessage
     return side.kind === 'messages' ? conversationalMessages(side.messages) : []
 }
 
-function sideHasContent(side: NodeSideContent, conversationOnly: boolean): boolean {
+export function sideHasContent(side: NodeSideContent, conversationOnly: boolean = false): boolean {
     if (side.kind === 'json') {
         return side.value !== null && side.value !== ''
     }
