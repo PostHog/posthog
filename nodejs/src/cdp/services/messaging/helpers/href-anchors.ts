@@ -1,4 +1,4 @@
-import { OpeningTag, readOpeningTag, readOpeningTagOrCut } from './opening-tag'
+import { OpeningTag, readOpeningTag } from './opening-tag'
 
 export type HrefAnchor = {
     html: string
@@ -50,8 +50,8 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             if (cut === -1) {
                 break
             }
-            const { attributes } = readOpeningTagOrCut(html.slice(position, cut + 1), attributesStart - position)
-            tag = { attributes, end: cut }
+            const { attributes } = readOpeningTag(html.slice(position, cut + 1), attributesStart - position)
+            tag = { attributes: attributes.filter(({ end }) => end <= cut - position), end: cut }
         }
         const isAnchor = tagName[2].toLowerCase() === 'a'
         const isEndTag = tagName[1] === '/'
