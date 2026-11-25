@@ -95,6 +95,18 @@ products/**/node_modules
 # The `changes` job in container-images-cd.yml mirrors these lines to decide whether a push
 # can change the image, so keep the two in step.
 products/desktop/*
+products/meep/desktop/*
+!products/meep/desktop/crates/
+products/meep/desktop/crates/*
+!products/meep/desktop/crates/meep-topic/
+!products/meep/desktop/crates/meep-protocol/
+!products/meep/desktop/crates/meep-views/
+!products/meep/desktop/crates/meep-render/
+products/meep/desktop/crates/meep-render/*
+!products/meep/desktop/crates/meep-render/meep-workflows/
+!products/meep/desktop/crates/meep-render/meep-script/
+products/meep/desktop/crates/meep-render/meep-script/meep-ui/vendor/
+products/meep/domain/target/
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.

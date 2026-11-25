@@ -505,6 +505,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
         ACCOUNT_AUDIT = "account_audit", "Account audit"
+        MEEP = "meep", "Meep"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"

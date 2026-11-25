@@ -152,6 +152,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `tracing` - tracing
  * * `transactional_email` - transactional_email
  * * `field_note` - field_note
+ * * `meep` - meep
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
  * * `user` - user
@@ -278,6 +279,7 @@ export const ScopeObjectEnumApi = {
     Tracing: 'tracing',
     TransactionalEmail: 'transactional_email',
     FieldNote: 'field_note',
+    Meep: 'meep',
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
     User: 'user',
@@ -427,6 +429,7 @@ export interface ProjectAccessSourceApi {
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
      * * `field_note` - field_note
+     * * `meep` - meep
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
@@ -596,6 +599,7 @@ export interface AccessControlObjectRuleApi {
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
      * * `field_note` - field_note
+     * * `meep` - meep
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
@@ -996,6 +1000,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
      * * `field_note` - field_note
+     * * `meep` - meep
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
@@ -1289,6 +1294,7 @@ export interface ResolvedAccessApi {
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
      * * `field_note` - field_note
+     * * `meep` - meep
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user

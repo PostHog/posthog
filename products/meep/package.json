@@ -1,0 +1,8 @@
+{
+    "name": "@posthog/products-meep",
+    "private": true,
+    "scripts": {
+        "desktop:check": "cd desktop && sh scripts/check.sh",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    }
+}

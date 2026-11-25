@@ -10,7 +10,9 @@ mod transport;
 mod views;
 mod workflows;
 
-pub use transport::{EventStream, FileRevision, HttpTransport, Transport, TransportError};
+pub use transport::{
+    AccessToken, EventStream, FileRevision, HttpTransport, Transport, TransportError,
+};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};

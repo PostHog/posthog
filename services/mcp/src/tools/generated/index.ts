@@ -43,6 +43,7 @@ import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
+import { GENERATED_TOOLS as meep } from './meep'
 import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
@@ -120,6 +121,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...marketing_analytics,
     ...mcp_analytics,
     ...mcp_store,
+    ...meep,
     ...messaging,
     ...metrics,
     ...notebooks,

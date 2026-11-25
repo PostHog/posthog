@@ -14,3 +14,4 @@ chrono = { version = "0.4", features = ["serde"] }
 meep-topic = { path = "../meep-topic" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+meep-views = {path="../meep-views"}

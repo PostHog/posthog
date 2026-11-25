@@ -805,6 +805,9 @@ importers:
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../products/mcp_store
+      '@posthog/products-meep':
+        specifier: workspace:*
+        version: link:../products/meep
       '@posthog/products-messaging':
         specifier: workspace:*
         version: link:../products/messaging
@@ -4757,6 +4760,8 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+
+  products/meep: {}
 
   products/messaging: {}
 

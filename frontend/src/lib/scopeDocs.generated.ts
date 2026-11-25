@@ -605,6 +605,13 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/mcp-analytics',
     },
+    meep: {
+        name: 'Meep topic',
+        plural: 'Meep topics',
+        description: 'Personal topics, their missions, and their linked agent conversations.',
+        group: 'AI & context management tools',
+        actions: ['read', 'write'],
+    },
     metrics: {
         name: 'Metrics',
         plural: 'metrics',

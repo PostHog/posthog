@@ -123,13 +123,18 @@ impl Server {
 
     /// Bind a registered public client ID to its loopback redirect URI.
     pub fn client(&self, id: String, callback: &Callback) -> Result<NativeClient> {
+        self.client_for_redirect(id, &callback.uri())
+    }
+
+    /// Reopen a registered client for refresh without binding a callback socket.
+    pub fn client_for_redirect(&self, id: String, redirect: &str) -> Result<NativeClient> {
         let client = BasicClient::new(ClientId::new(id))
             .set_auth_uri(AuthUrl::from_url(
                 self.metadata.authorization_endpoint.clone(),
             ))
             .set_token_uri(TokenUrl::from_url(self.metadata.token_endpoint.clone()))
             .set_auth_type(AuthType::RequestBody)
-            .set_redirect_uri(RedirectUrl::new(callback.uri())?);
+            .set_redirect_uri(RedirectUrl::new(redirect.to_owned())?);
         Ok(NativeClient {
             client,
             http: self.http.clone(),

@@ -135,6 +135,7 @@
         "@posthog/products-marketing-analytics": "workspace:*",
         "@posthog/products-mcp-analytics": "workspace:*",
         "@posthog/products-mcp-store": "workspace:*",
+        "@posthog/products-meep": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-metrics": "workspace:*",
         "@posthog/products-ml-inference": "workspace:*",

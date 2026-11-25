@@ -1607,6 +1607,7 @@ export interface PaginatedTaskListItemListApi {
 /**
  * * `onboarding` - Onboarding
  * * `account_audit` - Account audit
+ * * `meep` - Meep
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -1640,6 +1641,7 @@ export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof t
 export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Meep: 'meep',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -1810,6 +1812,7 @@ export interface TaskCreateApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2121,6 +2124,7 @@ export interface TaskWriteApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2266,6 +2270,7 @@ export interface PatchedTaskWriteApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5396,6 +5401,7 @@ export interface SlackThreadContextResponseApi {
  * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
+ * * `meep` - meep
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
  * * `posthog_desktop` - posthog_desktop
@@ -5428,6 +5434,7 @@ export const TaskListSourceEnumApi = {
     KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    Meep: 'meep',
     Onboarding: 'onboarding',
     PosthogAi: 'posthog_ai',
     PosthogDesktop: 'posthog_desktop',
@@ -5633,6 +5640,7 @@ export type SandboxCustomImagesListParams = {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5671,6 +5679,7 @@ export type SandboxCustomImagesListOriginProduct =
 export const SandboxCustomImagesListOriginProduct = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Meep: 'meep',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -5821,6 +5830,7 @@ export type TasksListParams = {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5984,6 +5994,7 @@ export type TasksListExcludeOriginProduct =
 export const TasksListExcludeOriginProduct = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Meep: 'meep',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -6049,6 +6060,7 @@ export const TasksListPrState = {
  * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
+ * * `meep` - meep
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
  * * `posthog_desktop` - posthog_desktop
@@ -6081,6 +6093,7 @@ export const TasksListSourcesItem = {
     KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    Meep: 'meep',
     Onboarding: 'onboarding',
     PosthogAi: 'posthog_ai',
     PosthogDesktop: 'posthog_desktop',

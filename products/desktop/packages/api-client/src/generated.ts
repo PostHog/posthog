@@ -17402,6 +17402,7 @@ export namespace Schemas {
     /**
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -17433,6 +17434,7 @@ export namespace Schemas {
     export type TaskOriginProductEnum =
         | "onboarding"
         | "account_audit"
+        | "meep"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -20915,6 +20917,7 @@ export namespace Endpoints {
                 exclude_origin_product:
                     | "onboarding"
                     | "account_audit"
+                    | "meep"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"
@@ -20966,6 +20969,7 @@ export namespace Endpoints {
                     | "knowledge_writer"
                     | "loop"
                     | "mcp_analytics"
+                    | "meep"
                     | "onboarding"
                     | "posthog_ai"
                     | "posthog_desktop"

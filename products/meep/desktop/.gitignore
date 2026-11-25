@@ -42,3 +42,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+
+# The monorepo ignores browser accessibility artifacts named a11y.
+!crates/meep-render/meep-script/meep-ui/vendor/gpui-pre/src/window/a11y/

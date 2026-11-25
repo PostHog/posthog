@@ -83,7 +83,7 @@ pub struct ToolPolicy {
 }
 
 /// Store operations accepted by the device-authenticated Meep server.
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Operation {
     /// Load installations and catalog.

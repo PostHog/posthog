@@ -288,8 +288,24 @@ pub trait Transport: Send + Sync {
     async fn put_file(&self, topic: TopicId, path: &str, bytes: Vec<u8>) -> Result<FileRevision>;
 }
 
+/// Supplies a current access token for a signed-in PostHog account.
+#[async_trait]
+pub trait AccessToken: Send + Sync {
+    /// List passive context visible to this account through the project API.
+    async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>>;
+    /// Run a user-initiated store operation against the signed-in project.
+    async fn mcp_store(
+        &self,
+        operation: &meep_wire::mcp_store::Operation,
+    ) -> Result<meep_wire::mcp_store::Outcome>;
+    /// Refresh an expired token before returning it.
+    async fn access_token(&self) -> std::result::Result<String, TransportError>;
+}
+
 /// Bearer-authenticated HTTP transport for the versioned Meep wire API.
+#[derive(Clone)]
 pub struct HttpTransport {
+    account: Option<std::sync::Arc<dyn AccessToken>>,
     http: reqwest::Client,
     base: Url,
 }
@@ -328,12 +344,27 @@ impl HttpTransport {
             .read_timeout(Duration::from_secs(90))
             .build()
             .map_err(protocol)?;
-        Ok(Self { http, base })
+        Ok(Self {
+            http,
+            base,
+            account: None,
+        })
+    }
+
+    /// Connect the replica directly to the authenticated Meep product in a PostHog project.
+    pub fn posthog(
+        origin: &str,
+        project: u64,
+        account: std::sync::Arc<dyn AccessToken>,
+    ) -> Result<Self> {
+        let mut transport = Self::new(&format!("{origin}/api/projects/{project}/meep"), "")?;
+        transport.account = Some(account);
+        Ok(transport)
     }
 
     /// Read the authenticated owner identity and server status.
     pub async fn health(&self) -> Result<meep_wire::ServerHealth> {
-        json(self.request(Method::GET, &["health"])?).await
+        json(self.request(Method::GET, &["health"]).await?).await
     }
 
     async fn change_page(
@@ -343,14 +374,15 @@ impl HttpTransport {
         replica: Option<uuid::Uuid>,
     ) -> Result<ChangePage> {
         json(
-            self.request(Method::GET, &["changes"])?
+            self.request(Method::GET, &["changes"])
+                .await?
                 .query(&[("cursor", cursor)])
                 .query(&[("bootstrap", bootstrap)])
                 .query(&[("replica", replica)]),
         )
         .await
     }
-    fn request(&self, method: Method, parts: &[&str]) -> Result<RequestBuilder> {
+    async fn request(&self, method: Method, parts: &[&str]) -> Result<RequestBuilder> {
         let mut url = self.base.clone();
         let mut path = url
             .path_segments_mut()
@@ -362,15 +394,28 @@ impl HttpTransport {
             }
             path.push(part);
         }
+        if self.account.is_some() {
+            path.push("");
+        }
         drop(path);
-        Ok(self.http.request(method, url))
+        let request = self.http.request(method, url);
+        match &self.account {
+            Some(account) => Ok(request.bearer_auth(account.access_token().await?)),
+            None => Ok(request),
+        }
     }
 
-    fn file(&self, method: Method, topic: TopicId, path: &str) -> Result<RequestBuilder> {
+    async fn file(&self, method: Method, topic: TopicId, path: &str) -> Result<RequestBuilder> {
         let topic = topic.to_string();
         let mut parts = vec!["topics", &topic, "files"];
         parts.extend(path.split('/'));
-        self.request(method, &parts)
+        let upload = self.account.is_some() && method == Method::PUT;
+        let request = self.request(method, &parts).await?;
+        Ok(if upload {
+            request.header(header::CONTENT_TYPE, "application/octet-stream")
+        } else {
+            request
+        })
     }
 }
 
@@ -478,13 +523,23 @@ impl Transport for HttpTransport {
             .await
     }
     async fn acknowledge_deletions(&self, ack: &meep_wire::DeletionAck) -> Result<()> {
-        json(self.request(Method::POST, &["deletions", "ack"])?.json(ack)).await
+        json(
+            self.request(Method::POST, &["deletions", "ack"])
+                .await?
+                .json(ack),
+        )
+        .await
     }
     async fn views(&self) -> Result<Vec<View>> {
-        json(self.request(Method::GET, &["views"])?).await
+        json(self.request(Method::GET, &["views"]).await?).await
     }
     async fn push_view(&self, e: &ViewEnvelope) -> Result<View> {
-        json(self.request(Method::POST, &["views", "commands"])?.json(e)).await
+        json(
+            self.request(Method::POST, &["views", "commands"])
+                .await?
+                .json(e),
+        )
+        .await
     }
     async fn view_source(
         &self,
@@ -492,7 +547,8 @@ impl Transport for HttpTransport {
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
         json(
-            self.request(Method::POST, &["views", &id.to_string(), "sources"])?
+            self.request(Method::POST, &["views", &id.to_string(), "sources"])
+                .await?
                 .json(&params),
         )
         .await
@@ -501,14 +557,18 @@ impl Transport for HttpTransport {
         &self,
         request: &meep_wire::mcp_store::Operation,
     ) -> Result<meep_wire::mcp_store::Outcome> {
+        if let Some(account) = &self.account {
+            return account.mcp_store(request).await;
+        }
         json(
-            self.request(Method::POST, &["connections", "posthog", "mcp-store"])?
+            self.request(Method::POST, &["connections", "posthog", "mcp-store"])
+                .await?
                 .json(request),
         )
         .await
     }
     async fn push(&self, batch: &CommandBatch) -> Result<CommandResults> {
-        json(self.request(Method::POST, &["commands"])?.json(batch)).await
+        json(self.request(Method::POST, &["commands"]).await?.json(batch)).await
     }
     async fn bootstrap_page(&self, cursor: u64) -> Result<ChangePage> {
         self.change_page(cursor, Some(true), None).await
@@ -517,11 +577,42 @@ impl Transport for HttpTransport {
         self.change_page(cursor, None, None).await
     }
     async fn snapshot(&self, topic: TopicId) -> Result<TopicSnapshot> {
-        json(self.request(Method::GET, &["topics", &topic.to_string()])?).await
+        json(
+            self.request(Method::GET, &["topics", &topic.to_string()])
+                .await?,
+        )
+        .await
     }
     async fn stream(&self, cursor: u64) -> Result<EventStream> {
+        if self.account.is_some() {
+            let events = futures_util::stream::unfold(
+                (self.clone(), cursor, 0_u8),
+                |(transport, cursor, tick)| async move {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    let result = transport.change_page(cursor, None, None).await;
+                    let mut next = cursor;
+                    let event = result.map(|page| {
+                        next = page.cursor;
+                        match page.topics.first() {
+                            Some(topic) => StreamEvent::Topic {
+                                topic: topic.state.topic.id,
+                                revision: topic.revision,
+                                cursor: next,
+                            },
+                            None if tick == 4 => StreamEvent::Views,
+                            None => StreamEvent::Heartbeat {
+                                at: chrono::Utc::now(),
+                            },
+                        }
+                    });
+                    Some((event, (transport, next, (tick + 1) % 5)))
+                },
+            );
+            return Ok(Box::pin(events));
+        }
         let response = send(
-            self.request(Method::GET, &["stream"])?
+            self.request(Method::GET, &["stream"])
+                .await?
                 .query(&[("cursor", cursor)])
                 .header(header::ACCEPT, "text/event-stream"),
         )
@@ -552,20 +643,27 @@ impl Transport for HttpTransport {
         topic: TopicId,
         task: meep_topic::TaskId,
     ) -> Result<meep_wire::TaskConversation> {
-        json(self.request(
-            Method::GET,
-            &[
-                "topics",
-                &topic.to_string(),
-                "tasks",
-                &task.to_string(),
-                "conversation",
-            ],
-        )?)
+        json(
+            self.request(
+                Method::GET,
+                &[
+                    "topics",
+                    &topic.to_string(),
+                    "tasks",
+                    &task.to_string(),
+                    "conversation",
+                ],
+            )
+            .await?,
+        )
         .await
     }
     async fn task_artifacts(&self, topic: TopicId) -> Result<Vec<meep_wire::TaskArtifact>> {
-        json(self.request(Method::GET, &["topics", &topic.to_string(), "artifacts"])?).await
+        json(
+            self.request(Method::GET, &["topics", &topic.to_string(), "artifacts"])
+                .await?,
+        )
+        .await
     }
     async fn task_artifact(
         &self,
@@ -583,7 +681,8 @@ impl Transport for HttpTransport {
                     &artifact.run,
                     &artifact.id,
                 ],
-            )?
+            )
+            .await?
             .query(&[("version", artifact.version)]);
         Ok(send(request)
             .await?
@@ -618,7 +717,8 @@ impl Transport for HttpTransport {
                     &task.to_string(),
                     "messages",
                 ],
-            )?
+            )
+            .await?
             .json(&meep_wire::TaskMessage {
                 text: text.into(),
                 model: model.map(str::to_owned),
@@ -627,14 +727,19 @@ impl Transport for HttpTransport {
         .await
     }
     async fn chat_models(&self, topic: TopicId) -> Result<meep_wire::ChatModels> {
-        json(self.request(Method::GET, &["topics", &topic.to_string(), "models"])?).await
+        json(
+            self.request(Method::GET, &["topics", &topic.to_string(), "models"])
+                .await?,
+        )
+        .await
     }
     async fn view_models(&self) -> Result<meep_wire::ChatModels> {
-        json(self.request(Method::GET, &["views", "models"])?).await
+        json(self.request(Method::GET, &["views", "models"]).await?).await
     }
     async fn put_view_file(&self, view: uuid::Uuid, name: &str, bytes: Vec<u8>) -> Result<()> {
         send(
-            self.request(Method::PUT, &["views", &view.to_string(), "files", name])?
+            self.request(Method::PUT, &["views", &view.to_string(), "files", name])
+                .await?
                 .body(bytes),
         )
         .await?;
@@ -660,14 +765,19 @@ impl Transport for HttpTransport {
         choice: &meep_wire::ChatModelChoice,
     ) -> Result<meep_wire::ChatModels> {
         json(
-            self.request(Method::PUT, &["topics", &topic.to_string(), "models"])?
+            self.request(Method::PUT, &["topics", &topic.to_string(), "models"])
+                .await?
                 .json(choice),
         )
         .await
     }
     async fn sources_for(&self, topic: TopicId) -> Result<Vec<meep_wire::WatchableSource>> {
+        if let Some(account) = &self.account {
+            return account.sources().await;
+        }
         pages(
-            self.request(Method::GET, &["sources"])?
+            self.request(Method::GET, &["sources"])
+                .await?
                 .query(&[("complete", true)])
                 .query(&[("topic", topic)]),
             |v| v,
@@ -675,15 +785,19 @@ impl Transport for HttpTransport {
         .await
     }
     async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>> {
+        if let Some(account) = &self.account {
+            return account.sources().await;
+        }
         pages(
-            self.request(Method::GET, &["sources"])?
+            self.request(Method::GET, &["sources"])
+                .await?
                 .query(&[("complete", true)]),
             |v| v,
         )
         .await
     }
     async fn routine_templates(&self) -> Result<Vec<meep_wire::RoutineTemplate>> {
-        json(self.request(Method::GET, &["routine-templates"])?).await
+        json(self.request(Method::GET, &["routine-templates"]).await?).await
     }
     async fn create_template_routine(
         &self,
@@ -691,14 +805,16 @@ impl Transport for HttpTransport {
         req: &meep_wire::CreateTemplateRoutine,
     ) -> Result<meep_topic::RoutineInfo> {
         json(
-            self.request(Method::POST, &["topics", &topic.to_string(), "routines"])?
+            self.request(Method::POST, &["topics", &topic.to_string(), "routines"])
+                .await?
                 .json(req),
         )
         .await
     }
     async fn delete_workflow(&self, topic: TopicId, routine: &str, flow: uuid::Uuid) -> Result<()> {
         send(
-            self.request(Method::DELETE, &["routines", &topic.to_string(), routine])?
+            self.request(Method::DELETE, &["routines", &topic.to_string(), routine])
+                .await?
                 .json(&flow),
         )
         .await?;
@@ -713,23 +829,27 @@ impl Transport for HttpTransport {
         let topic = topic.to_string();
         let path = ["routines", &topic, routine];
         let req = match enabled {
-            Some(enabled) => self.request(Method::PUT, &path)?.json(&enabled),
-            None => self.request(Method::GET, &path)?,
+            Some(enabled) => self.request(Method::PUT, &path).await?.json(&enabled),
+            None => self.request(Method::GET, &path).await?,
         };
         json(req).await
     }
     async fn files(&self, topic: TopicId) -> Result<Vec<String>> {
         pages(
-            self.request(Method::GET, &["topics", &topic.to_string(), "files"])?,
+            self.request(Method::GET, &["topics", &topic.to_string(), "files"])
+                .await?,
             |v| v,
         )
         .await
     }
     async fn grant_topic(&self, connection: &str, topic: TopicId) -> Result<ConnectionInfo> {
-        json(self.request(
-            Method::PUT,
-            &["connections", connection, "topics", &topic.to_string()],
-        )?)
+        json(
+            self.request(
+                Method::PUT,
+                &["connections", connection, "topics", &topic.to_string()],
+            )
+            .await?,
+        )
         .await
     }
     async fn register_connection(
@@ -738,7 +858,8 @@ impl Transport for HttpTransport {
         grant: &ConnectionGrant,
     ) -> Result<ConnectionInfo> {
         json(
-            self.request(Method::PUT, &["connections", id])?
+            self.request(Method::PUT, &["connections", id])
+                .await?
                 .query(&[("preserve_grants", true)])
                 .json(grant),
         )
@@ -747,21 +868,31 @@ impl Transport for HttpTransport {
     async fn connections(&self) -> Result<Connections> {
         Ok(Connections {
             connections: pages(
-                self.request(Method::GET, &["connections"])?,
+                self.request(Method::GET, &["connections"]).await?,
                 |v: Connections| v.connections,
             )
             .await?,
         })
     }
     async fn put_connection(&self, id: &str, grant: &ConnectionGrant) -> Result<ConnectionInfo> {
-        json(self.request(Method::PUT, &["connections", id])?.json(grant)).await
+        json(
+            self.request(Method::PUT, &["connections", id])
+                .await?
+                .json(grant),
+        )
+        .await
     }
     async fn sign_out(&self, id: &str) -> Result<ConnectionInfo> {
-        json(self.request(Method::DELETE, &["connections", id, "credentials"])?).await
+        json(
+            self.request(Method::DELETE, &["connections", id, "credentials"])
+                .await?,
+        )
+        .await
     }
     async fn set_public_address(&self, base: &str) -> Result<meep_wire::PublicAddress> {
         json(
-            self.request(Method::PUT, &["settings", "public-base-url"])?
+            self.request(Method::PUT, &["settings", "public-base-url"])
+                .await?
                 .json(&meep_wire::PublicAddress {
                     public_base_url: base.into(),
                 }),
@@ -769,11 +900,12 @@ impl Transport for HttpTransport {
         .await
     }
     async fn get_file(&self, topic: TopicId, path: &str) -> Result<FileRevision> {
-        file_response(self.file(Method::GET, topic, path)?).await
+        file_response(self.file(Method::GET, topic, path).await?).await
     }
     async fn get_file_at(&self, topic: TopicId, path: &str, revision: u64) -> Result<FileRevision> {
         let file = file_response(
-            self.file(Method::GET, topic, path)?
+            self.file(Method::GET, topic, path)
+                .await?
                 .query(&[("revision", revision)]),
         )
         .await?;
@@ -790,7 +922,8 @@ impl Transport for HttpTransport {
         key: uuid::Uuid,
     ) -> Result<FileRevision> {
         file_response(
-            self.file(Method::PUT, topic, path)?
+            self.file(Method::PUT, topic, path)
+                .await?
                 .header("Idempotency-Key", key.to_string())
                 .body(bytes),
         )
@@ -805,7 +938,8 @@ impl Transport for HttpTransport {
         base: u64,
     ) -> Result<(FileRevision, Option<u64>)> {
         let response = send(
-            self.file(Method::PUT, topic, path)?
+            self.file(Method::PUT, topic, path)
+                .await?
                 .header("Idempotency-Key", key.to_string())
                 .header("x-meep-base-revision", base)
                 .body(bytes),
@@ -824,7 +958,7 @@ impl Transport for HttpTransport {
         Ok((decode_file(response).await?, head))
     }
     async fn put_file(&self, topic: TopicId, path: &str, bytes: Vec<u8>) -> Result<FileRevision> {
-        file_response(self.file(Method::PUT, topic, path)?.body(bytes)).await
+        file_response(self.file(Method::PUT, topic, path).await?.body(bytes)).await
     }
 }
 

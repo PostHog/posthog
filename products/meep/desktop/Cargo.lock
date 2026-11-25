@@ -4828,6 +4828,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "meep-views"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "meep-protocol",
+ "meep-topic",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "meep-wire"
 version = "0.1.0"
 dependencies = [
@@ -4837,6 +4850,7 @@ dependencies = [
  "meep-posthog",
  "meep-protocol",
  "meep-topic",
+ "meep-views",
  "serde",
  "serde_json",
  "uuid",

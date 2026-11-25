@@ -137,6 +137,7 @@ class ResourceType(StrEnum):
     EVENT_FILTER = "event_filter"
     EXTERNAL_DATA_SCHEMA = "external_data_schema"
     FIELD_NOTE = "field_note"
+    MEEP = "meep"
     FILE_SYSTEM = "file_system"
     FILE_SYSTEM_SHORTCUT = "file_system_shortcut"
     GROUP = "group"

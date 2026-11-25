@@ -12657,6 +12657,51 @@
             "readOnlyHint": true
         }
     },
+    "meep-topic-create": {
+        "description": "Create a topic with a title and a mission in this project.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Create a Meep topic",
+        "title": "Create a Meep topic",
+        "required_scopes": ["meep:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "meep-topic-get": {
+        "description": "Read the mission and linked PostHog task for one topic.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Read a Meep topic",
+        "title": "Read a Meep topic",
+        "required_scopes": ["meep:read"],
+        "api_operations": ["GET /api/projects/{project_id}/meep/topics/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "meep-topic-list": {
+        "description": "List private topics for the signed-in member in this project.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "List Meep topics",
+        "title": "List Meep topics",
+        "required_scopes": ["meep:read"],
+        "api_operations": ["GET /api/projects/{project_id}/meep/topics/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "message-categories-create": {
         "description": "Create a message category, the topic a workflow message belongs to, such as a newsletter or product updates. Recipients can opt out of a marketing category, and sends skip the recipients who did. Use a transactional category for messages a recipient must get, such as receipts or password resets: those sends ignore opt-outs. Pass the returned id as message_category_id on a workflow email step, and set the step's message_category_type to the same category_type. The opt-out of messages step takes the id as its category_id input. Call message-categories-list first: the key must be unique in the project and can't change after creation.",
         "category": "Messaging",

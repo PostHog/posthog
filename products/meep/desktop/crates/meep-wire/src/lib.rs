@@ -33,7 +33,7 @@
 #![deny(missing_docs)]
 mod needs_you;
 pub mod table;
-pub mod views;
+pub use meep_views as views;
 
 use chrono::{DateTime, Utc};
 use meep_topic::{CommandId, Envelope, TopicId, TopicState};
@@ -500,6 +500,7 @@ pub struct ApiError {
     /// Stable machine-readable code, such as `unknown_topic` or `unauthorized`.
     pub code: String,
     /// Readable message.
+    #[serde(alias = "detail")]
     pub message: String,
 }
 

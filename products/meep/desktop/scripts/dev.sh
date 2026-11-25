@@ -23,14 +23,12 @@ if [ "${1:-}" = "--local" ]; then
     export MEEP_POSTHOG_LOCAL=1
     curl -fsS http://localhost:8010/_health >/dev/null 2>&1 ||
         printf '%s\n' 'Local PostHog is not answering at http://localhost:8010.' >&2
-    [ -n "${MEEP_PUBLIC_BASE_URL:-}" ] ||
-        printf '%s\n' 'MEEP_PUBLIC_BASE_URL is unset: agent tools and workflow callbacks cannot reach Meep.' >&2
 fi
 
-# The app runs from a bundle under dx, so it finds the server it starts on PATH.
-cargo build -p meep-server
-PATH="$PWD/target/debug:$PATH"
-export PATH
+if [ -n "${MEEP_LEGACY_SERVER:-}" ]; then
+    cargo build --locked -p meep-server
+    export PATH="$PWD/target/debug:$PATH"
+fi
 
 exec dx serve --hot-patch -p meep --bin meep --platform macos \
     --features hot-reload "$@"

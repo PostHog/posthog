@@ -111,6 +111,7 @@ impl Lab {
             client.set_preference("signed-in", &true)?;
             Ok::<_, anyhow::Error>((
                 Backend {
+                    direct: None,
                     client,
                     credentials: address.clone(),
                     server: address,
@@ -1509,6 +1510,7 @@ fn local_posthog_browser_sign_in_registers_with_the_real_server() -> Result<()> 
         Arc::new(HttpTransport::new(address, device_token.trim())?),
     )?;
     let backend = Backend {
+        direct: None,
         client,
         server: address.into(),
         root: root.path().to_owned(),

@@ -1951,6 +1951,7 @@ export namespace Schemas {
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
      * * `field_note` - field_note
+     * * `meep` - meep
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
@@ -2078,6 +2079,7 @@ export namespace Schemas {
       Tracing: 'tracing',
       TransactionalEmail: 'transactional_email',
       FieldNote: 'field_note',
+      Meep: 'meep',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
       User: 'user',
@@ -2205,6 +2207,7 @@ export namespace Schemas {
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
        * * `field_note` - field_note
+       * * `meep` - meep
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
@@ -2455,6 +2458,7 @@ export namespace Schemas {
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
        * * `field_note` - field_note
+       * * `meep` - meep
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
@@ -2874,6 +2878,7 @@ export namespace Schemas {
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
        * * `field_note` - field_note
+       * * `meep` - meep
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
@@ -76222,6 +76227,33 @@ export namespace Schemas {
       Latency: 'latency',
     } as const;
 
+    export interface MeepConversationBinding {
+      task_id: string;
+    }
+
+    export interface MeepTopic {
+      readonly id: string;
+      /** @maxLength 255 */
+      title: string;
+      mission: string;
+      /** @nullable */
+      readonly conversation_id: string | null;
+      readonly created_at: string;
+    }
+
+    export type MeepTopicDetailsContext = { [key: string]: unknown };
+
+    export interface MeepTopicDetails {
+      readonly id: string;
+      /** @maxLength 255 */
+      title: string;
+      mission: string;
+      /** @nullable */
+      readonly conversation_id: string | null;
+      readonly created_at: string;
+      readonly context: MeepTopicDetailsContext;
+    }
+
     /**
      * One attendee of a synced calendar meeting (read-only).
      */
@@ -76474,6 +76506,7 @@ export namespace Schemas {
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
        * * `field_note` - field_note
+       * * `meep` - meep
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
@@ -83862,6 +83895,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMeepTopicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MeepTopic[];
     }
 
     export interface PaginatedMeetingList {
@@ -101793,6 +101835,7 @@ export namespace Schemas {
     /**
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -101827,6 +101870,7 @@ export namespace Schemas {
     export const TaskOriginProductEnum = {
       Onboarding: 'onboarding',
       AccountAudit: 'account_audit',
+      Meep: 'meep',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -101892,6 +101936,7 @@ export namespace Schemas {
        *
        * * `onboarding` - Onboarding
        * * `account_audit` - Account audit
+       * * `meep` - Meep
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -127143,6 +127188,7 @@ export namespace Schemas {
        *
        * * `onboarding` - Onboarding
        * * `account_audit` - Account audit
+       * * `meep` - Meep
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -127475,6 +127521,7 @@ export namespace Schemas {
      * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
+     * * `meep` - meep
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai
      * * `posthog_desktop` - posthog_desktop
@@ -127508,6 +127555,7 @@ export namespace Schemas {
       KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      Meep: 'meep',
       Onboarding: 'onboarding',
       PosthogAi: 'posthog_ai',
       PosthogDesktop: 'posthog_desktop',
@@ -128963,6 +129011,7 @@ export namespace Schemas {
        *
        * * `onboarding` - Onboarding
        * * `account_audit` - Account audit
+       * * `meep` - Meep
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -151474,6 +151523,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MeepTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type MessagingEmailsStatusRetrieveParams = {
     /**
      * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
@@ -152718,6 +152778,7 @@ export namespace Schemas {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -152756,6 +152817,7 @@ export namespace Schemas {
     export const SandboxCustomImagesListOriginProduct = {
       Onboarding: 'onboarding',
       AccountAudit: 'account_audit',
+      Meep: 'meep',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -154722,6 +154784,7 @@ export namespace Schemas {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `meep` - Meep
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -154888,6 +154951,7 @@ export namespace Schemas {
     export const TasksListExcludeOriginProduct = {
       Onboarding: 'onboarding',
       AccountAudit: 'account_audit',
+      Meep: 'meep',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -154956,6 +155020,7 @@ export namespace Schemas {
      * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
+     * * `meep` - meep
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai
      * * `posthog_desktop` - posthog_desktop
@@ -154989,6 +155054,7 @@ export namespace Schemas {
       KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      Meep: 'meep',
       Onboarding: 'onboarding',
       PosthogAi: 'posthog_ai',
       PosthogDesktop: 'posthog_desktop',

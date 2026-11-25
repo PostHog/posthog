@@ -1,0 +1,38 @@
+category: Meep
+feature: meep
+url_prefix: /
+ui_apps: {}
+tools:
+    meep-topic-list:
+        operation: meep_topics_list
+        enabled: true
+        scopes:
+            - meep:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List Meep topics
+        description: List private topics for the signed-in member in this project.
+    meep-topic-get:
+        operation: meep_topics_retrieve
+        enabled: true
+        scopes:
+            - meep:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a Meep topic
+        description: Read the mission and linked PostHog task for one topic.
+    meep-topic-create:
+        operation: meep_topics_create
+        enabled: true
+        scopes:
+            - meep:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a Meep topic
+        description: Create a topic with a title and a mission in this project.

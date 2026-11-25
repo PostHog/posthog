@@ -1,3 +1,5 @@
+mod direct;
+
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use meep_client::{Client, HttpTransport};
@@ -44,9 +46,15 @@ pub(super) struct Options {
     /// Hosted Meep server. Pair once using MEEP_DEVICE_TOKEN, then use the Keychain.
     #[arg(long)]
     server: Option<String>,
+    /// Connect directly to this PostHog region using browser sign-in.
+    #[arg(long, value_enum, conflicts_with = "server")]
+    posthog: Option<Region>,
+    /// Use the standalone Rust service and its local workspace.
+    #[arg(long, conflicts_with_all = ["posthog", "server"])]
+    legacy: bool,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(clap::ValueEnum, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Region {
     #[default]
     Us,
@@ -82,6 +90,7 @@ pub(super) struct Identity {
 
 #[derive(Clone)]
 pub(super) struct Backend {
+    pub(super) direct: Option<Arc<direct::Account>>,
     pub client: Client,
     pub server: String,
     pub root: PathBuf,
@@ -123,6 +132,17 @@ impl Options {
                     "MEEP_DEV_DIR must be outside the standard Meep data directory"
                 );
             }
+        }
+        if !self.legacy && self.server.is_none() && std::env::var_os("MEEP_LEGACY_SERVER").is_none()
+        {
+            let region = self.posthog.unwrap_or_else(|| {
+                if std::env::var("MEEP_POSTHOG_LOCAL").as_deref() == Ok("1") {
+                    Region::Local
+                } else {
+                    Region::Us
+                }
+            });
+            return Ok((direct::connect(root, region).await?, None));
         }
         if let Some(server) = self.server.clone() {
             ensure!(
@@ -191,6 +211,7 @@ impl Options {
         };
         Ok((
             Backend {
+                direct: None,
                 client,
                 server: server.clone(),
                 root,
@@ -212,6 +233,7 @@ pub(super) async fn hosted(
 ) -> Result<Backend> {
     let pairing = Client::pair(root, server, supplied, secrets).await?;
     Ok(Backend {
+        direct: None,
         client: pairing.client,
         server: server.to_owned(),
         root: root.to_owned(),
@@ -362,6 +384,12 @@ impl Backend {
         .email)
     }
     pub(super) async fn login(&self, region: Region) -> Result<Identity> {
+        if let Some(account) = &self.direct {
+            let identity = account.login(&self.root, region).await?;
+            self.client.set_preference("signed-in", &true)?;
+            self.client.sync_now();
+            return Ok(identity);
+        }
         self.login_with(
             region,
             region.origin(),
@@ -380,106 +408,15 @@ impl Backend {
         keychain: &mut (impl SecretStore + Send),
         open_browser: impl FnOnce(&Url) -> Result<()>,
     ) -> Result<Identity> {
-        let issuer = Server::discover(origin).await?;
-        let client_id_file = match region {
-            Region::Us => Some("posthog-us-client-id"),
-            Region::Local => Some("posthog-local-client-id"),
-            Region::Eu => None,
-        };
-        let configured_id = if let Some(file) = client_id_file {
-            match fs::read_to_string(self.root.join(file)) {
-                Ok(id) => {
-                    ensure!(!id.trim().is_empty(), "Empty PostHog client ID in {file}");
-                    Some(id.trim().to_owned())
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                Err(e) => return Err(e).context("Reading PostHog client ID"),
-            }
-        } else {
-            None
-        };
-        let scopes = SCOPES;
-        let client_id = if let Some(id) = configured_id {
-            id
-        } else {
-            registration(
-                &issuer,
-                &callback,
-                origin,
-                region.key(),
-                self.root
-                    .join("topics-oauth")
-                    .join(format!("{:x}", Sha256::digest(SCOPES.join(" ")))),
-                "Meep",
-                SCOPES,
-            )
-            .await?
-        };
-        let client = issuer.client(client_id.clone(), &callback)?;
-        let tokens = client.authorize(callback, scopes, open_browser).await?;
-        if let Some(granted) = tokens.scopes() {
-            ensure!(
-                scopes
-                    .iter()
-                    .all(|scope| granted.iter().any(|s| s.as_str() == *scope)),
-                "PostHog did not grant all the requested permissions."
-            );
-        }
-        let token = tokens.access_token().secret();
-        let refresh = tokens
-            .refresh_token()
-            .context("PostHog did not grant offline access. Sign in again.")?
-            .secret();
-        #[derive(Deserialize)]
-        struct Project {
-            id: u64,
-            name: String,
-        }
-        let http = account_http()?;
-        let project: Project = http
-            .get(format!("{origin}/api/projects/@current/"))
-            .bearer_auth(token)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        let user = posthog_user(&http, origin, token).await?;
-        let identity = Identity {
-            email: Some(user.email),
-            label: project.name,
-            project: project.id,
-            region,
-        };
+        let (identity, secrets) =
+            authorize(&self.root, region, origin, callback, SCOPES, open_browser).await?;
         let previous = self.client.preference::<Identity>("posthog-project")?;
         ensure!(
             previous
                 .as_ref()
-                .is_none_or(|p| p.region == region && p.project == project.id),
+                .is_none_or(|p| p.region == region && p.project == identity.project),
             "This replica belongs to another PostHog project. Connect a separate Meep server for this project."
         );
-        let mut secrets = BTreeMap::from([
-            (
-                "region".into(),
-                if region != Region::Local && origin == region.origin() {
-                    region.key()
-                } else {
-                    origin
-                }
-                .into(),
-            ),
-            ("client_id".into(), client_id),
-            ("user_uuid".into(), user.uuid.to_string()),
-            ("project_id".into(), project.id.to_string()),
-            ("access_token".into(), token.clone()),
-            ("refresh_token".into(), refresh.clone()),
-        ]);
-        if region == Region::Local {
-            secrets.insert(
-                "config".into(),
-                serde_json::json!({"mcp_endpoint":"http://localhost:8787/mcp"}).to_string(),
-            );
-        }
         self.client
             .register_connection(
                 "posthog",
@@ -504,6 +441,11 @@ impl Backend {
     /// Sign out on this Mac, then on the server so it stops using the account.
     /// The local sign-out always happens; a server error is reported after it.
     pub(super) async fn sign_out(&self) -> Result<()> {
+        if let Some(account) = &self.direct {
+            account.sign_out().await?;
+            self.client.set_preference("signed-in", &false)?;
+            return Ok(());
+        }
         KeychainSecrets::new(KEYCHAIN).delete(&self.credentials, "posthog")?;
         self.client.set_preference("signed-in", &false)?;
         self.client
@@ -512,4 +454,112 @@ impl Backend {
             .map(|_| ())
             .map_err(|e| e.context("Signed out on this Mac, but the server still has the sign-in. Sign out again when it is reachable"))
     }
+}
+
+async fn authorize(
+    root: &Path,
+    region: Region,
+    origin: &str,
+    callback: Callback,
+    scopes: &[&str],
+    open_browser: impl FnOnce(&Url) -> Result<()>,
+) -> Result<(Identity, BTreeMap<String, String>)> {
+    let issuer = Server::discover(origin).await?;
+    let client_id_file = match region {
+        Region::Us => Some("posthog-us-client-id"),
+        Region::Local => Some("posthog-local-client-id"),
+        Region::Eu => None,
+    };
+    let configured_id = if let Some(file) = client_id_file {
+        match fs::read_to_string(root.join(file)) {
+            Ok(id) => {
+                ensure!(!id.trim().is_empty(), "Empty PostHog client ID in {file}");
+                Some(id.trim().to_owned())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e).context("Reading PostHog client ID"),
+        }
+    } else {
+        None
+    };
+    let client_id = if let Some(id) = configured_id {
+        id
+    } else {
+        registration(
+            &issuer,
+            &callback,
+            origin,
+            region.key(),
+            root.join("topics-oauth")
+                .join(format!("{:x}", Sha256::digest(scopes.join(" ")))),
+            "Meep",
+            scopes,
+        )
+        .await?
+    };
+    let client = issuer.client(client_id.clone(), &callback)?;
+    let tokens = client.authorize(callback, scopes, open_browser).await?;
+    if let Some(granted) = tokens.scopes() {
+        ensure!(
+            scopes
+                .iter()
+                .all(|scope| granted.iter().any(|s| s.as_str() == *scope)),
+            "PostHog did not grant all the requested permissions."
+        );
+    }
+    let token = tokens.access_token().secret();
+    let refresh = tokens
+        .refresh_token()
+        .context("PostHog did not grant offline access. Sign in again.")?
+        .secret();
+    #[derive(Deserialize)]
+    struct Project {
+        id: u64,
+        name: String,
+    }
+    let http = account_http()?;
+    let project: Project = http
+        .get(format!("{origin}/api/projects/@current/"))
+        .bearer_auth(token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let user = posthog_user(&http, origin, token).await?;
+    let identity = Identity {
+        email: Some(user.email),
+        label: project.name,
+        project: project.id,
+        region,
+    };
+    let mut secrets = BTreeMap::from([
+        (
+            "region".into(),
+            if region != Region::Local && origin == region.origin() {
+                region.key()
+            } else {
+                origin
+            }
+            .into(),
+        ),
+        ("client_id".into(), client_id),
+        ("user_uuid".into(), user.uuid.to_string()),
+        ("project_id".into(), project.id.to_string()),
+        ("access_token".into(), token.clone()),
+        ("refresh_token".into(), refresh.clone()),
+    ]);
+    if let Some(ttl) = tokens.expires_in() {
+        secrets.insert(
+            "expires_at".into(),
+            (chrono::Utc::now().timestamp() + ttl.as_secs() as i64).to_string(),
+        );
+    }
+    if region == Region::Local {
+        secrets.insert(
+            "config".into(),
+            serde_json::json!({"mcp_endpoint":"http://localhost:8787/mcp"}).to_string(),
+        );
+    }
+    Ok((identity, secrets))
 }

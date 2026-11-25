@@ -221,6 +221,16 @@ RUN cd services/mcp && pnpm run build:cli:catalog && test -s dist/cli-catalog.js
 #
 # ---------------------------------------------------------
 #
+FROM rust:1.91.1-slim-bookworm AS meep-domain
+WORKDIR /code/products/meep
+COPY products/meep/domain/ domain/
+COPY products/meep/desktop/crates/meep-topic/ desktop/crates/meep-topic/
+COPY products/meep/desktop/crates/meep-views/ desktop/crates/meep-views/
+COPY products/meep/desktop/crates/meep-protocol/ desktop/crates/meep-protocol/
+COPY products/meep/desktop/crates/meep-render/meep-workflows/ desktop/crates/meep-render/meep-workflows/
+COPY products/meep/desktop/crates/meep-render/meep-script/ desktop/crates/meep-render/meep-script/
+RUN cargo build --release --locked --manifest-path domain/Cargo.toml
+
 FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
@@ -447,6 +457,7 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --from=meep-domain /code/products/meep/domain/target/release/meep-domain /usr/local/bin/meep-domain
 COPY --chown=posthog:posthog products products/
 COPY --from=posthog-build --chown=posthog:posthog /code/products/wizard/tool-catalog.json /code/products/wizard/tool-catalog.json
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
