@@ -212,6 +212,7 @@ export type SettingId =
     | 'feature-flag-evaluation-context-suggestions'
     | 'feature-flag-require-tags'
     | 'feature-flag-request-blocklist'
+    | 'feature-flag-request-allowlist'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flags-interface'
     | 'feature-previews'
