@@ -441,6 +441,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracked: bool
 
 
 class EmailStatsInterval(LabeledStrEnum):

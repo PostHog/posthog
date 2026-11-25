@@ -129032,6 +129032,8 @@ export namespace Schemas {
       action_id: string;
       /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
       sensitive: boolean;
+      /** False when the email went out with open and click tracking off, so it can never record an open or a click. */
+      tracked: boolean;
     }
 
     export interface TransactionalEmailLogEntry {

@@ -8,7 +8,8 @@ import { buildDeliverySteps } from './emailDeliverySteps'
 function email(
     status: TransactionalEmailLogDetailApi['status'],
     kinds: TransactionalEmailLogEventApi['kind'][],
-    sensitive = false
+    sensitive = false,
+    tracked = true
 ): TransactionalEmailLogDetailApi {
     return {
         message_id: '01977a3c-9a00-7000-8000-000000000001',
@@ -33,6 +34,7 @@ function email(
         distinct_id: 'user_1',
         action_id: 'action_1',
         sensitive,
+        tracked,
     }
 }
 
@@ -65,6 +67,11 @@ describe('buildDeliverySteps', () => {
             'sent row arriving after delivered',
             email('delivered', ['queued', 'delivered', 'sent']),
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
+        ],
+        [
+            'tracking off, so it can never record an open or a click',
+            email('delivered', ['queued', 'sent', 'delivered'], false, false),
+            ['sent:done', 'delivered:done', 'opened:untracked', 'clicked:untracked'],
         ],
         [
             'sensitive, still waiting for a click',

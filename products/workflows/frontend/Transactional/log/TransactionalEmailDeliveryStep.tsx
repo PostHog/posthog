@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconMinus, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -19,11 +19,13 @@ function StepMarker({ state }: { state: DeliveryStep['state'] }): JSX.Element {
                 'flex items-center justify-center size-6 rounded-full shrink-0 border',
                 state === 'done' && 'bg-success border-success text-white',
                 state === 'failed' && 'bg-danger border-danger text-white',
-                state === 'pending' && 'bg-surface-primary border-dashed border-border-bold'
+                state === 'pending' && 'bg-surface-primary border-dashed border-border-bold',
+                state === 'untracked' && 'bg-surface-secondary border-border text-tertiary'
             )}
         >
             {state === 'done' && <IconCheck className="size-4" />}
             {state === 'failed' && <IconX className="size-4" />}
+            {state === 'untracked' && <IconMinus className="size-4" />}
         </span>
     )
 }
@@ -45,7 +47,7 @@ export function TransactionalEmailDeliveryStep({
                     <span
                         className={clsx(
                             'hidden @2xl:block h-px flex-1 mx-2',
-                            next.state === 'pending' ? 'bg-border' : 'bg-border-bold'
+                            next.state === 'pending' || next.state === 'untracked' ? 'bg-border' : 'bg-border-bold'
                         )}
                     />
                 )}
@@ -54,7 +56,7 @@ export function TransactionalEmailDeliveryStep({
                 <span
                     className={clsx(
                         'text-sm font-semibold',
-                        step.state === 'pending' && 'text-secondary',
+                        (step.state === 'pending' || step.state === 'untracked') && 'text-secondary',
                         step.state === 'failed' && 'text-danger'
                     )}
                 >
@@ -71,6 +73,13 @@ export function TransactionalEmailDeliveryStep({
                             {step.key === 'opened' || step.key === 'clicked' ? 'Not yet' : 'Waiting'}
                         </span>
                     )
+                )}
+                {step.state === 'untracked' && (
+                    <Tooltip title="Tracking was off for this send, so it records no opens or clicks.">
+                        <span className="text-xs text-secondary" data-attr="transactional-email-not-tracked">
+                            Not tracked
+                        </span>
+                    </Tooltip>
                 )}
                 {step.detail && step.state !== 'failed' && <StepDetail detail={step.detail} />}
             </div>

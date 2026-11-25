@@ -130,6 +130,10 @@ class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer
     sensitive = serializers.BooleanField(
         help_text="True when the template is marked sensitive, so no rendered body or subject values are kept."
     )
+    tracked = serializers.BooleanField(
+        help_text="False when the email went out with open and click tracking off, so it can never record an open "
+        "or a click."
+    )
 
 
 class TransactionalEmailStatsQuerySerializer(DateRangeQuerySerializer):
@@ -416,6 +420,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "distinct_id": detail.distinct_id,
             "action_id": detail.action_id,
             "sensitive": detail.sensitive,
+            "tracked": detail.tracked,
         }
         return Response(TransactionalEmailLogDetailSerializer(data).data)
 
