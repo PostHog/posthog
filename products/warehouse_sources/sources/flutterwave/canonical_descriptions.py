@@ -270,7 +270,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "currency": "ISO 4217 currency code of the wallet balance.",
             "available_balance": "Funds that are available to spend or pay out.",
-            "ledger_balance": "Funds that are booked to the wallet but not yet available.",
+            "ledger_balance": "Total funds booked to the wallet, including funds that are not yet available.",
         },
     },
 }
