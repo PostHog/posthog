@@ -108,7 +108,8 @@ export function keepRunningContainers(mprocsYaml: string): string {
     const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
     const compose = config.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    if (shell.split(RECREATING_COMPOSE_UP).length !== 2 || shell.split(/ up -/).length !== 2) {
+    const upsOutsideQuotes = shell.replace(/"[^"]*"|'[^']*'/g, '').match(/\bup\b/g) ?? []
+    if (shell.split(RECREATING_COMPOSE_UP).length !== 2 || upsOutsideQuotes.length !== 1) {
         throw new StackNotReadyError(
             `The dev config hogli generated has no docker-compose proc that runs \`docker compose${RECREATING_COMPOSE_UP.trimEnd()}\` as its only \`up\`, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
         )
@@ -117,15 +118,14 @@ export function keepRunningContainers(mprocsYaml: string): string {
     return stringify(config, { lineWidth: 0 })
 }
 
-export async function runningServices(docker: string, project: string, signal?: AbortSignal): Promise<string[]> {
+export async function existingServices(docker: string, project: string, signal?: AbortSignal): Promise<string[]> {
     const { stdout } = await promisify(execFile)(
         docker,
         [
             'ps',
+            '--all',
             '--filter',
             `label=com.docker.compose.project=${project}`,
-            '--filter',
-            'status=running',
             '--format',
             '{{.Label "com.docker.compose.service"}}',
         ],
@@ -153,21 +153,15 @@ export async function startStack(
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
-    const running = await runningServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal).catch(
-        (error: Error) => {
-            signal.throwIfAborted()
-            process.stderr.write(
-                `Could not list the running dev services, so the start keeps every existing container as it is: ${error.message}\n`
-            )
-            return null
-        }
-    )
-    if (running?.length !== 0) {
-        writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
-    }
-    if (running?.length) {
+    writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
+    const kept = await existingServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal).catch((error: Error) => {
+        signal.throwIfAborted()
+        process.stderr.write(`Could not list the existing dev services: ${error.message}\n`)
+        return []
+    })
+    if (kept.length > 0) {
         process.stderr.write(
-            `Keeping the dev services that run as they are: ${running.join(', ')}. Stopped ones start as they are too. A change to their compose definition is not applied until they are recreated.\n`
+            `Keeping the existing dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
         )
     }
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
@@ -195,9 +189,9 @@ export async function untilMigrated(
                 }, url).catch((error: Error) => error.message)
             )
         )
-        signal.throwIfAborted()
         const problems = missing.filter((problem): problem is string => problem !== null)
         if (problems.length === 0) {
+            signal.throwIfAborted()
             return
         }
         if (performance.now() >= deadline) {

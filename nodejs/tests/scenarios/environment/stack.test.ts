@@ -42,10 +42,7 @@ describe('keepRunningContainers', () => {
 
     it.each([
         ['an up call it does not know', `${COMPOSE} up --pull missing -d && echo "docker-compose ready"`],
-        [
-            'a second up call',
-            `${COMPOSE} up --pull always -d && ${COMPOSE} up -d personhog-replica && echo "docker-compose ready"`,
-        ],
+        ['a second up call', `${COMPOSE} up --pull always -d && ${COMPOSE} up db && echo "docker-compose ready"`],
         ['no docker-compose proc', ''],
     ])('refuses a config with %s, which would recreate the shared containers', (_case, shell) => {
         const config = shell ? generatedConfig(shell) : 'procs:\n  backend:\n    shell: bin/start-backend\n'
@@ -76,12 +73,15 @@ describe('untilMigrated', () => {
         await expect(waited).rejects.toThrow('has no table scenario_never_migrated')
     })
 
-    it('does not let a cancelled run go on, even once the tables exist', async () => {
+    it.each([
+        ['once the tables exist', 'cyclotron_jobs'],
+        ['while it waits for a missing table', 'scenario_never_migrated'],
+    ])('stops a cancelled run %s', async (_case, table) => {
         const cancel = new AbortController()
         cancel.abort()
 
-        await expect(
-            untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 1000, 10, cancel.signal)
-        ).rejects.toMatchObject({ name: 'AbortError' })
+        await expect(untilMigrated([{ url: URL, table }], 60_000, 60_000, cancel.signal)).rejects.toMatchObject({
+            name: 'AbortError',
+        })
     })
 })
