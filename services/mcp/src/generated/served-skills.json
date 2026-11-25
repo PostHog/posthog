@@ -124,6 +124,9 @@
         "debugging-failed-data-quality-checks": {
             "audience": "customer"
         },
+        "debugging-surveys": {
+            "audience": "customer"
+        },
         "designing-email-templates": {
             "audience": "customer"
         },

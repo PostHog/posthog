@@ -1,6 +1,6 @@
 # Diagnostic queries (HogQL, read-only)
 
-Run via the PostHog MCP `execute-sql` against the customer's project. Adjust the date and
+Run via the PostHog MCP `execute-sql` against the project. Adjust the date and
 survey ID. Tables: `events`, `static_cohort_people` (NOT `person_static_cohort` — that's
 the ClickHouse name; HogQL exposes `static_cohort_people`), `persons`.
 
@@ -92,7 +92,7 @@ to see how much of the gap is partial saves.
 
 `(not set)` usually means an SDK older than its partial-responses release: web below 1.240.0,
 React Native below 4.75.0, iOS below 3.79.0, or Android below 3.70.0. Flutter sends these through
-the native SDK, so it needs 5.48.0 or later. An `api`-type survey is captured by the customer's own
+the native SDK, so it needs 5.48.0 or later. An `api`-type survey is captured by the app's own
 code with whatever properties they choose, so `(not set)` there says nothing about versions. Check
 the `lib` and `lib_version` properties before reading it as a version signal.
 
@@ -122,7 +122,7 @@ comparison undercounts repeats rather than inventing them.)
 (`posthog/hogql/functions/survey.py`; callers in `products/surveys/backend/responses/`). It
 coalesces the UUID key with the legacy index key for you, so it can't miss an older response the way
 a hand-written `properties.$survey_response_<uuid>` does, and it returns what the results table
-shows the same customer. Pass a third argument `true` for multiple-choice questions so the array is
+shows. Pass a third argument `true` for multiple-choice questions so the array is
 unpacked. Both the index and the id must be literal constants.
 
 Take the index and id from `questions[]` in the survey JSON, in order:
