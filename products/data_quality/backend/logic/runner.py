@@ -17,10 +17,12 @@ from django.db import transaction
 
 from opentelemetry import trace
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import execute_hogql_query, names_a_missing_column
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
@@ -43,6 +45,8 @@ QUERY_TYPE = "data_quality_check"
 FAILING_STATUSES = (CheckRunStatus.FAILED, CheckRunStatus.ERRORED)
 
 STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
+
+MAX_CACHED_DATABASES = 4
 
 tracer = trace.get_tracer(__name__)
 
@@ -163,13 +167,24 @@ def _database(
     cache: "dict[Any, Database | None] | None",
 ) -> "Database | None":
     """The database for this run's ACL posture, built once per posture per batch."""
-    key = authorization.run_as.id if authorization.run_as is not None else "__bypass__"
+    key = _cache_key(authorization)
     if cache is not None and key in cache:
+        cache[key] = cache.pop(key)
         return cache[key]
     database = _build_database(team, staged, authorization)
     if cache is not None:
+        if len(cache) >= MAX_CACHED_DATABASES:
+            cache.pop(next(iter(cache)))
         cache[key] = database
     return database
+
+
+def _cache_key(authorization: _Authorization) -> Any:
+    return authorization.run_as.id if authorization.run_as is not None else "__bypass__"
+
+
+def _is_cached(authorization: _Authorization, cache: "dict[Any, Database | None] | None") -> bool:
+    return cache is not None and _cache_key(authorization) in cache
 
 
 def _build_database(
@@ -273,12 +288,35 @@ def _execute_compiled(
     staged: StagedSubjectOverride | None,
     database_cache: "dict[Any, Database | None] | None",
 ) -> CheckOutcome:
+    reused = _is_cached(authorization, database_cache)
     database = _database(team, staged, authorization, database_cache)
     if database is None:
         # Falling back to the unmodified database would read the live view and rule on data the
         # publish would not write, so a staged run that cannot repoint errors instead.
         return CheckOutcome(status=CheckRunStatus.ERRORED, error=STAGED_FILES_UNREADABLE)
 
+    try:
+        response = _query(check, subject, compiled, team, authorization, staged, database)
+    except Exception as err:
+        if not reused or database_cache is None or not names_a_missing_column(err):
+            raise
+        database_cache.pop(_cache_key(authorization), None)
+        fresh = _database(team, staged, authorization, database_cache)
+        if fresh is None:
+            raise
+        response = _query(check, subject, compiled, team, authorization, staged, fresh)
+    return _interpret(compiled, check.config, response.results, response.columns or [])
+
+
+def _query(
+    check: DataQualityCheck,
+    subject: SubjectRef,
+    compiled: CompiledCheck,
+    team: Team,
+    authorization: _Authorization,
+    staged: StagedSubjectOverride | None,
+    database: Database,
+) -> HogQLQueryResponse:
     with tags_context(
         product=Product.DATA_QUALITY,
         feature=Feature.DATA_QUALITY_CHECK,
@@ -300,24 +338,22 @@ def _execute_compiled(
             bypass_warehouse_access_control=authorization.bypass,
         )
         if staged is not None:
-            response = execute_hogql_query(
+            return execute_hogql_query(
                 query=compiled.query,
                 team=team,
                 query_type=QUERY_TYPE,
                 modifiers=modifiers,
                 context=context,
             )
-        else:
-            response = execute_hogql_query(
-                query=compiled.query,
-                team=team,
-                query_type=QUERY_TYPE,
-                user=authorization.run_as,
-                modifiers=modifiers,
-                bypass_warehouse_access_control=authorization.bypass,
-                context=context,
-            )
-    return _interpret(compiled, check.config, response.results, response.columns or [])
+        return execute_hogql_query(
+            query=compiled.query,
+            team=team,
+            query_type=QUERY_TYPE,
+            user=authorization.run_as,
+            modifiers=modifiers,
+            bypass_warehouse_access_control=authorization.bypass,
+            context=context,
+        )
 
 
 def _interpret(

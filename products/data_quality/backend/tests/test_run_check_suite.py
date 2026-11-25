@@ -10,6 +10,7 @@ from parameterized import parameterized
 from temporalio import workflow as temporal_workflow
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import UNRESOLVED_FIELD_MESSAGE, QueryError
 
 from posthog.models.user import User
 
@@ -247,6 +248,29 @@ class TestCheckSuiteActivities(BaseTest):
             call.kwargs["user"] for call in query.call_args_list
         ]
         assert len({id(database) for database in databases}) == (2 if second_author else 1)
+
+    def test_a_check_that_finds_the_shared_database_stale_reruns_on_a_fresh_one(self) -> None:
+        first = self._check()
+        second = self._check(column_name="total")
+        prepared = self._prepare(trigger=SuiteRunTrigger.MATERIALIZATION)
+        databases: list[object] = []
+
+        def _query(*, context, **kwargs):
+            if databases and context.database is databases[0]:
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: total")
+            databases.append(context.database)
+            return _Response(["failure_count", "observed_value"], [0, 0])
+
+        with patch(RUNNER_QUERY, side_effect=_query):
+            outcome = _run_batch(
+                RunCheckBatchInputs(
+                    team_id=self.team.id,
+                    suite_run_id=prepared.suite_run_id,
+                    check_ids=[str(first.id), str(second.id)],
+                )
+            )
+
+        assert (outcome.passed, outcome.errored) == (2, 0)
 
     def test_a_staged_audit_that_cannot_reach_the_staged_files_runs_no_check(self) -> None:
         check = self._check()

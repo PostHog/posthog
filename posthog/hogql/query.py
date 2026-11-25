@@ -1302,7 +1302,7 @@ class HogQLQueryExecutor:
         try:
             return self._execute()
         except (CHQueryErrorUnknownIdentifier, QueryError) as error:
-            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
+            if not names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
                 raise
             return self._with_fresh_database(query).execute()
 
@@ -1448,7 +1448,7 @@ def _debug_error_message(error: Exception) -> str:
     return "Unknown error"
 
 
-def _names_a_missing_column(error: Exception) -> bool:
+def names_a_missing_column(error: Exception) -> bool:
     return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(_MISSING_COLUMN_MESSAGES)
 
 
