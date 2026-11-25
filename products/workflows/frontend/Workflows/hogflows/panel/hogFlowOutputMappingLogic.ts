@@ -18,16 +18,22 @@ import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
 // The variable types the output schema of an AI task step can express. Other input types stay
 // selectable only from the variables tab.
-export type WorkflowVariableType = 'string' | 'number' | 'boolean'
+export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'json'
 export const WORKFLOW_VARIABLE_TYPE_OPTIONS: { value: WorkflowVariableType; label: string }[] = [
     { value: 'string', label: 'Text' },
     { value: 'number', label: 'Number' },
     { value: 'boolean', label: 'True or false' },
+    { value: 'json', label: 'JSON' },
 ]
 
 // A key must be addressable as `variables.<key>` in a template, so only identifier characters survive.
 export function sanitizeVariableKey(key: string): string {
     return key.replace(/[^A-Za-z0-9_]+/g, '_')
+}
+
+// The tasks API also rejects a leading digit, so an agent field name gets an underscore in front.
+export function sanitizeAgentFieldName(name: string): string {
+    return sanitizeVariableKey(name).replace(/^(\d)/, '_$1').slice(0, 64)
 }
 
 export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
@@ -140,6 +146,20 @@ export interface hogFlowOutputMappingLogicActions {
         key: string
         type: WorkflowVariableType
     }
+    setVariableDescription: (
+        key: string,
+        description: string
+    ) => {
+        key: string
+        description: string
+    }
+    setAgentField: (
+        index: number,
+        name: string
+    ) => {
+        index: number
+        name: string
+    }
     triggerShake: () => {
         value: true
     }
@@ -201,6 +221,8 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         updateMappingResultPath: (index: number, path: string) => ({ index, path }),
         setMappingVariable: (index: number, key: string) => ({ index, key }),
         setVariableType: (key: string, type: WorkflowVariableType) => ({ key, type }),
+        setVariableDescription: (key: string, description: string) => ({ key, description }),
+        setAgentField: (index: number, name: string) => ({ index, name }),
         addMapping: true,
         removeMapping: (index: number) => ({ index }),
         selectPath: (path: string) => ({ path }),
@@ -274,6 +296,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     updated[index] = { ...updated[index], key }
                     return updated
                 },
+                setAgentField: (state, { index, name }) => {
+                    if (name && state.some((mapping, i) => i !== index && mapping.key === name)) {
+                        return state
+                    }
+                    const updated = [...state]
+                    updated[index] = { key: name, result_path: name ? `output.${name}` : '' }
+                    return updated
+                },
                 addMapping: (state) => [...state, { key: '', result_path: '' }],
                 removeMapping: (state, { index }) => state.filter((_, i) => i !== index),
                 assignPendingPathToMapping: (state) => state,
@@ -329,7 +359,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, selectors }) => {
         const persistMappings = (newMappings: OutputMapping[]): void => {
             const selectedNode = values.selectedNode
             if (!selectedNode) {
@@ -351,13 +381,31 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
 
         // A mapping can name a variable the workflow does not have yet. Creating it here keeps the
         // author on the step instead of sending them to the variables tab and back.
-        const ensureVariable = (key: string, label: string): void => {
+        // `copyFrom` carries a renamed agent field's type and description over to its new variable.
+        const ensureVariable = (key: string, label: string, copyFrom?: string): void => {
             const existingVars = values.workflow.variables ?? []
             if (existingVars.some((v) => v.key === key)) {
                 return
             }
+            const source = existingVars.find((v) => v.key === copyFrom)
             workflowLogic(props).actions.setWorkflowInfo({
-                variables: [...existingVars, { key, label, type: 'string' as const, default: '' }],
+                variables: [
+                    ...existingVars,
+                    {
+                        key,
+                        label,
+                        type: source?.type ?? ('string' as const),
+                        default: '',
+                        ...(source?.description ? { description: source.description } : {}),
+                    },
+                ],
+            })
+        }
+
+        const updateVariable = (key: string, patch: Record<string, unknown>): void => {
+            const existingVars = values.workflow.variables ?? []
+            workflowLogic(props).actions.setWorkflowInfo({
+                variables: existingVars.map((v) => (v.key === key ? { ...v, ...patch } : v)),
             })
         }
 
@@ -382,12 +430,15 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
                 persistMappings(values.mappings)
             },
-            setVariableType: ({ key, type }) => {
-                const existingVars = values.workflow.variables ?? []
-                workflowLogic(props).actions.setWorkflowInfo({
-                    variables: existingVars.map((v) => (v.key === key ? { ...v, type } : v)),
-                })
+            setAgentField: ({ index, name }, _, __, previousState) => {
+                if (name) {
+                    const previousKey = selectors.mappings(previousState)[index]?.key
+                    ensureVariable(name, name, previousKey)
+                }
+                persistMappings(values.mappings)
             },
+            setVariableType: ({ key, type }) => updateVariable(key, { type }),
+            setVariableDescription: ({ key, description }) => updateVariable(key, { description }),
             addMapping: () => {
                 persistMappings(values.mappings)
             },

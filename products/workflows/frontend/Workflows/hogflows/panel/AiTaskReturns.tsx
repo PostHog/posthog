@@ -1,0 +1,169 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconPlus, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { workflowLogic } from '../../workflowLogic'
+import {
+    OutputMapping,
+    WORKFLOW_VARIABLE_TYPE_OPTIONS,
+    hogFlowOutputMappingLogic,
+    sanitizeAgentFieldName,
+} from './hogFlowOutputMappingLogic'
+
+// Mirrors the tasks API caps (RESULT_BYTE_CAP, RESULT_STRING_CAP): past them the result is cut silently.
+const RESULT_BYTE_CAP = 4096
+const RESULT_STRING_CAP = 1500
+
+const AGENT_FIELD_PATH = /^output\.([A-Za-z_][A-Za-z0-9_]*)$/
+
+const BUILT_IN_RESULTS = [
+    { key: 'final_message', result_path: 'final_message', label: 'Final message' },
+    { key: 'pr_urls', result_path: 'pr_urls', label: 'PR links' },
+]
+
+function builtInLabel(resultPath: string): string {
+    if (!resultPath) {
+        return 'Whole result'
+    }
+    return BUILT_IN_RESULTS.find((r) => r.result_path === resultPath)?.label ?? `result.${resultPath}`
+}
+
+function worstCaseBytes(fields: { name: string; type?: string }[]): number {
+    return fields.reduce((sum, { name, type }) => {
+        const value = type === 'number' ? 20 : type === 'boolean' ? 5 : type === 'json' ? 0 : RESULT_STRING_CAP + 2
+        return sum + name.length + 4 + value
+    }, 2)
+}
+
+function AgentFieldNameInput({ name, onCommit }: { name: string; onCommit: (name: string) => void }): JSX.Element {
+    const [draft, setDraft] = useState(name)
+    useEffect(() => setDraft(name), [name])
+    const commit = (): void => {
+        if (draft !== name) {
+            onCommit(draft)
+        }
+    }
+    return (
+        <LemonInput
+            size="small"
+            value={draft}
+            placeholder="summary"
+            onChange={(value) => setDraft(sanitizeAgentFieldName(value))}
+            onBlur={commit}
+            onPressEnter={commit}
+        />
+    )
+}
+
+export function AiTaskReturns(): JSX.Element {
+    const { logicProps, workflow } = useValues(workflowLogic)
+    const { mappings } = useValues(hogFlowOutputMappingLogic(logicProps))
+    const { setAgentField, setVariableType, setVariableDescription, addMapping, removeMapping, applySuggestion } =
+        useActions(hogFlowOutputMappingLogic(logicProps))
+
+    const variableFor = (key: string): NonNullable<typeof workflow.variables>[number] | undefined =>
+        workflow.variables?.find((v) => v.key === key)
+    const rows = mappings.map((mapping: OutputMapping, index) => {
+        const fieldName = AGENT_FIELD_PATH.exec(mapping.result_path)?.[1]
+        return { mapping, index, isAgentField: !!fieldName || (!mapping.key && !mapping.result_path), fieldName }
+    })
+    const agentFields = rows.filter((row) => row.isAgentField && row.fieldName)
+    const overBudget =
+        worstCaseBytes(agentFields.map((row) => ({ name: row.fieldName!, type: variableFor(row.mapping.key)?.type }))) >
+        RESULT_BYTE_CAP
+    const missingBuiltIns = BUILT_IN_RESULTS.filter((r) => !mappings.some((m) => m.result_path === r.result_path))
+
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            {rows.length > 0 && (
+                <div className="grid grid-cols-[1fr_9rem_1.5fr_auto] gap-1 items-center">
+                    <span className="text-xs text-secondary font-semibold">Field</span>
+                    <span className="text-xs text-secondary font-semibold">Type</span>
+                    <span className="text-xs text-secondary font-semibold">What the agent puts here</span>
+                    <span />
+                    {rows.map(({ mapping, index, isAgentField, fieldName }) => {
+                        const variable = variableFor(mapping.key)
+                        const remove = (
+                            <LemonButton
+                                key={`remove-${index}`}
+                                size="small"
+                                icon={<IconX />}
+                                tooltip="Remove field"
+                                onClick={() => removeMapping(index)}
+                            />
+                        )
+                        if (!isAgentField) {
+                            return [
+                                <span key={`name-${index}`} className="text-sm px-2">
+                                    {builtInLabel(mapping.result_path)}
+                                </span>,
+                                <span key={`type-${index}`} className="text-xs text-secondary px-2">
+                                    Built in
+                                </span>,
+                                <span key={`desc-${index}`} className="text-xs text-secondary px-2">
+                                    Saved to <code>{`{variables.${mapping.key}}`}</code>
+                                </span>,
+                                remove,
+                            ]
+                        }
+                        return [
+                            <AgentFieldNameInput
+                                key={`name-${index}`}
+                                name={fieldName ?? ''}
+                                onCommit={(name) => setAgentField(index, name)}
+                            />,
+                            <LemonSelect
+                                key={`type-${index}`}
+                                size="small"
+                                options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
+                                value={variable?.type ?? 'string'}
+                                disabledReason={!fieldName ? 'Name the field first.' : undefined}
+                                onChange={(type) => type && setVariableType(mapping.key, type)}
+                            />,
+                            <LemonInput
+                                key={`desc-${index}`}
+                                size="small"
+                                value={variable?.description ?? ''}
+                                placeholder="Describe the value"
+                                disabledReason={!fieldName ? 'Name the field first.' : undefined}
+                                onChange={(description) => setVariableDescription(mapping.key, description)}
+                            />,
+                            remove,
+                        ]
+                    })}
+                </div>
+            )}
+            <div className="flex flex-wrap gap-1">
+                <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={() => addMapping()}>
+                    Add field
+                </LemonButton>
+                {missingBuiltIns.map((builtIn) => (
+                    <LemonButton
+                        key={builtIn.key}
+                        size="small"
+                        type="tertiary"
+                        icon={<IconPlus />}
+                        onClick={() => applySuggestion(builtIn)}
+                    >
+                        {builtIn.label}
+                    </LemonButton>
+                ))}
+            </div>
+            {agentFields.length > 0 && (
+                <span className="text-xs text-secondary">
+                    Each field is saved as a workflow variable with the same name, such as{' '}
+                    <code>{`{variables.${agentFields[0].fieldName}}`}</code>.
+                </span>
+            )}
+            {overBudget && (
+                <LemonBanner type="warning">
+                    These fields can add up to more than the workflow keeps from the agent (about 4 KB), and anything
+                    past that is cut off. Each text field can hold up to {RESULT_STRING_CAP} characters, so remove a
+                    text field or switch one to a number or true or false.
+                </LemonBanner>
+            )}
+        </div>
+    )
+}

@@ -537,6 +537,29 @@ describe('hogFlowOutputMappingLogic', () => {
             })
         })
 
+        describe('setAgentField', () => {
+            it('renames an agent field and its variable, keeping the type and description', async () => {
+                const node = makeActionNode('action-rename')
+                wfLogic.actions.setWorkflowInfo({
+                    actions: [node.data],
+                    variables: [{ key: 'score', label: 'score', type: 'json', default: '', description: 'Tags' }],
+                })
+                editorLogic.actions.setSelectedNodeId('action-rename')
+                logic.actions.initMappings([{ key: 'score', result_path: 'output.score' }])
+
+                logic.actions.setAgentField(0, 'tags')
+
+                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags' }])
+                expect(wfLogic.values.workflow.variables).toContainEqual({
+                    key: 'tags',
+                    label: 'tags',
+                    type: 'json',
+                    default: '',
+                    description: 'Tags',
+                })
+            })
+        })
+
         describe('addMapping and removeMapping', () => {
             it('addMapping appends an empty mapping to the existing list', async () => {
                 logic.actions.initMappings([{ key: 'existing', result_path: 'x' }])
