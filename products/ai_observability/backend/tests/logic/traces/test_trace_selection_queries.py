@@ -23,7 +23,13 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.util import create_group
 
-from products.ai_observability.backend.logic.traces.trace_paging import AroundTakes, page_after, rows_to_read
+from products.ai_observability.backend.logic.traces.trace_paging import (
+    AroundTakes,
+    around_takes,
+    page_after,
+    page_around,
+    rows_to_read,
+)
 from products.ai_observability.backend.logic.traces.trace_selection import (
     CAPTURE_BUFFER,
     InvalidTraceSelectionError,
@@ -579,6 +585,27 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             [position.trace_id for position in rows.before],
             [position.trace_id for position in rows.from_anchor],
         ) == (before, from_anchor)
+
+    def test_rows_around_keep_the_row_past_a_full_page(self) -> None:
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": f"t{index:03d}",
+                    "minutes": 0,
+                    "microseconds": index * 1000,
+                    "properties": {"$ai_session_id": "session-1"},
+                }
+                for index in range(101)
+            ],
+        )
+        selection = self._selection(session_id="session-1", order="oldest_first")
+
+        rows = load_rows_around(self.team, self.user, selection, trace_id="t000", takes=around_takes(100))
+
+        next_after = page_around(rows, 100).next_after
+        assert next_after is not None and next_after.trace_id == "t099"
 
 
 def test_a_filter_hogql_cannot_express_is_a_selection_error() -> None:
