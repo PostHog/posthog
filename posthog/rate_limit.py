@@ -1248,31 +1248,21 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilityTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class AIObservabilityTranslationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for LLM-powered translation endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
-
-
-class AIObservabilitySentimentBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_burst"
-    rate = "60/minute"
-
-
-class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_sustained"
-    rate = "600/hour"
 
 
 class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
