@@ -51,6 +51,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import (
@@ -1326,7 +1327,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             patch_exposure_event_flag(enabled=True),
         ):
             serialized = ExperimentSerializer(
-                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+                get_experiment(team=self.team, experiment_id=experiment.id),
+                context={"team_id": self.team.id, "get_team": lambda: self.team},
             ).data
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
