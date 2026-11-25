@@ -1,3 +1,5 @@
+import re
+import html
 from typing import Any
 
 from unittest.mock import patch
@@ -73,6 +75,8 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
             "Onboarding",
             email_step("welcome", "Welcome email", self.verified, self.deleted, self.unverified),
             email_step("hello", "Hello email", self.verified),
+            email_step("reminder", "Reminder email", self.deleted),
+            email_step("tips", "Tips email", self.unverified),
         )
         self.workflow("Healthy", email_step("hello", "Hello email", self.verified))
         self.workflow("Draft", email_step("welcome", "Welcome email", self.deleted), state=HogFlow.State.DRAFT)
@@ -86,8 +90,13 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         assert "Onboarding" in message.subject
         assert isinstance(message, EmailMultiAlternatives)
         body = str(message.alternatives[0][0])
-        assert "Welcome email" in body and "Hello email" not in body
-        assert "can't be found" in body and "isn't verified yet" in body
+        text = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", body)).split())
+        assert (
+            "Welcome email : A sender can't be found. A sender's domain isn't verified yet. "
+            "Reminder email : A sender can't be found. "
+            "Tips email : A sender's domain isn't verified yet. How to fix it"
+        ) in text
+        assert "Hello email" not in text
         assert f"/project/{self.team.id}/workflows/{broken.id}/workflow" in body
 
     def test_emails_again_when_the_steps_senders_break_differently(self) -> None:
