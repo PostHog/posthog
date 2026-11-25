@@ -549,6 +549,50 @@ def _cached_organization_flag(flag_key: str, team: Team) -> bool:
     )
 
 
+@frozen
+class _FlagCallCatalog:
+    """Where the catalog's queries read `$feature_flag_called`. Every database builder resolves it here, so a query
+    reads flag calls from the same tables whichever builder compiled it."""
+
+    include_flag_evaluations_table: bool
+    read_flag_calls_from_flag_evaluations: bool
+    flag_calls_only_in_flag_evaluations: bool
+    flag_calls_union_enabled: bool
+    flag_calls_union_opted_in: bool
+
+
+def _resolve_flag_call_catalog(team: Team, *, is_direct_query: bool) -> _FlagCallCatalog:
+    # Function-local + facade-only: keeps the products off the django.setup() path.
+    from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
+    from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
+        get_flag_evaluations_read_mode,
+        is_flag_calls_union_disabled,
+        is_flag_evaluations_table_enabled,
+    )
+
+    # A direct-connection catalog has no "posthog" node to hold the table.
+    include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
+    # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true on Cloud and under
+    # DEBUG for an organization still on EVENTS.
+    read_mode: int = FlagEvaluationsMode.EVENTS
+    if include_flag_evaluations_table:
+        read_mode = get_flag_evaluations_read_mode(team.organization_id)
+    flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()
+    return _FlagCallCatalog(
+        include_flag_evaluations_table=include_flag_evaluations_table,
+        read_flag_calls_from_flag_evaluations=read_mode != FlagEvaluationsMode.EVENTS,
+        flag_calls_only_in_flag_evaluations=read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        flag_calls_union_enabled=flag_calls_union_enabled,
+        # On READ_FLAG_EVALUATIONS, events still holds every flag call. The union only adds cost there. The flag
+        # lets an organization on that mode read the union, to compare it with events before it moves to mode 2.
+        flag_calls_union_opted_in=(
+            flag_calls_union_enabled
+            and read_mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+            and _cached_organization_flag("hogql-flag-calls-union", team)
+        ),
+    )
+
+
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
@@ -2091,7 +2135,7 @@ class Database(BaseModel):
         group_types: Sequence[dict[str, Any]] = (),
         mcp_custom_harness_rules: Sequence[CustomHarnessRule] = (),
     ) -> Database:
-        """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
+        """PostHog's built-in tables only, wired for the team's modifiers.
 
         For internal queries that touch only built-in tables. It has no warehouse tables, views, or
         joins, no group-type tables, and no per-user access control, so it must never serve
@@ -2099,11 +2143,15 @@ class Database(BaseModel):
         front, so a query that names one fails with TableAccessDeniedError instead of reading rows
         unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
         query never uses; on teams with many warehouse tables that costs more than the query.
+        This build reads only the organization's flag_evaluations config, so a query reads
+        `$feature_flag_called` from the same tables as it would on create_for.
         A caller that needs group-type fields or MCP harness labels fetches them and passes them in."""
         if timings is None:
             timings = HogQLTimings()
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)
+        with timings.measure("flag_calls"):
+            flag_calls = _resolve_flag_call_catalog(team, is_direct_query=False)
         sources = HogQLDatabaseSources(
             team=team,
             user=None,
@@ -2116,13 +2164,7 @@ class Database(BaseModel):
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
-            # Resolving the org gate needs a Postgres read. This path exists to avoid that I/O,
-            # so it prunes the table as it prunes the other gated tables.
-            include_flag_evaluations_table=False,
-            read_flag_calls_from_flag_evaluations=False,
-            flag_calls_only_in_flag_evaluations=False,
-            flag_calls_union_enabled=False,
-            flag_calls_union_opted_in=False,
+            **dataclasses.asdict(flag_calls),
             group_types=list(group_types),
             mcp_custom_harness_rules=tuple(mcp_custom_harness_rules),
             saved_queries=[],
@@ -2219,31 +2261,7 @@ class Database(BaseModel):
                 ),
             )
 
-            # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
-            from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
-                get_flag_evaluations_read_mode,
-                is_flag_calls_union_disabled,
-                is_flag_evaluations_table_enabled,
-            )
-
-            # A direct-connection catalog has no "posthog" node to hold the table.
-            include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
-            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true on Cloud and under
-            # DEBUG for an organization still on EVENTS.
-            read_mode: int = FlagEvaluationsMode.EVENTS
-            if include_flag_evaluations_table:
-                read_mode = get_flag_evaluations_read_mode(team.organization_id)
-            read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
-            flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-            flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()
-            # On READ_FLAG_EVALUATIONS, events still holds every flag call. The union only adds cost there. The flag
-            # lets an organization on that mode read the union, to compare it with events before it moves to mode 2.
-            flag_calls_union_opted_in = (
-                flag_calls_union_enabled
-                and read_mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
-                and _cached_organization_flag("hogql-flag-calls-union", team)
-            )
+            flag_calls = _resolve_flag_call_catalog(team, is_direct_query=is_direct_query)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -2519,11 +2537,7 @@ class Database(BaseModel):
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
-            include_flag_evaluations_table=include_flag_evaluations_table,
-            read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
-            flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
-            flag_calls_union_enabled=flag_calls_union_enabled,
-            flag_calls_union_opted_in=flag_calls_union_opted_in,
+            **dataclasses.asdict(flag_calls),
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
