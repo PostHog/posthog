@@ -15,6 +15,8 @@ from urllib.parse import unquote_plus, urlparse
 
 import certifi
 import structlog
+import dns.resolver
+import dns.exception
 from bson import Binary, DatetimeMS, Decimal128, ObjectId, Timestamp, json_util
 from bson.binary import UuidRepresentation
 from bson.code import Code
@@ -760,6 +762,27 @@ def _parse_connection_string(connection_string: str, database_override: str | No
         "connection_string": connection_string,
         "is_srv": parsed.scheme == "mongodb+srv",
     }
+
+
+# Plain LDH labels only: dnspython reads escapes such as `\.` inside a label, so a looser
+# suffix check could send the lookup to a name outside mongodb.net.
+_ATLAS_HOST_PATTERN = re.compile(r"(?:[a-z0-9-]+\.)+mongodb\.net", re.IGNORECASE)
+_SRV_PROBE_TIMEOUT_SECONDS = 5
+
+
+def is_atlas_srv_name(host: str) -> bool:
+    """Whether `host` is an Atlas cluster's SRV name, which only an SRV connection string can use.
+
+    Atlas publishes only SRV and TXT records for the cluster name (cluster0.abcde.mongodb.net),
+    so a standard connection string that names it never resolves. Its member hosts have A records.
+    """
+    if not _ATLAS_HOST_PATTERN.fullmatch(host):
+        return False
+    try:
+        dns.resolver.resolve(f"_mongodb._tcp.{host}", "SRV", lifetime=_SRV_PROBE_TIMEOUT_SECONDS)
+    except dns.exception.DNSException:
+        return False
+    return True
 
 
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
