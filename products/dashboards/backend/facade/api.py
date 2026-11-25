@@ -27,6 +27,8 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils.timezone import now
 
+from pydantic import JsonValue
+
 from posthog.caching.insight_result import InsightResult
 from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
@@ -961,6 +963,15 @@ def live_tile_placements(
     counts. Pass at least one of the two filters. Unscoped: the ids come from the caller's own rows.
     """
     return tiles_logic.live_tile_placements(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
+
+
+def live_tile_layouts(dashboard_id: int, *, limit: int) -> list[dict[str, JsonValue]]:
+    """The grid layouts of at most `limit` live tiles of this dashboard, one dict per tile, keyed by breakpoint.
+
+    Live means neither the tile nor its dashboard is soft-deleted. Unscoped: the id comes from the
+    caller's own row.
+    """
+    return tiles_logic.live_tile_layouts(dashboard_id=dashboard_id, limit=limit)
 
 
 def insight_ids_on_template_dashboards(

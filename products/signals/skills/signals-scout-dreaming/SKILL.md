@@ -1,5 +1,6 @@
 ---
 name: signals-scout-dreaming
+disable-model-invocation: true
 scout-display-name: Dreaming
 description: >
   Memory upkeep scout for the Signals scout fleet. Its main job is distillation: each run reads the

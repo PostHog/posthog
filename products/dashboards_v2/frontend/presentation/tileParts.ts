@@ -1,5 +1,5 @@
 import type { ContentWidget, ContentWidgetParts } from '../dashboard/dashboardTypes'
-import type { TileAction } from '../tiles/tileAction'
+import type { MenuAction } from '../dashboard/menuAction'
 import type { WidgetSlots } from '../widgets/widgetDefinition'
 import type { PresentationEdit } from './presentationEdits'
 
@@ -40,7 +40,7 @@ export function tilePartsAction(
     slots: WidgetSlots,
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
-): TileAction | null {
+): MenuAction | null {
     const parts = TILE_PARTS.filter(({ key }) => hasPart(widget, key, slots))
     if (parts.length === 0) {
         return null
