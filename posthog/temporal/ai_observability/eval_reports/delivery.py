@@ -20,7 +20,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn, markdown_links_to_labels
+from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -37,7 +37,6 @@ logger = structlog.get_logger(__name__)
 # also started the section with its own `## Executive summary` heading we strip it
 # to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
 _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
-_RE_MARKDOWN_IMAGE = re.compile(r"!\[([^\]\n]*)\]\([^)\n]*\)")
 
 
 # The agent writes the markdown, but it reads customer trace content, so a prompt injection can steer
@@ -166,19 +165,37 @@ def _citation_link_label(cited_id: str, link: CitationLink) -> str:
     return "generation" if link.generation_id else "trace"
 
 
-def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
-    """Replace cited generation or trace IDs with clickable markdown links.
+def _citation_placeholders(text: str, citation_map: CitationMap) -> tuple[str, dict[str, str]]:
+    """Swap every cited generation or trace ID for a unique placeholder, mapped back to its ID.
 
     Uses the structured citation map (from add_citation calls) rather than
     scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
     Handles common LLM formatting wrappers (backticks, angle brackets).
 
-    Two-phase approach avoids double-replacement: first swap every occurrence
-    of each cited ID to a unique placeholder, then replace placeholders with the
-    actual markdown links. This prevents cited IDs inside URLs from being matched.
+    Swapping every ID before any link is written keeps cited IDs inside the
+    generated URLs from being matched again.
     """
-    if not citation_map:
-        return text
+    placeholders: dict[str, str] = {}
+    for i, cited_id in enumerate(citation_map):
+        placeholder = f"\x00CITE{i}\x00"
+        placeholders[placeholder] = cited_id
+
+        for wrapper in citation_wrappers(cited_id):
+            text = text.replace(wrapper, placeholder)
+        if citation_map[cited_id].generation_id:
+            text = text.replace(cited_id, placeholder)
+    return text, placeholders
+
+
+def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
+    """Replace cited generation or trace IDs with clickable markdown links."""
+    text, placeholders = _citation_placeholders(text, citation_map)
+    for placeholder, cited_id in placeholders.items():
+        link = citation_map[cited_id]
+        text = text.replace(
+            placeholder, f"[{_citation_link_label(cited_id, link)}]({_make_citation_link(project_id, link)})"
+        )
+    return text
 
     # Phase 1: replace all occurrences of each cited ID with a placeholder.
     placeholders: dict[str, str] = {}
@@ -309,12 +326,15 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
-    # Same threat as in the email: the agent's own `<!channel>`, `<url|label>`, images and links go, and
-    # only the citation links added below stay clickable. `>` stays so blockquotes still render.
-    content = content.replace("&", "&amp;").replace("<", "&lt;")
-    content = markdown_links_to_labels(_RE_MARKDOWN_IMAGE.sub(r"\1", content))
-    content = _linkify_citations(content, project_id, citation_map)
-    mrkdwn_content = _slack_converter.convert(content)
+    content, placeholders = _citation_placeholders(content.replace("&", "&amp;"), citation_map)
+    # Same threat as in the email. Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs
+    # a `<`, so every `<` left after conversion is escaped and only citation links are written back.
+    mrkdwn_content = _slack_converter.convert(content).replace("<", "&lt;")
+    for placeholder, cited_id in placeholders.items():
+        link = citation_map[cited_id]
+        mrkdwn_content = mrkdwn_content.replace(
+            placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
+        )
     return f"*{escape_slack_mrkdwn(title)}*\n{mrkdwn_content}"
 
 
@@ -503,7 +523,9 @@ def deliver_slack_report(
             result = client.chat_postMessage(
                 channel=channel_id,
                 blocks=blocks,
-                text=header_text,
+                text=escape_slack_mrkdwn(header_text),
+                unfurl_links=False,
+                unfurl_media=False,
             )
 
             # Thread replies: remaining sections, one per reply
@@ -515,6 +537,8 @@ def deliver_slack_report(
                         channel=channel_id,
                         thread_ts=thread_ts,
                         text=mrkdwn_text[:3000],
+                        unfurl_links=False,
+                        unfurl_media=False,
                     )
 
         except IntegrationNotFound:

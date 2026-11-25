@@ -244,17 +244,26 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
         )
         self.assertIn("*Drop &lt;!channel&gt; &lt;https://evil.example|sign in&gt;*", result)
 
-    def test_drops_agent_links_and_slack_markup_from_body(self):
-        result = _render_section_mrkdwn(
-            "Summary",
-            "<!channel> [Sign in](https://evil.example/login) ![chart](https://evil.example/p.png) <https://evil.example|x>",
-            project_id=1,
-            citation_map={},
-        )
+    @parameterized.expand(
+        [
+            ("raw_markup", "<!channel> <https://evil.example|sign in>"),
+            ("link", "[Sign in](https://evil.example/login)"),
+            ("escaped_bracket", "\\[Sign in](https://evil.example/login)"),
+            ("bracket_in_label", "[a]b](https://evil.example/login)"),
+            ("bracket_ping", "[a]b](!channel)"),
+            ("image", "![a]b](https://evil.example/p.png)"),
+        ]
+    )
+    def test_agent_markup_never_becomes_live_slack_markup(self, _name: str, content: str):
+        result = _render_section_mrkdwn("Summary", content, project_id=1, citation_map={})
         self.assertNotIn("<", result)
-        self.assertNotIn("evil.example/login", result)
-        self.assertNotIn("p.png", result)
-        self.assertIn("Sign in", result)
+
+    def test_keeps_citation_links_live(self):
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
+        result = _render_section_mrkdwn(
+            "Failures", "Failed: `12345678-1234-1234-1234-123456789abc`", project_id=42, citation_map=citation_map
+        )
+        self.assertRegex(result, r"<http[^|>]+/project/42/ai-observability/traces/trace-abc[^|>]*\|12345678\.\.\.>")
 
     def test_converts_bold(self):
         result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
