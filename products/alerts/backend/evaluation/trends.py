@@ -158,6 +158,7 @@ class TrendsExtractor:
         # more period, while keeping is_current_interval false so breach wording stays "previous".
         series = self._to_series(
             config,
+            query,
             calculation_result,
             has_breakdown,
             is_non_time_series,
@@ -226,6 +227,7 @@ class TrendsExtractor:
     def _to_series(
         self,
         config: TrendsAlertConfig,
+        query: TrendsQuery,
         calculation_result: InsightResult,
         has_breakdown: bool,
         is_non_time_series: bool,
@@ -236,7 +238,7 @@ class TrendsExtractor:
         if has_breakdown:
             results = cast(list[dict[str, Any]], calculation_result.result)
         else:
-            results = [cast(dict[str, Any], _pick_series_result(config, calculation_result))]
+            results = [cast(dict[str, Any], _pick_series_result(config.series_index, calculation_result, query))]
 
         series: list[ComparableSeries] = []
         for result in results:

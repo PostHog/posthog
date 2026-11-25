@@ -1,13 +1,15 @@
 import io
+import os
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,7 +22,12 @@ from posthog.models import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry, MetricCatalog
-from products.metrics.backend.dashboard_import.importer import AGENT_MCP_SCOPES, IMPORT_STATE_KEY
+from products.metrics.backend.dashboard_import.importer import (
+    AGENT_MCP_SCOPES,
+    IMPORT_STATE_KEY,
+    MAX_IMAGE_BYTES,
+    _image_for_retry,
+)
 from products.metrics.backend.facade.api import check_dashboard_import_layout, finalize_dashboard_import
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 from products.tasks.backend.models import Task, TaskRun
@@ -73,6 +80,12 @@ class TestDashboardImportAPI(APIBaseTest):
         self.enterContext(override_settings(SNUFFLE_METRICS_URL="http://snuffle.test"))
         self.workflow = self.enterContext(patch(WORKFLOW))
         self.storage = self.enterContext(patch(f"{IMPORTER}.object_storage"))
+        self.stored: dict[str, bytes] = {}
+        self.storage.write.side_effect = lambda path, content: self.stored.__setitem__(path, content)
+        self.storage.read.side_effect = lambda path, missing_ok=False: (
+            self.stored[path].decode() if path in self.stored else None
+        )
+        self.storage.delete.side_effect = lambda path: self.stored.pop(path, None)
         self.enterContext(
             patch(f"{IMPORTER}.MetricCatalog.load", side_effect=lambda team: MetricCatalog(CATALOG, complete=True))
         )
@@ -160,7 +173,8 @@ class TestDashboardImportAPI(APIBaseTest):
 
     def test_hides_the_description_of_imported_panels_that_have_one(self) -> None:
         grafana = json.loads(_grafana("sum(rate(orders_total[5m]))", "sum(orders_total)"))
-        grafana["panels"][1]["description"] = "Orders per second."
+        # Longer than the 400 characters an insight description holds.
+        grafana["panels"][1]["description"] = "Orders per second. " * 30
 
         body = self._start(source="grafana", grafana_json=json.dumps(grafana))
 
@@ -194,10 +208,11 @@ class TestDashboardImportAPI(APIBaseTest):
         assert [verdict["key"] for verdict in (task.state or {})[IMPORT_STATE_KEY]["resolved"]] == ["p1", "p2"]
 
     def test_builds_the_dashboard_once_from_the_agent_answer(self) -> None:
-        started = self._start(
-            source="grafana",
-            grafana_json=_grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])", "rate(refunds_total[5m])"),
+        grafana = json.loads(
+            _grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])", "rate(refunds_total[5m])")
         )
+        grafana["panels"][3]["gridPos"] = {"x": 12, "y": 16, "w": 12, "h": 8}
+        started = self._start(source="grafana", grafana_json=json.dumps(grafana))
         answer = {
             "dashboard_name": "Orders",
             "panels": [
@@ -234,14 +249,17 @@ class TestDashboardImportAPI(APIBaseTest):
         assert [(panel["key"], panel["outcome"]) for panel in first["panels"]] == [
             ("p1", "imported"),
             ("p2", "imported"),
-            ("p3", "approximated"),
             ("p4", "failed"),
+            ("p3", "approximated"),
         ]
-        assert "refunds_total" in first["panels"][3]["reason"]
+        assert "refunds_total" in first["panels"][2]["reason"]
         assert second["dashboard_id"] == first["dashboard_id"]
         assert Dashboard.objects.filter(team=self.team).count() == 1
         assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
-        assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
+        tiles = DashboardTile.objects.filter(dashboard_id=first["dashboard_id"])
+        assert tiles.count() == 3
+        # The failed p4 sat beside p2, so p2 takes the whole row.
+        assert tiles.get(insight__name="Panel 2").layouts["sm"] == {"x": 0, "y": 1, "w": 12, "h": 3}
         self.storage.delete.assert_called()
 
     def test_an_agent_panel_without_variable_references_says_so(self) -> None:
@@ -276,7 +294,8 @@ class TestDashboardImportAPI(APIBaseTest):
     def test_a_failed_agent_run_creates_no_dashboard(
         self, _name: str, run_status: str, output: dict[str, Any] | None, error: str
     ) -> None:
-        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        grafana_json = _grafana("rate(payments_total[5m])")
+        started = self._start(source="grafana", grafana_json=grafana_json)
 
         self._finish_run(started["id"], run_status=run_status, output=output)
         body = self.client.get(f"{self.url}{started['id']}/").json()
@@ -284,6 +303,26 @@ class TestDashboardImportAPI(APIBaseTest):
         assert (body["status"], body["dashboard_id"]) == ("failed", None)
         assert error in body["error"]
         assert not Dashboard.objects.filter(team=self.team).exists()
+        retry = self.client.get(f"{self.url}{started['id']}/input/").json()
+        assert (retry["source"], retry["name"], retry["grafana_json"]) == ("grafana", None, grafana_json)
+
+    def test_a_dismissed_import_leaves_the_list_and_its_input(self) -> None:
+        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        dismiss_url = f"{self.url}{started['id']}/dismiss/"
+
+        assert self.client.post(dismiss_url).status_code == status.HTTP_409_CONFLICT
+
+        self._finish_run(started["id"], run_status=TaskRun.Status.FAILED, output=None)
+        self.storage.delete.side_effect = OSError("storage unavailable")
+        assert self.client.post(dismiss_url).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert [item["id"] for item in self.client.get(self.url).json()] == [started["id"]]
+
+        self.storage.delete.side_effect = lambda path: self.stored.pop(path, None)
+        assert self.client.post(dismiss_url).status_code == status.HTTP_204_NO_CONTENT
+
+        assert self.client.get(self.url).json() == []
+        assert self.client.get(f"{self.url}{started['id']}/input/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.stored == {}
 
     def test_screenshot_import_places_the_panels_that_the_agent_read(self) -> None:
         started = self._start(source="screenshot", image_base64=_png())
@@ -584,6 +623,40 @@ class TestDashboardImportAPI(APIBaseTest):
         check("sum(rate(orders_total))")
         assert progress() == [("Panel 2", "done"), ("Panel 3", "done")]
 
+    def test_a_matching_import_shows_the_agent_action(self) -> None:
+        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        run = TaskRun.objects.get(task_id=started["id"])
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        now = timezone.now()
+        update = {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call-1",
+            "_meta": {"claudeCode": {"toolName": "mcp__posthog__exec"}},
+            "rawInput": {"command": 'call metric-names-list {"value": "payments"}'},
+        }
+        run.append_log(
+            [
+                {
+                    "type": "notification",
+                    "timestamp": (now - timedelta(seconds=30)).isoformat(),
+                    "notification": {"method": "session/update", "params": {"update": update}},
+                }
+            ]
+        )
+
+        with time_machine.travel(now, tick=False):
+            body = self.client.get(f"{self.url}{started['id']}/").json()
+
+        assert body["phase"] == "matching"
+        assert body["agent_activity"] == {
+            "kind": "searching_metrics",
+            "seconds": 30,
+            "idle_seconds": 30,
+            "subject": "payments",
+            "panel_count": None,
+        }
+
     def test_validate_reports_what_to_fix_for_each_panel(self) -> None:
         response = self.client.post(
             f"{self.url}validate/",
@@ -630,3 +703,14 @@ class TestDashboardImportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert [(item["id"], item["status"], item["phase"]) for item in listed] == [(own["id"], "running", "starting")]
+
+
+class TestImageForRetry(SimpleTestCase):
+    def test_a_screenshot_too_large_as_png_comes_back_within_the_upload_limit(self) -> None:
+        buffer = io.BytesIO()
+        Image.frombytes("RGB", (1568, 1568), os.urandom(1568 * 1568 * 3)).save(buffer, format="PNG")
+        assert len(buffer.getvalue()) > MAX_IMAGE_BYTES
+
+        content, content_type = _image_for_retry(buffer.getvalue())
+
+        assert (content_type, len(content) <= MAX_IMAGE_BYTES) == ("image/jpeg", True)

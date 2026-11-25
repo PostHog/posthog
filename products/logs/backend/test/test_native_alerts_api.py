@@ -361,11 +361,22 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         )
         assert relabelled.json()["annotations"] == {"summary": "Checkout errors"}
 
-    def test_an_alert_with_no_logs_row_takes_a_slot_under_the_cap(self, *_: object) -> None:
-        self.native_create = True
+    @parameterized.expand([("native", True), ("copy_whose_logs_row_is_gone", False)])
+    def test_an_alert_with_no_logs_row_takes_a_slot_under_the_cap(
+        # The class's `patch` mocks come before the parameters.
+        self,
+        _cdp_reload: object,
+        _destinations_reload: object,
+        _name: str,
+        native: bool,
+    ) -> None:
+        self.native_create = native
 
         with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", 1):
-            self._create("logs_api")
+            if native:
+                self._create("logs_api")
+            else:
+                self._create_copy_whose_logs_row_is_gone()
             refused = self.client.post(
                 self.base_url, {"name": "Second", "threshold_count": 10, "filters": _FILTERS}, format="json"
             )

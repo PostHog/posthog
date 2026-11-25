@@ -1,6 +1,9 @@
 import json
+import base64
+import hashlib
+from datetime import timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -8,6 +11,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 import requests
 from oauth2_provider.settings import oauth2_settings
@@ -26,6 +30,14 @@ from posthog.api.oauth.toolbar_service import (
     toolbar_oauth_state_cache,
 )
 from posthog.models import Organization, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
+
+TOOLBAR_RESOURCE_SCOPES = [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if ":" in scope]
+SCREENSHOT_FOR_EVENT_SCOPES = {"event_definition:read", "event_definition:write"}
+PKCE_CODE_VERIFIER = "toolbar-test-code-verifier-" + "x" * 40
+PKCE_CODE_CHALLENGE = (
+    base64.urlsafe_b64encode(hashlib.sha256(PKCE_CODE_VERIFIER.encode()).digest()).rstrip(b"=").decode()
+)
 
 
 class TestToolbarOAuthPrimitives(APIBaseTest):
@@ -96,7 +108,8 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
 
     def test_callback_with_invalid_state_returns_error(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=invalid_state")
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_with_error_returns_plain_text(self):
         response = self.client.get(
@@ -380,7 +393,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
 
     def test_callback_with_invalid_state_returns_error(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=invalid_state")
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_with_error_returns_plain_text(self):
         response = self.client.get("/toolbar_oauth/callback?error=access_denied&error_description=user+cancelled")
@@ -393,7 +407,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         tampered_state = f"{state[:-1]}x"
         response = self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={tampered_state}")
 
-        assert response.status_code >= 400
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_callback_escapes_html_in_error_description(self):
         xss_payload = "</script><script>alert(document.cookie)</script>"
@@ -419,7 +434,8 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             "/toolbar_oauth/authorize/",
             {"redirect": "https://evil.com/page", "code_challenge": "test_challenge"},
         )
-        assert response.status_code == 403
+        assert response.status_code == 302
+        assert response["Location"] == "/toolbar_oauth/error"
 
     def test_authorize_does_not_set_session_marker(self):
         self._authorize_and_get_state()
@@ -469,8 +485,9 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert "redirect_uri:" not in location
         assert "token_endpoint:" not in location
 
-    def test_callback_state_user_mismatch_returns_error(self):
+    def test_callback_state_of_another_user_returns_error_and_revokes_the_code(self):
         state = self._authorize_and_get_state()
+        assert self.client.get(f"/toolbar_oauth/callback?code=owner_code&state={state}").status_code == 302
         other_user = User.objects.create_user(
             email="other-callback@example.com",
             first_name="Other",
@@ -480,8 +497,21 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         )
         self.organization.members.add(other_user)
         self.client.force_login(other_user)
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+        OAuthGrant.objects.create(
+            user=other_user,
+            application=get_or_create_toolbar_oauth_application(user=other_user),
+            code="injected_code",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            scope="openid",
+            code_challenge="test_challenge_value",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=injected_code&state={state}")
+
         assert response.status_code >= 400
+        assert not OAuthGrant.objects.filter(code="injected_code").exists()
 
     def test_callback_state_team_mismatch_returns_error(self):
         state = self._authorize_and_get_state()
@@ -491,18 +521,55 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code >= 400
 
-    def test_callback_state_replay_returns_error(self):
+    def _create_toolbar_grant(self, code: str) -> None:
+        OAuthGrant.objects.create(
+            user=self.user,
+            application=get_or_create_toolbar_oauth_application(user=self.user),
+            code=code,
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            scope="openid",
+            code_challenge="test_challenge_value",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+
+    def test_callback_state_replay_returns_error_and_keeps_only_the_handed_off_code(self):
         state = self._authorize_and_get_state()
-        first = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+        self._create_toolbar_grant("handed_off_code")
+        self._create_toolbar_grant("never_handed_off_code")
+        first = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
         assert first.status_code == 302
-        second = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert second.status_code >= 400
+
+        for code in ["handed_off_code", "never_handed_off_code"]:
+            replay = self.client.get(f"/toolbar_oauth/callback?code={code}&state={state}")
+            assert replay.status_code == 302
+            assert replay["Location"] == "/toolbar_oauth/error"
+
+        assert OAuthGrant.objects.filter(code="handed_off_code").exists()
+        assert not OAuthGrant.objects.filter(code="never_handed_off_code").exists()
 
     @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
-    def test_callback_expired_state_returns_error(self):
+    def test_callback_expired_state_shows_the_error_away_from_the_code_and_revokes_it(self):
         state = self._authorize_and_get_state()
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert response.status_code >= 400
+        self._create_toolbar_grant("unredeemed_code")
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=unredeemed_code&state={state}", follow=True)
+
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
+        assert response.status_code == 400
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"] == {
+            "title": "This toolbar sign-in expired",
+            "message": "Open the toolbar from your site again to start a new sign-in.",
+            "detail": None,
+            "links_to_authorized_urls": False,
+        }
+        assert not OAuthGrant.objects.filter(code="unredeemed_code").exists()
+
+    def test_error_page_without_a_refused_request_leaves_the_error_to_the_app(self):
+        response = self.client.get("/toolbar_oauth/error")
+
+        assert response.status_code == 200
+        assert "toolbar_oauth_error" not in response.context["posthog_app_context"]
 
     def test_callback_app_url_root_domain(self):
         self.team.app_urls = ["https://example.com"]
@@ -548,6 +615,165 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert "section1" in location
         assert "other=value" in location
         assert "__posthog_toolbar=code:new_code" in location
+
+
+class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+    def _create_app_without_ceiling(self, scopes: list[str], optional_scopes: list[str]) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=settings.TOOLBAR_OAUTH_APPLICATION_NAME,
+            user=self.user,
+            organization=self.organization,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            algorithm="RS256",
+            is_first_party=True,
+            scopes=scopes,
+            optional_scopes=optional_scopes,
+        )
+
+    def _create_token_pair(self, application: OAuthApplication, scope: str) -> OAuthRefreshToken:
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_toolbar_ceiling_access",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        return OAuthRefreshToken.objects.create(
+            application=application,
+            user=self.user,
+            token="phr_toolbar_ceiling_refresh",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+        )
+
+    def _post_token(self, body: dict[str, str]):
+        return self.client.post("/oauth/token/", data=urlencode(body), content_type="application/x-www-form-urlencoded")
+
+    def _refresh(self, application: OAuthApplication, refresh_token: OAuthRefreshToken):
+        return self._post_token(
+            {"grant_type": "refresh_token", "client_id": application.client_id, "refresh_token": refresh_token.token}
+        )
+
+    @parameterized.expand(
+        [
+            ("new_app", None, []),
+            ("reused_app_without_ceiling", [], []),
+            ("reused_app_with_stale_ceiling", ["user:read", "user:write"], ["feature_flag:write"]),
+        ]
+    )
+    def test_application_gets_the_toolbar_scope_ceiling(self, _name, existing_scopes, existing_optional_scopes):
+        if existing_scopes is not None:
+            existing = self._create_app_without_ceiling(existing_scopes, existing_optional_scopes)
+
+        app = get_or_create_toolbar_oauth_application(user=self.user)
+
+        app.refresh_from_db()
+        if existing_scopes is not None:
+            assert app.pk == existing.pk
+        assert app.scopes == TOOLBAR_RESOURCE_SCOPES
+        assert SCREENSHOT_FOR_EVENT_SCOPES <= set(app.scopes)
+        assert app.optional_scopes == []
+
+    @parameterized.expand(
+        [
+            ("toolbar_scopes", None),
+            ("wildcard", "*"),
+        ]
+    )
+    def test_authorization_code_flow_grants_only_toolbar_scopes(self, _name, scope_override):
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://example.com/page", "code_challenge": PKCE_CODE_CHALLENGE},
+        )
+        assert response.status_code == 302, response.content
+
+        authorize_url = urlparse(response["Location"])
+        authorize_params = {key: values[0] for key, values in parse_qs(authorize_url.query).items()}
+        if scope_override is not None:
+            authorize_params["scope"] = scope_override
+        response = self.client.get(authorize_url.path, authorize_params)
+        assert response.status_code == 302, response.content
+
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        response = self._post_token(
+            {
+                "grant_type": "authorization_code",
+                "client_id": authorize_params["client_id"],
+                "code": code,
+                "redirect_uri": authorize_params["redirect_uri"],
+                "code_verifier": PKCE_CODE_VERIFIER,
+            }
+        )
+        assert response.status_code == 200, response.content
+
+        granted_scopes = set(response.json()["scope"].split())
+        assert granted_scopes <= set(settings.TOOLBAR_OAUTH_SCOPES)
+        assert granted_scopes - {"openid"} == set(TOOLBAR_RESOURCE_SCOPES)
+        assert SCREENSHOT_FOR_EVENT_SCOPES <= granted_scopes
+
+    def test_refresh_narrows_a_toolbar_token_minted_before_the_ceiling(self):
+        app = self._create_app_without_ceiling([], [])
+        refresh_token = self._create_token_pair(app, "openid user:read user:write")
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._refresh(app, refresh_token)
+
+        assert response.status_code == 200, response.content
+        assert set(response.json()["scope"].split()) == {"openid", "user:read"}
+
+    @parameterized.expand(
+        [
+            ("app_without_ceiling", []),
+            ("app_with_ceiling_already_set", TOOLBAR_RESOURCE_SCOPES),
+        ]
+    )
+    def test_wildcard_token_cannot_refresh_after_the_ceiling_is_synced(self, _name, existing_scopes):
+        app = self._create_app_without_ceiling(existing_scopes, [])
+        refresh_token = self._create_token_pair(app, "*")
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._refresh(app, refresh_token)
+
+        assert response.status_code == 400, response.content
+        assert response.json()["error"] == "invalid_grant"
+        assert not OAuthAccessToken.objects.filter(token="pha_toolbar_ceiling_access").exists()
+
+    def test_wildcard_grant_cannot_be_exchanged_after_the_ceiling_is_synced(self):
+        app = self._create_app_without_ceiling([], [])
+        redirect_uri = f"{settings.SITE_URL}{CALLBACK_PATH}"
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="toolbar_wildcard_code",
+            code_challenge=PKCE_CODE_CHALLENGE,
+            code_challenge_method="S256",
+            redirect_uri=redirect_uri,
+            scope="*",
+            scoped_teams=[self.team.id],
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._post_token(
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "code": grant.code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": PKCE_CODE_VERIFIER,
+            }
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["error"] == "invalid_grant"
 
 
 class TestNormalizeAndValidateAppUrl(APIBaseTest):

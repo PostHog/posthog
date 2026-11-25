@@ -143,6 +143,9 @@ class FilterExpression:
         if name == "not" and types == ["boolean"]:
             node.name = "not"
             return "boolean"
+        if name in {"empty", "notempty"} and types == ["array<string>"] and isinstance(node.args[0], ast.Field):
+            node.name = "empty" if name == "empty" else "notEmpty"
+            return "boolean"
         if (
             name == "has"
             and types == ["array<string>", "string"]

@@ -15484,7 +15484,7 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
     label: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyLabelMax)
-        .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
+        .describe('Display name of the tag the rule applies to matching issues.'),
     description: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyDescriptionMax)
@@ -15634,7 +15634,7 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
             ),
         })
         .describe(
-            'Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+            'Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
         ),
     order_key: zod
         .number()
@@ -15818,7 +15818,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
         ),
 })
 

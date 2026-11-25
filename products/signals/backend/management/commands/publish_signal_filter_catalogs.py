@@ -15,6 +15,7 @@ class Command(BaseCommand):
                 adapter_kind=seed.adapter_kind,
                 initial_rollout_state=seed.initial_rollout_state,
                 bundle=seed.bundle,
+                initial_filter_query_eligible=seed.initial_filter_query_eligible,
             )
             outcome = "published" if publication.version_created else "unchanged"
             self.stdout.write(f"{seed.source_product}/{seed.source_type}: {outcome} at version {publication.version}")

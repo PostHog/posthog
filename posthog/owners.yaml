@@ -5,11 +5,14 @@ rules:
           - '/admin/console/member_email_migration.py'
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
+          - '/helpers/user_email_change.py'
       owners: team-platform-features
     - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
       owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
+    - match: ['/cli_notices.py', '/test/test_cli_notices.py']
+      owners: team-growth
     - match: '/clickhouse/hcl/'
       owners: clickhouse
     - match:
@@ -28,7 +31,7 @@ rules:
           - '/models/organization_entitlement_applied_state.py'
       owners: team-billing
     - match: '/heatmaps/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/hogql/'
       owners: team-data-tools
     - match:
@@ -61,7 +64,7 @@ rules:
     - match: '/slack/'
       owners: team-devex
     - match: '/taxonomy/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/templates/surveys/'
       owners: conversations
     - match: '/warehouse/'
@@ -118,7 +121,7 @@ rules:
     - match: '/test/repo_invariants/test_ai_observability_sample_traces.py'
       owners: team-ai-observability
     - match: '/test/repo_invariants/test_aeo_mcp_tools.py'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/test/repo_invariants/test_person_metadata_fields.py'
       owners: team-data-tools
     - match: '/test/repo_invariants/test_billing_usage_keys.py'
@@ -140,7 +143,7 @@ rules:
     - match:
           - '/resource_limits/test/test_*.py'
           - '/schema_migrations/test/test_*.py'
-      owners: team-product-analytics
+      owners: team-analytics
     - match:
           - '/query_cache/test/test_*.py'
           - '/query_scan/test/test_*.py'

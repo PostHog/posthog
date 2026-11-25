@@ -40,6 +40,7 @@ from ..models import DataQualityCheck, DataQualityCheckRun
 from . import posthog_tables
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
+from .errors import CheckConfigError
 from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
@@ -578,6 +579,8 @@ def definition_reads_unreadable_subject(
         return False
     try:
         refs = referenced_subjects(team_id, check_type, config, subject=subject)
+    except CheckConfigError:
+        return True
     except Exception as err:
         capture_exception(err)
         return True
@@ -706,6 +709,8 @@ def pin_referenced_subjects(
         pinned = list(_pin_names(team_id, references.names).values())
         if references.related_subject is not None:
             pinned.append(references.related_subject)
+    except CheckConfigError:
+        return None
     except Exception as err:
         capture_exception(err)
         return None

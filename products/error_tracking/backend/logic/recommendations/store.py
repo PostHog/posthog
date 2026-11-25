@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
 from products.error_tracking.backend.logic.recommendations.refresh import claim_for_compute, revert_to_ready
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
@@ -17,11 +17,16 @@ class UnknownRecommendationTypeError(Exception):
     pass
 
 
+def _unavailable_types(team_id: int) -> list[str]:
+    return [rec.type for rec in RECOMMENDATIONS if not rec.is_available(team_id)]
+
+
 def list_recommendations(team_id: int) -> list[ErrorTrackingRecommendation]:
     # Rows of a removed recommendation type stay in Postgres. Filter on the registry so that
     # the API does not return a type that has no implementation to compute or enrich it.
     return list(
         ErrorTrackingRecommendation.objects.filter(team_id=team_id, type__in=list(RECOMMENDATIONS_BY_TYPE))
+        .exclude(type__in=_unavailable_types(team_id))
         .select_related("team")
         .order_by("type")
     )
@@ -29,7 +34,11 @@ def list_recommendations(team_id: int) -> list[ErrorTrackingRecommendation]:
 
 def _get(team_id: int, recommendation_id: UUID) -> ErrorTrackingRecommendation:
     try:
-        return ErrorTrackingRecommendation.objects.select_related("team").get(team_id=team_id, id=recommendation_id)
+        return (
+            ErrorTrackingRecommendation.objects.select_related("team")
+            .exclude(type__in=_unavailable_types(team_id))
+            .get(team_id=team_id, id=recommendation_id)
+        )
     except ErrorTrackingRecommendation.DoesNotExist as err:
         raise RecommendationNotFoundError() from err
 

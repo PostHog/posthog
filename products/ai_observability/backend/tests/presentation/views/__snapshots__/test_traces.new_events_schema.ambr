@@ -39,7 +39,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id
   FROM events_json AS __ai_events_fallback
-  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['missing', 'other-trace']), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['missing', 'other-trace']), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
   LIMIT 2 SETTINGS readonly=2,
                    max_execution_time=2,
                    timeout_before_checking_execution_speed=0,
@@ -63,7 +63,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id
   FROM events_json AS __ai_events_fallback
-  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['evaluator/trace']), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(__ai_events_fallback.team_id, 99999), in(CAST(__ai_events_fallback.properties.`$ai_trace_id`, 'Nullable(String)'), ['evaluator/trace']), in(__ai_events_fallback.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), greaterOrEquals(__ai_events_fallback.timestamp, toDateTime64('2025-01-09 23:50:00.000000', 6, 'UTC')), lessOrEquals(__ai_events_fallback.timestamp, toDateTime64('2026-09-09 10:00:00.000000', 6, 'UTC')))
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=2,
                    timeout_before_checking_execution_speed=0,

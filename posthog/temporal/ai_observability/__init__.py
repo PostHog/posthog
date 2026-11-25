@@ -62,14 +62,6 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     execute_session_hog_eval_activity,
     execute_session_llm_judge_activity,
 )
-from posthog.temporal.ai_observability.run_tagger import (
-    RunTaggerWorkflow,
-    disable_tagger_activity,
-    emit_tagger_event_activity,
-    execute_hog_tagger_activity,
-    execute_tagger_activity,
-    fetch_tagger_activity,
-)
 from posthog.temporal.ai_observability.run_trace_evaluation import (
     RunTraceEvaluationWorkflow,
     emit_trace_evaluation_event_activity,
@@ -126,18 +118,6 @@ EVAL_ACTIVITIES = [
     emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,
-]
-
-TAGGER_WORKFLOWS = [
-    RunTaggerWorkflow,
-]
-
-TAGGER_ACTIVITIES = [
-    fetch_tagger_activity,
-    execute_tagger_activity,
-    execute_hog_tagger_activity,
-    emit_tagger_event_activity,
-    disable_tagger_activity,
 ]
 
 WORKFLOWS = [

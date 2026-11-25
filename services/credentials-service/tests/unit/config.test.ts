@@ -234,7 +234,7 @@ describe('loadConfig audit export requirement', () => {
             CREDENTIALS_SERVICE_ENV: env,
             CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://example',
             CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
-            CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+            CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.posthog.invalid',
             CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
         })
         expect(loadConfig().auditExport).toBeDefined()
@@ -273,9 +273,9 @@ describe('loadConfig audit', () => {
 
     it('turns the export on with a host and a key', () => {
         process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED = 'true'
-        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST = 'https://capture.example.com'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST = 'https://capture.posthog.invalid'
         process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY = 'phc_fake'
-        expect(loadConfig().auditExport).toMatchObject({ host: 'https://capture.example.com', batchSize: 500 })
+        expect(loadConfig().auditExport).toMatchObject({ host: 'https://capture.posthog.invalid', batchSize: 500 })
     })
 
     it.each([
@@ -304,7 +304,7 @@ describe('loadConfig audit capture proxy', () => {
     ]
     const BASE = {
         CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
-        CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.posthog.invalid',
         CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
     }
 

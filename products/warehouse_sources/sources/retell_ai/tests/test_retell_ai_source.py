@@ -13,7 +13,19 @@ from products.warehouse_sources.sources.retell_ai.tests.conftest import response
 
 @pytest.mark.parametrize("status", [200, 401, 403])
 @pytest.mark.parametrize(
-    "name", [None, "agents", "chats", "phone_numbers", "voices", "agent_versions", "test_case_definitions"]
+    "name",
+    [
+        None,
+        "agents",
+        "chats",
+        "phone_numbers",
+        "voices",
+        "agent_versions",
+        "test_case_definitions",
+        "contacts",
+        "batch_tests",
+        "test_runs",
+    ],
 )
 def test_scoped_credential_probes(status: int, name: str | None, http: MagicMock) -> None:
     http.return_value = response(
@@ -31,7 +43,7 @@ def test_scoped_credential_probes(status: int, name: str | None, http: MagicMock
         assert error is not None and "permissions" in error
     assert http.call_count == 1
     request = http.call_args.args[1]
-    if name in (None, "chats"):
+    if name in (None, "chats", "contacts"):
         assert json.loads(request.body)["limit"] == 1
     elif name != "voices":
         assert parse_qs(urlsplit(request.url).query)["limit"] == ["1"]
