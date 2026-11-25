@@ -25,7 +25,7 @@ from products.experiments.backend.health.exposure_columns import load_filters_wi
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
-from products.experiments.backend.health.metric_windows import load_primary_metric_windows
+from products.experiments.backend.health.metric_windows import has_metric_windows, load_primary_metric_windows
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
@@ -240,8 +240,9 @@ def _health_context(
         primary_metric=load_primary_metric(experiment, team_config=team_config),
         primary_metric_windows=load_primary_metric_windows(
             experiment,
+            # The launch time reads the activity log, so only an experiment that has metric windows pays for it.
             launched_at=experiment.launched_at(read_activity_log=reader_access.can_read_flag_history)
-            if experiment.is_running
+            if experiment.is_running and has_metric_windows(experiment)
             else None,
         ),
         metric_compiles=load_metric_compiles(experiment, team_config=team_config, user=user),
