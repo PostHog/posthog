@@ -375,6 +375,10 @@ export const ListRowMenuDisabledAlertOpen: Story = {
         const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
         name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
         await within(document.body).findByText('Enable alert')
+        await userEvent.hover(
+            document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-snooze-1h"]') as HTMLElement
+        )
+        await within(document.body).findByText('Enable the alert first')
     },
 }
 
@@ -384,6 +388,15 @@ export const ListRowMenuSourceOwnedOpen: Story = {
         const name = await within(canvasElement).findByText(CONFIGURATION.name)
         name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
         await within(document.body).findByText('Disable alert')
+    },
+}
+
+export const ListRowMenuSnoozedAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('p95 latency above 500 ms')
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Unsnooze')
     },
 }
 
