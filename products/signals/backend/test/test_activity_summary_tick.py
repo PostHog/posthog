@@ -736,6 +736,7 @@ class TestActivitySummaryQueue(BaseTest):
         broken = MagicMock(side_effect=redis.ConnectionError("unreachable"))
 
         with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
             patch.object(tick, "read_config", return_value=self._config(mcp_buffer_enabled=True)),
             patch.object(mcp_buffer, "_teams_redis_client", broken),
             patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
@@ -951,8 +952,6 @@ class TestActivitySummaryQueue(BaseTest):
             override_settings(
                 AI_GATEWAY_URL="https://ai-gateway.example/v1" if gateway_key else "",
                 AI_GATEWAY_API_KEY=gateway_key,
-                LLM_GATEWAY_URL="",
-                LLM_GATEWAY_API_KEY="",
             ),
             patch.object(tick, "read_config", return_value=self._config(**overrides)),
             patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),

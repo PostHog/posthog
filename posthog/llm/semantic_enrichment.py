@@ -134,11 +134,12 @@ class TruncatedCompletionError(ValueError):
 
 @frozen
 class _Completion:
-    """One model reply, with token counts under the OpenAI key names."""
+    """One model reply."""
 
     text: str
     usage: dict[str, Any]
     truncated: bool
+    # The ceiling this call sent, for the truncation message.
     max_output_tokens: int
 
 
@@ -188,11 +189,14 @@ def _messages_text(response: Any) -> str:
 
 
 def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient:
-    """Client for one enrichment call, on the Anthropic Messages shape the Go ai-gateway serves Claude under."""
+    """Client for one enrichment call.
+
+    The Go ai-gateway plans Claude models only under Anthropic's native Messages shape.
+    """
     # The Messages `metadata.user_id` goes upstream to the provider; capture identity comes from
     # the X-PostHog-Distinct-Id header this sets, so without it the team is not attributed.
     return _MessagesClient(
-        build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
+        build_anthropic_client(ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
     )
 
 
