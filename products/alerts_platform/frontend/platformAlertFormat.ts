@@ -185,6 +185,34 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
     }))
 }
 
+export function canExpand(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.alerts.length > 1
+}
+
+export type PlatformAlertListRow =
+    | { kind: 'alert'; configuration: PlatformAlertConfigurationApi }
+    | { kind: 'group'; configuration: PlatformAlertConfigurationApi; group: PlatformAlertApi }
+
+export function configurationListRows(
+    configurations: readonly PlatformAlertConfigurationApi[],
+    expandedIds: readonly string[]
+): PlatformAlertListRow[] {
+    return configurations.flatMap((configuration): PlatformAlertListRow[] => [
+        { kind: 'alert', configuration },
+        ...(expandedIds.includes(configuration.id) && canExpand(configuration)
+            ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
+            : []),
+    ])
+}
+
+export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly string[]): string {
+    if (!alert.grouping_key) {
+        return 'Ungrouped'
+    }
+    const labels = groupLabels(alert, groupingKeys)
+    return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
+}
+
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
     const count = configuration.overflowed_groups
     if (count <= 0) {

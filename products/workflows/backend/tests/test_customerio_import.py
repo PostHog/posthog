@@ -533,6 +533,40 @@ class TestCustomerioCampaignTranslation(BaseTest):
         found = steps["cio_audience"]["config"]["conditions"][0]["filters"]["properties"]
         assert [item["key"] for item in found] == audience
 
+    @parameterized.expand(
+        [
+            ("event once", "transactional", "rematch", -1, None),
+            ("event once a day", "transactional", "rematch", 86400, 86400),
+            ("form under a minute", "form", "rematch", 5, 60),
+            ("event over three years", "transactional", "rematch", 157680000, 94608000),
+            ("segment once", "seg_attr", "none", 0, None),
+            ("segment once through the interval", "seg_attr", "rematch", -1, None),
+            ("segment at most weekly", "behavioral", "rematch", 604800, 604800),
+        ]
+    )
+    def test_re_entry_limit_becomes_trigger_masking(
+        self, _name: str, kind: str, mode: str, interval: int, ttl: int | None
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": kind, "restart_mode": mode, "restart_min_interval": interval}
+        translated = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        )
+
+        assert translated.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": ttl, "threshold": None}
+        assert any("can enter again" in note.message for note in translated.notes)
+        assert any("so it became" in note.message for note in translated.notes) == (interval > 0 and interval != ttl)
+        assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
+
+    def test_event_automation_without_a_limit_has_no_masking(self) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "restart_mode": "rematch", "restart_min_interval": 0}
+
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+        assert workflow["trigger_masking"] is None
+
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
             "id": "5",
