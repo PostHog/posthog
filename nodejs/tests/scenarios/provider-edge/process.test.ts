@@ -169,24 +169,31 @@ describe('provider edge process', () => {
         }
     }, 10_000)
 
-    it('drops a reply that reaches the runner after it gave up on the call', async () => {
-        await edge.close()
-        edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
-        await withFakeTimers(async () => {
-            process.kill(edge.pid!, 'SIGSTOP')
-            const holding = outcomeOf(edge.hold(REJECT))
-            const writtenBefore = bytesWrittenBy(edge.pid!)
-            process.kill(edge.pid!, 'SIGCONT')
-            blockRunnerUntil(() => bytesWrittenBy(edge.pid!) > writtenBefore, 5000)
-            jest.advanceTimersByTime(500)
-            jest.advanceTimersByTime(1)
+    // The test knows the edge wrote its reply from the edge's write count in /proc, which only Linux has.
+    const itOnLinux = process.platform === 'linux' ? it : it.skip
 
-            expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
-                outcome: 'the provider edge process did not answer add within 500 ms',
-                edgeRuns: false,
+    itOnLinux(
+        'drops a reply that reaches the runner after it gave up on the call',
+        async () => {
+            await edge.close()
+            edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+            await withFakeTimers(async () => {
+                process.kill(edge.pid!, 'SIGSTOP')
+                const holding = outcomeOf(edge.hold(REJECT))
+                const writtenBefore = bytesWrittenBy(edge.pid!)
+                process.kill(edge.pid!, 'SIGCONT')
+                blockRunnerUntil(() => bytesWrittenBy(edge.pid!) > writtenBefore, 5000)
+                jest.advanceTimersByTime(500)
+                jest.advanceTimersByTime(1)
+
+                expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
+                    outcome: 'the provider edge process did not answer add within 500 ms',
+                    edgeRuns: false,
+                })
             })
-        })
-    }, 10_000)
+        },
+        10_000
+    )
 
     it('settles a reply that waits on the channel when the runner was blocked past the deadline', async () => {
         await edge.close()
