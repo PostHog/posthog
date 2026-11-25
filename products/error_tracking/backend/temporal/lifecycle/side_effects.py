@@ -130,7 +130,7 @@ def alert_delivery_inputs(
     extra = {
         key: str(value)
         for key, value in (extra_properties or {}).items()
-        if key in ("computed_baseline", "current_bucket_value") and value is not None
+        if key in ("computed_baseline", "current_bucket_value", "reopened_by_release_version") and value is not None
     }
     return AlertDeliveryWorkflowInputs.build(
         notification_id=inputs.notification_id,

@@ -2,6 +2,7 @@ import json
 import asyncio
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -10,6 +11,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
     IssueReopenedSnapshot,
     IssueReopenedWorkflowInputs,
     IssueReopenedWorkflowResult,
+    ReopenedByRelease,
 )
 from products.error_tracking.backend.temporal.lifecycle.policies import (
     ACTIVITY_RETRY_POLICY,
@@ -22,6 +24,7 @@ from products.error_tracking.backend.temporal.lifecycle.summary_activity import 
 
 WORKFLOW_NAME = "error-tracking-issue-reopened"
 SUMMARY_ON_REOPEN_PATCH = "error-tracking-summary-on-reopen-activity"
+ACTIVITY_LOG_ON_REOPEN_PATCH = "error-tracking-activity-log-on-reopen-activity"
 
 
 async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -> None:
@@ -101,6 +104,26 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
             await change_log
 
 
+async def record_reopen_in_activity_log(inputs: IssueReopenedWorkflowInputs) -> None:
+    """Write the reopen to the issue's activity log, and count a failure instead of raising it.
+
+    The entry only explains the reopen on the issue page, so a failure must not fail the workflow.
+    """
+    try:
+        await workflow.execute_activity(
+            "record_issue_reopened_activity_log_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+    except ActivityError:
+        workflow.logger.warning("Issue reopened activity log activity failed; the activity log misses this reopen")
+        workflow.metric_meter().create_counter(
+            "error_tracking_issue_reopened_activity_log_fail_open",
+            "Issue-reopened workflows whose activity log activity failed",
+        ).add(1)
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
     @staticmethod
@@ -115,9 +138,22 @@ class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
         data.pop("type", None)
         data.pop("event_properties", None)
         data["issue"] = IssueReopenedSnapshot(**data["issue"])
+        if data.get("reopened_by_release") is not None:
+            data["reopened_by_release"] = ReopenedByRelease(**data["reopened_by_release"])
         return IssueReopenedWorkflowInputs(**data)
 
     @workflow.run
     async def run(self, inputs: IssueReopenedWorkflowInputs) -> IssueReopenedWorkflowResult:
-        await run_issue_reopened_side_effects(inputs)
+        # Not in the shared side effects, because the issue-created workflow runs them for an auto-merge,
+        # which is no ingestion reopen. Patched, because executions in flight replay the old sequence.
+        activity_log = (
+            asyncio.create_task(record_reopen_in_activity_log(inputs))
+            if workflow.patched(ACTIVITY_LOG_ON_REOPEN_PATCH)
+            else None
+        )
+        try:
+            await run_issue_reopened_side_effects(inputs)
+        finally:
+            if activity_log is not None:
+                await activity_log
         return IssueReopenedWorkflowResult(notified=True)

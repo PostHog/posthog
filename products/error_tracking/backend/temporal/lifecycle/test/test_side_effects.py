@@ -13,13 +13,20 @@ from posthog.models import Team
 from products.cdp.backend.filters import compile_filters_bytecode
 from products.cdp.backend.internal_events import InternalEventEvent
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee
+from products.error_tracking.backend.temporal.alerts.messages import build_reply_text
+from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.activities import (
+    dispatch_issue_reopened_alert_activity,
+    emit_issue_reopened_internal_event_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import (
     IssueReopenedSnapshot,
     IssueReopenedWorkflowInputs,
+    ReopenedByRelease,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_spiking.types import (
     IssueSpikingSnapshot,
@@ -34,6 +41,12 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
 )
 
 ASSIGNEE = '{"type":"user","id":1}'
+RELEASE = ReopenedByRelease(
+    id="01982721-5e00-7000-8000-000000000010",
+    version="2.4.0",
+    project="checkout-web",
+    created_at="2026-07-21T11:00:00Z",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -313,6 +326,77 @@ def test_internal_event_names_the_assignee_only_while_it_matches_the_snapshot(
     assert {key: value for key, value in properties.items() if key in ("assignee_name", "assignee_email")} == (
         expected_names
     )
+
+
+@pytest.mark.parametrize(
+    "reopened_by_release, expected_properties",
+    [
+        (None, {"reopen_reason": "new_occurrence"}),
+        (
+            RELEASE,
+            {
+                "reopen_reason": "new_release",
+                "reopened_by_release_version": "2.4.0",
+                "reopened_by_release_project": "checkout-web",
+                "reopened_by_release_id": "01982721-5e00-7000-8000-000000000010",
+            },
+        ),
+    ],
+    ids=["new_occurrence", "new_release"],
+)
+def test_reopened_internal_event_says_why_the_issue_reopened(
+    reopened_by_release: ReopenedByRelease | None, expected_properties: dict[str, str]
+) -> None:
+    sent_events: list[InternalEventEvent] = []
+
+    def capture_event(_team_id: int, event: InternalEventEvent) -> MagicMock:
+        sent_events.append(copy.deepcopy(event))
+        return MagicMock()
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.get",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value={},
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.produce_internal_event",
+            side_effect=capture_event,
+        ),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+    ):
+        emit_issue_reopened_internal_event_activity(
+            dataclasses.replace(_inputs(), reopened_by_release=reopened_by_release)
+        )
+
+    properties = sent_events[0].properties
+    release_keys = {key for key in properties if key.startswith("reopen")}
+    assert {key: properties[key] for key in release_keys} == expected_properties
+
+
+@pytest.mark.parametrize(
+    "version, expected_reply",
+    [
+        (None, "🔄 Reopened"),
+        ("2.4.0", "🔄 Reopened by release 2.4.0"),
+        ("2.4.0 <!channel>", "🔄 Reopened by release 2.4.0 &lt;!channel&gt;"),
+    ],
+    ids=["new_occurrence", "new_release", "release_version_is_escaped"],
+)
+def test_reopened_slack_reply_names_the_release(version: str | None, expected_reply: str) -> None:
+    release = dataclasses.replace(RELEASE, version=version) if version is not None else None
+    started: list[AlertDeliveryWorkflowInputs] = []
+
+    with patch(
+        "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+        side_effect=started.append,
+    ):
+        dispatch_issue_reopened_alert_activity(dataclasses.replace(_inputs(), reopened_by_release=release))
+
+    assert build_reply_text(started[0]) == expected_reply
 
 
 def test_dispatch_raises_so_the_activity_retries() -> None:

@@ -144,6 +144,9 @@ def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
         case "$error_tracking_issue_unassigned":
             return f"👤 Unassigned{by}"
         case "$error_tracking_issue_reopened":
+            release_version = extra.get("reopened_by_release_version")
+            if release_version:
+                return f"🔄 Reopened by release {escape_slack_mrkdwn(release_version)}"
             return f"🔄 Reopened{by}"
         case "$error_tracking_issue_created":
             # A created event can reach an existing thread only as a redelivered
