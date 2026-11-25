@@ -1,5 +1,5 @@
 import type { Named, Step } from '../cards'
-import { BarEvidence, BarResult, CpuPoint, StepReading, judgeBars, stepReadingsOf } from './bars'
+import { BarEvidence, BarResult, CpuPoint, StepReading, judgeBars, judgeStep, stepReadingsOf } from './bars'
 import type { JournalEntry } from './judge'
 import type { HostSample, MetricSample } from './measurements'
 
@@ -495,5 +495,17 @@ describe('stepReadingsOf', () => {
         ],
     ])('%s', (_story, changes, expected) => {
         expect(stepReadingsOf(BARS, evidence(changes))).toEqual(expected)
+    })
+
+    it('keeps what the live judge read of each step when the final writer CPU read failed', () => {
+        const live = evidence({})
+        const settled = new Map(live.steps.map((_step, i) => [i, judgeStep(BARS, live, i)]))
+
+        expect(
+            stepReadingsOf(BARS, evidence({ writerCpu: { unread: 'the writer CPU read failed: throttled' }, settled }))
+        ).toEqual([
+            [writer(40), pickup(1, 'hogflow')],
+            [writer(65), pickup(1, 'hogflow')],
+        ])
     })
 })
