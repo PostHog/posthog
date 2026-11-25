@@ -1,8 +1,12 @@
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -11,12 +15,15 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.project_creation_limits import (
     ORGANIZATION_PROJECT_LIMIT_MESSAGE,
     PLAN_PROJECT_LIMIT_MESSAGE,
     PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
 )
 from posthog.test.authentication_checks import covers_authentication
+
+from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
@@ -470,6 +477,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert pat.scopes == ["query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+        assert pat.provisioned_by_id == app.id
 
     def test_create_resource_pat_excludes_optional_scopes_outside_grant(self):
         token = self._get_bearer_token()
@@ -993,6 +1001,42 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
+        orphan_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=sibling_user,
+            token="orphan_refresh_token_value",
+            access_token=None,
+            scoped_teams=[self.team.id],
+        )
+        rotated_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=sibling_user,
+            token="rotated_refresh_token_value",
+            access_token=None,
+            revoked=timezone.now(),
+            scoped_teams=[self.team.id],
+        )
+        for _ in range(5):
+            assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
+        unrestricted_key, fully_unrestricted_key, other_organization_key, team_in_other_organization_key = (
+            PersonalAPIKey.objects.filter(provisioned_by=access_token.application)[:4]
+        )
+        other_organization_id = str(Organization.objects.create(name="Other org").id)
+        PersonalAPIKey.objects.filter(id=unrestricted_key.id).update(scoped_teams=[])
+        PersonalAPIKey.objects.filter(id=fully_unrestricted_key.id).update(scoped_teams=[], scoped_organizations=[])
+        PersonalAPIKey.objects.filter(id=other_organization_key.id).update(
+            scoped_teams=[], scoped_organizations=[other_organization_id]
+        )
+        PersonalAPIKey.objects.filter(id=team_in_other_organization_key.id).update(
+            scoped_organizations=[other_organization_id]
+        )
+        own_key = mint_personal_api_key(
+            sibling_user,
+            label=self.team.name,
+            scopes=["query:read"],
+            teams=AccessibleTeams.for_user(sibling_user, [self.team.id]),
+            organization_ids=[str(self.team.organization_id)],
+        ).key
 
         res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/remove",
@@ -1005,6 +1049,65 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         sibling_rt.refresh_from_db()
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
+        assert not OAuthRefreshToken.objects.filter(pk__in=[orphan_rt.pk, rotated_rt.pk]).exists()
+        assert not OAuthRefreshToken.objects.filter(application=access_token.application, scoped_teams=[]).exists()
+        surviving_ids = set(PersonalAPIKey.objects.filter(user=sibling_user).values_list("id", flat=True))
+        assert surviving_ids == {own_key.id, other_organization_key.id, team_in_other_organization_key.id}
+
+    def test_remove_deletes_an_unrestricted_partner_key_whose_owner_cannot_access_the_project(self) -> None:
+        token = self._get_bearer_token()
+        partner_app = OAuthAccessToken.objects.get(token=token).application
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        teammate = User.objects.create_and_join(
+            organization=self.organization,
+            email="private-teammate@example.com",
+            password="testpass",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        assert maybe_create_provisioned_pat(teammate, other_team, partner_app, "query:read")
+        partner_key = PersonalAPIKey.objects.get(user=teammate, provisioned_by=partner_app)
+        PersonalAPIKey.objects.filter(id=partner_key.id).update(
+            scoped_teams=[], scoped_organizations=[str(self.organization.id)]
+        )
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+
+        res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
+
+        assert res.status_code == 200, res.json()
+        assert not PersonalAPIKey.objects.filter(id=partner_key.id).exists()
+
+    def test_remove_names_no_actor_in_another_organization_a_partner_key_reaches(self) -> None:
+        token = self._get_bearer_token()
+        partner_app = OAuthAccessToken.objects.get(token=token).application
+        other_organization = Organization.objects.create(name="Other org")
+        teammate = User.objects.create_and_join(
+            organization=self.organization, email="teammate@example.com", password="testpass"
+        )
+        teammate.join(organization=other_organization)
+        assert maybe_create_provisioned_pat(teammate, self.team, partner_app, "query:read")
+        partner_key = PersonalAPIKey.objects.get(user=teammate, provisioned_by=partner_app)
+        PersonalAPIKey.objects.filter(id=partner_key.id).update(
+            scoped_teams=[], scoped_organizations=[str(self.organization.id), str(other_organization.id)]
+        )
+
+        res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
+
+        assert res.status_code == 200, res.json()
+        actor_per_organization = dict(
+            ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=partner_key.id, activity="deleted").values_list(
+                "organization_id", "user_id"
+            )
+        )
+        assert actor_per_organization == {self.organization.id: self.user.id, other_organization.id: None}
 
     def test_remove_does_not_delete_other_partners_config(self):
         # The base team is in the caller's scope, but its config belongs to a
@@ -1038,6 +1141,26 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
 
         # the caller's token only had this team in scope, so stripping it revokes the token
         assert not OAuthAccessToken.objects.filter(token=token).exists()
+
+    def test_remove_keeps_mapping_and_scope_when_key_deletion_fails(self) -> None:
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"application": access_token.application}
+        )
+
+        with patch(
+            "ee.api.agentic_provisioning.views.resources.delete_provisioned_pats",
+            side_effect=RuntimeError("key deletion failed"),
+        ):
+            res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
+
+        assert res.status_code == 500
+        assert TeamProvisioningConfig.objects.filter(team=self.team).exists()
+        access_token.refresh_from_db()
+        assert self.team.id in access_token.scoped_teams
 
 
 class TestCreateProvisionedPat(ProvisioningTestBase):
@@ -1073,6 +1196,26 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         assert pat is not None
         assert len(pat.label) == 40
         assert pat.label.startswith("LongPartnerName - ")
+
+    @parameterized.expand([("token_refreshed_or_deleted", None), ("team_out_of_scope", [])])
+    def test_rotation_with_a_bearer_that_no_longer_covers_the_team_ends_earlier_keys_and_mints_none(
+        self, _name: str, remaining_scoped_teams: list[int] | None
+    ) -> None:
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), "query:read")
+        tokens = OAuthAccessToken.objects.filter(pk=access_token.pk)
+        if remaining_scoped_teams is None:
+            tokens.delete()
+        else:
+            tokens.update(scoped_teams=remaining_scoped_teams)
+
+        api_key = maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", access_token=access_token, replace_existing=True
+        )
+
+        assert api_key is None
+        assert not PersonalAPIKey.objects.filter(user=self.user, provisioned_by=self.partner).exists()
 
     def test_no_pat_when_ceiling_unseeded(self):
         # A flag-on app without a scope ceiling must not fall back to ["*"] or
