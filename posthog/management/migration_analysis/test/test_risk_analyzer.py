@@ -1566,6 +1566,35 @@ class TestCombinationRisks:
                 True,
             ),
             (
+                "quoted_name_with_dash_called",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT * FROM "f-g"();',
+                True,
+            ),
+            (
+                "quoted_name_with_space_called",
+                'CREATE FUNCTION "my func"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my func"();',
+                True,
+            ),
+            (
+                "quoted_schema_with_space_called",
+                'CREATE FUNCTION "my schema".f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my schema".f();',
+                True,
+            ),
+            (
+                "comment_between_name_and_paren",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT f /* run it */ ();",
+                True,
+            ),
+            (
+                "quoted_name_not_called_leaves_body_out",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT g();',
+                False,
+            ),
+            (
                 "unrelated_call_leaves_body_out",
                 "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT now();",
                 False,

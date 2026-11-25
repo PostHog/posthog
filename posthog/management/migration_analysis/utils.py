@@ -39,9 +39,12 @@ _FUNCTION_BODY = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b[^;]*?\bAS\s+(\$\w*\$).*?\1",
     re.IGNORECASE | re.DOTALL,
 )
+_IDENTIFIER = r'(?:"(?:[^"]|"")+"|\w+)'
 _ROUTINE_NAME = re.compile(
-    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+(?:"?\w+"?\.)?"?(\w+)', re.IGNORECASE
+    rf"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+(?:{_IDENTIFIER}\s*\.\s*)?({_IDENTIFIER})",
+    re.IGNORECASE,
 )
+_GAP_BEFORE_ARGS = r"(?:\s|/\*.*?\*/|--[^\n]*\n)*"
 _TRIGGER_EXECUTE = re.compile(r"\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b[^;]*", re.IGNORECASE)
 _TRIGGER_EVENT = r"(?:INSERT|UPDATE|DELETE|TRUNCATE)\b(?:\s+OF\s+[\w\s,\"]+?)?"
 _TRIGGER_EVENTS = re.compile(
@@ -52,7 +55,11 @@ _TRIGGER_EVENTS = re.compile(
 def _calls_created_routine(sql: str, without_bodies: str) -> bool:
     # A trigger's EXECUTE FUNCTION names the routine without running it now.
     outside = _TRIGGER_EXECUTE.sub("", without_bodies)
-    return any(re.search(rf'\b{re.escape(name)}"?\s*\(', outside, re.IGNORECASE) for name in _ROUTINE_NAME.findall(sql))
+    names = {name.strip('"').replace('""', '"') for name in _ROUTINE_NAME.findall(sql)}
+    return any(
+        re.search(rf'(?<![\w$])"?{re.escape(name)}"?{_GAP_BEFORE_ARGS}\(', outside, re.IGNORECASE | re.DOTALL)
+        for name in names
+    )
 
 
 def sql_run_at_migration_time(sql: str) -> str:
