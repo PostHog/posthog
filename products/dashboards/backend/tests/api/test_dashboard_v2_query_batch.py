@@ -620,6 +620,29 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
         self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
 
+    @parameterized.expand([("at_the_limit", 1000, None), ("past_the_limit", 1001, True)])
+    def test_log_lines_past_the_limit_are_marked_truncated(
+        self, _name: str, returned: int, truncated: bool | None
+    ) -> None:
+        # Two streams, so the line dropped is the oldest across them, not the last of one stream.
+        streams = [
+            {"stream": {"service_name": "api"}, "values": [[str(10**18 + i * 2), "a"] for i in range(returned // 2)]},
+            {
+                "stream": {"service_name": "web"},
+                "values": [[str(10**18 + i * 2 + 1), "b"] for i in range(returned - returned // 2)],
+            },
+        ]
+        payload = {"status": "success", "data": {"resultType": "streams", "result": streams}}
+        with _snuffle_requests(200, payload) as request:
+            (line,) = self._lines([_telemetry("logql", '{service_name=~"api|web"}')])
+
+        self.assertEqual(self._snuffle_calls(request)["http://logs.test/loki/api/v1/query_range"]["limit"], "1001")
+        sent_back = line["result"]["result"]["results"]["result"]
+        timestamps = sorted(int(value[0]) for stream in sent_back for value in stream["values"])
+        self.assertEqual(len(timestamps), 1000)
+        self.assertEqual(timestamps[0], 10**18 + returned - 1000)
+        self.assertEqual(line.get("truncated"), truncated)
+
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
     def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:
         with _snuffle_requests(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"}):
