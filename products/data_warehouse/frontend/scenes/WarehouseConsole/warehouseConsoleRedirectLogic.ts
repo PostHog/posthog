@@ -9,7 +9,7 @@ import { WarehouseConsoleState, warehouseConsoleLogic } from './warehouseConsole
 /**
  * How a page reacts to the warehouse state:
  * - `console`: needs a warehouse, so with none it goes to the upsell page.
- * - `upsell`: the page for organizations without a warehouse, so with one it goes to Usage.
+ * - `upsell`: the page for organizations without a warehouse, so with one it goes to the Overview.
  * - `setup`: the page where the warehouse gets created, so it never redirects.
  */
 export type WarehousePageKind = 'console' | 'upsell' | 'setup'
@@ -27,7 +27,7 @@ export function warehouseConsoleRedirectTarget(
         return kind === 'console' ? urls.warehouse() : null
     }
     if (consoleState === 'ready' || consoleState === 'not_ready') {
-        return kind === 'upsell' ? urls.warehouseUsage() : null
+        return kind === 'upsell' ? urls.warehouseOverview() : null
     }
     return null
 }

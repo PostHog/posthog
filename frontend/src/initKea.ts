@@ -51,6 +51,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadOfflineHistoryPrimaryPage',
     'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
+    'loadWarehouseOverviewHealthIssues', // The warehouse overview renders its own retry state
+    'loadWarehouseOverviewRecentRuns', // The warehouse overview renders its own retry state
+    'loadWarehouseOverviewJobStats', // The warehouse overview renders its own retry state
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
     'authenticate', // Special error handling on login
@@ -138,6 +141,8 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadRunning: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
     loadHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
     loadMoreHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadOverviewUsage: 'products.data_warehouse.frontend.scenes.WarehouseOverviewScene.warehouseConsoleOverviewLogic',
+    loadWorkload: 'products.data_warehouse.frontend.scenes.WarehouseOverviewScene.warehouseConsoleOverviewLogic',
     loadUsage: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
     loadSettings: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
     loadStorage: 'products.data_warehouse.frontend.scenes.WarehouseStorageScene.warehouseStorageLogic',

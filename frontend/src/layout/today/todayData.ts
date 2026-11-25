@@ -35,8 +35,8 @@ function warehouseConsolePage(
 function dataWarehouseSpecs(): TodayPaneProductSpec[] {
     return [
         { href: urls.dataOps() },
-        { href: urls.models() },
         { href: urls.dataWarehouseManagedViewsets() },
+        warehouseConsolePage('Overview', urls.warehouseOverview(), 'WarehouseOverview', 'warehouse-overview'),
         warehouseConsolePage(
             'PostHog data',
             urls.warehousePostHogData(),
@@ -59,6 +59,7 @@ function dataWarehouseSpecs(): TodayPaneProductSpec[] {
 
 function dataDefinitionSpecs(): TodayPaneProductSpec[] {
     return [
+        { href: urls.models() },
         { href: urls.dataCatalog() },
         { href: urls.eventDefinitions() },
         { href: urls.propertyDefinitions() },

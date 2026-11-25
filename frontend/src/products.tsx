@@ -176,6 +176,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/warehouse': ['Warehouse', 'warehouse'],
+    '/warehouse/overview': ['WarehouseOverview', 'warehouseOverview'],
     '/warehouse/usage': ['WarehouseUsage', 'warehouseUsage'],
     '/warehouse/queries': ['WarehouseQueries', 'warehouseQueries'],
     '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
@@ -996,6 +997,12 @@ export const productConfiguration: Record<string, any> = {
         description: 'Query your PostHog and source data with SQL in PostHog or from your own tools.',
         iconType: 'data_warehouse',
     },
+    WarehouseOverview: {
+        name: 'Overview',
+        projectBased: true,
+        description: 'See your warehouse spend, usage and pipeline health at a glance.',
+        iconType: 'data_warehouse',
+    },
     WarehouseUsage: {
         name: 'Usage',
         projectBased: true,
@@ -1702,6 +1709,7 @@ export const productUrls = {
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     warehouse: (): string => '/warehouse',
+    warehouseOverview: (): string => '/warehouse/overview',
     warehouseUsage: (): string => '/warehouse/usage',
     warehouseQueries: (): string => '/warehouse/queries',
     warehouseStorage: (): string => '/warehouse/storage',

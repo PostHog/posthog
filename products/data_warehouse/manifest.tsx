@@ -94,6 +94,13 @@ export const manifest: ProductManifest = {
             description: 'Query your PostHog and source data with SQL in PostHog or from your own tools.',
             iconType: 'data_warehouse',
         },
+        WarehouseOverview: {
+            name: 'Overview',
+            import: () => import('./frontend/scenes/WarehouseOverviewScene/WarehouseOverviewScene'),
+            projectBased: true,
+            description: 'See your warehouse spend, usage and pipeline health at a glance.',
+            iconType: 'data_warehouse',
+        },
         WarehouseUsage: {
             name: 'Usage',
             import: () => import('./frontend/scenes/WarehouseUsageScene/WarehouseUsageScene'),
@@ -154,6 +161,7 @@ export const manifest: ProductManifest = {
     routes: {
         // pinned: people bookmark these paths
         '/warehouse': ['Warehouse', 'warehouse'],
+        '/warehouse/overview': ['WarehouseOverview', 'warehouseOverview'],
         '/warehouse/usage': ['WarehouseUsage', 'warehouseUsage'],
         '/warehouse/queries': ['WarehouseQueries', 'warehouseQueries'],
         '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
@@ -201,6 +209,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         warehouse: (): string => '/warehouse',
+        warehouseOverview: (): string => '/warehouse/overview',
         warehouseUsage: (): string => '/warehouse/usage',
         warehouseQueries: (): string => '/warehouse/queries',
         warehouseStorage: (): string => '/warehouse/storage',

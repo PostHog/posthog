@@ -25,7 +25,7 @@ function WarehouseUpsellContent(): JSX.Element {
     if (consoleState === 'no_warehouse') {
         return <WarehouseExplainer />
     }
-    // With a warehouse the redirect to Usage is under way. An error shows its retry.
+    // With a warehouse the redirect to Overview is under way. An error shows its retry.
     return consoleState === 'error' ? <WarehouseConsoleState page="upsell" /> : <Skeleton className="h-48 w-full" />
 }
 

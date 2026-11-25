@@ -37,15 +37,15 @@ describe('warehouseConsoleRedirectLogic', () => {
             ['upsell', 'loading', null],
             ['upsell', 'error', null],
             ['upsell', 'no_warehouse', null],
-            ['upsell', 'not_ready', 'usage'],
-            ['upsell', 'ready', 'usage'],
+            ['upsell', 'not_ready', 'overview'],
+            ['upsell', 'ready', 'overview'],
             ['setup', 'loading', null],
             ['setup', 'error', null],
             ['setup', 'no_warehouse', null],
             ['setup', 'not_ready', null],
             ['setup', 'ready', null],
         ] as const)('sends a %s page in state %s to %s', (kind, consoleState, target) => {
-            const targets = { upsell: urls.warehouse(), usage: urls.warehouseUsage() }
+            const targets = { upsell: urls.warehouse(), overview: urls.warehouseOverview() }
             expect(warehouseConsoleRedirectTarget(kind, consoleState)).toBe(target ? targets[target] : null)
         })
     })
@@ -70,8 +70,14 @@ describe('warehouseConsoleRedirectLogic', () => {
             ['console', 'a ready warehouse', null, 'loadWarehouseStatusSuccess', readyWarehouse],
             ['upsell', 'no warehouse', null, 'loadWarehouseStatusSuccess', noWarehouse],
             ['upsell', 'a failed load', null, 'loadWarehouseStatusFailure', failedLoad],
-            ['upsell', 'a ready warehouse', urls.warehouseUsage(), 'loadWarehouseStatusSuccess', readyWarehouse],
-            ['upsell', 'a provisioning warehouse', urls.warehouseUsage(), 'loadWarehouseStatusSuccess', provisioning],
+            ['upsell', 'a ready warehouse', urls.warehouseOverview(), 'loadWarehouseStatusSuccess', readyWarehouse],
+            [
+                'upsell',
+                'a provisioning warehouse',
+                urls.warehouseOverview(),
+                'loadWarehouseStatusSuccess',
+                provisioning,
+            ],
             ['setup', 'no warehouse', null, 'loadWarehouseStatusSuccess', noWarehouse],
         ] as [WarehousePageKind, string, string | null, string, () => Promise<unknown>][])(
             'on a %s page with %s, goes to %s',

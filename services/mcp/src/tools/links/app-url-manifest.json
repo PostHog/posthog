@@ -2034,6 +2034,11 @@
         "params": [],
         "scope": "project"
     },
+    "warehouseOverview": {
+        "template": "/warehouse/overview",
+        "params": [],
+        "scope": "project"
+    },
     "warehousePostHogData": {
         "template": "/warehouse/posthog-data",
         "params": [],

@@ -4,6 +4,7 @@ import { DATA_PANE } from './todayData'
 import { isPaneProductShown, paneConfigProductForPath, paneProducts } from './todayPaneProducts'
 
 const CONSOLE_ROWS = [
+    ['warehouse-overview', 'Overview', '/warehouse/overview'],
     ['warehouse-posthog-data', 'PostHog data', '/warehouse/posthog-data'],
     ['warehouse-source-data', 'Source data', '/warehouse/source-data'],
     ['warehouse-usage', 'Usage', '/warehouse/usage'],
