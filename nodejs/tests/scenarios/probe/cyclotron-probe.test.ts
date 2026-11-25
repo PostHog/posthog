@@ -45,7 +45,7 @@ describe('cyclotron probe', () => {
             PROBE_URL
         )
 
-    it.each<[string, Job[], number]>([
+    it.each<[string, Job[], number, number?]>([
         [
             'counts available and running jobs of the teams on the hogflow and email queues',
             [
@@ -83,10 +83,16 @@ describe('cyclotron probe', () => {
             ],
             1,
         ],
-    ])('%s', async (_story, jobs, unfinished) => {
+        [
+            'counts the runs still on the intake topics, which no consumer has inserted yet',
+            [{ team: OURS, queue: 'email', status: 'available' }],
+            3,
+            2,
+        ],
+    ])('%s', async (_story, jobs, unfinished, unconsumedIntake = 0) => {
         await insert(jobs)
 
-        const probe = createCyclotronProbe(PROBE_URL)
+        const probe = createCyclotronProbe(PROBE_URL, () => Promise.resolve(unconsumedIntake))
 
         expect(await probe.unfinishedJobs({ teams: [OURS], queues: ['hogflow', 'email'] })).toBe(unfinished)
     })

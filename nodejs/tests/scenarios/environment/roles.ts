@@ -43,6 +43,7 @@ export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'
 export const INTAKE_TRANSACTIONAL_EMAIL_GROUP = 'cdp-intake-transactional-email-consumer'
 
 export const INTAKE_WORKFLOW_WEBHOOK_GROUP = 'cdp-intake-workflow-webhook-consumer'
+export const INTAKE_GROUPS: readonly string[] = [INTAKE_TRANSACTIONAL_EMAIL_GROUP, INTAKE_WORKFLOW_WEBHOOK_GROUP]
 
 const INTAKE_ROLES: readonly Role[] = ['cdp-intake-transactional-email', 'cdp-intake-workflow-webhook']
 

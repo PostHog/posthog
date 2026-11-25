@@ -1154,6 +1154,14 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const deadLetterCheck = (topicsFile: string): string => `
+            const created = require('fs').existsSync(${JSON.stringify(topicsFile)}) ? JSON.parse(require('fs').readFileSync(${JSON.stringify(topicsFile)}, 'utf8')) : []
+            const deadLetter = process.env.CDP_INTAKE_DLQ_TOPIC || 'cdp_intake_dlq'
+            if (process.env.CDP_DLQ_ENABLED === 'true' && !created.includes(deadLetter)) {
+                console.error('the dead-letter topic ' + deadLetter + ' is not reachable')
+                process.exit(1)
+            }
+        `
         const stubRoleNeverAnswering =
             "require('http').createServer(() => undefined).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -1529,7 +1537,11 @@ describe('scenario environment', () => {
                             ? stubRoleNeverAnswering
                             : stubRole
                 const groupAtStart = `if (require('fs').existsSync(${JSON.stringify(path.join(fakes, 'dead-member-held'))})) console.log(${JSON.stringify(STARTED_WHILE_HELD)})\n`
-                const role = realSpawn(process.execPath, ['-e', groupAtStart + script], options)
+                const role = realSpawn(
+                    process.execPath,
+                    ['-e', groupAtStart + deadLetterCheck(path.join(fakes, 'topics.json')) + script],
+                    options
+                )
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
                     losesItsPort = undefined
@@ -2055,6 +2067,14 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it("starts every consumer group past the records an interrupted run left, before the first card's reset", async () => {
+            environment = environmentOf()
+
+            await environment.up(NEVER_ABORTED)
+
+            expect(offsetsOf()).toEqual(everyGroupAtEnd())
+        })
+
         it('creates the intake topics a profile names when the card starts', async () => {
             environment = environmentOf()
             await environment.up(NEVER_ABORTED)
@@ -2162,9 +2182,9 @@ describe('scenario environment', () => {
         ])(
             'moves the events group past %s only when rpk reports no failed partition',
             async (_name, rpkSeek, failure) => {
-                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
                 await environment.up(NEVER_ABORTED)
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
 
                 const outcome = await environment
                     .reset({

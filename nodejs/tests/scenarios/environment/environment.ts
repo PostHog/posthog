@@ -428,6 +428,9 @@ export function createEnvironment({
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
         await createTopics(intakeTopicsOf(specs), docker)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')
