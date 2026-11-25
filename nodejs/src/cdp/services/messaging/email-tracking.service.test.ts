@@ -396,6 +396,12 @@ describe('EmailTrackingService', () => {
                     '<!--[if mso]><a href="https://example.com/reset" ses:no-track>x</a><![endif]-->',
                 ],
                 [
+                    'a sensitive template whose link has a quoted > before its href',
+                    '<a title="a > b" href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a title="a > b" href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
                     'a sensitive template whose link names ses:no-track only in a title',
                     '<a title="ses:no-track" href="https://example.com/reset">x</a>',
                     sensitiveInvocation,

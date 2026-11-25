@@ -1,3 +1,5 @@
+import { readOpeningTag } from './opening-tag'
+
 export type HrefAnchor = {
     html: string
     href: string
@@ -105,7 +107,6 @@ const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) =>
 
 export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) => string): string => {
     const nextAnchorStart = outsideComments(html, /<a\b/gi)
-    const nextOpeningTagEnd = memoizedFinder(html, />/g)
     const nextHref = memoizedFinder(html, /\bhref/gi)
     const hrefMatchAt = hrefMatcher(html)
 
@@ -117,8 +118,8 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
 
     for (let start = nextAnchorStart(searchFrom); start !== -1; start = nextAnchorStart(searchFrom)) {
         const attributesStart = start + '<a'.length
-        const openingTagEnd = nextOpeningTagEnd(attributesStart)
-        const lastHrefStart = openingTagEnd === -1 ? html.length : openingTagEnd
+        const tagEnd = readOpeningTag(html, attributesStart).end
+        const lastHrefStart = tagEnd === -1 ? html.length : tagEnd
         const firstHrefStart = Math.max(unscannedHrefsFrom, attributesStart)
         for (let hrefStart = nextHref(firstHrefStart); hrefStart !== -1 && hrefStart <= lastHrefStart; ) {
             const match = hrefMatchAt(hrefStart)
@@ -129,7 +130,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
         }
         unscannedHrefsFrom = Math.max(unscannedHrefsFrom, lastHrefStart + 1)
         if (!lastMatch || lastMatch.hrefStart < attributesStart) {
-            searchFrom = start + 1
+            searchFrom = tagEnd === -1 ? html.length : tagEnd + 1
             continue
         }
         const { href, end } = lastMatch.match

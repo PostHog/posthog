@@ -33,6 +33,13 @@ describe('email link tracking benchmark', () => {
             tagged: `<a href="https://example.com/x"${spaces}y ses:tags="phl:0">x</a>`,
         },
         {
+            shape: 'link openers inside a quoted value',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: `<a title="${'<a '.repeat(32_000)}">x</a>`,
+            tagged: `<a title="${'<a '.repeat(32_000)}">x</a>`,
+        },
+        {
             shape: 'links after comments that never close',
             mode: 'ses',
             end: /^<\/body>$/,
