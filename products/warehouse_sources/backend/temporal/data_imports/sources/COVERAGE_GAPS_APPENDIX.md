@@ -9228,13 +9228,13 @@ Today (8): `comments`, `contributors`, `keys`, `languages`, `projects`, `screens
 
 Diffed against: <https://developers.lokalise.com/llms.txt>
 
-- [ ] `Team users (GET /teams/{team_id}/users)` — who has access to the team, with role and creation date, to resolve user ids on comments, tasks and audit data (medium)
+- [x] `Team users (GET /teams/{team_id}/users)` — who has access to the team, with role and creation date, to resolve user ids on comments, tasks and audit data (medium)
 - [ ] `Teams (GET /teams)` — lookup for the team ids that every team-scoped route needs, and the fan-out parent for team users, groups and orders (medium)
 - [ ] `User groups (GET /teams/{team_id}/groups)` — group names, member ids and project and language permissions for access reviews (medium)
-- [ ] `Translation orders (GET /teams/{team_id}/orders)` — translation vendor orders with cost, word counts and status to track localization spend (high)
-- [ ] `Custom translation statuses (GET /projects/{project_id}/custom_translation_statuses)` — lookup for the status ids carried on translations (medium)
+- [x] `Translation orders (GET /teams/{team_id}/orders)` — translation vendor orders with cost, word counts and status to track localization spend (high)
+- [x] `Custom translation statuses (GET /projects/{project_id}/custom_translation_statuses)` — lookup for the status ids carried on translations (medium)
 - [ ] `Glossary terms (GET /projects/{project_id}/glossary)` — terminology table that localization teams audit for consistency (low)
-- [ ] `Branches (GET /projects/{project_id}/branches)` — branch names and creators, needed to scope keys and translations in branched projects (medium)
+- [x] `Branches (GET /projects/{project_id}/branches)` — branch names and creators, needed to scope keys and translations in branched projects (medium)
 - [ ] `Project files (GET /projects/{project_id}/files)` — source files with key counts per project (low)
 - [ ] `Snapshots (GET /projects/{project_id}/snapshots)` — project backup history with timestamps (low)
 - [ ] `Audit logs (GET /v1/audit-logs)` — OCSF API activity events for security and change history; needs the Audit Logs plan feature (low)
