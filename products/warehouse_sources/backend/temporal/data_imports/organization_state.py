@@ -1,5 +1,9 @@
 from posthog.models.team.team import Team
 
+# The `cdc_broken` reason the CDC sweep writes when it stops a deactivated organization's capture.
+# Here rather than in the CDC module, so the sync alert evaluation can read it without importing CDC.
+ORGANIZATION_DEACTIVATED_REASON = "organization_deactivated"
+
 
 def organization_deactivated(team_id: int) -> bool:
     """Whether the team's organization is deactivated, so its warehouse work must stand down.

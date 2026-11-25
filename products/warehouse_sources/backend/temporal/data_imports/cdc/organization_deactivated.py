@@ -4,8 +4,8 @@ The table syncs of a deactivated organization stand down before they create a jo
 separate schedule and keeps reading the slot. The hourly sweep drops a PostHog-managed slot and its
 publication and pauses capture, whatever the auto-drop setting, because a deactivated organization
 must run nothing. A self-managed slot belongs to the customer: it is kept, and capture keeps advancing
-it so the customer's WAL does not grow. The team gets no email or notification. After reactivation,
-Repair CDC recreates the slot and re-snapshots every table.
+it so the customer's WAL does not grow. The team gets no email, notification or sync alert. After
+reactivation, Repair CDC recreates the slot and re-snapshots every table.
 """
 
 from __future__ import annotations
@@ -15,12 +15,11 @@ import typing
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.organization_state import ORGANIZATION_DEACTIVATED_REASON
 
 if typing.TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter
     from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig
-
-ORGANIZATION_DEACTIVATED_REASON = "organization_deactivated"
 
 _SLOT_DROPPED_MESSAGE = (
     "Change data capture stopped because this organization was deactivated. PostHog dropped the "
