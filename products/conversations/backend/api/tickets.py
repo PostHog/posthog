@@ -52,7 +52,7 @@ from posthog.api.tagged_item import (
 from posthog.api.uploaded_media import conversations_reply_images_enabled
 from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
@@ -105,7 +105,13 @@ from products.conversations.backend.models import (
     TicketAssignment,
     TicketView,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
+from products.conversations.backend.models.constants import (
+    AiFeedbackReason,
+    Channel,
+    ChannelDetail,
+    Status,
+    TicketMessageType,
+)
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
@@ -307,6 +313,13 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
     feedback_text = serializers.CharField(
         required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
+    reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=AiFeedbackReason.choices),
+        required=False,
+        allow_empty=True,
+        max_length=len(AiFeedbackReason.choices),
+        help_text="Optional reasons for a bad rating. Ignored for a good rating.",
     )
 
 
@@ -741,6 +754,7 @@ def _ticket_action_properties(ticket: Ticket) -> dict[str, Any]:
         "channel_source": ticket.channel_source,
         "ticket_status": ticket.status,
         "is_assigned": getattr(ticket, "assignment", None) is not None,
+        "ai_triage_result": (ticket.ai_triage or {}).get("result"),
     }
 
 
@@ -2115,10 +2129,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         distinct_id = f"reviewer:{request.user.distinct_id}"
 
         feedback_text = data.get("feedback_text", "").strip()
+        reasons = sorted(set(data.get("reasons") or []))
+        event_groups = groups(team=self.team)
 
-        if feedback_text and data["rating"] == "bad":
+        if (feedback_text or reasons) and data["rating"] == "bad":
             feedback_properties: dict[str, Any] = {
                 "$ai_feedback_text": feedback_text,
+                "feedback_reasons": reasons,
                 "ai_product": "conversations",
                 "ticket_id": str(ticket.id),
                 "message_id": data["message_id"],
@@ -2127,7 +2144,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties, groups=event_groups
+            )
         else:
             properties: dict[str, Any] = {
                 "$ai_metric_name": "reviewer_quality",
@@ -2140,7 +2159,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id, event="$ai_metric", properties=properties, groups=event_groups
+            )
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
 

@@ -300,7 +300,6 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
-DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -2554,12 +2553,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
         """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        # Imported here so that loading query runners doesn't load the DRF permission stack.
+        from posthog.permissions import dashboard_v2_enabled
+
         # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
         if (
             dashboard_id is None
             or is_api_key_access
             or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
-            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+            or not dashboard_v2_enabled(self.team, self.user)
         ):
             return None
         return QueueWait()

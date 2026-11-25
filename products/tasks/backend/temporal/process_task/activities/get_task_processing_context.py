@@ -965,7 +965,6 @@ def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool, han
     return (
         (handoff or (not resumed and not context.is_snapshot_resume))
         and context.environment == "cloud"
-        and context.mode != "interactive"
         and context.sandbox_backend == "modal"
         and context.use_modal_vm_sandbox
         and context.allowed_domains is None
@@ -996,7 +995,9 @@ def _agent_egress_enrollment_config(
             "agent_egress_enrollment_disabled", reason="invalid_configuration"
         )
         return None
-    return config if not resumed or config.maintain_for_run else None
+    if (resumed or context.mode == "interactive") and not config.maintain_for_run:
+        return None
+    return config
 
 
 def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
@@ -1005,6 +1006,7 @@ def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed:
         not path
         or not settings.DEBUG
         or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
+        or context.mode == "interactive"
         or not _agent_egress_eligible(context, resumed=resumed)
     ):
         return None

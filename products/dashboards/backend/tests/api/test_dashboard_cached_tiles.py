@@ -99,10 +99,14 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.flag_patcher.start()
         self.addCleanup(self.flag_patcher.stop)
         self.flag_on_for_project: int | None = self.team.pk
+        self.dashboard_v2_users: set[str] | None = None
         self.dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash", "filters": {"date_from": "-14d"}})
 
     def _flag_enabled(self, flag: str, distinct_id: str, **kwargs: Any) -> bool:
         groups = kwargs.get("groups") or {}
+        if flag == "dashboard-v2-users":
+            email = (kwargs.get("person_properties") or {}).get("email")
+            return self.dashboard_v2_users is None or email in self.dashboard_v2_users
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
     def _add_insight_tile(self, event: str, query: dict | None = None) -> tuple[int, int]:
@@ -247,10 +251,16 @@ class TestDashboardCachedTiles(APIBaseTest):
         self._per_tile(insight_id, "blocking")
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_flag_off_for_the_project_returns_404(self) -> None:
+    @parameterized.expand(
+        [
+            ("project_not_on_the_flag", lambda test: setattr(test, "flag_on_for_project", test.team.pk + 1)),
+            ("member_not_in_the_audience", lambda test: setattr(test, "dashboard_v2_users", set())),
+        ]
+    )
+    def test_flag_off_returns_404(self, _name: str, arrange: Any) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
         self._per_tile(insight_id, "blocking")
-        self.flag_on_for_project = self.team.pk + 1
+        arrange(self)
 
         response = self._cached_tiles([tile_id])
 

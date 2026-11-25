@@ -33,11 +33,11 @@ from posthog.models.user import User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import get_actions
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
-from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 
 logger = structlog.get_logger(__name__)
 

@@ -272,8 +272,12 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
-        if data["provider"] not in {provider.key for provider in self._providers()}:
+        provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
+        if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
+        if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
+            raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
         try:
             run = start_provider_import(
                 self.team_id,

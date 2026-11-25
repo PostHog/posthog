@@ -3,7 +3,11 @@
 import re
 import json
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 from typing import Any
+
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 
 from posthog.dataclasses import frozen
 
@@ -17,7 +21,7 @@ from products.messaging.backend.provider_imports.base import (
     SavedPage,
 )
 from products.messaging.backend.provider_imports.emails import exact_email
-from products.messaging.backend.services.imported_data import carry_opt_outs
+from products.messaging.backend.services.imported_data import carry_opt_outs, import_opt_outs
 from products.workflows.backend.facade.contracts import ProviderContactsResult
 from products.workflows.backend.facade.people_import import (
     MAX_PEOPLE_IMPORT_ROW_BYTES,
@@ -45,6 +49,7 @@ CONTACT_COUNT_LABELS = (
     ("new_people", "New people"),
     ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
+    ("unsendable", "Skipped because PostHog can't send to a character like é before the @"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
     ("repeats_merged", "Repeated addresses merged"),
     ("invalid_skipped", "Invalid addresses skipped"),
@@ -69,7 +74,7 @@ class ContactList:
     invalid_skipped: int = 0
 
 
-def new_people_step(provider_label: str) -> ImportStepSpec:
+def new_people_step(provider_label: str, feature_flag: str | None = None) -> ImportStepSpec:
     return ImportStepSpec(
         key=NEW_PEOPLE_STEP,
         label="New people from contacts",
@@ -80,6 +85,7 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
         ),
         needs=("contacts",),
         counts_as_events=True,
+        feature_flag=feature_flag,
     )
 
 
@@ -143,6 +149,7 @@ def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
         text = _property_text(value)
         if (
             not text
+            or not name
             or name in row
             or len(name) > MAX_PROPERTY_NAME_LENGTH
             or name.startswith("$")
@@ -168,21 +175,37 @@ def save_contact_lists(
     everyone: ContactList,
     lists: Iterable[ContactList],
     other_spellings: Iterable[str] = (),
+    opt_outs: Mapping[str, Iterable[str]] = MappingProxyType({}),
 ) -> SavedPage:
     """Import `everyone` as people, then fill a cohort for each of `lists`, whose contacts are all in `everyone`.
 
     Only `everyone` sends the events that create and update people, so a contact in several lists counts once.
-    `other_spellings` holds each address the provider spelled more than one way, as from
-    `ContactCollector.other_spellings`.
+    `opt_outs` holds the categories to opt each address out of with this save. `other_spellings` holds each address the
+    provider spelled more than one way, as from `ContactCollector.other_spellings`.
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
-    # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
+    saved = _save_lists(context, everyone, lists, result, create_people=create_people)
+    # A send matches an opt-out by exact address, and the person may spell it differently from the provider. Last,
+    # because it locks preferences until the save commits, and someone unsubscribing then waits. No one becomes a
+    # person or joins a cohort before the commit.
+    import_opt_outs(context.team_id, opt_outs, context.created_by_id)
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
+    return saved
+
+
+def _save_lists(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Iterable[ContactList],
+    result: ProviderContactsResult,
+    *,
+    create_people: bool,
+) -> SavedPage:
     if result.status == "failed":
         # The lists' contacts never became people, so the step fails rather than leave every list empty.
         return SavedPage(
@@ -197,11 +220,17 @@ def save_contact_lists(
         )
     if invalid := everyone.invalid_skipped:
         notes.append(f"{_contacts(invalid)} had no valid email, so {_they(invalid)} skipped.")
+    unsendable = sum(1 for row in everyone.rows if _is_unsendable(row["email"]))
+    if unsendable:
+        notes.append(
+            f"{_contacts(unsendable)} had a character like é before the @, which PostHog can't send to, so "
+            f"{_they(unsendable)} skipped."
+        )
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
-            "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
-            "Anyone no longer on a list leaves its cohort."
+            "below hold exactly these contacts, except any who unsubscribed, once PostHog has processed them, usually "
+            "within a few minutes. Anyone no longer on a list leaves its cohort."
         )
     if result.skipped_new_people:
         notes.append(
@@ -225,13 +254,27 @@ def save_contact_lists(
         counts={
             "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
-            "dropped": result.dropped,
+            "unsendable": unsendable,
+            "dropped": max(0, result.dropped - unsendable),
             "repeats_merged": everyone.repeats_merged,
             "invalid_skipped": everyone.invalid_skipped,
         },
         items=tuple(items),
         people_imports=tuple(plan for plan in plans if plan is not None),
     )
+
+
+def _is_unsendable(email: str) -> bool:
+    local, _, domain = email.rpartition("@")
+    return not local.isascii() and not _is_valid(email) and _is_valid(f"a@{domain}")
+
+
+def _is_valid(email: str) -> bool:
+    try:
+        validate_email(email)
+    except ValidationError:
+        return False
+    return True
 
 
 def _import(

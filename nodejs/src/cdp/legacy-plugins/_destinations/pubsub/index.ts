@@ -36,11 +36,17 @@ export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
     if (!config.topicId) {
         throw new Error('Topic ID not provided!')
     }
+    if (config.googleCloudKeyJson.type !== 'service_account') {
+        throw new Error('Google Cloud key JSON must be for a service account!')
+    }
 
     try {
         global.pubSubClient = new PubSub({
             projectId: config.googleCloudKeyJson.project_id,
-            credentials: config.googleCloudKeyJson,
+            credentials: {
+                client_email: config.googleCloudKeyJson.client_email,
+                private_key: config.googleCloudKeyJson.private_key,
+            },
         })
         global.pubSubTopic = global.pubSubClient.topic(config.topicId)
 

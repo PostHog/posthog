@@ -312,14 +312,43 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `query` - Query
  * * `insight` - Insight
  * * `hogql` - HogQL
+ * * `promql` - PromQL
+ * * `logql` - LogQL
  */
 export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
 
 export const QueryBatchLanguageEnumApi = {
+    Query: 'query',
     Insight: 'insight',
     Hogql: 'hogql',
+    Promql: 'promql',
+    Logql: 'logql',
+} as const
+
+/**
+ * * `time_series` - Time series
+ * * `table` - Table
+ */
+export type QueryBatchTargetFormatEnumApi =
+    (typeof QueryBatchTargetFormatEnumApi)[keyof typeof QueryBatchTargetFormatEnumApi]
+
+export const QueryBatchTargetFormatEnumApi = {
+    TimeSeries: 'time_series',
+    Table: 'table',
+} as const
+
+/**
+ * * `classic` - Classic
+ * * `new` - New
+ */
+export type QueryBatchEngineEnumApi = (typeof QueryBatchEngineEnumApi)[keyof typeof QueryBatchEngineEnumApi]
+
+export const QueryBatchEngineEnumApi = {
+    Classic: 'classic',
+    New: 'new',
 } as const
 
 export interface QueryBatchTargetApi {
@@ -328,16 +357,34 @@ export interface QueryBatchTargetApi {
      * @maxLength 200
      */
     refId: string
-    /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+    /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
      *
+     * * `query` - Query
      * * `insight` - Insight
-     * * `hogql` - HogQL */
+     * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL */
     language: QueryBatchLanguageEnumApi
     /**
      * The query text, read according to `language`.
      * @maxLength 200000
      */
     query: string
+    /**
+     * The series name template the panel draws. Returned unchanged on the target's line.
+     * @maxLength 1000
+     */
+    legend?: string
+    /** How the panel draws the result. Returned unchanged on the target's line.
+     *
+     * * `time_series` - Time series
+     * * `table` - Table */
+    format?: QueryBatchTargetFormatEnumApi
+    /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+     *
+     * * `classic` - Classic
+     * * `new` - New */
+    engine?: QueryBatchEngineEnumApi
 }
 
 export interface QueryBatchTimeApi {
@@ -370,15 +417,37 @@ export interface QueryBatchQueryApi {
      */
     variables?: QueryBatchQueryApiVariables
     /**
-     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
      * @maxLength 20
      */
     interval?: string
+    /**
+     * For promql and logql targets: the most points per series. Sets the step with `interval`.
+     * @minimum 1
+     * @maximum 10000
+     */
+    maxDataPoints?: number
     /** Serve a stale cached result at once and recompute it in the background for the next read. */
     swr?: boolean
     /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
     cacheOnly?: boolean
+    /**
+     * The tile this target belongs to. Only labels the query's run in the query log.
+     * @maxLength 64
+     */
+    tile?: string
 }
+
+/**
+ * * `result` - Result
+ * * `frames` - Frames
+ */
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
+
+export const ResultFormatEnumApi = {
+    Result: 'result',
+    Frames: 'frames',
+} as const
 
 export interface QueryBatchRequestApi {
     /**
@@ -386,6 +455,11 @@ export interface QueryBatchRequestApi {
      * @maxItems 500
      */
     queries: QueryBatchQueryApi[]
+    /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -8304,6 +8378,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8400,6 +8476,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8501,6 +8579,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -10361,17 +10441,6 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
-/**
- * * `frames` - Frames
- * * `result` - Result
- */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
-
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
-    Result: 'result',
-} as const
-
 export interface FrameMetaApi {
     /**
      * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -10450,9 +10519,9 @@ export interface CachedTileResultApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
 }
@@ -11068,9 +11137,9 @@ export interface DashboardStreamCachedTileApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */

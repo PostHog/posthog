@@ -31,6 +31,8 @@ TRIGGER_ID = "trigger_node"
 _EXIT_ID = "exit_node"
 _MAX_DELAY_SECONDS = 365 * 86400
 _MAX_WAIT_SECONDS = 30 * 86400
+_MIN_REENTRY_SECONDS = 60
+_MAX_REENTRY_SECONDS = 3 * 365 * 86400
 # Unit, seconds per unit, and the largest amount a workflow accepts in that unit.
 _DURATION_UNITS: tuple[tuple[str, int, int | None], ...] = (
     ("d", 86400, None),
@@ -144,6 +146,14 @@ class _Builder:
                 "ones the other notes name, then remove its `false` condition.",
             )
             self.audience.append(_NOBODY)
+        masking = self._trigger_masking()
+        if masking is not None:
+            self.note(
+                NoteLevel.APPROXIMATED,
+                "The limit on how often a person can enter starts counting in PostHog, so people who already went "
+                "through in Customer.io can enter again."
+                + (" It also counts people the `Audience` step turns away." if self.audience else ""),
+            )
         if self.audience:
             posthog_actions.insert(1, self._audience_step())
             if _EXIT_ID not in kept_ids:
@@ -164,7 +174,7 @@ class _Builder:
             "exit_condition": self._exit_condition(),
             # Sent even when empty, so a re-import clears a goal or a re-entry limit the automation dropped.
             "conversion": self._conversion(),
-            "trigger_masking": self._trigger_masking(),
+            "trigger_masking": masking,
         }
         self._campaign_notes()
         self._static_segment_notes()
@@ -290,13 +300,25 @@ class _Builder:
         }
 
     def _trigger_masking(self) -> dict[str, Any] | None:
-        mode = self.campaign.get("restart_mode")
-        if self.campaign.get("type") not in ("seg_attr", "behavioral", "rel_seg_attr"):
+        kind, mode = self.campaign.get("type"), self.campaign.get("restart_mode")
+        interval = int(self.campaign.get("restart_min_interval") or 0)
+        once: dict[str, Any] = {"hash": "{person.id}", "ttl": None, "threshold": None}
+        # Event and form automations always store `rematch`, so only the interval says how often a person can enter.
+        if kind in ("transactional", "form"):
+            mode = "rematch"
+        elif kind not in ("seg_attr", "behavioral", "rel_seg_attr"):
             return None
-        if mode == "none":
-            return {"hash": "{person.id}", "ttl": None, "threshold": None}
-        if mode == "interval" and self.campaign.get("restart_min_interval"):
-            return {"hash": "{person.id}", "ttl": int(self.campaign["restart_min_interval"]), "threshold": None}
+        if mode == "none" or (mode == "rematch" and interval < 0):
+            return once
+        if mode in ("rematch", "interval") and interval > 0:
+            ttl = min(max(interval, _MIN_REENTRY_SECONDS), _MAX_REENTRY_SECONDS)
+            if ttl != interval:
+                self.note(
+                    NoteLevel.APPROXIMATED,
+                    f"A person can enter once per {_duration(interval)} in Customer.io. PostHog's limit goes from a "
+                    f"minute to 3 years, so it became {_duration(ttl)}.",
+                )
+            return {**once, "ttl": ttl}
         return None
 
     def _conversion(self) -> dict[str, Any] | None:

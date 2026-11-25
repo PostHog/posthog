@@ -53,7 +53,11 @@ def _client_config(api_key: str) -> ClientConfig:
 def _paginator(config: TinyemailEndpointConfig) -> BasePaginator:
     if not config.paginated:
         return SinglePagePaginator()
-    return PageNumberPaginator(base_page=config.base_page, page_param="page")
+    return PageNumberPaginator(base_page=config.base_page, page_param="page", total_path=config.total_path)
+
+
+def _params(config: TinyemailEndpointConfig) -> dict[str, Any]:
+    return {**config.params, "size": config.page_size} if config.paginated else dict(config.params)
 
 
 def get_resource(endpoint: str) -> EndpointResource:
@@ -63,7 +67,7 @@ def get_resource(endpoint: str) -> EndpointResource:
 
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {"size": config.page_size} if config.paginated else {},
+        "params": _params(config),
         "data_selector": config.data_selector,
         "paginator": _paginator(config),
     }
@@ -90,7 +94,7 @@ def _list_rows(client: RESTClient, endpoint: str) -> Iterator[dict[str, Any]]:
     config = TINYEMAIL_ENDPOINTS[endpoint]
     for page in client.paginate(
         path=config.path,
-        params={"size": config.page_size} if config.paginated else {},
+        params=_params(config),
         paginator=_paginator(config),
         data_selector=config.data_selector,
     ):
