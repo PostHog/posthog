@@ -149,7 +149,7 @@ export class BatchCapacity {
     private readonly maxRequestsPerTeam: number
 
     constructor(private readonly maxRequests: number) {
-        this.maxRequestsPerTeam = Math.ceil(maxRequests / 2)
+        this.maxRequestsPerTeam = Math.max(1, Math.floor(maxRequests / 2))
     }
 
     admit(teamId: number): (() => void) | null {

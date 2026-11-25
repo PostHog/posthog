@@ -5892,8 +5892,8 @@ describe('CDP API', () => {
                         (answer) => answer
                     )
                     await read.reached
-                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
                     read.pass()
+                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
                     const otherTeam = await supertest(two)
                         .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
                         .set({

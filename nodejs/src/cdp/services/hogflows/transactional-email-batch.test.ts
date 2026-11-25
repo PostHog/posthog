@@ -26,9 +26,13 @@ describe('transactional email batch', () => {
             expect(capacity.admit(1)).toBeNull()
         })
 
-        it('admits another team while one team holds its share of the cap', () => {
-            const capacity = new BatchCapacity(4)
-            const held = [capacity.admit(1), capacity.admit(1)]
+        it.each([
+            [3, 1],
+            [4, 2],
+            [8, 4],
+        ])('admits another team while one team holds its share of a cap of %i', (cap, share) => {
+            const capacity = new BatchCapacity(cap)
+            const held = Array.from({ length: share }, () => capacity.admit(1))
 
             expect(held).not.toContain(null)
             expect(capacity.admit(1)).toBeNull()
