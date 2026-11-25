@@ -8,6 +8,17 @@ import pytest
 
 RUNNER = Path(__file__).parent / "run-product-tests.sh"
 
+# The .github/scripts CI job has no pytest-split, so the fake repo accepts its flags itself.
+# Where pytest-split is installed, the plugin owns the flags and addoption raises ValueError.
+SPLIT_OPTIONS_CONFTEST = """
+def pytest_addoption(parser):
+    try:
+        parser.addoption("--splits")
+        parser.addoption("--group")
+    except ValueError:
+        pass
+"""
+
 
 @pytest.fixture
 def fake_repo(tmp_path: Path) -> Path:
@@ -18,6 +29,7 @@ def fake_repo(tmp_path: Path) -> Path:
         "# owned by other jobs\n\nproducts/*/dags \r\nproducts/foo/vendor"
     )
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    (tmp_path / "conftest.py").write_text(SPLIT_OPTIONS_CONFTEST)
     for test_file in ("backend/tests/test_a.py", "scripts/test_b.py", "dags/test_c.py", "vendor/test_d.py"):
         path = tmp_path / "products" / "foo" / test_file
         path.parent.mkdir(parents=True, exist_ok=True)
