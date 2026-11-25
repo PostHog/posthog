@@ -53,6 +53,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1000,7 +1001,7 @@ class QueryBatch:
                     else:
                         to_run.append(index)
                     continue
-                stale = _is_stale(response)
+                stale = _is_stale(response, planned)
                 # A bucketed run reruns only the newest buckets, so it is cheaper to run than to serve stale.
                 serve_stale = item.cache_only or (item.swr and not item.target.bucketed)
                 if stale and not serve_stale:

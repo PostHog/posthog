@@ -29,7 +29,12 @@ from products.dashboards.backend.facade.api import (
     viewable_dashboard_id,
 )
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
-from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage, QueryBatchTargetFormat
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchTargetFormat,
+    ResultFormat,
+)
 
 # W3C trace context, version 00: https://www.w3.org/TR/trace-context/#traceparent-header
 _TRACEPARENT = re.compile(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}")
@@ -191,9 +196,13 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(
                 description=(
                     "An `application/x-ndjson` stream with one JSON line per query, in the order each finishes: "
-                    "`{i, refId, legend?, format?, result: {result, cache: {key, fetchedAt, stale, hit}, "
-                    "provenance?}, truncated?}` or `{i, refId, legend?, format?, error}`, where `i` is the query's "
-                    "index. `truncated` is true when the result stopped at its row limit. Blank lines are keep-alives."
+                    "`{i, refId, legend?, format?, result: {result | frames, format?, warnings?, canonical, "
+                    "cache: {key, fetchedAt, stale, hit}, provenance: {mode, timeline}}, truncated?}` or "
+                    "`{i, refId, legend?, format?, error}`, where `i` is the query's index. With the request's "
+                    "`format` set to `frames`, `result.format` says whether the line holds `frames` "
+                    "(`{name, labels, fields, meta: {interval, date_from, date_to, end}, hash}`) or the runner's "
+                    "`result`. A `frames` line keeps the runner's `warnings`. `canonical` is the query text that ran. `truncated` is true when the result stopped "
+                    "at its row limit. Blank lines are keep-alives."
                 )
             )
         },
