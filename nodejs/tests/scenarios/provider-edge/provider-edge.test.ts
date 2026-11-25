@@ -393,6 +393,22 @@ describe('provider edge', () => {
         expect(await answer).toBe('sent')
     })
 
+    it.each<[string, boolean]>([
+        ['reports a send it took even when asked after the drive ended', true],
+        ['reports no send when it took none before the drive ended', false],
+    ])('%s', async (_story, sends) => {
+        const hold = edge.hold(heldAnswerRule())
+        const answer = sends ? send(ALICE) : Promise.resolve(undefined)
+        if (sends) {
+            await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+        }
+
+        const accepted = await hold.accepted!(AbortSignal.abort())
+        await hold.release()
+
+        expect({ accepted, answer: await answer }).toEqual({ accepted: sends, answer: sends ? 'sent' : undefined })
+    })
+
     it.each<[string, Destination]>([
         ['cc', { ToAddresses: [ALICE], CcAddresses: [BOB] }],
         ['bcc', { ToAddresses: [ALICE], BccAddresses: [BOB] }],
