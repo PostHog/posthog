@@ -10,10 +10,7 @@ import * as zod from 'zod'
 
 export const BillingListQueryParams = () => zod.object({
     include_forecasting: zod.boolean().nullish().describe('Whether to include usage forecasting.'),
-    organization_id: zod
-        .string()
-        .optional()
-        .describe("Organization to read. Defaults to the organization of the user's current project."),
+    organization_id: zod.string().optional().describe('Explicit organization to refresh after payment.'),
 })
 
 /**
@@ -44,10 +41,6 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
             'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
         ),
     interval: zod.string().nullish(),
-    organization_id: zod
-        .string()
-        .optional()
-        .describe("Organization to read. Defaults to the organization of the user's current project."),
     page_size: zod
         .number()
         .min(1)
@@ -109,10 +102,6 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
             'End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.'
         ),
     interval: zod.string().nullish(),
-    organization_id: zod
-        .string()
-        .optional()
-        .describe("Organization to read. Defaults to the organization of the user's current project."),
     page_size: zod
         .number()
         .min(1)

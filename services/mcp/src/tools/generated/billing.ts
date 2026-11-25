@@ -174,7 +174,7 @@ const billingProjectsList = (): ToolBase<
 
 const BillingSpendGetSchema = () => {
     const BillingSpendRetrieveQueryParams = orvalSchemas.BillingSpendRetrieveQueryParams()
-    return BillingSpendRetrieveQueryParams.omit({ organization_id: true }).extend({
+    return BillingSpendRetrieveQueryParams.extend({
         team_ids: BillingTeamIdsSchema,
         usage_types: BillingUsageTypesSchema,
         breakdowns: BillingSpendBreakdownsSchema,
@@ -307,7 +307,7 @@ const billingSubscriptionGet = (): ToolBase<
 
 const BillingUsageGetSchema = () => {
     const BillingUsageRetrieveQueryParams = orvalSchemas.BillingUsageRetrieveQueryParams()
-    return BillingUsageRetrieveQueryParams.omit({ organization_id: true }).extend({
+    return BillingUsageRetrieveQueryParams.extend({
         team_ids: BillingTeamIdsSchema,
         usage_types: BillingUsageTypesSchema,
         breakdowns: BillingUsageBreakdownsSchema,

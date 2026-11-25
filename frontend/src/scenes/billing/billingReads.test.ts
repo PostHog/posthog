@@ -26,15 +26,7 @@ describe('billingReadsLogic', () => {
                     200,
                     { results: [{ id: 7, name: null, deleted: true }] },
                 ],
-                '/api/billing/usage/team_options/': ({ request }) => [
-                    200,
-                    {
-                        team_id_options:
-                            new URL(request.url).searchParams.get('organization_id') === MOCK_ORGANIZATION_ID
-                                ? [7, 8]
-                                : [],
-                    },
-                ],
+                '/api/billing/usage/team_options/': () => [200, { team_id_options: [7, 8] }],
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => [
                     200,
                     {
@@ -54,27 +46,13 @@ describe('billingReadsLogic', () => {
                         pricing_reset_dates: ['2026-08-19'],
                     },
                 ],
-                '/api/billing/usage/': ({ request }) => {
-                    const searchParams = new URL(request.url).searchParams
-                    return [
-                        200,
-                        {
-                            results: [
-                                point(
-                                    `legacy usage ${searchParams.get('breakdowns')} for ${searchParams.get('organization_id')}`
-                                ),
-                            ],
-                        },
-                    ]
-                },
-                '/api/billing/spend/': ({ request }) => [
+                '/api/billing/usage/': ({ request }) => [
                     200,
-                    {
-                        results: [
-                            point(`legacy spend for ${new URL(request.url).searchParams.get('organization_id')}`),
-                        ],
-                        pricing_reset_dates: ['2026-08-19'],
-                    },
+                    { results: [point(`legacy usage ${new URL(request.url).searchParams.get('breakdowns')}`)] },
+                ],
+                '/api/billing/spend/': () => [
+                    200,
+                    { results: [point('legacy spend')], pricing_reset_dates: ['2026-08-19'] },
                 ],
             },
         })
@@ -89,16 +67,14 @@ describe('billingReadsLogic', () => {
             spendLabel: 'organization spend',
             usageExport: `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/export/`,
             spendExport: `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/export/`,
-            exportOrganizationParam: null,
             projectIds: [7],
         },
         {
             flag: false,
-            usageLabel: `legacy usage ["type"] for ${MOCK_ORGANIZATION_ID}`,
-            spendLabel: `legacy spend for ${MOCK_ORGANIZATION_ID}`,
+            usageLabel: 'legacy usage ["type"]',
+            spendLabel: 'legacy spend',
             usageExport: '/api/billing/usage/export/',
             spendExport: '/api/billing/spend/export/',
-            exportOrganizationParam: MOCK_ORGANIZATION_ID,
             projectIds: [7, 8],
         },
     ])('reads from the routes the flag selects (flag on: $flag)', async (expected) => {
@@ -121,12 +97,8 @@ describe('billingReadsLogic', () => {
         const spend = await reads.spendSeries(SERIES)
         expect(spend.results[0].label).toEqual(expected.spendLabel)
         expect(spend).toHaveProperty('pricing_reset_dates', ['2026-08-19'])
-        const usageExportUrl = new URL(reads.usageExportUrl(SERIES), 'http://localhost')
-        const spendExportUrl = new URL(reads.spendExportUrl(SERIES), 'http://localhost')
-        expect(usageExportUrl.pathname).toEqual(expected.usageExport)
-        expect(spendExportUrl.pathname).toEqual(expected.spendExport)
-        expect(usageExportUrl.searchParams.get('organization_id')).toEqual(expected.exportOrganizationParam)
-        expect(spendExportUrl.searchParams.get('organization_id')).toEqual(expected.exportOrganizationParam)
+        expect(reads.usageExportUrl(SERIES).split('?')[0]).toEqual(expected.usageExport)
+        expect(reads.spendExportUrl(SERIES).split('?')[0]).toEqual(expected.spendExport)
         expect(await reads.reportedProjectIds()).toEqual(expected.projectIds)
     })
 })

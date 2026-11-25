@@ -10,7 +10,6 @@ import api from 'lib/api'
 import { cheatCodeCampaignSlug } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
 import { cheatCodeTypedRecently } from 'lib/components/CheatCodes/claimCheatCode'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
-import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -163,14 +162,11 @@ export const couponLogic = kea<couponLogicType>([
             null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
-                    if (!values.currentOrganization || values.isAdminOrOwner === false) {
+                    if (values.isAdminOrOwner === false && values.currentOrganization) {
                         return null
                     }
-
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    return await api.get(
-                        `api/billing/coupons/overview?${toParams({ organization_id: values.currentOrganization.id })}`
-                    )
+                    return await api.get('api/billing/coupons/overview')
                 },
             },
         ],

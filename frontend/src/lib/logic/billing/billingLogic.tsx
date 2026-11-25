@@ -21,7 +21,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
-import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -39,8 +38,6 @@ import {
     PreflightStatus,
     StartupProgramLabel,
 } from '~/types'
-
-import { getBillingListUrl } from 'products/billing/frontend/generated/api'
 
 import {
     canAccessBilling as canAccessBillingUtil,
@@ -122,19 +119,10 @@ export interface OpenInvoices {
 }
 
 // Returns null on any failure, so a user who cannot read invoices just sees no invoice banner.
-const loadInvoiceSummary = async (
-    status: 'open' | 'uncollectible',
-    organizationId: string | undefined
-): Promise<OpenInvoices | null> => {
-    if (!organizationId) {
-        return null
-    }
-
+const loadInvoiceSummary = async (status: 'open' | 'uncollectible'): Promise<OpenInvoices | null> => {
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-        const res = await api.getResponse(
-            `api/billing/get_invoices?${toParams({ status, organization_id: organizationId })}`
-        )
+        const res = await api.getResponse(`api/billing/get_invoices?status=${status}`)
         const jsonRes = await getJSONOrNull(res)
         return { count: jsonRes['count'], link: jsonRes['link'] }
     } catch (error: any) {
@@ -1033,20 +1021,12 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-                    const organizationId = values.currentOrganization?.id
-                    if (!organizationId) {
-                        return values.billing
-                    }
-
                     // Many scenes read billing, so a failed read keeps the last known state quietly
                     // rather than toasting on every page or reaching error tracking.
                     try {
-                        // nosemgrep: prefer-codegen-api -- The generated overview response still has generic product/period fields; retain the existing parser's BillingType contract while using the generated URL and query schema.
-                        const response = await api.get<BillingType>(
-                            getBillingListUrl({
-                                organization_id: organizationId,
-                                ...(skipForecasting ? { include_forecasting: false } : {}),
-                            })
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                         )
                         return parseBillingResponse(response) ?? values.billing
                     } catch {
@@ -1175,15 +1155,13 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: (): Promise<OpenInvoices | null> =>
-                    loadInvoiceSummary('open', values.currentOrganization?.id),
+                loadInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('open'),
             },
         ],
         uncollectibleInvoices: [
             null as OpenInvoices | null,
             {
-                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> =>
-                    loadInvoiceSummary('uncollectible', values.currentOrganization?.id),
+                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('uncollectible'),
             },
         ],
         creditOverview: [
@@ -1200,15 +1178,12 @@ export const billingLogic = kea<billingLogicType>([
             {
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
-                    const organizationId = values.currentOrganization?.id
-                    if (values.billing?.has_active_subscription && organizationId) {
+                    if (values.billing?.has_active_subscription) {
                         // A failed or empty read keeps the last overview rather than breaking the page.
                         let response
                         try {
                             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                            response = await api.get(
-                                `api/billing/credits/overview?${toParams({ organization_id: organizationId })}`
-                            )
+                            response = await api.get('api/billing/credits/overview')
                         } catch {
                             return values.creditOverview
                         }

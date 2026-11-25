@@ -22,11 +22,8 @@ import type {
     BillingAuthorizationResponseApi,
     BillingAuthorizationStatusRequestApi,
     BillingAuthorizationStatusResponseApi,
-    BillingCouponsOverviewRetrieveParams,
-    BillingCreditsOverviewRetrieveParams,
     BillingFeaturesApi,
     BillingForecastApi,
-    BillingGetInvoicesRetrieveParams,
     BillingInvoicesApi,
     BillingInvoicesListParams,
     BillingLimitsApi,
@@ -58,7 +55,6 @@ import type {
     BillingUsageRetrieveParams,
     BillingUsageStatusApi,
     BillingUsageSummaryApi,
-    BillingUsageTeamOptionsRetrieveParams,
     BillingUsageTimeseriesRetrieveParams,
     ClaimCouponApi,
     PaginatedBillingAlertConfigurationListApi,
@@ -175,53 +171,23 @@ export const billingCouponsClaimCreate = async (
     })
 }
 
-export const getBillingCouponsOverviewRetrieveUrl = (params?: BillingCouponsOverviewRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/coupons/overview/?${stringifiedParams}`
-        : `/api/billing/coupons/overview/`
+export const getBillingCouponsOverviewRetrieveUrl = () => {
+    return `/api/billing/coupons/overview/`
 }
 
-export const billingCouponsOverviewRetrieve = async (
-    params?: BillingCouponsOverviewRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingCouponsOverviewRetrieveUrl(params), {
+export const billingCouponsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBillingCouponsOverviewRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getBillingCreditsOverviewRetrieveUrl = (params?: BillingCreditsOverviewRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/credits/overview/?${stringifiedParams}`
-        : `/api/billing/credits/overview/`
+export const getBillingCreditsOverviewRetrieveUrl = () => {
+    return `/api/billing/credits/overview/`
 }
 
-export const billingCreditsOverviewRetrieve = async (
-    params?: BillingCreditsOverviewRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingCreditsOverviewRetrieveUrl(params), {
+export const billingCreditsOverviewRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBillingCreditsOverviewRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -253,27 +219,12 @@ export const billingDeactivateCreate = async (billingApi: BillingApi, options?: 
     })
 }
 
-export const getBillingGetInvoicesRetrieveUrl = (params?: BillingGetInvoicesRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/get_invoices/?${stringifiedParams}`
-        : `/api/billing/get_invoices/`
+export const getBillingGetInvoicesRetrieveUrl = () => {
+    return `/api/billing/get_invoices/`
 }
 
-export const billingGetInvoicesRetrieve = async (
-    params?: BillingGetInvoicesRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingGetInvoicesRetrieveUrl(params), {
+export const billingGetInvoicesRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBillingGetInvoicesRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -484,20 +435,8 @@ export const billingUsageExportRetrieve = async (
     })
 }
 
-export const getBillingUsageTeamOptionsRetrieveUrl = (params?: BillingUsageTeamOptionsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/usage/team_options/?${stringifiedParams}`
-        : `/api/billing/usage/team_options/`
+export const getBillingUsageTeamOptionsRetrieveUrl = () => {
+    return `/api/billing/usage/team_options/`
 }
 
 /**
@@ -507,10 +446,9 @@ export const getBillingUsageTeamOptionsRetrieveUrl = (params?: BillingUsageTeamO
  * they can see.
  */
 export const billingUsageTeamOptionsRetrieve = async (
-    params?: BillingUsageTeamOptionsRetrieveParams,
     options?: RequestInit
 ): Promise<BillingTeamOptionsResponseApi> => {
-    return apiMutator<BillingTeamOptionsResponseApi>(getBillingUsageTeamOptionsRetrieveUrl(params), {
+    return apiMutator<BillingTeamOptionsResponseApi>(getBillingUsageTeamOptionsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
