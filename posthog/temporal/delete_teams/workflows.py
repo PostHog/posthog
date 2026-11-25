@@ -15,7 +15,9 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
+    delete_organization_task_storage_activity,
     delete_project_record_activity,
+    delete_task_storage_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
     delete_ui_customization_activity,
@@ -196,6 +198,14 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=SIDE_EFFECT_RETRY_POLICY,
         )
+        if temporalio.workflow.patched("delete-task-storage"):
+            await temporalio.workflow.execute_activity(
+                delete_task_storage_activity,
+                team_inputs,
+                start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
 
 
 async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workflow_id: str) -> None:
@@ -295,6 +305,14 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=DELETE_RETRY_POLICY,
         )
+        if temporalio.workflow.patched("delete-organization-task-storage"):
+            await temporalio.workflow.execute_activity(
+                delete_organization_task_storage_activity,
+                OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
 
         await temporalio.workflow.execute_activity(
             send_organization_deleted_email_activity,

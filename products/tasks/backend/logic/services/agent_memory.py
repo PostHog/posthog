@@ -70,8 +70,12 @@ def is_valid_memory_filename(filename: str) -> bool:
     return _FILENAME_PATTERN.fullmatch(filename) is not None and filename not in {".", ".."}
 
 
+def team_memory_prefix(team_id: int) -> str:
+    return f"{STORAGE_PREFIX}/{int(team_id)}/"
+
+
 def user_memory_prefix(team_id: int, user_id: int) -> str:
-    return f"{STORAGE_PREFIX}/{int(team_id)}/{int(user_id)}/claude/"
+    return f"{team_memory_prefix(team_id)}{int(user_id)}/claude/"
 
 
 def slug_memory_prefix(team_id: int, user_id: int, slug: str) -> str:

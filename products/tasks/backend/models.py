@@ -97,6 +97,18 @@ SCOUT_TRIAL_ORIGIN_KEY_PREFIX = "scout-trial:"
 SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX = "scout-trial-judge:"
 
 
+def team_task_logs_s3_prefix(team_id: int) -> str:
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/logs/team_{int(team_id)}/"
+
+
+def team_task_artifacts_s3_prefix(team_id: int) -> str:
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{int(team_id)}/"
+
+
+def organization_task_sessions_s3_prefix(organization_id: uuid.UUID | str) -> str:
+    return f"task-sessions/{uuid.UUID(str(organization_id))}/"
+
+
 def execute_after_commit(callback: Callable[[], object]) -> None:
     """Run commit side effects immediately in tests, where TestCase never commits its wrapper transaction."""
     if settings.TEST:
@@ -3361,13 +3373,11 @@ class TaskRun(models.Model):
 
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
-        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}"
+        return f"{team_task_logs_s3_prefix(self.team_id)}task_{self.task_id}"
 
     def get_artifact_s3_prefix(self) -> str:
         """Base prefix for storing artifacts in S3."""
-        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
+        return f"{team_task_artifacts_s3_prefix(self.team_id)}task_{self.task_id}/run_{self.id}"
 
     def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
         """Walk `state.resume_from_run_id` from this run upward.

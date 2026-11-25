@@ -44,6 +44,7 @@ CORE_ACTIVITY_ORDER = [
     "delete_data_modeling_schedules_activity",
     "delete_team_records_activity",
     "enqueue_clickhouse_deletion_activity",
+    "delete_task_storage_activity",
 ]
 
 
@@ -76,6 +77,10 @@ def _recording_activities(
     async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
         calls.append("delete_organization_record_activity")
 
+    @activity.defn(name="delete_organization_task_storage_activity")
+    async def delete_organization_task_storage_activity(inputs: OrganizationRecordInputs) -> None:
+        calls.append("delete_organization_task_storage_activity")
+
     @activity.defn(name="send_project_deleted_email_activity")
     async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> None:
         calls.append("send_project_deleted_email_activity")
@@ -90,6 +95,7 @@ def _recording_activities(
         check_project_pending_deletion_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
+        delete_organization_task_storage_activity,
         send_project_deleted_email_activity,
         send_organization_deleted_email_activity,
     ]
@@ -212,6 +218,7 @@ async def test_organization_workflow_deletes_record_then_emails():
         "deprovision_managed_warehouse_activity",
         *CORE_ACTIVITY_ORDER,
         "delete_organization_record_activity",
+        "delete_organization_task_storage_activity",
         "send_organization_deleted_email_activity",
     ]
 
@@ -266,7 +273,10 @@ async def test_protected_error_fails_fast_without_retry(activity_name: str):
     assert len(attempts) == 1  # non-retryable: the workflow fails on the first attempt
 
 
-@pytest.mark.parametrize("activity_name", ["delete_misc_small_tables_activity", "delete_ui_customization_activity"])
+@pytest.mark.parametrize(
+    "activity_name",
+    ["delete_misc_small_tables_activity", "delete_ui_customization_activity", "delete_task_storage_activity"],
+)
 async def test_transient_error_is_retried(activity_name: str):
     attempts: list[str] = []
 
