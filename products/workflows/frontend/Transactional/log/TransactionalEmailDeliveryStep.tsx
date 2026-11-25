@@ -30,6 +30,39 @@ function StepMarker({ state }: { state: DeliveryStep['state'] }): JSX.Element {
     )
 }
 
+function isWaiting(state: DeliveryStep['state']): boolean {
+    return state === 'pending' || state === 'untracked'
+}
+
+function StepWhen({ step }: { step: DeliveryStep }): JSX.Element | null {
+    if (step.at) {
+        const gap = gapLabel(step.at, step.previousAt)
+        return (
+            <span className="text-xs text-secondary flex flex-wrap gap-x-1">
+                <TZLabel time={step.at} formatDate="MMM D" formatTime="HH:mm:ss" />
+                {gap && <span>· {gap}</span>}
+            </span>
+        )
+    }
+    if (step.state === 'untracked') {
+        return (
+            <Tooltip title="Tracking was off for this send, so it records no opens or clicks.">
+                <span className="text-xs text-secondary" data-attr="transactional-email-not-tracked">
+                    Not tracked
+                </span>
+            </Tooltip>
+        )
+    }
+    if (step.state === 'pending') {
+        return (
+            <span className="text-xs text-secondary">
+                {step.key === 'opened' || step.key === 'clicked' ? 'Not yet' : 'Waiting'}
+            </span>
+        )
+    }
+    return null
+}
+
 /** One step of the delivery progress, and the line that leads to the next step. */
 export function TransactionalEmailDeliveryStep({
     step,
@@ -38,7 +71,6 @@ export function TransactionalEmailDeliveryStep({
     step: DeliveryStep
     next: DeliveryStep | undefined
 }): JSX.Element {
-    const gap = step.at ? gapLabel(step.at, step.previousAt) : null
     return (
         <li className="flex @2xl:flex-col gap-3 @2xl:gap-2 flex-1 min-w-0">
             <div className="flex items-center @2xl:w-full">
@@ -47,7 +79,7 @@ export function TransactionalEmailDeliveryStep({
                     <span
                         className={clsx(
                             'hidden @2xl:block h-px flex-1 mx-2',
-                            next.state === 'pending' || next.state === 'untracked' ? 'bg-border' : 'bg-border-bold'
+                            isWaiting(next.state) ? 'bg-border' : 'bg-border-bold'
                         )}
                     />
                 )}
@@ -56,31 +88,13 @@ export function TransactionalEmailDeliveryStep({
                 <span
                     className={clsx(
                         'text-sm font-semibold',
-                        (step.state === 'pending' || step.state === 'untracked') && 'text-secondary',
+                        isWaiting(step.state) && 'text-secondary',
                         step.state === 'failed' && 'text-danger'
                     )}
                 >
                     {step.label}
                 </span>
-                {step.at ? (
-                    <span className="text-xs text-secondary flex flex-wrap gap-x-1">
-                        <TZLabel time={step.at} formatDate="MMM D" formatTime="HH:mm:ss" />
-                        {gap && <span>· {gap}</span>}
-                    </span>
-                ) : (
-                    step.state === 'pending' && (
-                        <span className="text-xs text-secondary">
-                            {step.key === 'opened' || step.key === 'clicked' ? 'Not yet' : 'Waiting'}
-                        </span>
-                    )
-                )}
-                {step.state === 'untracked' && (
-                    <Tooltip title="Tracking was off for this send, so it records no opens or clicks.">
-                        <span className="text-xs text-secondary" data-attr="transactional-email-not-tracked">
-                            Not tracked
-                        </span>
-                    </Tooltip>
-                )}
+                <StepWhen step={step} />
                 {step.detail && step.state !== 'failed' && <StepDetail detail={step.detail} />}
             </div>
         </li>
