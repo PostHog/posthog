@@ -15,7 +15,7 @@ export function RevenueBaseCurrency(): JSX.Element {
             resourceType={AccessControlResourceType.RevenueAnalytics}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <BaseCurrency hideTitle={quillSurface} />
+            <BaseCurrency hideTitle={quillSurface} dropdownClassName="min-w-0" />
         </AccessControlAction>
     )
 
@@ -23,8 +23,8 @@ export function RevenueBaseCurrency(): JSX.Element {
         return baseCurrency
     }
 
-    // BaseCurrency keeps the description size that Settings shows, so this page sets the xs description that its
-    // other sections use.
+    // BaseCurrency keeps the description size and picker width that Settings shows, so this page sets the xs
+    // description that its other sections use and lets the picker fit its value.
     return (
         <SceneSection title="Base currency">
             <Text size="xs" render={<p className="m-0 max-w-160" />}>

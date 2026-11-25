@@ -17,9 +17,11 @@ export const BASE_CURRENCY_DESCRIPTION =
 interface BaseCurrencyProps {
     hideTitle?: boolean
     disabledReason?: string
+    /** Extra classes for the quill currency picker. */
+    dropdownClassName?: string
 }
 
-export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrencyProps): JSX.Element {
+export function BaseCurrency({ hideTitle = false, disabledReason, dropdownClassName }: BaseCurrencyProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const restrictedReason = useRestrictedArea({
@@ -38,6 +40,7 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
                 value={currentTeam?.base_currency || null}
                 onChange={handleChange}
                 disabledReason={disabledReason ?? restrictedReason ?? undefined}
+                className={dropdownClassName}
             />
         )
 
