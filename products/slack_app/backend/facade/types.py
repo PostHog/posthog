@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 
 from posthog.dataclasses import frozen
 
@@ -63,10 +64,40 @@ class SlackWorkspaceSettings:
 
 @frozen
 class SlackPersonalSettings:
-    # None when the person has not linked a Slack account in this workspace.
+    # None when the person has not linked a Slack account in this workspace. The other fields then
+    # hold the values a new Slack user gets.
     slack_user_id: str | None
     reactions: dict[SlackReactionKind, SlackReactionChoice]
     effective_reactions: dict[SlackReactionKind, SlackResolvedReaction]
+    # None means the person uses the workspace default project.
+    default_integration_id: int | None
+    project_options: tuple[ProjectOption, ...]
+    untagged_followup_mode: str
+    untagged_question_mode: str
+    thread_join_mode: str
+    auto_model_choice: bool
+    feature_tips_enabled: bool
+
+
+class Unset(Enum):
+    UNSET = "unset"
+
+
+UNSET = Unset.UNSET
+
+
+@frozen
+class SlackPersonalSettingsChange:
+    """The personal settings to change. A field left as ``UNSET`` keeps its stored value."""
+
+    reactions: dict[SlackReactionKind, SlackReactionChoice] | Unset = UNSET
+    # None clears the personal default, so the workspace default applies.
+    default_integration_id: int | None | Unset = UNSET
+    untagged_followup_mode: str | Unset = UNSET
+    untagged_question_mode: str | Unset = UNSET
+    thread_join_mode: str | Unset = UNSET
+    auto_model_choice: bool | Unset = UNSET
+    feature_tips_enabled: bool | Unset = UNSET
 
 
 @frozen
