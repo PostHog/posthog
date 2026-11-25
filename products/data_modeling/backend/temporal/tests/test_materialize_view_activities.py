@@ -27,6 +27,7 @@ from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ServerConfigurationQueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -57,7 +58,11 @@ from products.data_modeling.backend.facade.api import (
     link_table_if_materializing,
     set_incremental_state,
 )
-from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import (
+    ResolutionCycleError,
+    ResolutionTimeoutError,
+    bounded_resolver_factory_for_view,
+)
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -86,6 +91,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     LOGGER,
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
+    HogQLModelQueryError,
     IncrementalWindow,
     InvalidNodeTypeException,
     _adaptive_retry_delay,
@@ -103,6 +109,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view_managed
     materialize_view_managed_warehouse_activity,
 )
 from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _SavedQueryViewers
+from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckSeverity,
@@ -2718,9 +2725,17 @@ class TestMaterializeViewPromptJev:
 
         with (
             override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            pytest.raises(ResolutionCycleError),
+            pytest.raises(HogQLModelQueryError) as error,
         ):
             [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]
+
+        assert isinstance(error.value.__cause__, ResolutionCycleError)
+
+    async def test_a_server_without_native_clickhouse_still_reports_and_retries(self, ateam):
+        query = "SELECT jev(text, 'Is this a refund request?') AS is_refund FROM (SELECT 'refund' AS text)"
+
+        with override_settings(CLICKHOUSE_USE_HTTP=True), pytest.raises(ServerConfigurationQueryError):
+            [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
 
 class TestHogqlTableEmptyResults:
@@ -3020,6 +3035,20 @@ class TestHogqlTableDuplicateOutputColumns:
         assert len(materialized) == expected_row_count
 
 
+class TestHogqlTableCustomerQueryErrors:
+    async def test_a_query_selecting_a_missing_column_fails_without_retry_or_report(self, ateam: Team) -> None:
+        with pytest.raises(HogQLModelQueryError) as error:
+            _ = [
+                batch
+                async for batch in hogql_table("SELECT column_that_does_not_exist FROM events", ateam, LOGGER.bind())
+            ]
+
+        assert isinstance(error.value, NonReportableError)
+        assert type(error.value).__name__ in NON_RETRYABLE_ERRORS
+        assert str(error.value) == str(error.value.__cause__)
+        assert "column_that_does_not_exist" in str(error.value)
+
+
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
 
@@ -3079,6 +3108,19 @@ class TestHogqlTableResolutionDeadline:
             batches = [batch async for batch in hogql_table("SELECT now() AS ts", ateam, LOGGER.bind())]
 
         assert [name for name, _ in batches[0][1]] == ["ts"]
+
+    async def test_an_exhausted_resolution_deadline_stays_retryable(self, ateam):
+        def expired_deadline_factory(view_name: str | None, **kwargs: Any) -> ResolverFactory:
+            return bounded_resolver_factory_for_view(view_name, **{**kwargs, "deadline_seconds": -1.0})
+
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.bounded_resolver_factory_for_view",
+                expired_deadline_factory,
+            ),
+            pytest.raises(ResolutionTimeoutError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1 AS one", ateam, LOGGER.bind())]
 
 
 class TestMaterializeViewStagesPersonPropertyRows:

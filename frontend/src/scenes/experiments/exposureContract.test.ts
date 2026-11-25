@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
@@ -8,6 +10,7 @@ import {
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    draftDefaultExposureEvent,
     exposureEventLabel,
     getActivationConfig,
     getExposureEventAndProperty,
@@ -25,6 +28,15 @@ describe('exposureContract', () => {
         expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
             '$feature_flag_called'
         )
+    })
+
+    it.each([
+        ['no cutoff', null, '$feature_flag_called'],
+        ['a cutoff after now', '2026-09-01T00:00:01+00:00', '$feature_flag_called'],
+        ['a cutoff at now', '2026-09-01T00:00:00+00:00', '$experiment_exposure'],
+        ['a cutoff before now', '2026-08-01T00:00:00+00:00', '$experiment_exposure'],
+    ])('gives a draft launched now with %s the default event the backend resolves', (_name, cutoff, expected) => {
+        expect(draftDefaultExposureEvent(cutoff, dayjs('2026-09-01T00:00:00Z'))).toBe(expected)
     })
 
     it.each([

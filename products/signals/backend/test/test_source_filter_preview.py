@@ -71,7 +71,7 @@ def _issue(
     ]
 
 
-class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
+class _LinearSourceFilterTest(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         SignalFilterSourceDefinition.publish(
@@ -88,14 +88,19 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def _preview(self, expression: str, **extra_body: object) -> dict:
+    def _post(self, action: str, expression: str, **extra_body: object) -> dict:
         response = self.client.post(
-            f"/api/projects/{self.team.id}/signals/source_configs/filter_preview/",
+            f"/api/projects/{self.team.id}/signals/source_configs/{action}/",
             {"source_product": "linear", "source_type": "issue", "expression": expression, **extra_body},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
+
+
+class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
+    def _preview(self, expression: str, **extra_body: object) -> dict:
+        return self._post("filter_preview", expression, **extra_body)
 
     def _linear_issues(self, rows: list[list[object]], columns: dict[str, dict[str, str | bool]] = _COLUMNS) -> None:
         create_synced_table_from_rows(
@@ -140,8 +145,28 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert passing["field_values"]["project_name"] == "Core"
         assert passing["field_values"]["label_names"] == ["bug"]
         assert passing["field_values"]["assignee_id"] is None
-        excluded = {record["id"]: record["malformed"] for record in preview["excluded"]}
-        assert excluded == {"assigned": False, "other-project": False, "malformed": True}
+        assert passing["failed_conditions"] is None
+        excluded = {record["id"]: (record["malformed"], record["failed_conditions"]) for record in preview["excluded"]}
+        assert excluded == {
+            "assigned": (False, ["assignee_id IS NULL"]),
+            "other-project": (False, ["project_name = 'Core'"]),
+            "malformed": (True, ["project_name = 'Core'"]),
+        }
+
+    def test_preview_lists_failed_conditions_only_for_a_top_level_and(self) -> None:
+        self._linear_issues([_issue("assigned", assignee='{"id": "u1"}')])
+
+        def failed_conditions(expression: str) -> list[str] | None:
+            [excluded] = self._preview(expression)["excluded"]
+            return excluded["failed_conditions"]
+
+        assert failed_conditions("(project_name = 'Web' OR priority = 1) AND assignee_id IS NULL") == [
+            "project_name = 'Web' OR priority = 1",
+            "assignee_id IS NULL",
+        ]
+        assert failed_conditions("project_name = 'Web' OR assignee_id IS NULL") is None
+        assert failed_conditions(" AND ".join(["priority = 2"] * 8 + ["assignee_id IS NULL"])) is None
+        assert failed_conditions("\ufeffproject_name = 'Web' AND assignee_id IS NULL") is None
 
     def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
         """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""
@@ -289,14 +314,67 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == expected_attr
 
+    def test_validate_reads_no_warehouse_records(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="linear", source_type="issue", config={"linear_team_ids": [_ALLOWED_TEAM]}
+        )
+        self._linear_issues([_issue("passes")])
+
+        with self.capture_queries(lambda _query: True) as queries:
+            validation = self._post("filter_validate", "project_name = 'Core'")
+
+        assert validation["valid"] is True
+        assert queries == []
+
+    def test_validate_is_refused_where_the_filter_cannot_be_saved(self) -> None:
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/source_configs/filter_validate/",
+                {"source_product": "linear", "source_type": "issue", "expression": ""},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "source_type"
+
+    @parameterized.expand(
+        [
+            ("filter_preview", "SourceFilterPreviewBurstThrottle"),
+            ("filter_validate", "SourceFilterValidateBurstThrottle"),
+        ]
+    )
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.signals.backend.throttles.SourceFilterPreviewBurstThrottle.rate", new="1/minute")
-    def test_preview_throttles_session_requests(self, _rate_limit: object) -> None:
-        url = f"/api/projects/{self.team.id}/signals/source_configs/filter_preview/"
+    def test_check_throttles_session_requests(self, action: str, throttle: str, _rate_limit: object) -> None:
+        url = f"/api/projects/{self.team.id}/signals/source_configs/{action}/"
         body = {"source_product": "linear", "source_type": "issue", "expression": ""}
 
-        first = self.client.post(url, body, format="json")
-        second = self.client.post(url, body, format="json")
+        with patch(f"products.signals.backend.throttles.{throttle}.rate", new="1/minute"):
+            first = self.client.post(url, body, format="json")
+            second = self.client.post(url, body, format="json")
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestSourceFilterValidate(_LinearSourceFilterTest):
+    @parameterized.expand(
+        [
+            ("valid", "project_name = 'Core' AND assignee_id IS NULL", (None, None, None)),
+            ("blank", "  ", (None, None, None)),
+            ("unknown_field", "category = 'Core'", ("unknown_field", 0, 8)),
+            ("syntax", "project_name = ", ("syntax", 15, 15)),
+            ("too_long", "project_name = 'Core' OR " * 200, ("expression_limit", None, None)),
+        ]
+    )
+    def test_validate_checks_the_expression_against_the_active_catalog(
+        self, _name: str, expression: str, expected_error: tuple[str | None, int | None, int | None]
+    ) -> None:
+        catalog = SignalFilterSourceDefinition.objects.get(source_product="linear", source_type="issue")
+        assert catalog.active_catalog_version is not None
+
+        validation = self._post("filter_validate", expression)
+
+        assert validation["valid"] is (expected_error[0] is None)
+        assert validation["catalog_version"] == catalog.active_catalog_version.version
+        assert (validation["error"] is None) is validation["valid"]
+        assert (validation["error_code"], validation["error_start"], validation["error_end"]) == expected_error

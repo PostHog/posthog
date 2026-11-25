@@ -161,22 +161,12 @@ def _to_experiment_detail(experiment: Experiment) -> ExperimentDetail:
     )
 
 
-def get_experiment(
-    *,
-    team: Team,
-    experiment_id: int,
-    include_deleted: bool = False,
-    search: str | None = None,
-    order: str | None = None,
-) -> ExperimentDetail | None:
+def get_experiment(*, team: Team, experiment_id: int, include_deleted: bool = False) -> ExperimentDetail | None:
     """The experiment of the project with the id, or None when the project has no such experiment.
 
-    A deleted experiment counts only with `include_deleted`. `search` and `order` apply as the API applies them
-    to a read of one experiment: the experiment must match the search, and the order must be valid.
+    A deleted experiment counts only with `include_deleted`.
     """
-    experiment = experiments.get_detail(
-        team=team, experiment_id=experiment_id, include_deleted=include_deleted, search=search, order=order
-    )
+    experiment = experiments.get_detail(team=team, experiment_id=experiment_id, include_deleted=include_deleted)
     return None if experiment is None else _to_experiment_detail(experiment)
 
 

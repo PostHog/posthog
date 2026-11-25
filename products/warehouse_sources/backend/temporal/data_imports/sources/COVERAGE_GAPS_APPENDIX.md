@@ -3209,11 +3209,11 @@ Diffed against: <https://jsapi.apiary.io/apis/dearinventory.apib>
 - [x] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
 - [x] `Journals (GET /journal)` — manual and system journal list with status (medium)
 - [x] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
-- [ ] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
-- [ ] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
-- [ ] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
+- [x] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
+- [x] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
+- [x] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
 - [x] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
-- [ ] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
+- [x] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
 - [ ] `Product discounts (GET /reference/discount)` — discount definitions applied to sales (low)
 - [ ] `Bank accounts (GET /ref/account/bank)` — bank account lookup for payments (low)
 
@@ -6010,9 +6010,9 @@ Diffed against: <https://developer.flutterwave.com/v3.0.0/reference/get-all-tran
 - [x] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high). Added as `wallet_statement` (v3, one walk per currency listed by `/balances`).
 - [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium); skipped: one request per transaction on every sync, because `transactions` has no update cursor and the timeline has no list or date filter, and the rows are checkout UI steps with IP addresses and actor emails
 - [x] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium). Added as `bill_payments` (v3).
-- [ ] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium)
-- [ ] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium)
-- [ ] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium)
+- [x] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium). Added as `payout_subaccounts` (v3, follows `data.cursor.next` when the response has one).
+- [x] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium). Added as `payout_subaccount_transactions` (v3, one walk per wallet listed by `/payout-subaccounts`).
+- [x] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium). Added as `balances` (v3, full refresh).
 
 Note: Parsed the full operation metadata embedded in the official V3 reference and checked each proposed endpoint page. Existing subaccounts call /subaccounts, not /payout-subaccounts. Banks need country fan-out; wallet statements need currency windows; payout transactions need account fan-out. Excluded charge creation, tokens, verification tools, and nested refunds already covered by the refunds table.
 
@@ -10188,7 +10188,7 @@ Re-audited 2026-11-19 against <https://docs.usemotion.com/llms.txt>: no new gaps
 
 ## Moxie — gaps
 
-Today (14): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `payable_invoices`, `pipeline_stages`, `projects`, `task_stages`, `tasks`, `tickets`, `vendor_names`, `workspace_users`
+Today (18): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `opportunities`, `payable_invoices`, `pipeline_stages`, `project_notes`, `projects`, `task_stages`, `tasks`, `ticket_comments`, `tickets`, `time_entries`, `vendor_names`, `workspace_users`
 
 Diffed against: <https://api-docs.withmoxie.com/sitemap.xml>
 
@@ -10201,10 +10201,10 @@ Note: Followed the retired help collection to the current reference, then read c
 
 Re-audited 2026-11-19 against: <https://api-docs.withmoxie.com/sitemap.xml>
 
-- [ ] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high)
-- [ ] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high)
-- [ ] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium)
-- [ ] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low)
+- [x] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high). Added as `time_entries`.
+- [x] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high). Added as `opportunities`.
+- [x] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium). Added as `ticket_comments`.
+- [x] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low). Added as `project_notes`.
 - [ ] `List project types (GET /public/action/projectTypes/list)` — Resolve project type ids on projects to their fields and task stages (low)
 
 Note (2026-11-19): Read the sitemap and the operation pages for the five routes. Time entries return up to 10000 rows per call with no sort guarantee, so use date windows and dedupe by id. Ticket comments need a ticketId (fan-out under tickets) and cursor paging with commentType. Project notes need a projectId (fan-out under projects). Excluded create, update, delete, webhook and upload routes.

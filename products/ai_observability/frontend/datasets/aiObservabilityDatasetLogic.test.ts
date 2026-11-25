@@ -62,6 +62,7 @@ describe('aiObservabilityDatasetLogic', () => {
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
+        created_by_project_key_id: null,
         archived: false,
         expires_at: null,
         expiring_soon: false,
@@ -87,10 +88,12 @@ describe('aiObservabilityDatasetLogic', () => {
         source_timestamp: null,
         source_event_id: null,
         created_by: null,
+        created_by_project_key_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         version_created_at: '2024-01-01T00:00:00Z',
         version_created_by: null,
+        version_created_by_project_key_id: null,
         team_id: 997,
     }
 
@@ -111,10 +114,12 @@ describe('aiObservabilityDatasetLogic', () => {
         source_timestamp: null,
         source_event_id: null,
         created_by: null,
+        created_by_project_key_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         version_created_at: '2024-01-01T00:00:00Z',
         version_created_by: null,
+        version_created_by_project_key_id: null,
         team_id: 997,
     }
 

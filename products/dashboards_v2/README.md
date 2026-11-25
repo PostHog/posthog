@@ -44,6 +44,7 @@ A closed section is three rows, enough for its card's header (`GRID.collapsedSec
 Anyone can open or close a section, for their own view only. It is not saved and is not an undo step.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
+A section's tiles can be laid out in 1 to 4 equal columns with Auto layout in its menu (`autoLayout`). Its tiles fill the columns row by row in reading order and keep their heights.
 
 ## Where a tile goes
 
@@ -95,6 +96,7 @@ The components hold no business logic and never import a kea logic, so any page 
 - The view owns only what the screen and a drag decide: the stacked layout on narrow screens, the drop target, and the undo shortcut.
 - The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
 - `dashboardV2Logic` is the host for the `/dashboard-v2` scene. Another product supplies its own host, and its own header through the `header` slot.
+- When a dashboard can't load, the host can render `DashboardV2Unavailable` (`frontend/dashboard/DashboardV2Unavailable.tsx`) in place of the view. Each problem has a default hedgehog, title and description, and the host can replace any of them or add `actions`, such as a link back to its own list.
 
 ## Narrow screens
 
@@ -116,7 +118,8 @@ A type has two parts, so code outside the browser can use the first without Reac
 - A `WidgetDefinition` (`frontend/widgets/widgetDefinition.ts`) is the spec plus the `Component` that renders it. The controller takes these.
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
-A tile's `description` shows in a tooltip on an info icon beside its title, and `parts.description: false` hides the icon.
+A tile's `description` shows in a tooltip on an info icon beside its title.
+A tile is dragged by its header, or by its body when it has no header. A widget marks text people should be able to select with the `TileGrid__text` class, and pressing on it selects instead of dragging.
 
 How the dashboard uses them:
 
@@ -174,6 +177,15 @@ The zod schemas in `frontend/dashboard/dashboardSchema.ts` are the only definiti
 - It reports a document that is not a v2 dashboard, an unknown widget type, a missing or misspelled widget field, a tile smaller than its widget's minimum, a tile past the edge of its grid, and an id used twice.
 - Overlaps and gaps are not problems, because loading a dashboard settles them.
 - It needs only specs, so a CI check or an MCP tool can run it without rendering anything.
+
+A widget can show on more than one tile, such as the same chart on two tabs.
+The document stores it once, in `widgets`, and each tile points at it with `{ "ref": "<key>" }`, plus its own `parts` and `appearance`.
+Its type, title, description and config are shared, so changing a chart's query or kind on one tile changes it on every tile.
+Size, position, parts and appearance belong to each tile.
+
+- `loadDashboard(document)` in `frontend/dashboard/sharedWidgets.ts` puts each shared widget back on its tiles, with `ref` set, so the rest of the code sees whole widgets. `saveDashboard(dashboard)` stores them once again and drops any no tile shows.
+- "Also show on tab" in a tile's menu (`addToGrid`) places a second tile for the same widget on another tab. Removing either tile leaves the other.
+- `validateDashboard` reports a tile pointing at a widget the document does not have.
 
 ## Checking a change
 

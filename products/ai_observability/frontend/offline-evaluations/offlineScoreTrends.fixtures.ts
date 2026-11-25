@@ -18,6 +18,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T10:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: null,
     team: 1,
 }
@@ -32,6 +34,7 @@ export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
     config: OFFLINE_STORY_DEFINITION.config,
     created_at: '2026-01-01T10:00:00Z',
     created_by: null,
+    created_by_project_key_id: null,
 }
 
 export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2): OfflineHistoryPointApi {

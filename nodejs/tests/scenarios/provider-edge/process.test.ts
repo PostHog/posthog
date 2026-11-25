@@ -61,18 +61,19 @@ describe('provider edge process', () => {
                 (error: Error) => error.name
             )
 
-    it('answers a send with a held fault, observes that answer, and lifts the fault on release', async () => {
+    it('answers a send with a held fault, observes and accepts that answer, and lifts the fault on release', async () => {
         const held = await edge.hold(REJECT)
-        const unsent = await held.observed(AbortSignal.abort())
         const observing = held.observed()
+        const accepting = held.accepted!(AbortSignal.timeout(10_000))
         const answer = await send()
         const seen = await observing
+        const accepted = await accepting
         await held.release()
 
-        expect({ unsent, answer, seen, after: await send() }).toEqual({
-            unsent: false,
+        expect({ answer, seen, accepted, after: await send() }).toEqual({
             answer: 'MessageRejected',
             seen: true,
+            accepted: true,
             after: 'sent',
         })
     })
