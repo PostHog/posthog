@@ -64,6 +64,7 @@ from posthog.tasks.tasks import (
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     report_upcoming_events_deletions,
+    send_delayed_org_usage_reports,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -192,14 +193,6 @@ from products.workflows.backend.facade.tasks import (
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
-
-# Organizations with delayed data ingestion that need delayed usage report re-runs
-# This is a temporary solution until we switch event usage queries from timestamp to created_at
-DELAYED_ORGS_EU: list[str] = [
-    "018beddd-5eb1-0000-7953-5a5b982e80bf",
-    "01975ab3-7ec5-0000-9751-a89cbc971419",
-]
-DELAYED_ORGS_US: list[str] = []
 
 
 def estimate_crontab_interval_seconds(schedule: crontab) -> int:
@@ -614,11 +607,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send usage reports for specific orgs with delayed data ingestion
-    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
-    if delayed_orgs:
+    if get_instance_region() in ("US", "EU"):
         sender.add_periodic_task(
-            crontab(hour="10", minute="00"),
-            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            crontab(hour="12", minute="00"),
+            send_delayed_org_usage_reports.s(),
             name="send delayed org usage reports",
         )
 
