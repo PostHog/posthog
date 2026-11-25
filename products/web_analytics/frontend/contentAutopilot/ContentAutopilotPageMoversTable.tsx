@@ -58,7 +58,7 @@ export const ContentAutopilotPageMoversTable = ({
                 title: 'Now',
                 key: 'citation_rate',
                 align: 'right',
-                tooltip: `Share of the answers in this date range that cite the page, and how many did.`,
+                tooltip: 'Share of all answers in this date range that link to this page.',
                 render: (_, { citation_rate, answers_citing }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(citation_rate, 1)}{' '}
@@ -70,7 +70,7 @@ export const ContentAutopilotPageMoversTable = ({
                 title: 'Before',
                 key: 'previous_citation_rate',
                 align: 'right',
-                tooltip: `Share of the answers in the ${days} days before that cite the page, and how many did.`,
+                tooltip: `Share of all answers in the ${days} days before that link to this page.`,
                 render: (_, { previous_citation_rate, previous_answers_citing }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(previous_citation_rate, 1)}{' '}
