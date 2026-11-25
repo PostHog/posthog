@@ -68,6 +68,14 @@ describe('platformAlertsLogic', () => {
     test.each<[string, (inAMinute: string) => PlatformAlertConfigurationApi]>([
         ['an alert-wide snooze', (inAMinute) => ({ ...CONFIGURATION, snooze_until: inAMinute })],
         ['a group snooze', (inAMinute) => ({ ...CONFIGURATION, alerts: [{ ...GROUP, snooze_until: inAMinute }] })],
+        [
+            'a group snooze before a later alert-wide snooze',
+            (inAMinute) => ({
+                ...CONFIGURATION,
+                snooze_until: dayjs().add(1, 'hour').toISOString(),
+                alerts: [{ ...GROUP, snooze_until: inAMinute }],
+            }),
+        ],
     ])('reloads the list when %s ends, so its mute marker goes', async (_, snoozed) => {
         const inAMinute = dayjs().add(1, 'minute').toISOString()
         const later = dayjs().add(1, 'day').toISOString()
