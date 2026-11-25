@@ -346,6 +346,7 @@ from products.workflows.backend.facade.tasks import schedule_batch_run_settle
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
+    added_transactional_email_steps,
     duration_cap_error,
     duration_error,
     duration_minutes,
@@ -356,8 +357,11 @@ from products.workflows.backend.facade.validation import (
     find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
+    is_transactional_origin,
+    keeps_transactional_shape,
     realtime_audience_cohort,
     realtime_cohort_cant_finish_error,
+    reserved_step_ids,
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
@@ -4365,7 +4369,56 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate_origin_product(self, value: str | None) -> str | None:
         if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
             raise serializers.ValidationError("A code send key's workflow is made by its first send.")
+        if is_transactional_origin(value):
+            raise serializers.ValidationError(
+                "A transactional message's workflow is made when its template is made transactional."
+            )
         return value
+
+    def _validate_transactional_steps(
+        self, actions: list[Any], origin_product: str | None, stored: Optional[WorkflowEditState]
+    ) -> None:
+        """Usage reports count a send as transactional by its step id, so only the workflows the transactional send
+        APIs made may hold that step, and they keep the shape those APIs run."""
+        if origin_product and is_transactional_origin(origin_product):
+            if not keeps_transactional_shape(origin_product, actions):
+                raise serializers.ValidationError(
+                    {
+                        "actions": "This workflow runs a transactional send, so its steps can't change. "
+                        "Edit its template to change the message."
+                    }
+                )
+            self._refuse_marketing_category_on_transactional_step(actions)
+            return
+        if reserved := reserved_step_ids(actions):
+            raise serializers.ValidationError(
+                {"actions": f"The step id '{reserved[0]}' is reserved for transactional sends. Use another id."}
+            )
+        stored_steps = (stored.actions, (stored.draft or {}).get("actions")) if stored else ()
+        if added := added_transactional_email_steps(actions, *stored_steps):
+            raise serializers.ValidationError(
+                {
+                    "actions": f"Email steps in workflows can't be transactional. Choose a marketing category for "
+                    f"'{added[0]}', or send transactional email with the transactional email API."
+                }
+            )
+
+    def _refuse_marketing_category_on_transactional_step(self, actions: list[Any]) -> None:
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        for step in actions:
+            category_id = (step.get("config") or {}).get("message_category_id")
+            if not category_id:
+                continue
+            try:
+                category = get_category(get_team().id, category_id)
+            except MessageCategoryMissing:
+                continue
+            if category.category_type != "transactional":
+                raise serializers.ValidationError(
+                    {"actions": "Transactional messages ignore opt-outs. Choose a transactional category."}
+                )
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4385,6 +4438,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
         origin_product = stored.origin_product if stored else data.get("origin_product")
+        if isinstance(submitted_actions, list) and getattr(self.context.get("view"), "action", None) in (
+            WORKFLOW_SAVE_ACTIONS
+        ):
+            self._validate_transactional_steps(submitted_actions, origin_product, stored)
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
             for action in data.get("actions", stored.actions if stored else None) or []

@@ -136,6 +136,15 @@ describe('workflowEmailPrefill', () => {
         expect((workflow.actions[1].config as any).inputs.email.value.html).toBe(expected)
     })
 
+    it('sends a template email from a workflow as marketing email, so the save is accepted', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: { templating: 'liquid', email: { html: '<p>Hi</p>' } },
+        } as any)
+
+        expect(workflow.actions[1].config).not.toHaveProperty('message_category_type')
+    })
+
     it('copies a template subject that reads variables when only its body assigns its own', () => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',

@@ -979,16 +979,79 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "status",
         }
 
+    @parameterized.expand([("transactional_email_keys",), ("transactional_emails",), ("transactional_push",)])
+    def test_only_the_send_apis_make_transactional_workflows(self, origin_product):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": origin_product}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "origin_product"
+
+    def _email_flow_with_category(
+        self, *, category_type: str = "transactional", step_id: str = "email_1", trigger_event: str = "$pageview"
+    ) -> dict:
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": "template-email", "inputs": _valid_email_inputs(), "message_category_type": category_type}
+        )
+        action.update(id=step_id, type="function_email", name="Receipt")
+        hog_flow["actions"][0]["config"]["filters"]["events"][0].update(id=trigger_event, name=trigger_event)
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("transactional_email", {}, 400),
+            ("marketing_email", {"category_type": "marketing"}, 201),
+            ("support_reply", {"trigger_event": "$conversation_message_sent"}, 201),
+            ("reserved_step_id", {"category_type": "marketing", "step_id": "transactional_email"}, 400),
+        ]
+    )
+    def test_a_new_workflow_cannot_send_transactional_email(self, _name, flow_kwargs, expected_status):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._email_flow_with_category(**flow_kwargs), format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_a_stored_transactional_email_keeps_saving_but_another_one_is_refused(self):
+        actions = self._email_flow_with_category()["actions"]
+        stored = HogFlow.objects.create(team=self.team, name="Receipts", actions=actions)
+        url = f"/api/projects/{self.team.id}/hog_flows/{stored.id}"
+        actions[1]["name"] = "Order receipt"
+
+        kept = self.client.patch(url, {"actions": actions}, format="json")
+        follow_up = {**deepcopy(actions[1]), "id": "email_2", "name": "Follow-up"}
+        added = self.client.patch(url, {"actions": [*actions, follow_up]}, format="json")
+
+        assert kept.status_code == 200, kept.json()
+        assert added.status_code == 400, added.json()
+        assert "'Follow-up'" in added.json()["detail"]
+
+    @parameterized.expand([("same_steps", 200), ("added_delay", 400), ("marketing_category", 400)])
+    def test_a_transactional_send_workflow_keeps_its_steps(self, edit, expected_status):
+        flow = HogFlow.objects.get(id=create_code_email_workflow(team_id=self.team.id, key="welcome"))
+        actions = deepcopy(flow.actions)
+        if edit == "added_delay":
+            actions.append({"id": "wait", "name": "Wait", "type": "delay", "config": {"delay_duration": "1h"}})
+        if edit == "marketing_category":
+            category_id = create_message_category_for_test(team_id=self.team.id, key="news", name="News")
+            actions[1]["config"]["message_category_id"] = str(category_id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}", {"status": "draft", "actions": actions}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "transactional_email_keys"}
-        )
-        assert response.status_code == 400, response.json()
-        assert response.json()["attr"] == "origin_product"
-
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "loops"})
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]

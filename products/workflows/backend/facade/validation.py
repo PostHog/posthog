@@ -4,6 +4,12 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import RealtimeAudienceCohort
 from products.workflows.backend.services import batch_audience_cohorts
 from products.workflows.backend.services.batch_audience_cohorts import find_behavioral_cohort_name
+from products.workflows.backend.services.transactional_steps import (
+    added_transactional_email_steps,
+    is_transactional_origin,
+    keeps_transactional_shape,
+    reserved_step_ids,
+)
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function, find_group_field
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
@@ -46,6 +52,7 @@ def realtime_audience_cohort(project_id: int, filters: object) -> RealtimeAudien
 
 __all__ = [
     "DURATION_PATTERN",
+    "added_transactional_email_steps",
     "duration_cap_error",
     "duration_error",
     "duration_minutes",
@@ -56,6 +63,9 @@ __all__ = [
     "find_realtime_behavioral_cohort",
     "is_duration",
     "is_signed_duration",
+    "is_transactional_origin",
+    "keeps_transactional_shape",
     "realtime_audience_cohort",
     "realtime_cohort_cant_finish_error",
+    "reserved_step_ids",
 ]
