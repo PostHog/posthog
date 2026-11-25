@@ -114,6 +114,13 @@ export interface hogFlowOutputMappingLogicActions {
     selectPath: (path: string) => {
         path: string
     }
+    setAgentField: (
+        index: number,
+        name: string
+    ) => {
+        index: number
+        name: string
+    }
     setMappingVariable: (
         index: number,
         key: string
@@ -139,26 +146,19 @@ export interface hogFlowOutputMappingLogicActions {
     setTestResultData: (data: unknown | null) => {
         data: unknown
     }
+    setVariableDescription: (
+        key: string,
+        description: string
+    ) => {
+        description: string
+        key: string
+    }
     setVariableType: (
         key: string,
         type: WorkflowVariableType
     ) => {
         key: string
         type: WorkflowVariableType
-    }
-    setVariableDescription: (
-        key: string,
-        description: string
-    ) => {
-        key: string
-        description: string
-    }
-    setAgentField: (
-        index: number,
-        name: string
-    ) => {
-        index: number
-        name: string
     }
     triggerShake: () => {
         value: true
