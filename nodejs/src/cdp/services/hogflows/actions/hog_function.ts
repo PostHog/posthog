@@ -26,7 +26,7 @@ import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hogflow-person-property-usage'
-import { isSensitiveMessage } from '../hogflow-sensitivity'
+import { isClickTrackingEnabled, isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -280,6 +280,9 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.state.currentAction!.hogFunctionState = {
                 ...functionResult.invocation.state,
                 ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
+                ...(action.type === 'function_email' && !isClickTrackingEnabled(functionResult.invocation)
+                    ? { clickTrackingDisabled: true }
+                    : {}),
             }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
@@ -510,10 +513,14 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
-        // A send that started protected stays protected through its retries, even if protection is turned off
-        // before the retry runs: the queued message was rendered under protection.
-        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
-            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        // Queued retries keep the protection and click-tracking guard the message was rendered under.
+        const savedFunctionState = invocation.state.currentAction?.hogFunctionState
+        if (savedFunctionState?.sensitive || savedFunctionState?.clickTrackingDisabled) {
+            hogFunction.metadata = {
+                ...hogFunction.metadata,
+                ...(savedFunctionState.sensitive ? { sensitive: true } : {}),
+                ...(savedFunctionState.clickTrackingDisabled ? { click_tracking_enabled: false } : {}),
+            }
         }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },

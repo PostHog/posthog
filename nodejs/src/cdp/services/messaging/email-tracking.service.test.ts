@@ -167,9 +167,28 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        const sensitiveInvocation = {
+            ...invocation,
+            hogFunction: { metadata: { sensitive: true, template_uuid: 'template-1' } },
+        }
+        const sensitiveOptInInvocation = {
+            ...invocation,
+            hogFunction: { metadata: { sensitive: true, template_uuid: 'template-1', click_tracking_enabled: true } },
+        }
+        const clickDisabledInvocation = {
+            ...invocation,
+            hogFunction: { metadata: { sensitive: false, template_uuid: 'template-1', click_tracking_enabled: false } },
+        }
+
         it.each([
             ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
             ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+            [
+                'a template with click tracking disabled',
+                '<body><a href="https://example.com">x</a></body>',
+                clickDisabledInvocation,
+            ],
             [
                 'clicktracking="off" after a quoted >',
                 '<body><a href="https://example.com" title="1 > 0" clicktracking="off">x</a></body>',
@@ -178,6 +197,16 @@ describe('EmailTrackingService', () => {
         ])('leaves the anchor untouched when it opts out via %s', (_name, html, inv) => {
             const out = addTrackingToEmail(html, inv, signer)
             expect(out).toContain(html.slice('<body>'.length, -'</body>'.length))
+        })
+
+        it('wraps links on a sensitive template that opts in to click tracking', () => {
+            const out = addTrackingToEmail(
+                '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                sensitiveOptInInvocation,
+                signer
+            )
+            expect(extractTarget(out)).toBe('https://example.com/a')
+            expect(out).toContain('<a href="https://example.com/b" data-ph-no-track>b</a>')
         })
 
         it('still wraps the link when the opt-out marker is on a child, not the anchor tag', () => {
@@ -309,6 +338,18 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com" data-ph-no-track ses:no-track>x</a>',
                 ],
                 [
+                    'a sensitive template',
+                    '<a href="https://example.com">x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com" ses:no-track>x</a>',
+                ],
+                [
+                    'a template with click tracking disabled',
+                    '<a href="https://example.com">x</a>',
+                    clickDisabledInvocation,
+                    '<a href="https://example.com" ses:no-track>x</a>',
+                ],
+                [
                     'clicktracking="off" after a quoted >',
                     '<a href="https://example.com/?q=1>0" clicktracking="off">x</a>',
                     invocation,
@@ -325,6 +366,19 @@ describe('EmailTrackingService', () => {
                 // to awstrack.me and app deeplinks stop resolving.
                 const out = addTrackingToEmail(`<body>${anchor}</body>`, inv, signer, false, 'ses')
                 expect(out).toBe(`<body>${translated}</body>`)
+            })
+
+            it('tags anchors on a sensitive template that opts in to click tracking', () => {
+                const out = addTrackingToEmail(
+                    '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                    sensitiveOptInInvocation,
+                    signer,
+                    false,
+                    'ses'
+                )
+                expect(out).toBe(
+                    '<body><a href="https://example.com/a" ses:tags="phl:0">a</a><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a></body>'
+                )
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {

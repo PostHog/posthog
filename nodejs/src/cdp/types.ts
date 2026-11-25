@@ -465,6 +465,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     // Set when a protected workflow step pauses mid-send, so its retries stay protected.
     sensitive?: boolean
+    clickTrackingDisabled?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend

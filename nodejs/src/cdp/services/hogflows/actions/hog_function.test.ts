@@ -1168,6 +1168,51 @@ describe('HogFunctionHandler', () => {
         expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
     })
 
+    it('keeps a paused protected email send click-tracking off on its retry after click tracking is turned on', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        const emailAction = {
+            ...action,
+            type: 'function_email' as const,
+            config: {
+                ...action.config,
+                template_id: 'template-email' as const,
+                sensitive: true,
+            },
+        }
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action: emailAction, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.clickTrackingDisabled).toBe(true)
+        ;(emailAction.config as any).click_tracking_enabled = true
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action: emailAction,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.click_tracking_enabled)).toEqual([undefined, false])
+    })
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
