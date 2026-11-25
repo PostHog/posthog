@@ -197,15 +197,15 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 data-attr="content-autopilot-prompt-kpis"
                             >
                                 <ContentAutopilotKpiStat
-                                    label="Mentioned in answers"
-                                    description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
+                                    label="Visibility"
+                                    description="Share of answers that name your brand or link to your site."
                                     {...rateKpiCard(reportKpis.visibility)}
                                     onClick={() => showMetric('mentioned')}
                                     data-attr="content-autopilot-prompt-kpi-mentioned"
                                 />
                                 <ContentAutopilotKpiStat
                                     label="Cited as a source"
-                                    description="Share of answers that link to a page on your site as a source, so people can click through to it."
+                                    description="Share of answers that link to a page on your site."
                                     {...rateKpiCard(reportKpis.citation)}
                                     onClick={() => showMetric('cited')}
                                     data-attr="content-autopilot-prompt-kpi-cited"
@@ -308,10 +308,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                                         <ContentAutopilotPromptVersions promptId={prompt.id} />
                                                     </TabSection>
                                                 ) : null}
-                                                <TabSection
-                                                    title="All checks"
-                                                    description="Pick a check to read its answer."
-                                                >
+                                                <TabSection title="All checks">
                                                     <ContentAutopilotPromptChecks />
                                                 </TabSection>
                                             </div>

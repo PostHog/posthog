@@ -1,0 +1,25 @@
+{# A Progress above a table, as a quill Progress with one indicator per part. #}
+<div class="flex flex-col gap-1.5 px-3 py-3 border-b border-border"
+     data-quill
+     data-slot="progress">
+    <span class="quill-progress__label" data-slot="progress-label">{{ progress.text }}</span>
+    <div class="quill-progress__track relative flex items-center gap-px h-2"
+         data-slot="progress-track"
+         role="progressbar"
+         aria-label="Progress"
+         aria-valuemin="0"
+         aria-valuemax="{{ progress.total|stringformat:'d' }}"
+         aria-valuenow="{{ progress.filled|stringformat:'d' }}"
+         aria-valuetext="{{ progress.text }}">
+        {% for tone, percent in progress.bars %}
+            <div class="quill-progress__indicator min-w-1 {% if tone == 'success' %}quill-progress__indicator--variant-success{% elif tone == 'warning' %}quill-progress__indicator--variant-warning{% elif tone == 'destructive' %}quill-progress__indicator--variant-destructive{% else %}quill-progress__indicator--variant-info{% endif %}"
+                 data-slot="progress-indicator"
+                 data-variant="{{ tone }}"
+                 style="width: {{ percent }}%"></div>
+        {% endfor %}
+        {% if progress.moving %}
+            <div class="h-full min-w-1 bg-muted-foreground/40 motion-safe:animate-pulse"
+                 style="width: {{ progress.moving_percent }}%"></div>
+        {% endif %}
+    </div>
+</div>

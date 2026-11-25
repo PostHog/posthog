@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -185,6 +186,16 @@ export function AccountContextFacts({
                     label={`Needs a recheck (${recheckCount})`}
                     data-attr="account-context-recheck-filter"
                 />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPlus />}
+                    className="ml-auto"
+                    disabledReason={CONTEXT_WRITE_DISABLED_REASON}
+                    data-attr="account-context-add-fact"
+                >
+                    Add fact
+                </LemonButton>
             </div>
             <LemonTable<AccountContextFact>
                 size="small"

@@ -10,4 +10,5 @@ rules:
     - match:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
+          - '/tests/test_hogql_event_deletion_flag_calls.py'
       owners: team-feature-flags

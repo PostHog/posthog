@@ -60,6 +60,7 @@ class SessionRecordingsQueryDateRange(QueryDateRange):
 class SessionRecordingsListingBaseQuery:
     _team: Team
     _query: RecordingsQuery
+    _now: datetime | None = None
 
     def __init__(self, team: Team, query: RecordingsQuery):
         self._team = team
@@ -85,5 +86,5 @@ class SessionRecordingsListingBaseQuery:
             date_range=DateRange(date_from=self._query.date_from, date_to=self._query.date_to, explicitDate=True),
             team=self._team,
             interval=None,
-            now=datetime.now(),
+            now=self._now or datetime.now(),
         )

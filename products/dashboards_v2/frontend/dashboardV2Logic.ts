@@ -58,6 +58,7 @@ export interface dashboardV2LogicActions {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
                                               border?: boolean | undefined
                                           }
                                         | undefined
@@ -71,6 +72,7 @@ export interface dashboardV2LogicActions {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
                                               border?: boolean | undefined
                                           }
                                         | undefined
@@ -145,6 +147,7 @@ export interface dashboardV2LogicMeta {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
                                               border?: boolean | undefined
                                           }
                                         | undefined
@@ -158,6 +161,7 @@ export interface dashboardV2LogicMeta {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
                                               border?: boolean | undefined
                                           }
                                         | undefined
@@ -212,6 +216,7 @@ export interface dashboardV2LogicMeta {
                                         appearance?:
                                             | {
                                                   background?: boolean | undefined
+                                                  backgroundColor?: string | undefined
                                                   border?: boolean | undefined
                                               }
                                             | undefined
@@ -225,6 +230,7 @@ export interface dashboardV2LogicMeta {
                                         appearance?:
                                             | {
                                                   background?: boolean | undefined
+                                                  backgroundColor?: string | undefined
                                                   border?: boolean | undefined
                                               }
                                             | undefined
