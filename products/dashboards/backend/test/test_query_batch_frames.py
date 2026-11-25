@@ -471,6 +471,25 @@ class TestFrameConverters(SimpleTestCase):
         error_rate = next(field for field in frames[0]["fields"] if field["name"] == "error_rate")
         assert error_rate["values"] == [10.0, None]
 
+    @parameterized.expand(
+        [
+            ("too_many_operations", [f"GET /{n}" for n in range(MAX_PIVOT_SERIES + 1)]),
+            ("names_too_long", ["x" * (MAX_PIVOT_LABEL_BYTES // 4)]),
+        ]
+    )
+    def test_span_aggregation_stays_a_table_when_bars_would_grow_too_large(self, _name: str, names: list[str]) -> None:
+        result = {
+            "results": [self._span_aggregate(name, 1, 0, 1.0) for name in names],
+            "resolved_date_range": {"date_from": "2026-09-18T12:00:00+00:00", "date_to": NOW},
+        }
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query, result)
+
+        assert frames is not None
+        assert len(frames) == 1
+        assert frames[0]["fields"][1]["values"] == names
+
     def test_span_list_is_one_table_frame(self) -> None:
         span = {
             "uuid": "u1",

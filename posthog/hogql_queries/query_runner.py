@@ -1930,10 +1930,10 @@ def get_query_runner(
     if kind == "TraceSpansQuery":
         from posthog.schema import TraceSpansQuery
 
-        from products.tracing.backend.logic import TraceSpansQueryRunner
+        from products.tracing.backend.logic import span_list_query_runner
 
-        return TraceSpansQueryRunner(
-            query=cast(TraceSpansQuery, query),
+        return span_list_query_runner(
+            cast(TraceSpansQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,

@@ -10,6 +10,7 @@ from posthog.schema import DateRange, TraceSpansQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
+from posthog.hogql_queries.query_runner import get_query_runner
 
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
@@ -163,3 +164,10 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         trace_hex = (trace).to_bytes(16, "big").hex().upper()
         results = TraceSpansQueryRunner(query, self.team).calculate().results
         self.assertEqual({r["name"] for r in results if r["trace_id"] == trace_hex}, expected)
+
+    def test_the_generic_query_path_holds_span_lists_to_the_tracing_api_caps(self):
+        runner = get_query_runner(
+            {"kind": "TraceSpansQuery", "limit": 10_000_000, "prefetchSpans": 1_000_000}, self.team
+        )
+        assert isinstance(runner, TraceSpansQueryRunner)
+        assert (runner.query.limit, runner.query.prefetchSpans) == (1000, 100)

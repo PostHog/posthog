@@ -660,7 +660,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         missing = scopes_caller_lacks(request, ["tracing:read"])
         if missing:
             raise InsufficientScope(missing, detail="Span queries also need: tracing:read.")
-        # A shared-link viewer has no user, and the share itself authorizes the result.
+        # No shared page renders spans, and a share token doesn't tie the caller to the query it names.
+        if request.user.is_anonymous:
+            raise PermissionDenied("Span query results can't be read through a share link.")
         if isinstance(request.user, User):
             from products.tracing.backend.facade.api import assert_tracing_viewer  # noqa: PLC0415
 

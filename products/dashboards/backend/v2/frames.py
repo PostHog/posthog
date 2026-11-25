@@ -637,7 +637,12 @@ def span_aggregation_frames(result: Mapping[str, Any], *, as_table: bool = False
     meta = _meta(date_range if isinstance(date_range, Mapping) else None, None, previous=False)
     services = [str(row.get("service_name") or "") for row in rows]
     operations = [str(row.get("name") or "") for row in rows]
-    if as_table or meta.date_to is None:
+    # Each series repeats its labels in its name, its labels and every number field, so long span names stay a table.
+    label_bytes = sum(
+        (len(service.encode()) + len(operation.encode())) * (len(columns) + 2)
+        for service, operation in zip(services, operations)
+    )
+    if as_table or meta.date_to is None or len(rows) > MAX_PIVOT_SERIES or label_bytes > MAX_PIVOT_LABEL_BYTES:
         return [
             Frame(
                 name=None,

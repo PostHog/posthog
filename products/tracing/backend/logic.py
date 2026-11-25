@@ -84,6 +84,8 @@ _ROW_LIMIT = 5000
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
 DEFAULT_SPAN_LIST_LIMIT = 100
+MAX_SPAN_LIST_LIMIT = 1000
+MAX_PREFETCH_SPANS = 100
 
 RECENT_TRACES_SPANS_PER_TRACE = 100
 
@@ -595,6 +597,18 @@ def assert_tracing_viewer(user: "User", team: "Team", user_access_control: "User
     if not allowed:
         raise UserAccessControlError("tracing", "viewer")
     return True
+
+
+def span_list_query_runner(
+    query: TraceSpansQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansQueryRunner":
+    """The span list runner for `/query` and dashboard batches, held to the tracing API's page caps."""
+    query = TraceSpansQuery.model_validate(query)
+    if query.limit is not None:
+        query.limit = min(query.limit, MAX_SPAN_LIST_LIMIT)
+    if query.prefetchSpans is not None:
+        query.prefetchSpans = min(query.prefetchSpans, MAX_PREFETCH_SPANS)
+    return TraceSpansQueryRunner(query, team=team, **kwargs)
 
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
