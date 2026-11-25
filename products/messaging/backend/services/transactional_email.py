@@ -972,7 +972,7 @@ def _accepted_content(email: CodeEmail, *, append_unsubscribe_footer: bool = Fal
     text = email.text
     if not text and email.html:
         text = text_from_html(email.html)
-        if append_unsubscribe_footer:
+        if append_unsubscribe_footer and not UNSUBSCRIBE_PLACEHOLDER.search(text):
             text = f"{text}\n\n{UNSUBSCRIBE_FOOTER}" if text else UNSUBSCRIBE_FOOTER
     return _without_empty(
         {

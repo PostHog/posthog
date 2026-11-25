@@ -52,6 +52,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import send_categories, transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
+from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdpApi
@@ -1047,6 +1048,12 @@ class TestTransactionalEmail(APIBaseTest):
                 "Unsubscribe\n\nUnsubscribe: {{ unsubscribe_url }}",
             ),
             (
+                "marketing_with_url_as_link_label",
+                {"category": NEWSLETTER, "html": '<a href="{{ unsubscribe_url }}">{{ unsubscribe_url }}</a>'},
+                "marketing",
+                "{{ unsubscribe_url }}",
+            ),
+            (
                 "marketing_with_explicit_text",
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "text": "Plain {{ unsubscribe_url }}"},
                 "marketing",
@@ -1313,9 +1320,9 @@ class TestTransactionalEmail(APIBaseTest):
             (
                 "unknown_field",
                 None,
-                {"category": {**NEWSLETTER, "extra_setting": True}, "html": UNSUBSCRIBE_HTML},
+                {"category": {**NEWSLETTER, "zeta_setting": True, "alpha_setting": True}, "html": UNSUBSCRIBE_HTML},
                 "invalid_input",
-                "category__extra_setting",
+                "category__alpha_setting",
             ),
         ]
     )
@@ -3877,7 +3884,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [send_pid])
             return bool(cursor.fetchone()[0])
 
-    def _send_newsletter(self) -> Any:
+    def _send_newsletter(self, key: str = "newsletter") -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/messaging/send/email/",
             {
@@ -3885,7 +3892,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 "template_key": "welcome",
                 "subject": "Welcome",
                 "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-                "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+                "category": {"key": key, "type": "marketing", "name": "Newsletter"},
             },
             format="json",
         )
@@ -3956,11 +3963,16 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             ]
         )
 
+    def _import_customerio_topic(self, identifier: str, *, name: str, transactional: bool) -> None:
+        CustomerIOImportService(team_id=self.team.id, api_key=None, created_by_id=None).import_categories(
+            [{"id": 1, "identifier": identifier, "name": name, "transactional": transactional}]
+        )
+
     def test_a_category_restored_in_the_app_at_the_limit_is_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         self._seed_categories(send_categories.SEND_CATEGORY_LIMIT)
         category = MessageCategory.objects.create(
-            team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
+            team=self.team, key="customerio_newsletter", name="Newsletter", category_type="marketing", deleted=True
         )
         written = threading.Event()
         send_done = threading.Event()
@@ -3968,13 +3980,13 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             app = pool.submit(
                 self._commit_once_the_send_waits,
                 self._send_pid(),
-                lambda: MessageCategory.objects.filter(id=category.id).update(deleted=False),
+                lambda: self._import_customerio_topic("newsletter", name="Newsletter", transactional=False),
                 written,
                 send_done,
             )
             assert written.wait(timeout=30)
             try:
-                response = self._send_newsletter()
+                response = self._send_newsletter(key="customerio_newsletter")
             finally:
                 send_done.set()
             app.result(timeout=30)
@@ -3982,6 +3994,44 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert not MessageCategory.objects.get(id=category.id).deleted
         assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
+
+    def test_a_send_refuses_an_archived_category_restored_as_marketing_by_import(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        category = MessageCategory.objects.create(
+            team=self.team, key="customerio_updates", name="Updates", category_type="transactional", deleted=True
+        )
+        written = threading.Event()
+        send_done = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            importer = pool.submit(
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                lambda: self._import_customerio_topic("updates", name="Updates", transactional=False),
+                written,
+                send_done,
+            )
+            assert written.wait(timeout=30)
+            try:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/messaging/send/email/",
+                    {
+                        "to": "user@example.com",
+                        "template_key": "updates",
+                        "subject": "Updates",
+                        "html": "<p>Status update</p>",
+                        "category": {"key": "customerio_updates", "type": "transactional", "name": "Updates"},
+                    },
+                    format="json",
+                )
+            finally:
+                send_done.set()
+            importer.result(timeout=30)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("category_mismatch", "category")
+        assert cdp.received == []
+        category.refresh_from_db()
+        assert (category.deleted, category.category_type) == (False, "marketing")
 
     @parameterized.expand(
         [

@@ -654,18 +654,15 @@ class SendCategoryDefinitionSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if isinstance(self.initial_data, Mapping):
-            unknown = [
-                str(field).encode("utf-8", "backslashreplace").decode("utf-8")
-                for field in sorted(self.initial_data, key=str)
-                if field not in self.fields
-            ]
-            if unknown:
+            unknown = min((str(field) for field in self.initial_data if field not in self.fields), default=None)
+            if unknown is not None:
                 raise serializers.ValidationError(
-                    dict.fromkeys(
-                        unknown,
-                        "PostHog doesn't take this field, so it didn't send the email. "
-                        "A category takes only `key`, `type`, `name` and `description`.",
-                    )
+                    {
+                        unknown.encode("utf-8", "backslashreplace").decode("utf-8"): (
+                            "PostHog doesn't take this field, so it didn't send the email. "
+                            "A category takes only `key`, `type`, `name` and `description`."
+                        )
+                    }
                 )
         return attrs
 

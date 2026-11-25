@@ -39,6 +39,19 @@ const confirmedEmail = {
     capture_engagement: false,
 }
 
+const confirmedMarketingEmail = {
+    to: 'jane@example.com',
+    template_key: 'newsletter-weekly',
+    subject: 'Weekly update',
+    html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+    category: {
+        key: 'newsletter',
+        type: 'marketing' as const,
+        name: 'Newsletter',
+        description: 'Weekly product updates',
+    },
+}
+
 const confirmedTemplateEmail = {
     to: 'jane@example.com',
     template_id: '0190f1d2-3c4b-7a5e-9f00-112233445566',
@@ -59,6 +72,7 @@ describe('Generated confirmed tools', () => {
 
     it.each([
         {
+            label: 'workflows-send-email',
             tool: 'workflows-send-email',
             input: confirmedEmail,
             message:
@@ -66,6 +80,19 @@ describe('Generated confirmed tools', () => {
             request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmedEmail },
         },
         {
+            label: 'workflows-send-email with marketing category',
+            tool: 'workflows-send-email',
+            input: confirmedMarketingEmail,
+            message:
+                /may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to/,
+            request: {
+                method: 'POST',
+                url: '/api/projects/42/messaging/send/email/',
+                body: confirmedMarketingEmail,
+            },
+        },
+        {
+            label: 'workflows-send-email-template',
             tool: 'workflows-send-email-template',
             input: confirmedTemplateEmail,
             message: /\S/,
@@ -76,6 +103,7 @@ describe('Generated confirmed tools', () => {
             },
         },
         {
+            label: 'access-control-default-rule-set',
             tool: 'access-control-default-rule-set',
             input: { resource: 'dashboard', access_level: 'viewer' },
             message: /\S/,
@@ -85,7 +113,7 @@ describe('Generated confirmed tools', () => {
                 body: { resource: 'dashboard', resource_id: null, access_level: 'viewer' },
             },
         },
-    ])('$tool shows the user what they confirm and sends that request', async ({ tool, input, message, request }) => {
+    ])('$label shows the user what they confirm and sends that request', async ({ tool, input, message, request }) => {
         const received: { method?: string; url?: string; body: unknown }[] = []
         const posthog = createServer((incoming, response) => {
             let body = ''

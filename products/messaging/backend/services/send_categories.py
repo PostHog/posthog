@@ -89,6 +89,10 @@ def _category_with_key(team_id: int, key: str) -> MessageCategory | None:
     return MessageCategory.objects.filter(team_id=team_id, key=key).first()
 
 
+def _locked_category_with_key(team_id: int, key: str) -> MessageCategory | None:
+    return MessageCategory.objects.select_for_update().filter(team_id=team_id, key=key).first()
+
+
 def _lock_categories(team_id: int) -> None:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{SEND_CATEGORY_LOCK}:{team_id}"])
@@ -97,7 +101,7 @@ def _lock_categories(team_id: int) -> None:
 def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> MessageCategory:
     assert connection.in_atomic_block
     _lock_categories(team_id)
-    category = _category_with_key(team_id, requested.key)
+    category = _locked_category_with_key(team_id, requested.key)
     if category is not None:
         return _use_existing(team_id, category, requested)
     if (existing := _require_room_or_existing_live(team_id, requested)) is not None:
@@ -112,7 +116,7 @@ def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> Messa
         },
     )
     if not created:
-        return _use_existing(team_id, category, requested)
+        return _use_existing(team_id, _locked_category_with_key(team_id, requested.key) or category, requested)
     return category
 
 
