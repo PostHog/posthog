@@ -61,7 +61,7 @@ Rules:
 - A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
 - Put it next to a `<label>`, not inside one, and never inside a button, tab, menu or select option. Inside a label its name joins the control's accessible name, inside another control it nests one control in another, and a menu label hides it from screen readers.
 - Keep the content short: text, an inline link, or a short list. Anything longer, or with controls, is a `Popover`.
-- `side` and `align` place the popup (top and center by default). `className` styles the icon button and `contentClassName` the popup.
+- `side` and `align` place the popup (top and center by default). `dataAttr` sets the icon button's `data-attr` for product analytics. `className` styles the icon button and `contentClassName` the popup.
 
 ## DataTable
 

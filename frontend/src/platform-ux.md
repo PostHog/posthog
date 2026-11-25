@@ -52,6 +52,12 @@ People who need more control dig deeper; everyone else is not overwhelmed.
 - Show the common filters or columns by default. Let people add the rest through an "Add filter" or "Configure columns" control.
 - Do not show every available option as a row of chips or checkboxes.
 
+### Explanations and info icons
+
+- Let the layout explain the surface: a clear label, a unit, a short line of visible help text, or an empty state that says what goes there.
+- Use an info icon only for detail most people don't need, such as how a metric is calculated. Never put something a person needs to finish the task behind one.
+- A surface that needs several info icons needs a clearer layout. Rework the labels and grouping instead of adding icons.
+
 ### Don't
 
 - Don't hide something just to reach a number. If an item is used about as often as the visible ones, rethink the grouping instead.
@@ -67,6 +73,8 @@ People who need more control dig deeper; everyone else is not overwhelmed.
 | Overflow menu on a toolbar  | `LemonMenu` with a `LemonButton` icon trigger         | `DropdownMenu` with a `Button` icon trigger |
 | Collapsed "Advanced" fields | `LemonCollapse`                                       | `Collapsible`                               |
 | Show the rest of a list     | A "Show N more" `LemonButton` below the visible items | A "Show N more" `Button` below the items    |
+| Help text under a field     | `help` on `LemonField`                                | `FieldDescription`                          |
+| Info icon (last resort)     | `info` on `LemonField` or `LemonLabel`                | `Infotip`                                   |
 
 ## Rule 2 — The nav rail belongs to the platform UX team
 
@@ -124,4 +132,5 @@ That request does not block the merge, so wait for their approval before you mer
 - Count the top-level items in every menu and toolbar you touched.
 - Open each "More" and "Advanced" area and confirm that every hidden item still works with the keyboard.
 - Confirm that a first-time user can finish the primary task without opening a "More" or "Advanced" area.
+- Confirm that a first-time user can finish the primary task without opening an info icon.
 - Confirm that the diff does not touch a nav rail file, unless you are on the platform UX team.

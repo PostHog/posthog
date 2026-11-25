@@ -12,12 +12,14 @@ export interface InfotipProps {
     children: React.ReactNode
     side?: PopoverContentProps['side']
     align?: PopoverContentProps['align']
+    /** The `data-attr` of the icon button, so product analytics can tell this infotip's opens apart. */
+    dataAttr?: string
     className?: string
     contentClassName?: string
 }
 
 const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infotip(
-    { label, children, side = 'top', align = 'center', className, contentClassName },
+    { label, children, side = 'top', align = 'center', dataAttr, className, contentClassName },
     ref
 ) {
     return (
@@ -42,6 +44,7 @@ const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infot
                         variant="default"
                         size="icon-xs"
                         aria-label={label}
+                        data-attr={dataAttr}
                         // The button draws 16px, so it fits a line of small text without growing it or being
                         // clipped by a truncated parent, and its focus ring sits inside it. The ::after layer
                         // grows the touch target to 24px, the WCAG 2.5.8 minimum.

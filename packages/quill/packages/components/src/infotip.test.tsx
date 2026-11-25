@@ -24,7 +24,9 @@ describe('Infotip', () => {
         render(
             // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stands in for a sortable header or clickable card
             <div onClick={parentHandler} onKeyDown={parentHandler}>
-                <Infotip label="About average position">1 means your site is the first source cited.</Infotip>
+                <Infotip label="About average position" dataAttr="average-position-infotip">
+                    1 means your site is the first source cited.
+                </Infotip>
             </div>
         )
         const trigger = screen.getByLabelText('About average position')
@@ -34,6 +36,7 @@ describe('Infotip', () => {
         const popup = await screen.findByRole('dialog')
         expect(popup.getAttribute('aria-label')).toBe('About average position')
         expect(trigger.getAttribute('aria-expanded')).toBe('true')
+        expect(trigger.getAttribute('data-attr')).toBe('average-position-infotip')
         expect(popup.getAttribute('aria-describedby')).toBe(
             screen.getByText('1 means your site is the first source cited.').id
         )
