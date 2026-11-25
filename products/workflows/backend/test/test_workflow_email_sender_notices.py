@@ -128,28 +128,48 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         recipients = sorted(address for message in mail.outbox for address in message.to)
         assert recipients == sorted([self.user.email, *(["creator@example.com"] if member else [])])
 
-    def test_emails_only_the_people_who_can_open_the_workflow(self) -> None:
+    @parameterized.expand(
+        [
+            ("workflow_private_creator_left", "workflow", ["creator", "project-admin"]),
+            ("creator_lost_workflows_access", "resource", ["creator"]),
+        ]
+    )
+    def test_emails_only_the_people_who_can_open_the_workflow(
+        self, _name: str, locked: str, left_out: list[str]
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         admin = User.objects.create_and_join(self.organization, "project-admin@example.com", None)
-        membership = OrganizationMembership.objects.get(user=admin, organization=self.organization)
         creator = User.objects.create_and_join(self.organization, "creator@example.com", None)
         flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted), creator=creator)
-        OrganizationMembership.objects.filter(user=creator).delete()
         AccessControl.objects.create(
             team=self.team,
             resource="project",
             resource_id=str(self.team.id),
             access_level="admin",
-            organization_member=membership,
+            organization_member=OrganizationMembership.objects.get(user=admin),
         )
-        AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=str(flow.id), access_level="none")
+        if locked == "workflow":
+            OrganizationMembership.objects.filter(user=creator).delete()
+            AccessControl.objects.create(
+                team=self.team, resource="hog_flow", resource_id=str(flow.id), access_level="none"
+            )
+        else:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(user=creator),
+            )
 
         notify_unusable_workflow_email_senders()
 
-        assert [address for message in mail.outbox for address in message.to] == [self.user.email]
+        everyone = {"project-admin": admin.email, "creator": creator.email}
+        assert sorted(address for message in mail.outbox for address in message.to) == sorted(
+            [self.user.email, *(email for name, email in everyone.items() if name not in left_out)]
+        )
 
     def test_a_project_that_fails_does_not_stop_the_others(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other project")
