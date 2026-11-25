@@ -4213,6 +4213,9 @@ database "posthog" {
     column "time_window_start" {
       type = "DateTime64(6, 'UTC')"
     }
+    column "time_window_end" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "series_key" {
       type = "String"
     }

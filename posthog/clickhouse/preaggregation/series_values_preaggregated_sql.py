@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     team_id Int64,
     job_id UUID,
     time_window_start DateTime64(6, 'UTC'),
+    time_window_end DateTime64(6, 'UTC'),
     series_key String,
     value Float64,
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
