@@ -1725,8 +1725,12 @@ function buildConfirmedActionFactories(args: {
 
     const digestParam = config.confirmed_action?.preview_digest_param
     if (digestParam) {
+        const request = '        const result = await context.api.request'
+        if (!executeHandlerBody.includes(request)) {
+            throw new Error(`${toolName}: no API request to send ${digestParam} with`)
+        }
         executeHandlerBody = executeHandlerBody.replace(
-            '        const result = await context.api.request',
+            request,
             `        if (__guard.previewDigest !== undefined) body[${JSON.stringify(digestParam)}] = __guard.previewDigest\n        const result = await context.api.request`
         )
         executeHandlerBody = `        return await refuseChangedPreview(${JSON.stringify(toolName)}, async () => {\n${executeHandlerBody}        })\n`
