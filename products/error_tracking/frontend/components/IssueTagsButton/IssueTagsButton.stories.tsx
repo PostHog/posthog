@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { ButtonGroup } from 'lib/ui/quill'
 
-import { mswDecorator } from '~/mocks/browser'
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
 
 import { IssueSeveritySelect } from '../IssueSeveritySelect'
@@ -11,14 +10,10 @@ import { IssueTagsButton } from './IssueTagsButton'
 
 type Tag = Pick<ErrorTrackingIssueTag, 'key' | 'label'>
 
-const RULE_TAGS: Tag[] = [
+const MANY_TAGS: Tag[] = [
     { key: 'rule_frontend', label: 'Frontend' },
     { key: 'rule_checkout', label: 'Checkout' },
     { key: 'rule_long', label: 'Unhandled errors in old Safari and Firefox versions that customers still report' },
-]
-
-const MANY_TAGS: Tag[] = [
-    ...RULE_TAGS,
     { key: 'cause_in_trace', label: 'Cause in trace' },
     ...[
         'Billing',
@@ -58,15 +53,6 @@ const meta: Meta<typeof IssueTagsButtonStory> = {
     title: 'ErrorTracking/IssueTagsButton',
     component: IssueTagsButtonStory,
     parameters: { layout: 'padded' },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/error_tracking/tag_rules/': {
-                    results: RULE_TAGS.map((tag) => ({ key: tag.key })),
-                },
-            },
-        }),
-    ],
 }
 export default meta
 
@@ -77,7 +63,7 @@ export const NoTags: Story = {
     parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
-export const OneTag: Story = { args: { tags: [RULE_TAGS[0]] } }
+export const OneTag: Story = { args: { tags: [MANY_TAGS[0]] } }
 
 export const ManyTagsOpen: Story = {
     args: { tags: MANY_TAGS, defaultOpen: true },
