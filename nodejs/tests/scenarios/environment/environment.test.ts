@@ -1266,7 +1266,10 @@ describe('scenario environment', () => {
                     process.stderr.write('timeout: still not ready: capture (pending)\\n')
                     process.exit(2)
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
+                fs.writeFileSync(
+                    stateFile,
+                    JSON.stringify({ running: true, ready: true, services: stack.services, restarted: stack.restarted })
+                )
             } else if (verb === 'dev:generate') {
                 const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
                     ? JSON.parse(fs.readFileSync(process.env.HOGLI_MPROCS_PATH, 'utf8'))._posthog
@@ -1308,6 +1311,8 @@ describe('scenario environment', () => {
                         firstStartS: stack.firstStartS,
                         hangs: stack.hangs,
                         ignoresTerm: stack.ignoresTerm,
+                        services: stack.services,
+                        restarted: stack.restartsDuringStart,
                     })
                 )
             } else if (verb === 'dev:sync-hog-templates') {
@@ -1346,6 +1351,12 @@ describe('scenario environment', () => {
             if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}') {
                 const asked = containers.filter((c) => args.slice(3).includes(c.id))
                 process.stdout.write(asked.map((c) => [c.id + '0000', c.policy, c.state, c.code].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.StartedAt}}') {
+                const asked = containers.filter((c) => args.slice(3).includes(c.id))
+                const started = (c) => ((stack.restarted || []).includes(c.service) ? 'restarted' : 'first')
+                process.stdout.write(asked.map((c) => [c.id + '0000', c.service, started(c)].join(' ') + '\n').join(''))
                 process.exit(0)
             }
             if (args.join(' ') === 'volume ls --format {{.Name}}') {
@@ -1529,6 +1540,7 @@ describe('scenario environment', () => {
             ignoresTerm?: boolean
             services?: string[]
             volumes?: string[]
+            restartsDuringStart?: string[]
         }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
@@ -1796,6 +1808,23 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('refuses a stack whose kept container restarted while hogli started it, which runs with its old mounts', async () => {
+            writeStack({
+                running: false,
+                ready: false,
+                services: ['kafka running', 'db running'],
+                restartsDuringStart: ['kafka'],
+            })
+            environment = environmentOf()
+
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
+                name: 'StackNotReadyError',
+                message: expect.stringContaining(
+                    'The dev services kafka started again while the runner started the stack'
+                ),
+            })
+        }, 30_000)
 
         it.each([
             ['stop on SIGTERM', false],
