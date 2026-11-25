@@ -234,11 +234,11 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
 
         if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
-            # or deleted) still carry scope. Strip the team from those too.
+            # or deleted) still carry scope. Strip the team from those too, revoked ones included,
+            # because a rotated token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
-                revoked__isnull=True,
                 **orphan_filter,
             )
             for rt in orphan_refresh:

@@ -21,7 +21,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 import structlog
 
-from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
+from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
@@ -555,11 +555,11 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
 
         if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
-            # or deleted) still carry scope. Strip the team from those too.
+            # or deleted) still carry scope. Strip the team from those too, revoked ones included,
+            # because a rotated token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
-                revoked__isnull=True,
                 **orphan_filter,
             )
             for rt in orphan_refresh:
@@ -712,14 +712,6 @@ def validate_label_prefix(raw: Any) -> str | None:
     return stripped
 
 
-def _owner_can_access_team(key: PersonalAPIKey, team_id: int) -> bool:
-    try:
-        AccessibleTeams.for_user(key.user, [team_id])
-    except CredentialScopeDenied:
-        return False
-    return True
-
-
 def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
     """Delete the personal API keys ``app`` minted for ``team_id``, for every member of the team.
 
@@ -757,17 +749,12 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
         PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
         .filter(provisioned_by=app)
         .filter(in_scope)
-        .select_related("user")
         .distinct()
     )
 
     deleted = 0
     with acting_organization:
         for key in keys:
-            # A key with no project restriction reaches only the projects its owner can access,
-            # and a private project can be closed to an organization member.
-            if not key.scoped_teams and not _owner_can_access_team(key, team_id):
-                continue
             key.delete()
             deleted += 1
 

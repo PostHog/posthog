@@ -130,7 +130,6 @@ def _delete_provisioned_personal_api_keys(applications: list[OAuthApplication], 
     only when its owner belongs to the team's organization.
     """
     # Imported here because posthog.models imports this module while it initializes.
-    from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
     from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
     from posthog.models.personal_api_key import PersonalAPIKey
     from posthog.models.team.team import Team
@@ -155,19 +154,11 @@ def _delete_provisioned_personal_api_keys(applications: list[OAuthApplication], 
         PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
         .filter(provisioned_by__in=applications)
         .filter(in_scope)
-        .select_related("user")
         .distinct()
     )
     # Key by key, so the activity log records each deletion as an action of the team's organization.
     with OrganizationAdminKeyActionContext(str(organization_id)):
         for key in keys:
-            # A key with no project restriction reaches only the projects its owner can access,
-            # and a private project can be closed to an organization member.
-            if not key.scoped_teams:
-                try:
-                    AccessibleTeams.for_user(key.user, [team_id])
-                except CredentialScopeDenied:
-                    continue
             key.delete()
 
 

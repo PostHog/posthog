@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.accessible_teams import AccessibleTeams
@@ -771,6 +773,14 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=None,
             scoped_teams=[self.team.id],
         )
+        rotated_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=sibling_user,
+            token="rotated_refresh_token_value",
+            access_token=None,
+            revoked=timezone.now(),
+            scoped_teams=[self.team.id],
+        )
         for _ in range(5):
             assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
         unrestricted_key, fully_unrestricted_key, other_organization_key, team_in_other_organization_key = (
@@ -804,12 +814,12 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         sibling_rt.refresh_from_db()
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
-        assert not OAuthRefreshToken.objects.filter(pk=orphan_rt.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk__in=[orphan_rt.pk, rotated_rt.pk]).exists()
         assert not OAuthRefreshToken.objects.filter(application=access_token.application, scoped_teams=[]).exists()
         surviving_ids = set(PersonalAPIKey.objects.filter(user=sibling_user).values_list("id", flat=True))
         assert surviving_ids == {own_key.id, other_organization_key.id, team_in_other_organization_key.id}
 
-    def test_remove_keeps_an_unrestricted_partner_key_whose_owner_cannot_access_the_project(self) -> None:
+    def test_remove_deletes_an_unrestricted_partner_key_whose_owner_cannot_access_the_project(self) -> None:
         token = self._get_bearer_token()
         partner_app = OAuthAccessToken.objects.get(token=token).application
         self.organization.available_product_features = [
@@ -838,7 +848,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
 
         assert res.status_code == 200, res.json()
-        assert PersonalAPIKey.objects.filter(id=partner_key.id).exists()
+        assert not PersonalAPIKey.objects.filter(id=partner_key.id).exists()
 
     def test_remove_names_no_actor_in_another_organization_a_partner_key_reaches(self) -> None:
         token = self._get_bearer_token()

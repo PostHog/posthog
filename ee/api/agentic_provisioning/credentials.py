@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager, nullcontext
 from django.db import router, transaction
 from django.db.models import Q
 
-from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
+from posthog.accessible_teams import AccessibleTeams
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -61,14 +61,6 @@ def validate_label_prefix(raw: object) -> str | None:
     return stripped
 
 
-def _owner_can_access_team(key: PersonalAPIKey, team_id: int) -> bool:
-    try:
-        AccessibleTeams.for_user(key.user, [team_id])
-    except CredentialScopeDenied:
-        return False
-    return True
-
-
 def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
     """Delete the personal API keys ``app`` minted for ``team_id``, for every member of the team.
 
@@ -106,17 +98,12 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
         PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
         .filter(provisioned_by=app)
         .filter(in_scope)
-        .select_related("user")
         .distinct()
     )
 
     deleted = 0
     with acting_organization:
         for key in keys:
-            # A key with no project restriction reaches only the projects its owner can access,
-            # and a private project can be closed to an organization member.
-            if not key.scoped_teams and not _owner_can_access_team(key, team_id):
-                continue
             key.delete()
             deleted += 1
 
