@@ -206,6 +206,30 @@ describe('sessionsListLogic', () => {
         expect(sessionReads).toEqual(reads)
     })
 
+    it.each<[string, () => void]>([
+        ['the list reloads', () => logic.actions.reload()],
+        [
+            'the session is opened again',
+            () => {
+                const link = router.values.location
+                logic.actions.openSession(null)
+                router.actions.push(`${link.pathname}${link.search}`)
+            },
+        ],
+    ])('reads again a session whose read failed when %s', async (_name, retry) => {
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        sessionAnswer = [500, { detail: 'boom' }]
+        await mountAt(combineUrl(LIST_PATH, { session: UNLISTED_ID, timestamp: LINK_TIMESTAMP }).url)
+        expect(logic.values.openSessionStatus).toEqual('failed')
+        sessionAnswer = [200, makeSessionListItem({ id: UNLISTED_ID })]
+
+        retry()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.openSessionStatus).toEqual('ready')
+        expect(logic.values.openItem?.id).toEqual(UNLISTED_ID)
+    })
+
     it('opens a session whose link carries a malformed time without sending the time', async () => {
         await mountAt(combineUrl(LIST_PATH, { session: UNLISTED_ID, timestamp: 'not-a-date' }).url)
 
