@@ -7,11 +7,36 @@ Never widen a window past the grain's cap, and never drop the time predicate.
 
 ## Contents
 
+- [The script](#the-script)
 - [Windows per grain](#windows-per-grain)
 - [Choosing dimensions](#choosing-dimensions)
 - [Detection](#detection)
 - [Decomposition](#decomposition)
 - [Reading the result](#reading-the-result)
+
+## The script
+
+The lens and the decomposition below are implemented in the bundled `scripts/lens.py`, pure stdlib, JSON in and JSON out.
+Skill files are not on disk in a run: fetch it with `llma-skill-file-get` (`file_path: scripts/lens.py`), write it to `/tmp/lens.py`, then pipe a request in.
+The sections that follow are the specification the script implements; read them to interpret a verdict, not to redo the arithmetic.
+
+Judge a series (daily, weekly, monthly or quarterly; `counts` is optional, the count basis for the 20-unit floor when the measure is money):
+
+```text
+echo '{"mode": "judge", "grain": "monthly", "series": [["2025-10-01", 980], ["2025-11-01", 1050], ...]}' | python3 /tmp/lens.py
+```
+
+The response carries `period`, `value`, `expected`, `deviation_pct`, `bar_pct`, `report_bar_pct`, `clears_report_bar`, `long_trend`, `seasonal_match` and `verdict` (`move`, `within`, `insufficient history`).
+A daily request answers with a `step` and a `drift` block and one overall `verdict`.
+
+Decompose a move (`kind: sum` for a sum or count, `kind: ratio` for a ratio):
+
+```text
+echo '{"mode": "decompose", "kind": "sum", "segments": [{"name": "personal", "cur": 52329, "base": 33043}, {"name": "work", "cur": 28491, "base": 19850}]}' | python3 /tmp/lens.py
+```
+
+The response lists each segment with its `delta`, `share_pct` and `relative_move_pct` (for a ratio also `mix_effect` and `rate_effect`, plus `dominant_effect`), and a `verdict`: `driver`, `broad` or `none`, with `top_segments`.
+Feed the script at most 20 segments plus an `other` row.
 
 ## Windows per grain
 

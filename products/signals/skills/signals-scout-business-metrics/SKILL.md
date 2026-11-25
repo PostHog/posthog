@@ -172,6 +172,9 @@ Write `noise:business_metrics:<measure>:stale-<period>` so the next run does not
 ### Gate 2: did the measure move?
 
 Score the measure with the lens of its grain, from the `series:` entry you updated this run (a cached canonical result, or the incremental read), with complete periods only.
+Do not compute the medians yourself: the bundled `scripts/lens.py` does the arithmetic.
+Fetch it once per run with `llma-skill-file-get` (`file_path: scripts/lens.py`), write it to `/tmp/lens.py`, and pipe the series in: `echo '{"mode": "judge", "grain": "monthly", "series": [["2026-10-01", 81609], ...]}' | python3 /tmp/lens.py`.
+Read `verdict`, `deviation_pct`, `bar_pct` and `clears_report_bar`; the request and response shapes are in [`references/driver-analysis.md`](references/driver-analysis.md#the-script).
 The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily); at least 20% off the trend expectation, or twice the series' usual swing when that is larger, with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
 The exact rules are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
@@ -187,7 +190,7 @@ Run the decomposition in [`references/driver-analysis.md`](references/driver-ana
 - For a ratio (conversion rate, average order value, revenue per account), split each segment's contribution into a **mix effect** (the segment's share of the denominator changed) and a **rate effect** (the segment's own ratio changed).
   A mix effect is "more traffic from a low-converting country", not "the country converts worse".
 
-Keep a dimension when its top 1 or 2 segments explain at least 60% of the total delta and the remaining segments together move less than half as much in relative terms.
+Feed each dimension's segment rows to the script's `decompose` mode (`kind: sum` or `kind: ratio`) and read its `verdict`: `driver` when the top 1 or 2 segments explain at least 60% of the total delta and the remaining segments together move less than half as much in relative terms, `broad` when every segment moves the same way without that concentration, `none` otherwise.
 Drill down one more level only inside the top segment, only with the dimensions you already profiled, and only in the full-method tier.
 Stop at two levels.
 
@@ -282,6 +285,9 @@ Write (user-facing):
 - `notebooks-create-markdown` + `notebooks-add-cell`: the write-up behind each authored report.
   No notebook tools in your toolset means a dry run or notebooks turned off: author the report with `charts` and `evidence` only.
 - `notebooks-destroy`: remove the write-up when the report did not surface.
+
+Local: `Bash` + `python3` with the bundled `scripts/lens.py` (fetched with `llma-skill-file-get`, written to `/tmp`): the lens verdict for a series and the driver verdict for a decomposition.
+Local calls do not count against the query budget.
 
 Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-scratchpad-remember`, `scout-scratchpad-forget`, `scout-runs-list`, `scout-runs-retrieve`.
 
