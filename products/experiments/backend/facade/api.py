@@ -44,7 +44,6 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
@@ -81,7 +80,7 @@ from .contracts import (
     TeamExperimentsSettingsUpdate,
     Unset,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
 
 logger = structlog.get_logger(__name__)
 

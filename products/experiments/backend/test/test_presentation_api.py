@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -1680,7 +1681,37 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
-    def test_cannot_assign_holdout_from_another_team(self):
+    @parameterized.expand(
+        [
+            (
+                "non_integer_string",
+                lambda other_team_holdout_id: "abc",
+                "incorrect_type",
+                "Incorrect type. Expected pk value, received str.",
+            ),
+            (
+                "boolean",
+                lambda other_team_holdout_id: True,
+                "incorrect_type",
+                "Incorrect type. Expected pk value, received bool.",
+            ),
+            (
+                "missing_id",
+                lambda other_team_holdout_id: other_team_holdout_id + 1,
+                "does_not_exist",
+                'Invalid pk "{holdout_id}" - object does not exist.',
+            ),
+            (
+                "another_teams_holdout",
+                lambda other_team_holdout_id: other_team_holdout_id,
+                "does_not_exist",
+                'Invalid pk "{holdout_id}" - object does not exist.',
+            ),
+        ]
+    )
+    def test_rejects_a_holdout_id_the_team_cannot_use(
+        self, _name: str, make_holdout_id: Callable[[int], object], code: str, detail: str
+    ) -> None:
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
         other_holdout = ExperimentHoldout.objects.create(
@@ -1688,18 +1719,27 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             name="Other Team Holdout",
             filters=[{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
         )
+        holdout_id = make_holdout_id(other_holdout.id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
                 "feature_flag_key": "holdout-idor-test",
-                "holdout_id": other_holdout.id,
+                "holdout_id": holdout_id,
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not exist", response.json()["detail"])
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": code,
+                "detail": detail.format(holdout_id=holdout_id),
+                "attr": "holdout_id",
+            },
+        )
 
     def test_transferring_holdout_to_another_group(self):
         response = self.client.post(
@@ -10111,10 +10151,14 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
-        body = stale_edit.json()
-        self.assertIn("detail", body)
-        self.assertEqual(body["current_version"], 1)
-        self.assertEqual(body["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+        self.assertEqual(
+            stale_edit.json(),
+            {
+                "detail": "A metric on this experiment changed since you loaded it. Review the latest changes and try again.",
+                "current_version": 1,
+                "conflicting_metric_uuids": [snapshot["metrics"][0]["uuid"]],
+            },
+        )
         experiment = Experiment.objects.get(id=snapshot["id"])
         self.assertEqual((experiment.metrics or [])[0]["source"]["event"], "their_event")
 
@@ -10297,7 +10341,15 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_conflicting_edit.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
+        self.assertEqual(
+            stale_conflicting_edit.json(),
+            {
+                "detail": "This experiment changed since you loaded it, and your update changes fields that can't be "
+                "merged (description). Review the latest changes and try again.",
+                "current_version": snapshot["version"] + 1,
+                "conflicting_fields": ["description"],
+            },
+        )
         experiment = Experiment.objects.get(id=snapshot["id"])
         self.assertEqual(experiment.description, "their rewrite")
 
@@ -10505,9 +10557,13 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
-        body = stale_write.json()
-        self.assertEqual(body["current_version"], snapshot["version"] + 1)
-        self.assertNotIn("conflicting_fields", body)
+        self.assertEqual(
+            stale_write.json(),
+            {
+                "detail": "This experiment changed since you loaded it. Review the latest changes and try again.",
+                "current_version": snapshot["version"] + 1,
+            },
+        )
 
     def test_duplicate_patch_racing_the_lock_window_succeeds_as_noop(self) -> None:
         # The UI sometimes dispatches one save as two parallel PATCHes: the loser reaches the
