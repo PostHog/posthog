@@ -55,6 +55,12 @@ class TestProvisioningResources(ProvisioningTestBase):
             ("without_projects_feature", [], None, PLAN_PROJECT_LIMIT_MESSAGE),
             ("at_plan_limit", [ONE_PROJECT_FEATURE], None, PLAN_PROJECT_LIMIT_MESSAGE),
             ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+            (
+                "at_organization_maximum_below_the_plan_limit",
+                [{**ONE_PROJECT_FEATURE, "limit": 5000}],
+                1,
+                ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+            ),
         ]
     )
     def test_create_resource_with_new_project_id_refused_at_project_limit(

@@ -49,14 +49,11 @@ def reached_project_limit(non_demo_project_count: int, projects_feature: Product
         return None
 
     allowed_project_count = projects_feature.get("limit")
-    if allowed_project_count is None:
-        # A plan without a project limit still stops at the per-organization maximum.
-        if non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG:
-            return ProjectLimit.ORGANIZATION_MAXIMUM
-        return None
-
-    if non_demo_project_count >= allowed_project_count:
+    if allowed_project_count is not None and non_demo_project_count >= allowed_project_count:
         return ProjectLimit.PLAN
+    # Every plan stops at the per-organization maximum, including one whose limit is higher.
+    if non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG:
+        return ProjectLimit.ORGANIZATION_MAXIMUM
     return None
 
 

@@ -438,6 +438,13 @@ def _parse_funding_status(data: object) -> OrganizationFundingStatus:
     )
 
 
+_ORGANIZATION_FIELDS_BESIDES_FEATURES = [
+    field.attname
+    for field in Organization._meta.concrete_fields
+    if not field.primary_key and field.name != "available_product_features"
+]
+
+
 class BillingManager:
     license: License | None
     user: User | None
@@ -595,9 +602,11 @@ class BillingManager:
         }
         previous_retention_months = billed_events_retention_months(organization)
         previous_standard_retention = has_standard_retention(organization)
+        # The caller's instance can be older than the billing request. The save hooks publish the
+        # organization's other fields, such as the session lifetime, so they must read current values.
+        organization.refresh_from_db(fields=_ORGANIZATION_FIELDS_BESIDES_FEATURES)
         organization.available_product_features = available_product_features
-        # The caller's instance can be older than the billing request, so a full save would write
-        # back organization fields that changed while the request was pending, such as is_active.
+        # A full save could still overwrite a field another request changes after the reload.
         organization.save(update_fields=["available_product_features", "updated_at"])
 
         if (

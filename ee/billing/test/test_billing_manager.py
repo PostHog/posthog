@@ -715,6 +715,8 @@ class TestBillingManager(BaseTest):
 
         BillingManager(license).update_available_product_features(organization)
 
+        # The save hooks read this instance, so it must carry the change made during the request.
+        assert organization.is_active is False
         organization.refresh_from_db()
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert organization.is_active is False
