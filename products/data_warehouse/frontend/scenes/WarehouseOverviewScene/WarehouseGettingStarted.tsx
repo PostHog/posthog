@@ -10,10 +10,10 @@ import { warehouseOverviewLogic } from './warehouseOverviewLogic'
 // pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 
 export function WarehouseGettingStarted(): JSX.Element | null {
-    const { sourceStep, viewStep } = useValues(warehouseOverviewLogic)
+    const { sourceStep, viewStep, gettingStartedShown } = useValues(warehouseOverviewLogic)
 
     // The page leads with the warehouse's numbers, so finished setup steps leave the page.
-    if (sourceStep === 'done' && viewStep === 'done') {
+    if (!gettingStartedShown) {
         return null
     }
 

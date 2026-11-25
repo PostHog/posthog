@@ -148,13 +148,13 @@ describe('warehouseOverviewLogic', () => {
         expect(logic.values.recentRuns).toEqual([])
     })
 
-    test.each<[ProductSetupStatus, string]>([
-        ['loading', 'loading'],
-        ['unknown', 'todo'],
-        ['needs-setup', 'todo'],
-        ['waiting-for-data', 'done'],
-        ['has-data', 'done'],
-    ])('maps setup status %s to source step %s', async (status, expected) => {
+    test.each<[ProductSetupStatus, string, boolean]>([
+        ['loading', 'loading', false],
+        ['unknown', 'todo', true],
+        ['needs-setup', 'todo', true],
+        ['waiting-for-data', 'done', true],
+        ['has-data', 'done', true],
+    ])('maps setup status %s to source step %s, checklist shown: %s', async (status, expected, shown) => {
         useWarehouseOverviewMocks()
         const logic = warehouseOverviewLogic()
         logic.mount()
@@ -163,6 +163,7 @@ describe('warehouseOverviewLogic', () => {
         dataWarehouseSetupLogic.actions.setDetectedStatus(status)
 
         expect(logic.values.sourceStep).toBe(expected)
+        expect(logic.values.gettingStartedShown).toBe(shown)
     })
 
     it('marks the view step done once a saved query exists', async () => {

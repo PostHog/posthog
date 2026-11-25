@@ -53,6 +53,7 @@ export interface warehouseOverviewLogicValues {
               danger: boolean
           })
         | null
+    gettingStartedShown: boolean
     healthIssues: DataHealthIssueApi[] | null
     healthIssuesFailed: boolean
     healthIssuesLoading: boolean
@@ -151,6 +152,7 @@ export interface warehouseOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sourceStep: (setupStatus: ProductSetupStatus) => WarehouseStepState
         viewStep: (savedQueryCount: number | null, savedQueryCountFailed: boolean) => WarehouseStepState
+        gettingStartedShown: (sourceStep: WarehouseStepState, viewStep: WarehouseStepState) => boolean
         warehouseIssues: (healthIssues: DataHealthIssueApi[] | null) => DataHealthIssueApi[] | null
         runBuckets: (jobStats: PipelineJobStatsResponseApi | null) => RunBucket[]
         runSuccess: (jobStats: PipelineJobStatsResponseApi | null) => PipelineTile | null
@@ -273,6 +275,12 @@ export const warehouseOverviewLogic = kea<warehouseOverviewLogicType>([
             // A failed count shows the step as not done rather than spinning forever.
             (count: number | null, failed: boolean): WarehouseStepState =>
                 count === null ? (failed ? 'todo' : 'loading') : count > 0 ? 'done' : 'todo',
+        ],
+        gettingStartedShown: [
+            (s) => [s.sourceStep, s.viewStep],
+            // Waits for both steps, so the checklist does not flash on a warehouse that finished setup.
+            (sourceStep: WarehouseStepState, viewStep: WarehouseStepState): boolean =>
+                sourceStep !== 'loading' && viewStep !== 'loading' && (sourceStep === 'todo' || viewStep === 'todo'),
         ],
         warehouseIssues: [
             (s) => [s.healthIssues],
