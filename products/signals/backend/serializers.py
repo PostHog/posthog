@@ -105,6 +105,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filter_preview import PREVIEW_MAX_CONDITIONS
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
     SourceFilterRunState,
@@ -798,6 +799,17 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
         source="fields",
         child=_SourceFilterFieldValueField(),
         help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
+    )
+    failed_conditions = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text=(
+            "For an excluded record, the conditions of the expression that the record does not pass, as written in "
+            "the expression and in expression order. The conditions are the operands of a top-level AND, or the "
+            "whole expression when it is one condition. A condition that reads a malformed value fails. Null for "
+            "records that pass, and for every record when the expression's top level is OR or the expression "
+            f"has more than {PREVIEW_MAX_CONDITIONS} conditions."
+        ),
     )
 
 
