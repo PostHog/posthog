@@ -133,6 +133,28 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertEqual(execute.call_count, failures + 1)
         self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
 
+    def test_process_query_task_ignores_tags_from_a_newer_release(self):
+        from posthog.tasks.tasks import process_query_task
+
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                args=(
+                    self.team_id,
+                    None,
+                    self.query_id,
+                    build_query("SELECT 1"),
+                    {"tag_from_a_newer_release": "x", "dashboard_id": 7},
+                    False,
+                ),
+                throw=False,
+            )
+
+        self.assertTrue(result.successful())
+        execute.assert_called_once()
+
     @parameterized.expand([False, True])
     def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
         from posthog.tasks.tasks import process_query_task
