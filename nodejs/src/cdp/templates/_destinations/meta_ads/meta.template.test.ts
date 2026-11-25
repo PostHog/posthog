@@ -290,6 +290,12 @@ describe('meta ads template', () => {
                 expected: `fb.1.${eventMs}.new-click`,
             },
             {
+                name: 'does not redate a click a malformed fbc already carries',
+                event: { fbc: 'fb.1.1000.AbC_123-x.a.b', fbclid: 'AbC_123-x' },
+                person: {},
+                expected: undefined,
+            },
+            {
                 name: 'sends the event when a person holds a non-string fbc',
                 event: {},
                 person: { fbc: 1735689600000 },

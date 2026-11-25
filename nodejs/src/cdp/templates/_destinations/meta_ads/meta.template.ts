@@ -152,8 +152,8 @@ fn newestClickId(value) {
 }
 
 // An fbclid on this event is a click no candidate has dated yet, so it is stamped with the event
-// time. That only happens when no candidate is valid and none dates this same click, because a stale
-// click must be dropped, not redated.
+// time. That only happens when no candidate is valid and none carries this same click in its fourth
+// segment, whatever its shape, because a stale click must be dropped, not redated.
 fn clickIdFromEvent(value) {
     if (typeof(event.properties.fbclid) != 'string') {
         return null
@@ -163,8 +163,11 @@ fn clickIdFromEvent(value) {
         return null
     }
     for (let candidate in (typeof(value) == 'array' ? value : [value])) {
-        if (typeof(candidate) == 'string' and match(trimSpace(candidate), concat('^fb[.][0-9]+[.][0-9]+[.]', fbclid, '([.][A-Za-z0-9_-]+)?\$'))) {
-            return null
+        if (typeof(candidate) == 'string') {
+            let segments := splitByString('.', trimSpace(candidate))
+            if (length(segments) >= 4 and segments[4] == fbclid) {
+                return null
+            }
         }
     }
     return f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{fbclid}'
