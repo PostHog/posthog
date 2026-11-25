@@ -4075,11 +4075,11 @@ Diffed against: <https://developers.kit.com/llms.txt>
 - [x] `GET /v4/segments` — segment lookup table, entirely unsynced (high)
 - [x] `GET /v4/sequences/{id}/emails (list-sequence-emails)` — the individual emails inside each sequence - line items for the sequences already synced (medium)
 - [x] `GET /v4/broadcasts/{id}/clicks (get-link-clicks-for-a-broadcast)` — per-link click breakdown within a broadcast (medium)
-- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium)
+- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium) Skipped: one request per subscriber, and the API key limit of 120 requests a minute makes a full sync of a large list take hours.
 - [x] `GET /v4/account/growth_stats` — subscriber growth, cancellations and net new over a date range (medium)
-- [ ] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
-- [ ] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
-- [ ] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
+- [x] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
+- [x] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
+- [x] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
 
 Note: Kit (formerly ConvertKit) publishes a complete llms.txt index of its v4 API reference; each operation also has a .md variant. Core objects are synced but every engagement metric and every subscriber-membership junction is missing.
 
