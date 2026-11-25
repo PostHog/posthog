@@ -261,4 +261,96 @@ describe('tagsLogic', () => {
         expect(logic.values.destinations).toEqual([...firstPage, target])
         expect(offsets).toEqual([0, TAG_PAGE_SIZE, TAG_PAGE_SIZE])
     })
+
+    it.each([
+        ['list', 'succeeded'],
+        ['list', 'pending'],
+        ['destinations', 'succeeded'],
+        ['destinations', 'pending'],
+        ['preview', 'succeeded'],
+        ['preview', 'pending'],
+    ] as const)('discards a superseded %s failure when the newer request is %s', async (requestType, newerState) => {
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.openMerge(source)
+            logic.actions.setTarget(target)
+        }).toFinishAllListeners()
+
+        let releaseFailure!: () => void
+        const pendingFailure = new Promise<void>((resolve) => {
+            releaseFailure = resolve
+        })
+        let markStarted!: () => void
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve
+        })
+        let releaseSuccess!: () => void
+        const pendingSuccess = new Promise<void>((resolve) => {
+            releaseSuccess = resolve
+        })
+        let markNewerStarted!: () => void
+        const newerStarted = new Promise<void>((resolve) => {
+            markNewerStarted = resolve
+        })
+        let requests = 0
+        const result =
+            requestType === 'preview'
+                ? { source_count: 2, target_count: 1, overlap_count: 1, result_count: 2, tag: target }
+                : { count: 1, next: null, previous: null, results: [target] }
+        const path =
+            requestType === 'preview'
+                ? '/api/projects/:projectId/tag_definitions/:id/merge_preview/'
+                : '/api/projects/:projectId/tag_definitions/'
+        useMocks({
+            get: {
+                [path]: async () => {
+                    requests += 1
+                    if (requests === 1) {
+                        markStarted()
+                        await pendingFailure
+                        return [503, {}]
+                    }
+                    markNewerStarted()
+                    if (newerState === 'pending') {
+                        await pendingSuccess
+                    }
+                    return result
+                },
+            },
+        })
+        const load = {
+            list: () => logic.asyncActions.loadTagDefinitions(),
+            destinations: () => logic.asyncActions.loadTagDestinations({}),
+            preview: () => logic.asyncActions.loadTagMergePreview({ sourceId: source.id, targetId: target.id }),
+        }[requestType]
+
+        const olderRequest = load()
+        await started
+        const newerRequest = load()
+        await newerStarted
+        if (newerState === 'succeeded') {
+            await newerRequest
+        }
+        releaseFailure()
+        await olderRequest
+
+        expect(logic.values.listError).toBeNull()
+        expect(logic.values.destinationError).toBeNull()
+        expect(logic.values.previewError).toBeNull()
+        const loading = {
+            list: logic.values.tagPageLoading,
+            destinations: logic.values.destinationPageLoading,
+            preview: logic.values.previewLoading,
+        }[requestType]
+        expect(loading).toBe(newerState === 'pending')
+
+        releaseSuccess()
+        await newerRequest
+        const currentResult = {
+            list: logic.values.tagPage,
+            destinations: logic.values.destinationPage,
+            preview: logic.values.preview,
+        }[requestType]
+        expect(currentResult).toEqual(result)
+    })
 })
