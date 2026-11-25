@@ -132,9 +132,9 @@ class OrganizationDomainManager(models.Manager):
 
     def is_user_blocked_by_domain_enforcement(self, user: "User", organization: Organization) -> bool:
         """
-        Whether `user` is outside `organization`'s enforced verified domains. Only a human is checked:
-        any other account has an address the organization cannot own, such as a generated one, so
-        enforcing the setting must neither block it nor remove it.
+        Whether access for `user` to `organization` should be blocked: the org requires
+        a verified email domain, and `user`'s domain is not one of the org's verified domains.
+        Non-human accounts are exempt.
         """
         if user.type != UserType.HUMAN:
             return False

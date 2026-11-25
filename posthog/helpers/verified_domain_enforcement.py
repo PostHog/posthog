@@ -32,11 +32,9 @@ def is_enforcement_disable_request(request: Request) -> bool:
 
 
 def domain_enforcement_admitted_q(organization: Organization) -> Q:
-    """
-    Q matching `OrganizationMembership` rows that `enforce_verified_domains` admits: a user whose
-    email is on one of the organization's verified domains, or any account that is not a human.
-    With no verified domains, only the accounts that are not human match. Independent of
-    `enforce_verified_domains`, so callers can preview the impact of enabling it.
+    """Return a Q filter for memberships that can stay when verified domain enforcement is enabled.
+
+    Also works before enforcement is enabled, so callers can preview which members would be removed.
     """
     admitted = ~Q(user__type=UserType.HUMAN)
     domains = (
