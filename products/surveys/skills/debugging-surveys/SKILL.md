@@ -41,7 +41,7 @@ get filled over time.
 | `seenSurveyWaitPeriodInDays`     | yes                             | yes                                       | yes                                | yes (native side)                  | yes (≥ 4.81.5)                    |
 | `surveyPopupDelaySeconds`        | yes                             | yes (≥ 3.54.0)                            | yes (≥ 3.49.0)                     | yes (≥ 5.54.0)                     | yes (≥ 4.85.0)                    |
 | `enable_partial_responses`       | yes (≥ 1.240.0)                 | yes (≥ 3.79.0)                            | yes (≥ 3.70.0)                     | yes (≥ 5.48.0)                     | yes (≥ 4.75.0)                    |
-| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | yes (≥ 3.77.0)                            | Compose UI module only (≥ 0.3.0)   | yes (≥ 5.45.0)                     | yes (≥ 4.26.0)                    |
+| `skipSubmitButton` (auto-submit) | yes (≥ 1.244.0)                 | yes (≥ 3.77.0)                            | yes (≥ 3.66.4; Compose UI ≥ 0.3.0) | yes (≥ 5.45.0)                     | yes (≥ 4.26.0)                    |
 
 The minimum versions match the SDK version warnings in the survey editor.
 
@@ -223,7 +223,7 @@ Usually not a bug — see [How a response actually gets stored](#how-a-response-
 
 ### "The respondent says they didn't mean to submit"
 
-- **`skipSubmitButton`, shown in the editor as "Automatically submit on selection".** When true no submit button renders at all (`BottomSection.tsx`) and one click both records the answer and advances — `setRating(response)` then `handleSubmit(response)` → `onNextButtonClick` in the same handler invocation, no debounce, no confirm. Rating and single-choice-without-open-choice only (`canQuestionSkipSubmitButton`); web-only. It is **on by default in every survey template** (`constants.tsx`) and in quick-create, so customers rarely know they enabled it.
+- **`skipSubmitButton`, shown in the editor as "Automatically submit on selection".** When true no submit button renders at all (`BottomSection.tsx`) and one click both records the answer and advances — `setRating(response)` then `handleSubmit(response)` → `onNextButtonClick` in the same handler invocation, no debounce, no confirm. Rating and single-choice-without-open-choice only (`canQuestionSkipSubmitButton`). It is **on by default in every survey template** (`constants.tsx`) and in quick-create, so customers rarely know they enabled it.
 - **It compounds with popup placement.** `appearance.position: middle_center`, a large `maxWidth`, and a non-zero `surveyPopupDelaySeconds` mean the popup materializes seconds after the trigger under a cursor that's still moving, and the next click lands on an answer. Consecutive auto-submitting questions let someone click through most of a survey without reading it.
 - **Diagnose with shown→sent latency,** then confirm from the replay (`sessionRecordingUrl` on `survey sent`). A cluster of sub-10-second completions on a multi-question survey is the signature; genuine respondents take longer and leave text behind. Fix is to uncheck the setting — **not** to move the question, since the behavior follows the question wherever it sits.
 
