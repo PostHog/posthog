@@ -1832,6 +1832,8 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | null
     response?: MarketingAnalyticsEventConversionGoalApiResponse
     schema_map: MarketingAnalyticsEventConversionGoalApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1883,6 +1885,8 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | null
     response?: MarketingAnalyticsActionConversionGoalApiResponse
     schema_map: MarketingAnalyticsActionConversionGoalApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1939,6 +1943,8 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
     schema_map: MarketingAnalyticsWarehouseConversionGoalApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
