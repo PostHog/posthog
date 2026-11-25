@@ -212,7 +212,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    use_native_schema = batch_exports_read_new_events_table()
+    use_native_schema = batch_exports_read_new_events_table(inputs.team_id)
     interval_start = await maybe_resume_from_heartbeat(inputs)
     is_backfill = inputs.get_is_backfill()
 

@@ -47,6 +47,7 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
 MAX_VARIABLES_PER_NOTEBOOK = 10
 MAX_VARIABLE_NAME_CHARS = 200
 MAX_VARIABLE_VALUE_CHARS = 1_000
+MAX_VARIABLE_LIST_ITEMS = 100
 
 
 def _is_absolute_date(value: Any) -> bool:
@@ -69,7 +70,7 @@ class NotebookVariableSerializer(serializers.Serializer):
     # CharField, not ChoiceField: a `type` enum collides with other generated enums under
     # --fail-on-warn (same precedent as the status fields below).
     type = serializers.CharField(
-        help_text="How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+        help_text="Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
     )
     value = serializers.JSONField(
         required=False,
@@ -81,10 +82,8 @@ class NotebookVariableSerializer(serializers.Serializer):
     )
 
     def validate_value(self, value: Any) -> Any:
-        if value is None:
+        if value is None or isinstance(value, list):
             return value
-        # Only scalars are ever bound. A dict or a list binds as its Python repr, which the
-        # state endpoint prints again for every cell that reads the name.
         if not isinstance(value, str | int | float | bool):
             raise serializers.ValidationError("Use a string, a number, a boolean, or null.")
         # The printed form is what a run and a state read carry, so bound that rather than the
@@ -94,10 +93,25 @@ class NotebookVariableSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # The editor's date picker only writes absolute dates, and a relative one would re-resolve
-        # against the clock on every read, so a cell reading it could never compare equal to the
-        # value its last run bound.
         value = attrs.get("value")
+        if attrs.get("type") == "list":
+            if value is None:
+                attrs["value"] = []
+            elif not isinstance(value, list):
+                raise serializers.ValidationError({"value": "Use a list of text values."})
+            elif len(value) > MAX_VARIABLE_LIST_ITEMS:
+                raise serializers.ValidationError({"value": f"Use up to {MAX_VARIABLE_LIST_ITEMS} items."})
+            elif not all(isinstance(item, str) for item in value):
+                raise serializers.ValidationError({"value": "Use a list of text values."})
+            elif sum(map(len, value)) > MAX_VARIABLE_VALUE_CHARS:
+                raise serializers.ValidationError(
+                    {
+                        "value": f"Use up to {MAX_VARIABLE_LIST_ITEMS} items and {MAX_VARIABLE_VALUE_CHARS} characters in total."
+                    }
+                )
+        elif isinstance(value, list):
+            raise serializers.ValidationError({"value": "Choose the list type to use multiple values."})
+        # Relative dates would re-resolve against the clock when a cell checks for stale input.
         if attrs.get("type") == "date" and value is not None and not _is_absolute_date(value):
             raise serializers.ValidationError({"value": "Use an absolute date, like 2025-01-31."})
         return attrs
