@@ -54,6 +54,7 @@ describe('createQueryBatchRunner', () => {
 
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
         expect((globalThis.fetch as jest.Mock).mock.calls[0][0]).toBe('/api/projects/7/dashboard_v2/query_batch/')
+        expect((globalThis.fetch as jest.Mock).mock.calls[0][1].headers).not.toHaveProperty('Accept')
         expect(streams[0].body).toEqual({
             format: 'frames',
             queries: [
