@@ -182,7 +182,13 @@ class TestAcquireV3PipelineLockActivityDeferral:
         else:
             mock_acquire.assert_called_once()
 
-    @pytest.mark.parametrize("failing_read", ["Team.objects", "ExternalDataSchema.objects"])
+    @pytest.mark.parametrize(
+        "failing_read",
+        [
+            "products.warehouse_sources.backend.temporal.data_imports.organization_state.Team.objects",
+            f"{MODULE}.ExternalDataSchema.objects",
+        ],
+    )
     @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.activity")
@@ -199,7 +205,7 @@ class TestAcquireV3PipelineLockActivityDeferral:
         mock_activity.info.return_value.workflow_id = "wf-abc-123"
         schema = _schema_with_config({})
 
-        with patch(f"{MODULE}.{failing_read}") as mock_objects:
+        with patch(failing_read) as mock_objects:
             mock_objects.filter.side_effect = OperationalError("db unavailable")
             result = acquire_v3_pipeline_lock_activity(
                 AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)

@@ -13,7 +13,6 @@ from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team.team import Team
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.organization_state import organization_deactivated
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -142,21 +142,19 @@ def _organization_deactivated(inputs: AcquireV3LockActivityInputs, logger: Any) 
 
     The run stops before it creates a job, so it calls no source, writes no status, sends no
     billing or failure alert and adds nothing to the failure streak. Nothing is paused or
-    disabled, so the first run after reactivation syncs as before. Resets and manual syncs stop
-    too, because a deactivated organization must run nothing.
-
-    Only an explicit `is_active=False` counts. NULL means billing never set the state, and
-    such an organization keeps syncing.
+    disabled here, so the first run after reactivation syncs as before. Resets and manual syncs
+    stop too, because a deactivated organization must run nothing. CDC capture is stopped
+    separately, by the hourly CDC sweep.
 
     False on any error, for the same reason as `_defer_failing_schema`. The next run checks again.
     """
     try:
-        is_active = Team.objects.filter(id=inputs.team_id).values_list("organization__is_active", flat=True).first()
+        deactivated = organization_deactivated(inputs.team_id)
     except Exception as e:
         logger.warning("data_import_organization_active_check_failed", schema_id=str(inputs.schema_id), error=str(e))
         return False
 
-    if is_active is not False:
+    if not deactivated:
         return False
 
     logger.info("data_import_run_skipped_organization_deactivated", schema_id=str(inputs.schema_id))
