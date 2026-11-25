@@ -67,6 +67,7 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
 
     def held_back_by_the_rollout(self, logs: list[MutableMapping[str, Any]]) -> list[dict]:
         [summary] = [log for log in logs if log["event"] == "ses_sender_health_held_back"]
+        assert summary["projects"] == len({sender["team_id"] for sender in summary["senders"]})
         return summary["senders"]
 
     def test_marks_the_verified_senders_of_a_domain_ses_stopped_and_keeps_them_verified(self) -> None:
@@ -113,14 +114,19 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         self, _name: str, rollout: bool | None, still_stopped: bool
     ) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
-        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        self.verified_sender(f"hello@{OTHER_DOMAIN}")
+        for domain in (DOMAIN, OTHER_DOMAIN):
+            self.world.ses.identities[domain].forced_verification_status = "Failed"
         check_ses_sender_health()
         assert self.sending_stopped(sender)
         self.rolled_out = rollout
 
-        check_ses_sender_health()
+        with capture_logs() as logs:
+            check_ses_sender_health()
 
         assert self.sending_stopped(sender) is still_stopped
+        held_back = [{"team_id": self.team.id, "domain": domain} for domain in (DOMAIN, OTHER_DOMAIN)]
+        assert sorted(self.held_back_by_the_rollout(logs), key=str) == (held_back if rollout is False else [])
 
     def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
         self.deliver_notices()
