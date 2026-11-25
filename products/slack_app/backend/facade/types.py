@@ -120,6 +120,14 @@ class SlackChannelSettings:
 
 
 @frozen
+class SlackRepositoryOptions:
+    # Repositories as owner/name, from the person's own GitHub installs. Slack routing matches the
+    # mentioning person against the same list.
+    repositories: tuple[str, ...]
+    github_connected: bool
+
+
+@frozen
 class ChannelOption:
     id: str
     name: str
