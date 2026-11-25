@@ -6,8 +6,10 @@ import http from 'http'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { ruleOf } from './faults'
+import { FaultRule, heldAnswerRule, ruleOf } from './faults'
+import { Truth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -16,9 +18,11 @@ const BOB = 'run-1-2@www.example.com'
 describe('provider edge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
+    let edgeTruth: Truth
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edgeTruth = new Truth()
+        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS, truth: edgeTruth })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',
@@ -351,6 +355,69 @@ describe('provider edge', () => {
         expect((await call('DELETE', pathOf(forAlice))).status).toBe(204)
 
         expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
+    })
+
+    it.each<[string, (rule: FaultRule) => () => Promise<unknown>]>([
+        [
+            'its valve releases',
+            (rule) => {
+                const hold = edge.hold(rule)
+                return () => hold.release()
+            },
+        ],
+        [
+            'the edge clears its faults',
+            (rule) => {
+                edge.addFault(rule)
+                return () => Promise.resolve(edge.clearFaults())
+            },
+        ],
+        [
+            'the control API removes it by id',
+            (rule) => {
+                const id = edge.addFault(rule)
+                return () => call('DELETE', `/_faults/${id}`)
+            },
+        ],
+        [
+            'the control API clears every fault',
+            (rule) => {
+                edge.addFault(rule)
+                return () => call('DELETE', '/_faults')
+            },
+        ],
+    ])('answers a send it holds once %s', async (_path, park) => {
+        const remove = park(heldAnswerRule())
+        const answer = send(ALICE)
+        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+
+        await remove()
+
+        expect(await answer).toBe('sent')
+    })
+
+    it.each<[string, boolean]>([
+        ['reports a send it took when the drive ends while it waits', true],
+        ['reports no send when the drive ends before it took one', false],
+    ])('%s', async (_story, sends) => {
+        const hold = edge.hold(heldAnswerRule())
+        const drive = new AbortController()
+        const waiting = hold.accepted!(drive.signal)
+        const append = edgeTruth.append.bind(edgeTruth)
+        edgeTruth.append = (record) => {
+            const appended = append(record)
+            drive.abort()
+            return appended
+        }
+        const answer = sends ? send(ALICE) : Promise.resolve(undefined)
+        if (!sends) {
+            drive.abort()
+        }
+
+        const accepted = await waiting
+        await hold.release()
+
+        expect({ accepted, answer: await answer }).toEqual({ accepted: sends, answer: sends ? 'sent' : undefined })
     })
 
     it.each<[string, Destination]>([

@@ -1,19 +1,26 @@
 """Imports suppressions, unsubscribe groups and templates from SendGrid, and lists what can't move.
 
 SendGrid is the one provider here with read-only scopes, so the customer can hand over a narrow key. The run still only
-keeps it until it ends. SendGrid documents only stats for its automations, so they stay behind. Contacts don't become
-people. A send to any address reads the blocking rules this import fills, so PostHog doesn't need them.
+keeps it until it ends. SendGrid documents only stats for its automations, so they stay behind. Contacts become people
+only in the contacts step, matched by email. SendGrid shares a whole list only as an export it prepares in the
+background, as a file to download.
 """
 
+import io
+import csv
 import json
+import time
 import hashlib
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any
+from itertools import chain
+from typing import IO, Any, Literal
+from urllib.parse import quote
 
 from django.utils import timezone
 
@@ -40,6 +47,17 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    MAX_CONTACT_BYTES,
+    MAX_CONTACT_MEMBERSHIPS,
+    TOO_MANY_CONTACTS_MESSAGE,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
+)
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.senders import sender_for_address
@@ -59,12 +77,14 @@ from products.messaging.backend.services.sendgrid_client import (
     TEMPLATE_PAGE_SIZE,
     SendGridAPIError,
     SendGridClient,
+    SendGridDownloadIncomplete,
     SendGridKeyRejected,
     SendGridRateLimited,
     SendGridResponseTooLarge,
     SendGridScopeMissing,
     connect,
 )
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
 MISSING_KEY_MESSAGE = "Enter your SendGrid API key. PostHog doesn't keep it between imports."
@@ -79,6 +99,61 @@ IMPORT_TAG = "imported-from-sendgrid"
 MAIL_FROM_DEFAULT = "feedback"
 OPT_OUT_PAGE_SIZE = 500
 MAX_SAMPLE_DATA_LENGTH = 2000
+CONTACTS_FLAG = "workflows-sendgrid-contacts-import"
+# Each list becomes its own cohort, and the contacts step saves them all in one transaction.
+MAX_LISTS = 500
+TOO_MANY_LISTS_MESSAGE = (
+    f"This account has more than {MAX_LISTS} lists, more than one import takes. Upload the ones you need as "
+    "CSV files instead."
+)
+EXPORT_POLL_SECONDS = 5
+EXPORT_TIMEOUT_SECONDS = 60 * 60
+# The export of every contact, next to the exports named by their list's ID.
+ALL_CONTACTS = "all"
+NO_CONTACTS_NOTE = "SendGrid has no contacts to import, so every cohort stays as it was."
+# SendGrid doesn't say how far its counts lag, so only a difference that no lag explains stops an import.
+COUNT_SLACK = 10
+UNREADABLE_EXPORT_MESSAGE = "SendGrid's contact export isn't a file PostHog can read. Import again later."
+# SendGrid's own fields, which an export names in capitals. Any other column is one of the account's custom fields.
+CONTACT_FIELDS = frozenset(
+    {
+        "first_name",
+        "last_name",
+        "phone_number",
+        "whatsapp",
+        "line",
+        "facebook",
+        "unique_name",
+        "address_line_1",
+        "address_line_2",
+        "city",
+        "state_province_region",
+        "postal_code",
+        "country",
+    }
+)
+# Columns that identify a contact inside SendGrid, or describe its record there.
+_RECORD_FIELDS = frozenset(
+    {
+        "email",
+        "alternate_emails",
+        "contact_id",
+        "phone_number_id",
+        "external_id",
+        "anonymous_id",
+        "list_ids",
+        "lists",
+        "segment_ids",
+        "created_at",
+        "updated_at",
+        "email_domains",
+        "last_clicked",
+        "last_emailed",
+        "last_opened",
+        "singlesend_id",
+        "automation_id",
+    }
+)
 
 # A step's scopes, as SendGrid enforces them. A tuple means any one of them is enough. SendGrid refuses the suppression
 # lists and group members to a key with only the per-list scopes its docs name, so these need suppression.read. Verified
@@ -94,11 +169,16 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     # A Single Send built from a design reads that design.
     "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
+    # Reads every suppression and unsubscribe again, once the exports are in.
+    "contacts": (("marketing.read",), ("suppression.read",), ("asm.groups.read",), ("user.username.read",)),
     "domains": (("whitelabel.read",),),
 }
 # SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
 # A key that was given none on purpose looks the same, so these steps skip with a note instead of refusing the key.
-MARKETING_STEPS = ("single_sends", "lists")
+MARKETING_STEPS = ("single_sends", "lists", "contacts")
+# With contacts, a new run reads these from the start. Continuing a failed run would skip who opted out since then, and
+# those contacts could get marketing email.
+OPT_OUT_STEPS = ("suppressions", "global_unsubscribes", "group_unsubscribes")
 NO_MARKETING_CAMPAIGNS_NOTE = (
     "Skipped, because this key can't read Marketing Campaigns. Accounts without a Marketing Campaigns plan have "
     "nothing to import here. If your account has one, give the key marketing.read and design_library.read, then "
@@ -127,7 +207,7 @@ class SendGridImportProvider(ImportProvider):
     api_key_url = "https://app.sendgrid.com/settings/api_keys"
     not_imported = (
         "SendGrid's API only shares stats for automations, so rebuild them as workflows. Blocks stay behind because "
-        "SendGrid doesn't keep suppressing those addresses either. Contacts don't become people. Webhooks, API keys, "
+        "SendGrid doesn't keep suppressing those addresses either. Webhooks, API keys, "
         "stats, send history and inactive template versions stay in SendGrid."
     )
     next_steps = (
@@ -226,8 +306,8 @@ class SendGridImportProvider(ImportProvider):
             key="lists",
             label="Contact lists",
             description=(
-                "Lists your contact lists and how many people are on them, so you know what to rebuild. Contacts don't "
-                "become people in PostHog. Needs marketing.read, which SendGrid also lets write to your marketing data."
+                "Lists your contact lists and how many people are on them, so you know what to rebuild. Needs "
+                "marketing.read, which SendGrid also lets write to your marketing data."
             ),
             count_labels=(("lists", "Lists"), ("contacts", "Contacts in your account")),
         ),
@@ -246,6 +326,27 @@ class SendGridImportProvider(ImportProvider):
             ),
             count_labels=(("ready", "Ready to send from PostHog"), ("needs_setup", "Need new DNS records")),
         ),
+        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
+        # they left in SendGrid.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and fills in their contact fields where PostHog "
+                "has none. Fills a cohort with all your contacts, one with each list's and one with each segment's current "
+                "contacts, without those who unsubscribed from everything. Import again to refresh them. Each subuser gets "
+                "its own cohort of all contacts. SendGrid prepares an export of each one, which can take a while. Select "
+                "all three steps for suppressions and unsubscribes too, so no one who left in SendGrid gets marketing "
+                "email. Needs marketing.read, suppression.read, asm.groups.read and user.username.read."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=OPT_OUT_STEPS,
+            needs=OPT_OUT_STEPS,
+            counts_as_events=True,
+            feature_flag=CONTACTS_FLAG,
+            hidden_note="Contacts don't become people, and segments stay in SendGrid.",
+        ),
+        new_people_step("SendGrid", CONTACTS_FLAG),
     )
 
     def check_credentials(
@@ -270,6 +371,8 @@ class SendGridImportProvider(ImportProvider):
         if not context.api_key:
             raise ImportCredentialsMissing(EXPIRED_KEY_MESSAGE)
         fingerprint = _key_fingerprint(context.api_key)
+        if step == "contacts" or (step in OPT_OUT_STEPS and "contacts" in context.steps):
+            fingerprint = f"{fingerprint}/{context.run_id}"
         # A failed run can leave a position in another account's list, and a new key means another account.
         resume = checkpoint if checkpoint and checkpoint.get("key") == fingerprint else None
         with _translated_errors():
@@ -294,6 +397,10 @@ class SendGridImportProvider(ImportProvider):
                     yield from _fetch_single_sends(client, context, resume, fingerprint)
                 case "lists":
                     yield from _fetch_lists(client, context)
+                case "contacts":
+                    yield from _fetch_contacts(client, context, resume, fingerprint)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case "senders":
                     yield from _fetch_senders(client, context, resume, fingerprint)
                 case "domains":
@@ -983,11 +1090,17 @@ def _fetch_lists(client: SendGridClient, context: ImportContext) -> Iterator[Imp
     count = client.get("/v3/marketing/contacts/count")
     contacts = count.get("contact_count") if isinstance(count, dict) else 0
     yield ImportPage(
-        processed=len(lists), save=partial(_save_lists, lists, contacts if isinstance(contacts, int) else 0)
+        processed=len(lists),
+        save=partial(_save_lists, lists, contacts if isinstance(contacts, int) else 0, "contacts" in context.steps),
     )
 
 
-def _save_lists(lists: list[dict[str, Any]], contacts: int) -> SavedPage:
+def _save_lists(lists: list[dict[str, Any]], contacts: int, imports_contacts: bool) -> SavedPage:
+    next_step = (
+        "The Contacts step fills a cohort with them."
+        if imports_contacts
+        else "Rebuild this list as a cohort of your users."
+    )
     return SavedPage(
         imported=0,
         counts={"lists": len(lists), "contacts": contacts},
@@ -996,11 +1109,458 @@ def _save_lists(lists: list[dict[str, Any]], contacts: int) -> SavedPage:
                 label=str(row.get("name") or row.get("id")),
                 status="listed",
                 url="/cohorts",
-                notes=(f"{row.get('contact_count') or 0} contacts. Rebuild this list as a cohort of your users.",),
+                notes=(f"{row.get('contact_count') or 0} contacts. {next_step}",),
             )
             for row in lists
         ),
     )
+
+
+def _fetch_contacts(
+    client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
+) -> Iterator[ImportPage]:
+    """Reads an export of every contact and one of each list and segment, then saves them together, so one that can't be
+    read leaves every cohort as it was. The checkpoint holds the exports SendGrid already started, so a retry downloads
+    those again rather than waiting for new ones."""
+    account = _read_account(client)
+    count = client.get("/v3/marketing/contacts/count")
+    audiences = {audience.id: audience for audience in _read_audiences(client)}
+    if sum(audience.kind == "list" for audience in audiences.values()) > MAX_LISTS:
+        raise ImportTooLarge(TOO_MANY_LISTS_MESSAGE)
+    exports: dict[str, str] = json.loads(str(resume["exports"])) if resume and "exports" in resume else {}
+    contacts = ContactCollector()
+    custom_fields = _read_custom_fields(client)
+    skipped: dict[str, str] = json.loads(str(resume["skipped"])) if resume and "skipped" in resume else {}
+    audiences = {key: audience for key, audience in audiences.items() if key not in skipped}
+    # Lists come first, so only segments pass the limit.
+    for extra in list(audiences.values())[MAX_LISTS:]:
+        del audiences[extra.id]
+        skipped[extra.id] = _skipped_note(extra, f"This account has more than {MAX_LISTS} lists and segments.")
+    segments_deadline: float | None = None
+    memberships = 0
+    audience_members: dict[str, list[dict[str, str]]] = {}
+    read = repeats_merged = invalid_skipped = 0
+
+    def progress_page() -> ImportPage:
+        return ImportPage(
+            processed=0,
+            save=lambda: SavedPage(imported=0),
+            checkpoint={"key": fingerprint, "exports": json.dumps(exports), "skipped": json.dumps(skipped)},
+        )
+
+    list_counts = [audience.contact_count for audience in audiences.values() if audience.kind == "list"]
+    counts = [count.get("contact_count") if isinstance(count, dict) else None, *list_counts]
+    # The account's own count can lag behind its lists, and reading no contacts would empty every cohort.
+    known_counts = [value for value in counts if isinstance(value, int)]
+    everyone_count = max(known_counts, default=None)
+    if everyone_count == 0 and len(known_counts) < len(counts):
+        everyone_count = None
+    for target, contact_count in (
+        (ALL_CONTACTS, everyone_count),
+        *[(audience.id, audience.contact_count) for audience in audiences.values()],
+    ):
+        audience = audiences.get(target)
+        is_segment = audience is not None and audience.kind == "segment"
+        if is_segment and segments_deadline is None:
+            # They're prepared at the same time, so one that SendGrid never finishes holds the import up only once.
+            segments_deadline = time.monotonic() + EXPORT_TIMEOUT_SECONDS
+            for segment in [row for row in audiences.values() if row.kind == "segment" and row.id not in exports]:
+                with suppress(_ExportUnusable):
+                    exports[segment.id] = _start_export(client, segment)
+            yield progress_page()
+        rows: list[_Row] = []
+        failure: _ExportGone | None = None
+        # An export can have expired since an earlier attempt, or its download can fail, and a new one then works.
+        for _ in range(2):
+            try:
+                if target not in exports:
+                    exports[target] = _start_export(client, audience)
+                    yield progress_page()
+                export = _ready_export(client, exports[target], segments_deadline)
+                rows = _read_rows(client, export, custom_fields)
+                if audience and is_segment:
+                    _check_segment_size(audience, export, len(rows), read)
+                    if memberships + len(rows) > MAX_CONTACT_MEMBERSHIPS:
+                        raise _ExportUnusable("It has more contacts than this import has room for.")
+                else:
+                    _check_export_size(export, len(rows), contact_count, read if audience else None)
+                if rows and not any(exact_email(row.email) for row in rows):
+                    raise _NoEmails("SendGrid's contact export holds no valid email address.")
+                failure = None
+                break
+            except _ExportGone as e:
+                failure = e
+                if not isinstance(e, _ExportPending):
+                    exports.pop(target, None)
+                if isinstance(e, _ExportUnusable | _NoEmails):
+                    break
+        if failure is not None:
+            # SendGrid doesn't say how it exports nothing, so a segment, or what it counts as empty, can't stop
+            # the import. Contacts can have a phone number only, so a list without an email address can't either.
+            may_be_empty = isinstance(failure, _ExportUnusable) and (contact_count == 0 or is_segment)
+            if audience is None and may_be_empty:
+                yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(NO_CONTACTS_NOTE,)))
+                return
+            may_be_empty = may_be_empty or (isinstance(failure, _ExportUnreadable) and contact_count == 0)
+            if audience is not None and (may_be_empty or is_segment or isinstance(failure, _NoEmails)):
+                del audiences[target]
+                exports.pop(target, None)
+                skipped[target] = _skipped_note(audience, str(failure))
+                yield progress_page()
+                continue
+            yield progress_page()
+            raise ImportProviderUnavailable(str(failure)) from failure
+        # Only an export that passed every check adds people.
+        members = [member for row in rows if (member := contacts.add(row.email, row.properties))]
+        memberships += len(members)
+        if target == ALL_CONTACTS:
+            read = len(rows)
+            repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
+        else:
+            audience_members[target] = members
+
+    # The opt-out steps read these before SendGrid prepared the exports, which can take hours. Someone who left in
+    # between is in the exports, so every opt-out is read again here, and global unsubscribes stay out of the cohorts.
+    for page in chain(
+        _fetch_suppressions(client, context, None, fingerprint),
+        _fetch_group_unsubscribes(client, context, None, fingerprint),
+    ):
+        yield replace(progress_page(), save=partial(_save_without_counts, page.save))
+    addresses = {row["email"].lower() for row in contacts.everyone}
+    unsubscribed: dict[str, list[str]] = {}
+    end_time = int(timezone.now().timestamp())
+    for list_page in _list_pages_after(client, "/v3/suppression/unsubscribes", 0, None, end_time):
+        for entry in list_page.rows:
+            address = exact_email(_list_email(entry))
+            if address and address.lower() in addresses:
+                unsubscribed[address] = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
+    non_members = frozenset(address.lower() for address in unsubscribed)
+    yield ImportPage(
+        processed=read,
+        save=partial(
+            _save_contacts,
+            context,
+            ContactList(
+                cohort_name=f"SendGrid contacts ({account.username[:MAX_SOURCE_NAME_LENGTH]})",
+                cohort_description=f"Imported from SendGrid contacts of account {account.user_id}.",
+                source="your SendGrid contacts",
+                rows=contacts.everyone,
+                non_members=non_members,
+                repeats_merged=repeats_merged,
+                invalid_skipped=invalid_skipped,
+            ),
+            [
+                ContactList(
+                    cohort_name=audience.cohort_name,
+                    cohort_description=f"Imported from SendGrid {audience.kind} {audience.id}.",
+                    source=f'the SendGrid {audience.kind} "{audience.name}"',
+                    rows=tuple(audience_members[audience.id]),
+                    non_members=non_members,
+                )
+                for audience in audiences.values()
+            ],
+            [*contacts.other_spellings, *unsubscribed],
+            unsubscribed,
+            tuple(skipped.values()),
+        ),
+    )
+
+
+def _skipped_note(audience: "_Audience", reason: str) -> str:
+    return f"{audience.name} wasn't imported, so its cohort stays as it was, with anyone who left it since. {reason}"
+
+
+def _save_contacts(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: list[ContactList],
+    other_spellings: list[str],
+    unsubscribed: dict[str, list[str]],
+    warnings: tuple[str, ...],
+) -> SavedPage:
+    saved = save_contact_lists(context, everyone, lists, other_spellings, unsubscribed)
+    return replace(saved, warnings=(*saved.warnings, *warnings))
+
+
+@frozen
+class _Audience:
+    kind: Literal["list", "segment"]
+    id: str
+    name: str
+    # None when SendGrid doesn't say, or says so too late to rely on.
+    contact_count: int | None
+    # A segment's count, up to a day old.
+    lagging_count: int | None = None
+
+    @property
+    def cohort_name(self) -> str:
+        suffix = " (from SendGrid)" if self.kind == "list" else " (segment from SendGrid)"
+        return f"{self.name[: min(MAX_SOURCE_NAME_LENGTH, 400 - len(suffix))]}{suffix}"
+
+
+def _read_audiences(client: SendGridClient) -> Iterator[_Audience]:
+    for page in client.token_pages("/v3/marketing/lists", None, 1000):
+        for row in page.data:
+            if isinstance(row, dict) and row.get("id"):
+                count = row.get("contact_count")
+                yield _Audience(
+                    kind="list",
+                    id=str(row["id"]),
+                    name=str(row.get("name") or row["id"]),
+                    contact_count=count if isinstance(count, int) else None,
+                )
+    # SendGrid doesn't say whether either list has the other's segments.
+    segments = {
+        str(row["id"]): row
+        for path in ("/v3/marketing/segments", "/v3/marketing/segments/2.0")
+        for row in _read_segments(client, path)
+        if isinstance(row, dict) and row.get("id")
+    }
+    for segment_id, row in segments.items():
+        # SendGrid counts a segment up to a day late, so the count can't say whether it's empty.
+        count = row.get("contacts_count")
+        yield _Audience(
+            kind="segment",
+            id=segment_id,
+            name=str(row.get("name") or segment_id),
+            contact_count=None,
+            lagging_count=count if isinstance(count, int) else None,
+        )
+
+
+def _read_segments(client: SendGridClient, path: str) -> list[Any]:
+    try:
+        body = client.get(path)
+    except SendGridAPIError as e:
+        # SendGrid replaced the first version, so an account may not have it.
+        if path == "/v3/marketing/segments" and e.status_code in (404, 410):
+            return []
+        raise
+    segments = body.get("results") if isinstance(body, dict) else None
+    if not isinstance(segments, list):
+        raise SendGridAPIError(f"SendGrid sent an unexpected response for {path}.")
+    return segments
+
+
+@frozen
+class _Account:
+    user_id: int
+    username: str
+
+
+def _read_account(client: SendGridClient) -> _Account:
+    """Which account or subuser the key belongs to. Each one's contacts go into a cohort of their own, so importing one
+    doesn't remove another's people."""
+    body = client.get("/v3/user/username")
+    user_id = body.get("user_id") if isinstance(body, dict) else None
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
+        raise SendGridAPIError("SendGrid sent an unexpected response for /v3/user/username.")
+    return _Account(user_id=user_id, username=str(body.get("username") or user_id))
+
+
+def _save_without_counts(save: Callable[[], SavedPage]) -> SavedPage:
+    # The opt-out steps show these counts already.
+    return replace(save(), imported=0, counts={})
+
+
+def _read_custom_fields(client: SendGridClient) -> dict[str, str]:
+    """The name of each custom field, by its lowercased ID and name. SendGrid doesn't say which one an export names its
+    columns by, or in which capitals."""
+    path = "/v3/marketing/field_definitions"
+    body = client.get(path)
+    rows = body.get("custom_fields") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        raise SendGridAPIError(f"SendGrid sent an unexpected response for {path}.")
+    fields = [row for row in rows if isinstance(row, dict) and row.get("id") and row.get("name")]
+    return {str(row[key]).lower(): str(row["name"]) for key in ("id", "name") for row in fields}
+
+
+def _contact_properties(fields: Mapping[str, str | None], custom_fields: Mapping[str, str]) -> dict[str, str]:
+    return {
+        name if name in CONTACT_FIELDS else custom_fields.get(name.lower(), name): value
+        for name, value in fields.items()
+        if value and name.lower() not in _RECORD_FIELDS
+    }
+
+
+class _ExportGone(Exception):
+    """This export can't be read anymore. Starting it again can work."""
+
+
+class _ExportUnusable(_ExportGone):
+    """SendGrid's answer for this export can't be what PostHog asked for."""
+
+
+class _ExportUnreadable(_ExportGone):
+    """An export's file isn't the CSV file PostHog asked for."""
+
+
+class _NoEmails(_ExportGone):
+    """None of an export's contacts has an email address."""
+
+
+class _ExportPending(_ExportUnusable):
+    """SendGrid is still preparing this export."""
+
+
+def _start_export(client: SendGridClient, audience: _Audience | None) -> str:
+    """Starts the export of an audience, or of every contact."""
+    body: dict[str, Any] = {"file_type": "csv", "notifications": {"email": False}}
+    if audience is not None:
+        body[f"{audience.kind}_ids"] = [audience.id]
+    try:
+        started = client.post("/v3/marketing/contacts/exports", body)
+    except SendGridAPIError as e:
+        if e.status_code in (400, 404):
+            raise _ExportUnusable(f"SendGrid refused to export contacts (HTTP {e.status_code}).") from e
+        raise
+    export_id = started.get("id") if isinstance(started, dict) else None
+    if not isinstance(export_id, str) or not export_id:
+        raise SendGridAPIError("SendGrid didn't start the contact export.")
+    return export_id
+
+
+def _check_export_size(
+    export: Mapping[str, Any], exported: int, contact_count: int | None, everyone: int | None
+) -> None:
+    """Refuses an export that isn't the contacts SendGrid counts, because saving it would add or remove people wrongly.
+    `everyone` is how many contacts the account's own export held, or None for that export itself."""
+    if not exported:
+        if contact_count == 0:
+            return
+        of = f"none of {contact_count:,} contacts" if contact_count else "no contacts"
+        raise _ExportUnusable(f"SendGrid's contact export holds {of}.")
+    has_own_count = isinstance(export.get("contact_count"), int)
+    if contact_count is None:
+        # An export of one list that holds the whole account can mean SendGrid ignored which list PostHog asked for.
+        if everyone is not None and (exported >= everyone or not has_own_count):
+            raise _ExportGone(
+                "SendGrid doesn't count a list or its export, so PostHog can't tell if it's the right one."
+            )
+        return
+    if everyone is None:
+        # Nothing but the account's count can show that contacts on no list are missing.
+        is_wrong = contact_count > 1.02 * exported + 5 or exported > 2 * contact_count + COUNT_SLACK
+    else:
+        is_everyone = exported >= everyone and exported > 1.1 * contact_count + 1
+        # An export that counts itself is complete, so only a count far off says it's another list's.
+        factor, slack = (2, COUNT_SLACK) if has_own_count else (1.1, 1)
+        is_wrong = is_everyone or contact_count > factor * exported + slack or exported > factor * contact_count + slack
+    if is_wrong:
+        raise _ExportGone(
+            f"SendGrid's contact export holds {exported:,} contacts, but SendGrid counts {contact_count:,}."
+        )
+
+
+@frozen
+class _Row:
+    email: str | None
+    properties: dict[str, str]
+
+
+def _read_rows(client: SendGridClient, export: Mapping[str, Any], custom_fields: Mapping[str, str]) -> list[_Row]:
+    rows: list[_Row] = []
+    size = 0
+    for fields in _exported_contacts(client, export):
+        row = _Row(email=fields.get("email"), properties=_contact_properties(fields, custom_fields))
+        size += len(row.email or "") + sum(len(name) + len(value) for name, value in row.properties.items())
+        if len(rows) >= MAX_CONTACT_MEMBERSHIPS or size > MAX_CONTACT_BYTES:
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
+        rows.append(row)
+    return rows
+
+
+def _check_segment_size(audience: _Audience, export: Mapping[str, Any], exported: int, everyone: int) -> None:
+    # Only a count of zero from SendGrid says that a segment is empty.
+    if not exported and export.get("contact_count") != 0:
+        raise _ExportUnusable("SendGrid's contact export holds no contacts.")
+    lagging = audience.lagging_count or 0
+    is_everyone = exported >= everyone and exported > 1.1 * lagging + 1
+    # A contact deleted since the account's own export leaves this one just below it.
+    is_nearly_everyone = exported >= 0.9 * everyone and exported > 2 * lagging + COUNT_SLACK
+    if is_everyone or is_nearly_everyone:
+        raise _ExportUnusable("SendGrid's export of a segment holds every contact, more than SendGrid counts in it.")
+    # Nothing else shows that no contact is missing.
+    if export.get("contact_count") is None and (audience.lagging_count or 0) > 2 * exported + COUNT_SLACK:
+        raise _ExportUnusable("SendGrid's export of a segment holds far fewer contacts than SendGrid counts in it.")
+
+
+def _exported_contacts(client: SendGridClient, export: Mapping[str, Any]) -> Iterator[dict[str, str | None]]:
+    """Every contact of an export. Raises when any of them is missing, because a list that came back short would remove
+    people from its cohort."""
+    expected, urls = export.get("contact_count"), export.get("urls") or []
+    if not isinstance(urls, list) or (expected != 0 and not urls):
+        raise _ExportUnusable("SendGrid sent a contact export without its contacts.")
+    read = 0
+    names: list[str] = []
+    for url in urls:
+        try:
+            with client.download(str(url)) as file:
+                for fields in _csv_rows(file, names):
+                    read += 1
+                    yield fields
+        except SendGridDownloadIncomplete as e:
+            raise _ExportGone(str(e)) from e
+        except SendGridAPIError as e:
+            # The link expires, and only a new export has a new one.
+            if e.status_code in (400, 403, 404, 410):
+                raise _ExportGone("SendGrid's contact export expired. PostHog asks for a new one.") from e
+            raise
+    if not names and urls:
+        raise _ExportUnusable("SendGrid's contact export is an empty file.")
+    if isinstance(expected, int) and read != expected:
+        raise _ExportGone(f"SendGrid's contact export holds {read:,} contacts, but says it holds {expected:,}.")
+
+
+def _ready_export(client: SendGridClient, export_id: str, deadline: float | None) -> dict[str, Any]:
+    if deadline is None:
+        deadline = time.monotonic() + EXPORT_TIMEOUT_SECONDS
+    while True:
+        try:
+            export = client.get(f"/v3/marketing/contacts/exports/{quote(export_id, safe='')}")
+        except SendGridAPIError as e:
+            if e.status_code == 404:
+                raise _ExportGone("SendGrid deleted its contact export. PostHog asks for a new one.") from e
+            raise
+        if not isinstance(export, dict):
+            raise SendGridAPIError("SendGrid sent an unexpected response for a contact export.")
+        match export.get("status"):
+            case "ready":
+                return export
+            case "failure":
+                raise _ExportUnusable(
+                    f"SendGrid couldn't export your contacts: {str(export.get('message') or '')[:200]}"
+                )
+        if time.monotonic() > deadline:
+            raise _ExportPending("SendGrid hasn't finished exporting your contacts yet. PostHog keeps checking.")
+        time.sleep(EXPORT_POLL_SECONDS)
+
+
+def _csv_rows(file: IO[bytes], names: list[str]) -> Iterator[dict[str, str | None]]:
+    """A contact per row, with SendGrid's own fields lowercased and custom fields as the account named them. `names`
+    holds the columns of the files before this one, because SendGrid doesn't say whether each file repeats them."""
+    try:
+        reader = csv.reader(io.TextIOWrapper(file, encoding="utf-8-sig", newline=""), strict=True)
+        first = next(reader, [])
+        if not first:
+            return
+        known = CONTACT_FIELDS | _RECORD_FIELDS
+        header = [column.strip() for column in first]
+        header = [name if (name := column.lower().replace(" ", "_")) in known else column for column in header]
+        has_header = sorted(header) == sorted(names) if names else "email" in header
+        if has_header:
+            names[:] = header
+        elif not names:
+            raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE)
+        for row in reader if has_header else chain([first], reader):
+            if not row:
+                continue
+            if len(row) != len(names):
+                raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE)
+            # The first column with a name counts, so a custom field can't stand in for SendGrid's own.
+            yield dict(zip(reversed(names), reversed(row)))
+    except (csv.Error, UnicodeDecodeError) as e:
+        raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE) from e
 
 
 def _fetch_senders(

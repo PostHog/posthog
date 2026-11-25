@@ -35,6 +35,7 @@
 # HogQL, its query runners, and the ClickHouse layer below them
 posthog/hogql
 posthog/hogql_queries
+posthog/query_scan
 posthog/session_recordings/queries
 posthog/clickhouse/test
 posthog/query_scan/test/test_stub_printing.py
@@ -111,6 +112,7 @@ products/feature_flags/backend/test/test_facade_usage.py
 products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
+products/feature_flags/backend/test/test_flag_windows_last_values.py
 products/feature_flags/backend/test/test_request_usage.py
 products/growth/backend/tests/test_team_sdk_versions.py
 products/growth/dags/tests/test_team_production_event_activation.py

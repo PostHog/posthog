@@ -70,6 +70,8 @@ class ImportStepSpec:
     counts_as_events: bool = False
     # Hides the step, and refuses to start it, unless this flag is on for the team.
     feature_flag: str | None = None
+    # Added to the provider's `not_imported` while the flag hides the step.
+    hidden_note: str = ""
 
 
 @frozen

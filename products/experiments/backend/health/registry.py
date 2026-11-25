@@ -24,6 +24,12 @@ from products.experiments.backend.health.checks.bias_risk import (
     bias_risk_multiple_excluded,
     bias_risk_values,
 )
+from products.experiments.backend.health.checks.billing_limit import (
+    events_billing_limit,
+    events_billing_limit_values,
+    feature_flags_billing_limit,
+    feature_flags_billing_limit_values,
+)
 from products.experiments.backend.health.checks.bucketing_changed import (
     bucketing_changed_mid_run,
     bucketing_changed_rows,
@@ -348,7 +354,30 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 # split and the release conditions are part of the exposure query's cache key. `unserved_variant_exposures` also reads
 # whether the flag is on and when it was last saved. The page's query carries the flag's `active` and `version`, so an
 # edit recalculates the page's answer, and a backend answer's older finding still holds for the users it counts.
+# The billing limit checks read the organization's billing limits, whose ends the cache key carries while a limit holds.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EVENTS_BILLING_LIMIT,
+        name="Product analytics billing limit",
+        description=(
+            "Checks whether your organization reached its billing limit for product analytics. While the limit holds, "
+            "PostHog drops the project's product analytics events, so a running experiment gets no new exposures or "
+            "metric data from them."
+        ),
+        run=events_billing_limit,
+        read=events_billing_limit_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.FEATURE_FLAGS_BILLING_LIMIT,
+        name="Feature flags billing limit",
+        description=(
+            "Checks whether your organization reached its billing limit for feature flags. While the limit holds, "
+            "PostHog returns no flags to the project's flag requests, so a running experiment assigns no variant to "
+            "new users."
+        ),
+        run=feature_flags_billing_limit,
+        read=feature_flags_billing_limit_values,
+    ),
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
         name="Exposures not received since launch",

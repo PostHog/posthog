@@ -3,7 +3,7 @@ import type { Profile } from '../cards/schema'
 import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
-import { BarResult, WriterCpu, judgeStep, unsourced } from './bars'
+import { BarResult, StepReading, WriterCpu, judgeStep, unsourced } from './bars'
 import { type DeliveryEvidence, acceptedDeliveriesOf, missedDeliveriesOf, refusalsOf } from './invariants'
 import type { Convergence, InvariantResult, JournalEntry } from './judge'
 import {
@@ -57,6 +57,7 @@ export type Ramp = {
     reason: string
     stop?: HardStop
     rates?: StepRates[]
+    readings?: StepReading[][]
 }
 
 export const STEP_LOSS_LIMIT = 0.05
@@ -428,6 +429,7 @@ export type RampEvidence = {
     admissions: readonly Admission[]
     convergence: Pick<Convergence, 'converged' | 'unfinishedJobs'>
     rates?: readonly StepRates[]
+    readings?: StepReading[][]
 }
 
 type Candidate = { index: number; rank: number; broke: Broke; reason: string; hard?: HardFailure }
@@ -551,7 +553,12 @@ export function rampOf(evidence: RampEvidence): Ramp {
                 : backlog === undefined
                   ? undefined
                   : { failure: 'backlog_undrained', scale: null, reason: backlog }
-    return { ...ramp, ...(stop && { stop }), ...(evidence.rates && { rates: [...evidence.rates] }) }
+    return {
+        ...ramp,
+        ...(stop && { stop }),
+        ...(evidence.rates && { rates: [...evidence.rates] }),
+        ...(evidence.readings && { readings: evidence.readings }),
+    }
 }
 
 function endOf(evidence: RampEvidence, placed: Candidate[], unplaced: Broke[], backlog: string | undefined): Ramp {

@@ -74,6 +74,7 @@ export type SesAnswer =
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
     | { kind: 'ambiguous'; accepted: boolean }
+    | { kind: 'hold-answer' }
 
 export type WebhookAnswer =
     | { kind: 'webhook-status'; status: number }
@@ -115,6 +116,12 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
+export const heldAnswerRule = (): FaultRule => ({
+    name: 'edge.accepted',
+    answer: { kind: 'hold-answer' },
+    dose: { count: 1 },
+})
+
 type ActiveFault = {
     id: string
     rule: FaultRule
@@ -130,7 +137,7 @@ const isWebhookAnswer = (answer: SesAnswer | WebhookAnswer): answer is WebhookAn
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
 
 const reachesSes = (answer: SesAnswer | WebhookAnswer): boolean =>
-    answer.kind === 'bounce' || (answer.kind === 'ambiguous' && answer.accepted)
+    answer.kind === 'bounce' || answer.kind === 'hold-answer' || (answer.kind === 'ambiguous' && answer.accepted)
 
 function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
     if (request.channel === 'webhook') {
@@ -188,17 +195,19 @@ export class FaultList {
         return this.firstApplied.get(id)
     }
 
-    takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {
-        const rule = this.take({ channel: 'ses', recipients })
-        return rule && !isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
+    takeSes(recipients: string[]): { id: string; name: string; answer: SesAnswer } | undefined {
+        const fault = this.take({ channel: 'ses', recipients })
+        return fault && !isWebhookAnswer(fault.rule.answer)
+            ? { id: fault.id, name: fault.rule.name, answer: fault.rule.answer }
+            : undefined
     }
 
     takeWebhook(host: string): { name: string; answer: WebhookAnswer } | undefined {
-        const rule = this.take({ channel: 'webhook', host })
+        const rule = this.take({ channel: 'webhook', host })?.rule
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    private take(request: FaultedRequest): FaultRule | undefined {
+    private take(request: FaultedRequest): ActiveFault | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
@@ -219,6 +228,6 @@ export class FaultList {
                 now
             )
         }
-        return answering?.rule
+        return answering
     }
 }

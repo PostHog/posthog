@@ -36,6 +36,8 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
+    # Jobs here that skip .github/actions/setup-pnpm still run turbo, so opt them out of its telemetry.
+    TURBO_TELEMETRY_DISABLED: '1'
 
 jobs:
     changes:

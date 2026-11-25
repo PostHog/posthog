@@ -231,6 +231,7 @@ import { Reminders } from './user/Reminders'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
+import { UiSoundsSetting } from './user/UiSoundsSetting'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
@@ -2925,6 +2926,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsAchievementsSetting />,
                 flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
                 keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
+            },
+            {
+                id: 'ui-sounds',
+                title: 'Button sounds',
+                description:
+                    'Play a quiet click when you press a button, switch, checkbox, tab, or menu item. This setting applies to this browser only.',
+                component: <UiSoundsSetting />,
+                keywords: ['sound', 'audio', 'click', 'feedback', 'tactile'],
             },
             {
                 id: 'hedgehog-mode',
