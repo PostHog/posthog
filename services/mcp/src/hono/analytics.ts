@@ -355,13 +355,15 @@ const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
 // Their results are live credentials: a SCIM bearer token, and a skill-store key that the
 // install commands also embed in a git URL. Creating or updating an identity provider config
-// returns the SCIM token when the call turns SCIM on. The result reaches analytics as formatted
+// returns the SCIM token when the call turns SCIM on. A destination connect link puts its
+// connect token in the `connect_url` query string. The result reaches analytics as formatted
 // text, so key-based redaction can't find the credential in it.
 const CREDENTIAL_ISSUING_TOOL_NAMES = [
     'identity-provider-configs-scim-token-create-execute',
     'identity-provider-configs-create-execute',
     'identity-provider-configs-partial-update-execute',
     'skill-store-install-command',
+    'external-data-destinations-connect-link',
 ]
 
 const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([

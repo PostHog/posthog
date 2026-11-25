@@ -773,6 +773,12 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             [
+                'a destination connect link',
+                'external-data-destinations-connect-link',
+                { destination_type: 'Postgres' },
+                false,
+            ],
+            [
                 'the skill-store install command through exec',
                 'exec',
                 { command: 'call skill-store-install-command {"rotate":false}' },
