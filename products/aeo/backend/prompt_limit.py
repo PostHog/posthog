@@ -5,15 +5,16 @@ from products.aeo.backend.models import AEOPrompt, AEOTeamConfig
 
 
 def active_prompt_count(team_id: int) -> int:
-    return AEOPrompt.objects.for_team(team_id).filter(active=True, archived_at__isnull=True).count()
+    return AEOPrompt.objects.for_team(team_id).using("default").filter(active=True, archived_at__isnull=True).count()
+
+
+def max_active_prompts(team_id: int) -> int:
+    limit = AEOTeamConfig.objects.for_team(team_id).values_list("max_active_prompts", flat=True).first()
+    return DEFAULT_MAX_ACTIVE_PROMPTS if limit is None else limit
 
 
 def read(team_id: int) -> PromptLimit:
-    limit = AEOTeamConfig.objects.for_team(team_id).values_list("max_active_prompts", flat=True).first()
-    return PromptLimit(
-        max_active_prompts=DEFAULT_MAX_ACTIVE_PROMPTS if limit is None else limit,
-        active_prompts=active_prompt_count(team_id),
-    )
+    return PromptLimit(max_active_prompts=max_active_prompts(team_id), active_prompts=active_prompt_count(team_id))
 
 
 def lock(team_id: int) -> PromptLimit:

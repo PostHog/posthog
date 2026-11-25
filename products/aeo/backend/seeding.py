@@ -125,7 +125,10 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate], *, fit_to_limi
         for key in archived:
             del rows[key]
         if limit is not None:
-            turning_on = [key for key, row in rows.items() if key not in existing and row.active]
+            turning_on = sorted(
+                (key for key, row in rows.items() if key not in existing and row.active),
+                key=lambda key: -rows[key].rank,
+            )
             if not fit_to_limit:
                 prompt_limit.check_room(limit, len(turning_on))
             held_back = turning_on[limit.remaining :]
