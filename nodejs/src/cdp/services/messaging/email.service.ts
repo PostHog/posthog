@@ -317,8 +317,6 @@ function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolea
     )
 }
 
-// The reason the sent status row carries, so the email log can tell a send that can never record an open or a click
-// from one still waiting for them.
 function sentStatusReason(
     invocation: CyclotronJobInvocationHogFunction,
     trackingEnabled: boolean

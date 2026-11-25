@@ -52,7 +52,6 @@ export type EmailStatusReason =
     // A sent email that went out with open and click tracking off, so it never records an open or a click. It and
     // `clicks_untracked` are the only reasons a `sent` row carries, so a reader must not show them as a failure.
     | 'untracked'
-    // A sent email that went out with opens tracked and click tracking off, so it never records a click.
     | 'clicks_untracked'
     // A run that was canceled before it finished.
     | 'canceled'

@@ -2347,7 +2347,6 @@ describe('EmailService', () => {
             invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
         }
         const sensitiveTemplate = (): void => {
-            sesAccepts()
             invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
         }
         const codeSendOpensOff = (): void => {
