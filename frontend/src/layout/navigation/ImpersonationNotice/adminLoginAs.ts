@@ -75,7 +75,7 @@ async function ensureAdminOAuth2(): Promise<void> {
     })
 }
 
-async function verifyImpersonatedSession(userId: number): Promise<void> {
+async function verifyImpersonatedSession(userId: number, readOnly: boolean): Promise<void> {
     let user: UserApi
     try {
         user = await usersRetrieve('@me')
@@ -90,6 +90,9 @@ async function verifyImpersonatedSession(userId: number): Promise<void> {
     if (user.id !== userId || !user.is_impersonated) {
         const LoginError = user.is_impersonated ? ImpersonationSessionUncertainError : Error
         throw new LoginError('Could not log in as this user. Check that impersonation is allowed and try again.')
+    }
+    if (user.is_impersonated_read_only !== readOnly) {
+        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.')
     }
 }
 
@@ -109,6 +112,7 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
             credentials: 'same-origin',
             mode: 'cors',
             headers: {
+                Accept: 'application/json',
                 'X-CSRFToken': getCookie('posthog_csrftoken') as string,
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
@@ -117,6 +121,9 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
                 reason,
             }),
         })
+        if (loginResponse.ok && (await loginResponse.json())?.success !== true) {
+            throw new Error('The login response did not confirm success')
+        }
     } catch (error) {
         throw new ImpersonationSessionUncertainError(
             'Could not confirm the login result. Reload the page to continue.',
@@ -132,5 +139,5 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
         throw new LoginError(`django-loginas request resulted in status ${loginResponse.status}`)
     }
 
-    await verifyImpersonatedSession(userId)
+    await verifyImpersonatedSession(userId, readOnly)
 }

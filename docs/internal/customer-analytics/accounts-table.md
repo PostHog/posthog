@@ -8,6 +8,7 @@ The in-app flow starts in read-only mode.
 The in-app flow keeps the modal locked until the session check finishes and the page navigates.
 Switching users from the impersonation notice also keeps the reason modal open until navigation, or available for retry after a refusal.
 An empty, malformed, or failed session check forces a full page load so the displayed identity matches the session.
+In-app logins require an explicit success response from the admin endpoint, followed by confirmation of the requested identity and read-only mode.
 
 ## Account automations
 

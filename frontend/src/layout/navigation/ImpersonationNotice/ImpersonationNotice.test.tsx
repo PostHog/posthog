@@ -68,7 +68,7 @@ describe('ImpersonationNotice', () => {
                 post: {
                     '/admin/login/user/42/': async () => {
                         await login
-                        return [status, {}]
+                        return [status, { success: status === 200 }]
                     },
                 },
                 get: {

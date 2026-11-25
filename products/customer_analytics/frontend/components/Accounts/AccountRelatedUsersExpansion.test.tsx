@@ -129,7 +129,7 @@ describe('AccountRelatedUsersExpansion', () => {
                     '/api/users/@me/': () => (currentUser === undefined ? [probeStatus] : [probeStatus, currentUser]),
                 },
                 post: {
-                    '/admin/login/user/42/': () => [200, {}],
+                    '/admin/login/user/42/': () => [200, { success: true }],
                 },
             })
             const originalLocation = window.location

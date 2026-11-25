@@ -62,6 +62,9 @@ def start_impersonation(request, user_id, *, read_only: bool):
             },
         )
 
+    if request.headers.get("Accept") == "application/json":
+        return JsonResponse({"success": login_succeeded}, status=200 if login_succeeded else 403)
+
     return response
 
 
