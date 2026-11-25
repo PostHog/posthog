@@ -9,6 +9,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { objectsEqual } from 'lib/utils/objects'
+import { truncate } from 'lib/utils/strings'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -59,6 +60,20 @@ const DEFAULT_FILTERS: Filters = {
     ordering: 'event',
     tags: undefined,
     verified: undefined,
+}
+
+// Event properties are untrusted input of any size, so the example is capped before the table renders it.
+const MAX_PROPERTY_EXAMPLE_LENGTH = 200
+
+function formatPropertyExample(value: JsonType | undefined): string | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    try {
+        return truncate(JSON.stringify(value), MAX_PROPERTY_EXAMPLE_LENGTH)
+    } catch {
+        return undefined
+    }
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -610,7 +625,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ) + 1,
                         results: response.results.map((prop: PropertyDefinition) => ({
                             ...prop,
-                            example: exampleEventProperties?.[prop.name],
+                            example: formatPropertyExample(exampleEventProperties?.[prop.name]),
                         })),
                     }
 

@@ -5024,7 +5024,7 @@ export interface PropertyDefinition {
     type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
-    example?: JsonType
+    example?: string
     is_action?: boolean
     verified?: boolean
     verified_at?: string

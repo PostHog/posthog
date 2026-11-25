@@ -56,7 +56,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             render: function Render(_, _definition: PropertyDefinition) {
                 return (
                     <LemonTag className="font-mono" type="muted" wrap>
-                        {_definition.example !== undefined ? JSON.stringify(_definition.example) : '—'}
+                        {_definition.example ?? '—'}
                     </LemonTag>
                 )
             },

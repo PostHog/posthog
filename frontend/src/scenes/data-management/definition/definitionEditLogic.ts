@@ -82,7 +82,7 @@ export interface definitionEditLogicActions {
             | {
                   created_at?: string
                   description?: string
-                  example?: import('~/types').JsonType
+                  example?: string
                   hidden?: boolean
                   id: string
                   is_action?: boolean
@@ -130,7 +130,7 @@ export interface definitionEditLogicActions {
             | {
                   created_at?: string
                   description?: string
-                  example?: import('~/types').JsonType
+                  example?: string
                   hidden?: boolean
                   id: string
                   is_action?: boolean
