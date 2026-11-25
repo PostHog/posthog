@@ -122,7 +122,7 @@ class InstallationAccount:
     name: str | None = None
 
 
-@dataclass
+@frozen
 class InstallationConfig:
     scopes: list[str]
     acceptedPolicies: dict[str, Any]
