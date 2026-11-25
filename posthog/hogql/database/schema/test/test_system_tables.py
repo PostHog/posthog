@@ -1374,6 +1374,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert response.results == [("high",)]
 
+    @parameterized.expand(
+        [
+            ("never_ran", None, None, None),
+            # Rows whose last run predates the column only have the sync stamp.
+            ("synced_only", datetime(2026, 11, 1, tzinfo=UTC), None, datetime(2026, 11, 1, tzinfo=UTC)),
+            ("checked_only", None, datetime(2026, 11, 5, tzinfo=UTC), datetime(2026, 11, 5, tzinfo=UTC)),
+            (
+                "checked_after_sync",
+                datetime(2026, 11, 1, tzinfo=UTC),
+                datetime(2026, 11, 5, tzinfo=UTC),
+                datetime(2026, 11, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_source_schemas_last_checked_at(self, _name, last_synced_at, last_checked_at, expected):
+        schema = _create_source_schema(self.team, "checked")
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(
+            last_synced_at=last_synced_at, last_checked_at=last_checked_at
+        )
+
+        response = execute_hogql_query(
+            "SELECT last_checked_at FROM system.source_schemas", team=self.team, user=self.user
+        )
+
+        assert [row[0] for row in response.results] == [expected]
+
     def test_data_deletion_requests_excludes_non_query_backed_requests(self):
         self._authorize_data_deletion_requests()
 

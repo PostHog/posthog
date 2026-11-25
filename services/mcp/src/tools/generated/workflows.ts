@@ -844,6 +844,7 @@ const WorkflowsReputationGetSchema = () => {
                     'email_sending_suspended',
                     'email_sending_suspended_at',
                     'email_sending_suspension_reason',
+                    'infrastructure',
                 ])
             )
             .min(1)
@@ -884,6 +885,7 @@ const workflowsReputationGet = (): ToolBase<
                       'email_sending_suspended',
                       'email_sending_suspended_at',
                       'email_sending_suspension_reason',
+                      'infrastructure',
                   ]
         ) as typeof result
         return filtered

@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from posthog.schema import HogQLQueryModifiers
@@ -172,6 +173,10 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
                 "events": ("ducklake", "analytics", "events_production"),
                 "persons": ("ducklake", "analytics", "persons_production"),
             },
+            # Left unset, the events table choice reads an instance setting from Postgres, which SimpleTestCase
+            # refuses. With that instance setting at its default, tests get this Django setting, so pinning it keeps
+            # the value each CI leg configures.
+            use_new_events_schema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
         )
 
     def test_logical_persons_table_deduplicates_latest_person_versions(self) -> None:

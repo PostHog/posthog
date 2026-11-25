@@ -30,6 +30,9 @@ class ZepEndpointConfig:
     # ("user" or "graph") and `{owner_id}` placeholders, and the source fans out over every user
     # graph and every standalone graph. The response body is a bare list.
     fan_out_over_graphs: bool = False
+    # The ontology endpoint returns one object with `entity_types` and `edge_types` lists; each type
+    # becomes a row tagged with its kind.
+    ontology: bool = False
 
 
 GRAPH_ELEMENT_PRIMARY_KEYS = ["graph_scope", "graph_owner_id", "uuid"]
@@ -93,6 +96,31 @@ ZEP_ENDPOINTS: dict[str, ZepEndpointConfig] = {
         # The API clamps an explicit episode `limit` to 50.
         page_size=50,
         fan_out_over_graphs=True,
+    ),
+    "graph_observations": ZepEndpointConfig(
+        name="graph_observations",
+        path="/graph/observation/{scope}/{owner_id}",
+        data_key="",
+        primary_keys=GRAPH_ELEMENT_PRIMARY_KEYS,
+        fan_out_over_graphs=True,
+    ),
+    # The documented ThreadSummary schema has no created_at, so the table is not partitioned.
+    "graph_thread_summaries": ZepEndpointConfig(
+        name="graph_thread_summaries",
+        path="/graph/thread-summary/{scope}/{owner_id}",
+        data_key="",
+        primary_keys=GRAPH_ELEMENT_PRIMARY_KEYS,
+        partition_key=None,
+        fan_out_over_graphs=True,
+    ),
+    # Entity and edge type names are unique per kind within a project.
+    "graph_ontology_types": ZepEndpointConfig(
+        name="graph_ontology_types",
+        path="/graph/list-ontology",
+        data_key="",
+        primary_keys=["kind", "name"],
+        partition_key=None,
+        ontology=True,
     ),
 }
 

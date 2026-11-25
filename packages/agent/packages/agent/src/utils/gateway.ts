@@ -9,6 +9,7 @@ export const GATEWAY_PRODUCTS = [
   "posthog_ai",
   "conversations",
   "account_audit",
+  "autoresearch",
   "onboarding",
   "review_hog",
 ] as const;
@@ -20,12 +21,14 @@ export function fallbackGatewayProduct(isInternal = false): GatewayProduct {
 }
 
 // The legacy gateway accepts sandbox OAuth under background_agents; review_hog
-// is API-key-only there, and account_audit has no legacy product config.
+// is API-key-only there, and account_audit and autoresearch have no legacy
+// product config.
 const LEGACY_PRODUCT_OVERRIDES: Partial<
   Record<GatewayProduct, GatewayProduct>
 > = {
   review_hog: "background_agents",
   account_audit: "background_agents",
+  autoresearch: "background_agents",
 };
 
 function legacyProduct(product: GatewayProduct): GatewayProduct {

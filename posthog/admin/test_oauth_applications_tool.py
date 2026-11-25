@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.admin.console.oauth_application_panels import DECISION_OPERATION_KEYS
 from posthog.api.oauth.provisioning_review import append_run_log
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
@@ -51,25 +52,54 @@ class TestOAuthApplicationsTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("waiting_for_staff", ProvisioningReviewStatus.NEEDS_HUMAN, {}, ["accept", "block"], True),
-            ("accepted", ProvisioningReviewStatus.ACCEPTED, {"active": True}, ["block"], False),
-            ("blocked", ProvisioningReviewStatus.REJECTED, {"disabled": True}, ["accept"], False),
+            (
+                "waiting_for_staff",
+                ProvisioningReviewStatus.NEEDS_HUMAN,
+                {},
+                ["accept", "request-changes", "decline", "block"],
+                True,
+            ),
+            (
+                "accepted",
+                ProvisioningReviewStatus.ACCEPTED,
+                {"active": True},
+                ["request-changes", "decline", "block"],
+                False,
+            ),
+            ("declined", ProvisioningReviewStatus.DECLINED, {}, ["accept", "request-changes", "block"], False),
+            (
+                "changes_requested",
+                ProvisioningReviewStatus.CHANGES_REQUESTED,
+                {},
+                ["accept", "decline", "block"],
+                False,
+            ),
+            (
+                "blocked",
+                ProvisioningReviewStatus.REJECTED,
+                {"disabled": True},
+                ["accept", "decline"],
+                False,
+            ),
         ]
     )
-    def test_both_pages_lead_with_the_decisions_on_offer(self, _name, status, config, offered, waiting) -> None:
+    def test_both_pages_offer_the_decisions_after_the_timeline(self, _name, status, config, offered, waiting) -> None:
         self.app._provisioning_config = ProvisioningConfig(**config).model_dump(mode="json")
         self.app.save()
         review = self._review(status)
 
         content = self.client.get(f"{TOOL_URL}?review={review.pk}").content.decode()
 
-        for key in ("accept", "block"):
-            assert (f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/" in content) == (
-                key in offered
-            )
+        for key in DECISION_OPERATION_KEYS:
+            url = f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/"
+            assert (url in content) == (key in offered)
+            if key in offered:
+                assert content.index("Timeline") < content.index(url)
         assert ("is waiting for a staff decision" in content) == waiting
         app_page = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
-        assert ("Read the review, then accept or block the partner below." in app_page) == waiting
+        assert (
+            "Read the review, then accept, ask for changes, decline or block the partner below." in app_page
+        ) == waiting
 
     def _staff_app(self, name: str, **fields) -> OAuthApplication:
         return OAuthApplication.objects.create(

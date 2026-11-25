@@ -654,6 +654,13 @@ class TestDashboardTemplatesForCore(APIBaseTest):
         assert api.create_global_template_if_missing(definition) is True
         assert api.create_global_template_if_missing(definition) is False
         assert global_dashboard_template_exists(template_name="Seeded")
+        stored = DashboardTemplate.objects.get(template_name="Seeded", team__isnull=True)
+        assert (stored.dashboard_description, stored.tiles, stored.variables, stored.scope) == (
+            "From a seed",
+            [{"type": "TEXT", "body": "hi", "layouts": {}}],
+            [{"code_name": "v"}],
+            "global",
+        )
 
     def test_create_starter_dashboard_applies_the_signup_template(self) -> None:
         template = DashboardTemplate.default_signup_template()

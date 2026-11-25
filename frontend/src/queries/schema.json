@@ -21130,6 +21130,10 @@
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "version": {
                             "description": "version of the node, used for schema migrations",
                             "type": "number"
@@ -21212,6 +21216,10 @@
                         },
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21310,6 +21318,10 @@
                         },
                         "timestamp_field": {
                             "type": "string"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21739,6 +21751,12 @@
                         }
                     ]
                 },
+                "role_default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsRoleDefaultPinnedProperties"
+                    },
+                    "type": "array"
+                },
                 "signup_event": {
                     "anyOf": [
                         {
@@ -21791,6 +21809,22 @@
                 }
             },
             "required": ["kind", "id"],
+            "type": "object"
+        },
+        "CustomerAnalyticsRoleDefaultPinnedProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
+                "role_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["role_id", "pinned_properties"],
             "type": "object"
         },
         "DangerousOperationResponse": {
@@ -33600,6 +33634,10 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -33774,6 +33812,10 @@
                     "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {
+                    "type": "boolean"
+                },
+                "sessionFilterGlobalJoin": {
+                    "description": "Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.",
                     "type": "boolean"
                 },
                 "sessionIdPushdown": {
@@ -40853,7 +40895,14 @@
             "type": "object"
         },
         "MarketingAnalyticsRecommendationsDataGapKind": {
-            "enum": ["conversion_action_tables_not_synced", "performance_max_search_terms_count_primary_conversions"],
+            "enum": [
+                "conversion_action_tables_not_synced",
+                "performance_max_search_terms_count_primary_conversions",
+                "posthog_conversions_not_ready",
+                "posthog_conversion_goals_unusable",
+                "posthog_campaigns_unmatched",
+                "posthog_conversions_failed"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationsQuery": {

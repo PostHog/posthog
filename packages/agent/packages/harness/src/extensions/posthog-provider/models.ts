@@ -349,6 +349,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: false,
   },
   {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
     id: "zai-org/glm-5.3",
     owned_by: "baseten",
     context_window: 1048576,
