@@ -3,6 +3,7 @@ import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import {
+    Badge,
     Button,
     Card,
     CardAction,
@@ -113,7 +114,10 @@ export function TodayTourCard({ step, stepIndex, stepCount, anchor, refocusNextR
                 {/* The same border and shadow as a quill popover. The card's own edge is a faint ring that a shadow class would replace. */}
                 <Card className="border border-[var(--border)] shadow-[var(--shadow-md)]">
                     <CardHeader>
-                        <CardTitle id="today-tour-title">{step.title}</CardTitle>
+                        <CardTitle id="today-tour-title" className="flex items-center gap-2">
+                            {step.title}
+                            <Badge variant="warning">BETA</Badge>
+                        </CardTitle>
                         <CardDescription id="today-tour-description">{step.description}</CardDescription>
                         <CardAction>
                             <Button
