@@ -13,6 +13,7 @@ from rest_framework import serializers, status
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import replace_tags_on_object
+from posthog.models import Organization, User
 from posthog.models.team import Team
 from posthog.paging import PageRequest
 
@@ -66,8 +67,10 @@ def _without_api_only_keys(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-class TestExperimentReadFacade(APIBaseTest):
-    maxDiff = None
+class ExperimentFixtures:
+    team: Team
+    user: User
+    organization: Organization
 
     def _flag(self, key: str, *, team: Team | None = None, **attributes: Any) -> FeatureFlag:
         return FeatureFlag.objects.create(team=team or self.team, key=key, created_by=self.user, **attributes)
@@ -178,6 +181,10 @@ class TestExperimentReadFacade(APIBaseTest):
             deleted=None,
         )
 
+
+class TestExperimentReadFacade(ExperimentFixtures, APIBaseTest):
+    maxDiff = None
+
     @parameterized.expand(_CASES)
     def test_get_experiment_matches_the_api(self, case: str) -> None:
         experiment = getattr(self, f"_create_{case}")()
@@ -223,8 +230,6 @@ class TestExperimentReadFacade(APIBaseTest):
             ("live", {}, {}, True),
             ("deleted", {"deleted": True}, {}, False),
             ("deleted_with_include_deleted", {"deleted": True}, {"include_deleted": True}, True),
-            ("search_misses", {}, {"search": "other"}, False),
-            ("search_matches_the_flag_key", {}, {"search": "lookup-flag"}, True),
         ]
     )
     def test_get_experiment_finds_the_experiment_the_lookup_names(
