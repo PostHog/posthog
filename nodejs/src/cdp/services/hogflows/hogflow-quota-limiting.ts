@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
@@ -19,15 +19,14 @@ export interface HogFlowQuotaLimitResult {
     isLimited: boolean
 }
 
+// The step id of the email in a workflow the transactional send API made. The API refuses it in any other workflow, so
+// the usage report and this check can tell a transactional send from a workflow email by it.
+export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
+
 // Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
 function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
-    const emailActions = hogFlow.actions.filter(
-        (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
-    )
-    return (
-        emailActions.length > 0 &&
-        emailActions.every((action) => action.config?.message_category_type === 'transactional')
-    )
+    const emailActions = hogFlow.actions.filter((action) => action.type === 'function_email')
+    return emailActions.length > 0 && emailActions.every((action) => action.id === TRANSACTIONAL_EMAIL_ACTION_ID)
 }
 
 /**

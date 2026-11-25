@@ -19,7 +19,10 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 const WORKFLOW_ID = 'wf-transactional-category'
 const EMAIL_NODE_ID = 'transactional_email'
 
-const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow => ({
+const transactionalEmailWorkflow = (
+    messageCategoryId: string | null,
+    messageCategoryType: 'marketing' | 'transactional' = 'transactional'
+): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Usage spike detected',
     actions: [
@@ -42,7 +45,7 @@ const transactionalEmailWorkflow = (messageCategoryId: string | null): HogFlow =
             config: {
                 template_id: 'template-email',
                 message_category_id: messageCategoryId,
-                message_category_type: 'transactional',
+                message_category_type: messageCategoryType,
                 inputs: {
                     email: {
                         templating: 'liquid',
@@ -85,9 +88,12 @@ const categories = [
     { id: 'cat-billing', key: 'billing', name: 'Billing', category_type: 'transactional' },
 ]
 
-const emailStepMocks = (messageCategoryId: string | null): Parameters<typeof useMocks>[0] => ({
+const emailStepMocks = (
+    messageCategoryId: string | null,
+    messageCategoryType: 'marketing' | 'transactional' = 'transactional'
+): Parameters<typeof useMocks>[0] => ({
     get: {
-        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId),
+        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, messageCategoryType),
         '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
         '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
     },
@@ -132,6 +138,16 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         expect(screen.getByText('Message category')).toBeInTheDocument()
         expect(screen.getByText(shown)).toBeInTheDocument()
         expect(screen.queryByText('Select message type')).not.toBeInTheDocument()
+    })
+
+    it('offers a marketing email step no transactional category', async () => {
+        useMocks(emailStepMocks('cat-newsletter', 'marketing'))
+        await renderEmailStep()
+
+        fireEvent.click(screen.getByText('Newsletter'))
+
+        expect(screen.getAllByText('Newsletter')).toHaveLength(2)
+        expect(screen.queryByText('Billing')).not.toBeInTheDocument()
     })
 
     it('shows the run link tag hint only while tracking is on', async () => {

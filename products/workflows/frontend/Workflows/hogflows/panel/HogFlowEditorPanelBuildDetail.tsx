@@ -151,6 +151,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >)
                                             }}
                                             value={action.config.message_category_id ?? undefined}
+                                            // Workflow emails are marketing email. A step that is already transactional keeps its choice.
+                                            allowTransactional={
+                                                !isEmailAction(action) ||
+                                                action.config.message_category_type === 'transactional'
+                                            }
                                             placeholder={
                                                 action.config.message_category_type === 'transactional'
                                                     ? 'Transactional, no category'

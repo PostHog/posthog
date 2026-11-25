@@ -47,7 +47,15 @@ describe('HogFlow Quota Limiting', () => {
             expect(result.isLimited).toBe(true)
         })
 
-        const transactionalEmail = { type: 'function_email', config: { message_category_type: 'transactional' } }
+        const transactionalEmail = {
+            id: 'transactional_email',
+            type: 'function_email',
+            config: { message_category_type: 'transactional' },
+        }
+        const transactionalCategoryEmail = {
+            type: 'function_email',
+            config: { message_category_type: 'transactional' },
+        }
         const marketingEmail = { type: 'function_email', config: { message_category_type: 'marketing' } }
 
         it.each([
@@ -78,6 +86,13 @@ describe('HogFlow Quota Limiting', () => {
                 actions: [transactionalEmail, transactionalEmail],
                 limitedResources: ['workflow_emails'],
                 expected: false,
+            },
+            {
+                name: 'a workflow email in a transactional category is limited',
+                trigger: { type: 'event' },
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: true,
             },
             {
                 name: 'an api trigger alone does not exempt an uncategorized email',
@@ -326,7 +341,11 @@ describe('HogFlow Quota Limiting', () => {
                 hogFlow: {
                     ...baseItem.hogFlow,
                     actions: [
-                        { type: 'function_email', config: { message_category_type: 'transactional' } },
+                        {
+                            id: 'transactional_email',
+                            type: 'function_email',
+                            config: { message_category_type: 'transactional' },
+                        },
                         { type: 'function', config: {} },
                     ],
                     billable_action_types: ['function_email', 'function'],
