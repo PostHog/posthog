@@ -64,6 +64,8 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
     validate_actors_query_for_cohort,
 )
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 MISSING_COHORT_ID = 12345
 
@@ -859,19 +861,49 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(settings["max_bytes_before_external_group_by"], cap // 2)
         self.assertEqual(settings["max_bytes_before_external_sort"], cap // 2)
 
-    def test_recalculation_caps_memory_when_the_context_marks_a_flag_call_read(self):
+    def test_recalculation_caps_memory_for_a_cohort_that_reads_a_feature_property_on_mode_2(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
         cohort = Cohort.objects.create(
             team=self.team,
-            name="unkeyed flag call read",
-            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+            name="saw new-checkout",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag_called",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "event_filters": [
+                                        {
+                                            "key": "$feature/new-checkout",
+                                            "type": "event",
+                                            "value": "true",
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
         )
         history = CohortCalculationHistory.objects.create(
             team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
         )
-        context = HogQLContext(team_id=self.team.id, enable_select_queries=True, cap_flag_call_memory=True)
 
         with (
-            patch("products.cohorts.backend.models.util.hogql_cohort_subquery_sql", return_value=("SELECT 1", context)),
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
             patch("products.cohorts.backend.models.util.sync_execute", return_value=0) as execute,
         ):
             _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
