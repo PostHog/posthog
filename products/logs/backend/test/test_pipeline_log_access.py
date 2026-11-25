@@ -5,6 +5,9 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.db import transaction
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
@@ -17,6 +20,7 @@ from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.natural_language_query import gather_filter_context
 from products.logs.backend.pattern_diff import _first_seen_ever
+from products.logs.backend.platform_ownership import hand_over
 from products.logs.backend.series_bands import fetch_series_slot_rows
 from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
 
@@ -369,3 +373,35 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert (response.status_code == 403) == (expected == 403), response.json()
+
+    @parameterized.expand([("to_pipeline_logs", _APP, _PIPELINE, True), ("to_app_logs", _PIPELINE, _APP, False)])
+    def test_destination_on_a_handed_over_alert_follows_its_current_filters(
+        self, _name: str, service_on_logs_row: str, current_service: str, refused: bool
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            alert = LogsAlertConfiguration.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name="Handed over alert",
+                filters={"serviceNames": [service_on_logs_row]},
+                threshold_count=0,
+                threshold_operator="above",
+                window_minutes=5,
+            )
+            with transaction.atomic():
+                assert hand_over(LogsAlertConfiguration.objects.select_for_update().get(pk=alert.pk), timezone.now())
+            edited = self.client.patch(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert.pk}/",
+                {"filters": {"serviceNames": [current_service]}},
+                format="json",
+            )
+            assert edited.status_code == 200, edited.json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert.pk}/destinations/",
+                {"type": "webhook", "webhook_url": "https://hooks.example.com/alert"},
+                format="json",
+            )
+
+        assert (response.status_code == 403) == refused, response.json()
