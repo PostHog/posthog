@@ -764,6 +764,14 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
 
         assert self._cohorts(run)["Bêta testeurs (from SendGrid)"]["members"] == ["ada@example.com"]
 
+    def test_an_empty_list_with_an_unreadable_export_lets_the_rest_import(self) -> None:
+        self.state.export_shape = {"empty_list": "unreadable"}
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert "Newsletter (from SendGrid)" in self._cohorts(run)
+        assert "Empty list wasn't imported" in run.progress["contacts"]["warnings"][0]
+
     def test_an_account_without_contacts_keeps_every_cohort(self) -> None:
         self.state.account["contact_count"] = {"contact_count": 0}
         for row in self.state.account["lists"]:

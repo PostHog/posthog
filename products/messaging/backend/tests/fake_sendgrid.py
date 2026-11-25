@@ -107,7 +107,7 @@ class FakeSendGridState:
         self.export_damage: str | None = None
         # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "bom", "header" ("upper", "lower",
         # "spaced" or "field_ids"), "reversed", "header_in_each_file", "count" ("stated", "null" or "missing"), "all_columns" and
-        # "ignores_filter".
+        # "empty_list" ("unreadable"), "ignores_filter".
         self.export_shape: dict[str, Any] = {}
         # How long `/__trickle` waits between bytes.
         self.trickle_seconds = 0.0
@@ -273,6 +273,8 @@ class _Handler(BaseHTTPRequestHandler):
             writer.writerow([header for header, _ in columns])
         writer.writerows([[value(contact) for _, value in columns] for contact in contacts])
         text = ("\ufeff" if shape.get("bom") else "") + rows.getvalue()
+        if shape.get("empty_list") == "unreadable" and not state.exports[export_id]["contacts"]:
+            text = "No contacts\r\n"
         payload = gzip.compress(text.encode()) if shape.get("packed", True) else text.encode()
         stated_length = len(payload)
         if state.export_damage == "bytes":

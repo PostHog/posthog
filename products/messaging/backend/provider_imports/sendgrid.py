@@ -1181,6 +1181,7 @@ def _fetch_contacts(
             if target == ALL_CONTACTS and may_be_empty:
                 yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(NO_CONTACTS_NOTE,)))
                 return
+            may_be_empty = may_be_empty or (isinstance(failure, _ExportUnreadable) and contact_count == 0)
             if target != ALL_CONTACTS and (may_be_empty or isinstance(failure, _NoEmails)):
                 skipped[str(lists.pop(target).get("name") or target)] = str(failure)
                 continue
@@ -1273,11 +1274,11 @@ def _read_custom_fields(client: SendGridClient) -> dict[str, str]:
     return {str(row[key]).lower(): str(row["name"]) for key in ("id", "name") for row in fields}
 
 
-def _contact_properties(fields: Mapping[str, str | None], custom_fields: Mapping[str, str]) -> dict[str, str | None]:
+def _contact_properties(fields: Mapping[str, str | None], custom_fields: Mapping[str, str]) -> dict[str, str]:
     return {
         name if name in CONTACT_FIELDS else custom_fields.get(name.lower(), name): value
         for name, value in fields.items()
-        if name.lower() not in _RECORD_FIELDS
+        if value and name.lower() not in _RECORD_FIELDS
     }
 
 
@@ -1287,6 +1288,10 @@ class _ExportGone(Exception):
 
 class _ExportUnusable(_ExportGone):
     """SendGrid's answer for this export can't be what PostHog asked for."""
+
+
+class _ExportUnreadable(_ExportGone):
+    """An export's file isn't the CSV file PostHog asked for."""
 
 
 class _NoEmails(_ExportGone):
@@ -1348,17 +1353,18 @@ def _check_export_size(
 @frozen
 class _Row:
     email: str | None
-    properties: dict[str, str | None]
+    properties: dict[str, str]
 
 
 def _read_rows(client: SendGridClient, export: Mapping[str, Any], custom_fields: Mapping[str, str]) -> list[_Row]:
     rows: list[_Row] = []
     size = 0
     for fields in _exported_contacts(client, export):
-        size += sum(len(value or "") for value in fields.values())
+        row = _Row(email=fields.get("email"), properties=_contact_properties(fields, custom_fields))
+        size += sum(len(name) + len(value) for name, value in row.properties.items())
         if len(rows) >= MAX_CONTACT_MEMBERSHIPS or size > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
-        rows.append(_Row(email=fields.get("email"), properties=_contact_properties(fields, custom_fields)))
+        rows.append(row)
     return rows
 
 
@@ -1427,16 +1433,16 @@ def _csv_rows(file: IO[bytes], names: list[str]) -> Iterator[dict[str, str | Non
         if has_header:
             names[:] = header
         elif not names:
-            raise _ExportGone(UNREADABLE_EXPORT_MESSAGE)
+            raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE)
         for row in reader if has_header else chain([first], reader):
             if not row:
                 continue
             if len(row) != len(names):
-                raise _ExportGone(UNREADABLE_EXPORT_MESSAGE)
+                raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE)
             # The first column with a name counts, so a custom field can't stand in for SendGrid's own.
             yield dict(zip(reversed(names), reversed(row)))
     except (csv.Error, UnicodeDecodeError) as e:
-        raise _ExportGone(UNREADABLE_EXPORT_MESSAGE) from e
+        raise _ExportUnreadable(UNREADABLE_EXPORT_MESSAGE) from e
 
 
 def _fetch_senders(
