@@ -121,6 +121,7 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
             snapshots_baseline: ${{ steps.filter.outputs.snapshots_baseline }}
+            reused: ${{ steps.filter.outputs.reused }}
             # Trunk's merge queue opens its PR from trunk-merge/**. Scoped to same-repo
             # heads because github.head_ref is author-controlled: without the scope, any
             # contributor could opt out of the visual gates below by naming their branch
@@ -652,6 +653,8 @@ jobs:
         needs: [changes, build-storybook, select-stories]
         # !cancelled() stops the skips of build-storybook and select-stories from
         # cascading to this job. Each arm then requires the jobs it reads to have succeeded.
+        # After a reuse, frontend == false proves nothing about visuals: a missing status
+        # blocks the PR where people see it, and a green one would hide unapproved changes.
         if: |
             !cancelled()
             && vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true'
@@ -659,6 +662,7 @@ jobs:
             && github.event_name == 'pull_request'
             && github.event.pull_request.head.repo.full_name == github.repository
             && needs.changes.result == 'success'
+            && needs.changes.outputs.reused != 'true'
             && (
                 needs.changes.outputs.frontend != 'true'
                 || (
