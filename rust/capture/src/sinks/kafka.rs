@@ -53,6 +53,7 @@ impl KafkaContext {
 fn emit_window_stats(
     metric_name: &'static str,
     window: &rdkafka::statistics::Window,
+    producer: &'static str,
     broker: &str,
 ) {
     for (quantile, value) in [
@@ -68,6 +69,7 @@ fn emit_window_stats(
         gauge!(
             metric_name,
             "quantile" => quantile,
+            "producer" => producer,
             "broker" => broker.to_string()
         )
         .set(value as f64);
@@ -82,11 +84,8 @@ impl rdkafka::ClientContext for KafkaContext {
                 liveness.report_healthy();
             }
         }
-        gauge!(PRODUCER_HEALTHY, "producer" => self.name.as_str()).set(if brokers_up {
-            1.0
-        } else {
-            0.0
-        });
+        let producer = self.name.as_str();
+        gauge!(PRODUCER_HEALTHY, "producer" => producer).set(if brokers_up { 1.0 } else { 0.0 });
 
         let total_brokers = stats.brokers.len();
         let up_brokers = stats
@@ -95,22 +94,33 @@ impl rdkafka::ClientContext for KafkaContext {
             .filter(|broker| broker.state == "UP")
             .count();
         let down_brokers = total_brokers.saturating_sub(up_brokers);
-        gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
+        gauge!("capture_kafka_any_brokers_down", "producer" => producer).set(if down_brokers > 0 {
+            1.0
+        } else {
+            0.0
+        });
 
-        gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
-        gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
-        gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
-        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_size as f64);
-        gauge!("capture_kafka_producer_queue_bytes_limit",).set(stats.msg_size_max as f64);
+        gauge!("capture_kafka_callback_queue_depth", "producer" => producer)
+            .set(stats.replyq as f64);
+        gauge!("capture_kafka_producer_queue_depth", "producer" => producer)
+            .set(stats.msg_cnt as f64);
+        gauge!("capture_kafka_producer_queue_depth_limit", "producer" => producer)
+            .set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes", "producer" => producer)
+            .set(stats.msg_size as f64);
+        gauge!("capture_kafka_producer_queue_bytes_limit", "producer" => producer)
+            .set(stats.msg_size_max as f64);
 
         for (topic, stats) in stats.topics {
             gauge!(
                 "capture_kafka_produce_avg_batch_size_bytes",
+                "producer" => producer,
                 "topic" => topic.clone()
             )
             .set(stats.batchsize.avg as f64);
             gauge!(
                 "capture_kafka_produce_avg_batch_size_events",
+                "producer" => producer,
                 "topic" => topic
             )
             .set(stats.batchcnt.avg as f64);
@@ -122,11 +132,17 @@ impl rdkafka::ClientContext for KafkaContext {
             // Per-broker connectivity (1 = connected/UP, 0 = not connected)
             gauge!(
                 "capture_kafka_broker_connected",
+                "producer" => producer,
                 "broker" => id_string.clone()
             )
             .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
-                emit_window_stats("capture_kafka_produce_rtt_latency_us", &rtt, &id_string);
+                emit_window_stats(
+                    "capture_kafka_produce_rtt_latency_us",
+                    &rtt,
+                    producer,
+                    &id_string,
+                );
             }
             // Time messages spent in the producer's internal queue (linger + backlog).
             // Usually the dominant source of long-tail ack delays when brokers are slow.
@@ -134,6 +150,7 @@ impl rdkafka::ClientContext for KafkaContext {
                 emit_window_stats(
                     "capture_kafka_produce_int_latency_us",
                     &int_latency,
+                    producer,
                     &id_string,
                 );
             }
@@ -142,32 +159,38 @@ impl rdkafka::ClientContext for KafkaContext {
                 emit_window_stats(
                     "capture_kafka_produce_outbuf_latency_us",
                     &outbuf_latency,
+                    producer,
                     &id_string,
                 );
             }
 
             gauge!(
                 "capture_kafka_broker_requests_pending",
+                "producer" => producer,
                 "broker" => id_string.clone()
             )
             .set(stats.outbuf_cnt as f64);
             gauge!(
                 "capture_kafka_broker_responses_awaiting",
+                "producer" => producer,
                 "broker" => id_string.clone()
             )
             .set(stats.waitresp_cnt as f64);
             counter!(
                 "capture_kafka_broker_tx_errors_total",
+                "producer" => producer,
                 "broker" => id_string.clone()
             )
             .absolute(stats.txerrs);
             counter!(
                 "capture_kafka_broker_rx_errors_total",
+                "producer" => producer,
                 "broker" => id_string.clone()
             )
             .absolute(stats.rxerrs);
             counter!(
                 "capture_kafka_broker_request_timeouts",
+                "producer" => producer,
                 "broker" => id_string
             )
             .absolute(stats.req_timeouts);
