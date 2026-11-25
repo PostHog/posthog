@@ -3,7 +3,7 @@ from typing import Any, Literal, cast
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -28,6 +28,8 @@ from products.experiments.backend.facade.contracts import (
     SavedMetricWrite,
     SavedMetricWriteField,
 )
+from products.experiments.backend.facade.enums import SharedMetricType
+from products.experiments.backend.presentation.list_filters import parse_created_by_ids, parse_tag_names
 
 
 def _saved_metric_access_ref(saved_metric: SavedMetric, team_id: int) -> ObjectAccessRef:
@@ -205,6 +207,14 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
             include_all_if_admin=self.request.GET.get("admin_include_all") == "true",
         )
 
+    @staticmethod
+    def _parse_metric_type(value: str | None) -> SharedMetricType | None:
+        if not value:
+            return None
+        if value not in SharedMetricType.values:
+            raise ValidationError({"metric_type": f"Must be one of: {', '.join(SharedMetricType.values)}."})
+        return SharedMetricType(value)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -218,6 +228,31 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
                 "which matches the metric's own name/description/tags.",
             ),
             OpenApiParameter(name="search", type=OpenApiTypes.STR, required=False, description="A search term."),
+            OpenApiParameter(
+                name="created_by_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to shared metrics created by the given user(s). Accepts a single user ID, "
+                "or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names. Returns shared metrics carrying at least one of the "
+                'given tags, e.g. `["growth", "checkout"]`.',
+            ),
+            OpenApiParameter(
+                name="metric_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=SharedMetricType.values,
+                description="Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches "
+                "legacy trend metrics.",
+            ),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -225,6 +260,9 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
             # DRF's SearchFilter splits the terms, so `search` keeps the syntax of the other search endpoints.
             search_terms=tuple(filters.SearchFilter().get_search_terms(request)),
             event=request.query_params.get("event") or None,
+            created_by_ids=tuple(parse_created_by_ids(request.query_params.get("created_by_id"))),
+            tags=tuple(parse_tag_names(request.query_params.get("tags"))),
+            metric_type=self._parse_metric_type(request.query_params.get("metric_type")),
         )
         access = self._list_access()
 

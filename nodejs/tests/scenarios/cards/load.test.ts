@@ -329,6 +329,24 @@ describe('load', () => {
             'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles or the load producer read',
         ],
         [
+            'a profile that turns on the intake dead-letter drain',
+            card,
+            { ...profile, settings: { CDP_INTAKE_DLQ_DRAIN: 'true' } },
+            'profile.settings.CDP_INTAKE_DLQ_DRAIN: the reset never seeks the drain groups',
+        ],
+        [
+            'a profile that moves an intake topic',
+            card,
+            { ...profile, settings: { CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: 'scenario_intake_email' } },
+            "profile.settings.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: convergence reads each intake group's whole lag",
+        ],
+        [
+            'a profile that runs a second intake replica',
+            card,
+            { ...profile, replicas: { 'cdp-intake-transactional-email': 2 } },
+            'profile.replicas.cdp-intake-transactional-email: each intake topic has one partition',
+        ],
+        [
             'a profile setting only the object prototype has',
             card,
             { ...profile, settings: { toString: 'false' } },

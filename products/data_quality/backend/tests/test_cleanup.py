@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from django.db import close_old_connections, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -33,7 +35,9 @@ from products.data_quality.backend.temporal.activities.cleanup import (
     _cleanup,
     _delete_dead_runs,
     _LiveSubjects,
+    cleanup_check_runs_activity,
 )
+from products.data_quality.backend.temporal.contracts import CleanupOutcome
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 BATCH_SIZE = "products.data_quality.backend.temporal.activities.cleanup.RETENTION_DELETE_BATCH_SIZE"
@@ -466,3 +470,21 @@ class TestDeadRunCleanupConcurrency(NonAtomicBaseTest):
         assert deleted == 1
         assert suite.checks_failed == 1
         assert not DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
+
+
+def test_the_cleanup_activity_heartbeats_through_the_event_loop() -> None:
+    heartbeats: list[asyncio.AbstractEventLoop] = []
+
+    def record_heartbeat_like_a_worker(*_details: object) -> None:
+        heartbeats.append(asyncio.get_running_loop())
+
+    def sweep_that_heartbeats() -> CleanupOutcome:
+        cleanup_module._heartbeat()
+        return CleanupOutcome()
+
+    environment = ActivityEnvironment()
+    environment.on_heartbeat = record_heartbeat_like_a_worker
+    with patch.object(cleanup_module, "_cleanup", side_effect=sweep_that_heartbeats):
+        asyncio.run(environment.run(cleanup_check_runs_activity))
+
+    assert len(heartbeats) == 1

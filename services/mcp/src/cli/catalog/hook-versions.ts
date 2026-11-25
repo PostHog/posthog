@@ -13,6 +13,7 @@ export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
     'featureFlags/conditionIdHooks': ['8715ed7c6985'],
     'featureFlags/createFeatureFlagHooks': ['d11c8de9d15f'],
     'featureFlags/updateFeatureFlagHooks': ['f668908fbf86'],
+    'groups/findGroupHooks': ['73a2295afd75'],
     'logs/groupByRedactionHooks': ['8758a390e643'],
     'logs/redactCredentialsHooks': ['c9ad8c9e56a8', '95e6513df5ad'],
     'replay/sessionRecordingGetHooks': ['c6c44d594f83'],

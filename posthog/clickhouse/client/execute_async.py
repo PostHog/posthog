@@ -454,7 +454,7 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    query_tags = get_query_tags().model_dump()
+    query_tags = get_query_tags().model_dump(exclude_unset=True)
     manager.store_query_status(query_status)
 
     if cache_key:

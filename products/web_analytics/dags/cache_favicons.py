@@ -1,34 +1,20 @@
 import datetime as dt
-from typing import cast
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.utils import timezone
 
-import httpx
 import dagster
 from dagster_aws.s3 import S3Resource
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
+from posthog.dags.common.favicons import CacheFaviconsConfig, download_and_cache_favicons, get_last_cached_domains
 from posthog.models.team import Team
 
 from products.aeo.backend.facade.api import list_domains_across_teams
 
 # Matches the window the AI visibility pages report on.
 AEO_CITED_DOMAINS_WINDOW = dt.timedelta(days=30)
-
-
-def get_last_cached_domains(context: dagster.AssetExecutionContext, asset_key: str) -> set[str]:
-    last_mat = context.instance.get_latest_materialization_event(dagster.AssetKey([asset_key]))
-    if not last_mat or not last_mat.asset_materialization:
-        return set()
-
-    metadata = last_mat.asset_materialization.metadata
-    cached_domains_meta = metadata.get("cached_domains")
-    if cached_domains_meta and isinstance(cached_domains_meta, dagster.JsonMetadataValue):
-        return set(cast(list[str], cached_domains_meta.value))
-    return set()
 
 
 def get_authorized_domains(context: dagster.AssetExecutionContext) -> set[str]:
@@ -51,92 +37,6 @@ def get_authorized_domains(context: dagster.AssetExecutionContext) -> set[str]:
             except Exception:
                 context.log.debug(f"Skipping unparseable authorized URL: {url}")
     return domains
-
-
-class CacheFaviconsConfig(dagster.Config):
-    force_refresh: bool = False
-
-
-def download_favicon(
-    context: dagster.AssetExecutionContext, domain: str, client: httpx.Client
-) -> tuple[str, bytes | None, str | None, str | None]:
-    context.log.info(f"Attempting to download favicon for domain '{domain}'")
-    urls = [
-        f"https://icons.duckduckgo.com/ip3/{domain}.ico",
-        f"https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=32",
-    ]
-
-    for url in urls:
-        try:
-            resp = client.get(url, timeout=10)
-            if resp.status_code == 200 and resp.content:
-                context.log.info(f"Found favicon for {domain} at {url}")
-                return domain, resp.content, resp.headers.get("content-type"), url
-        except Exception:
-            context.log.exception(f"Failed to download favicon from: {url}")
-            continue
-
-    return domain, None, None, None
-
-
-def upload_if_missing(context: dagster.AssetExecutionContext, s3_client, bucket, key, data, content_type):
-    context.log.info(f"Attempting to cache {key}")
-    try:
-        s3_client.head_object(Bucket=bucket, Key=key)
-        context.log.info("Favicon already cached, skipping upload.")
-        return key
-    except s3_client.exceptions.ClientError:
-        pass
-
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=data,
-        ContentType=content_type,
-    )
-
-    context.log.info("Favicon successfully cached.")
-    return key
-
-
-def _download_and_cache_favicons(
-    context: dagster.AssetExecutionContext,
-    s3: S3Resource,
-    domains: list[str],
-    previously_cached: set[str],
-) -> tuple[list[dict], set[str], int]:
-    """Download and cache favicons for a list of domains. Returns (favicons, all_cached_domains, skipped_count)."""
-    s3_client = s3.get_client()
-    bucket = settings.DAGSTER_FAVICONS_S3_BUCKET
-
-    favicons: list[dict] = []
-    all_cached_domains = previously_cached.copy()
-    skipped_count = 0
-
-    with httpx.Client() as client:
-        for domain in domains:
-            if domain in previously_cached:
-                context.log.debug(f"Skipping download for '{domain}' - already cached.")
-                skipped_count += 1
-                continue
-
-            domain, data, content_type, source_url = download_favicon(context, domain, client)
-            if data is None:
-                continue
-
-            key = f"favicons/{domain}"
-            upload_if_missing(context, s3_client, bucket, key, data, content_type)
-            all_cached_domains.add(domain)
-            favicons.append(
-                {
-                    "domain": domain,
-                    "source_url": source_url,
-                    "cached_url": f"s3://{bucket}{key}",
-                    "favicon_url": f"/static/favicons/{domain}",
-                }
-            )
-
-    return favicons, all_cached_domains, skipped_count
 
 
 @dagster.asset
@@ -167,7 +67,9 @@ def cache_favicons(
         context.log.info(f"Found {len(previously_cached)} previously cached domains.")
 
     domains = [domain for domain, _count in results]
-    favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(context, s3, domains, previously_cached)
+    favicons, all_cached_domains, skipped_count, _, _ = download_and_cache_favicons(
+        context, s3, domains, previously_cached
+    )
 
     context.log.info(f"Successfully cached {len(favicons)} new favicons, skipped {skipped_count} already cached.")
 
@@ -199,7 +101,7 @@ def cache_authorized_domain_favicons(
     if previously_cached:
         context.log.info(f"Found {len(previously_cached)} previously cached domains.")
 
-    favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(
+    favicons, all_cached_domains, skipped_count, _, _ = download_and_cache_favicons(
         context, s3, list(authorized_domains), previously_cached
     )
 
@@ -228,7 +130,7 @@ def cache_aeo_domain_favicons(
     if previously_cached:
         context.log.info(f"Found {len(previously_cached)} previously cached domains.")
 
-    favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(
+    favicons, all_cached_domains, skipped_count, _, _ = download_and_cache_favicons(
         context, s3, aeo_domains, previously_cached
     )
 
