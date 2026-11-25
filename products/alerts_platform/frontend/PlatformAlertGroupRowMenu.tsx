@@ -25,7 +25,7 @@ export function PlatformAlertGroupRowMenu({
     const { snoozeGroup, unsnoozeGroup } = useActions(platformAlertsLogic)
 
     const now = new Date()
-    const snoozed = listRowMute({ kind: 'group', configuration, group }, now)?.until != null
+    const snoozed = listRowMute({ kind: 'group', configuration, group }, now)?.kind === 'snoozed'
     let disabledReason: string | undefined
     if (configuration.owner !== PlatformAlertOwnerEnumApi.Platform) {
         disabledReason = `${SOURCE_KINDS[configuration.source_kind].label} manages this alert, so snooze the whole alert there`
