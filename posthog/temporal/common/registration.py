@@ -9,6 +9,7 @@ from collections.abc import Callable, Coroutine, Iterable
 from functools import cache
 from typing import Any, Protocol
 
+from django.apps import apps
 from django.conf import settings
 
 from temporalio import activity, workflow
@@ -190,11 +191,19 @@ def _check_unique_names(registrations: dict[str, TemporalRegistration]) -> None:
                 claims.claim(product, task_queue, "activity", name, activity_function)
 
 
+def _apps_that_host_no_temporal_code() -> set[str]:
+    # A product app config can set `hosts_temporal_code` to False, for example from a setting, to
+    # keep its Temporal code and that code's imports out of this process.
+    return {
+        app_config.name for app_config in apps.get_app_configs() if not getattr(app_config, "hosts_temporal_code", True)
+    }
+
+
 @cache
 def load_registrations() -> dict[str, TemporalRegistration]:
     """Every product's validated declaration, by product name."""
     registrations: dict[str, TemporalRegistration] = {}
-    for module in load_product_modules(REGISTRATION_MODULE):
+    for module in load_product_modules(REGISTRATION_MODULE, skip_apps=_apps_that_host_no_temporal_code()):
         # Product apps are named `products.<product>.backend`.
         product = module.__name__.split(".")[1]
         declared = getattr(module, REGISTRATION_ATTRIBUTE, None)

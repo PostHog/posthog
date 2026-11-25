@@ -37,7 +37,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
-from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.contracts import AWSCredentials, BatchExportsDisabledError
 from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
@@ -821,6 +821,12 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
+def require_batch_exports_enabled() -> None:
+    """Raise when this instance runs no batch exports, before the caller starts work that no worker picks up."""
+    if not settings.BATCH_EXPORTS_ENABLED:
+        raise BatchExportsDisabledError()
+
+
 def _get_batch_export_for_schedule_change(batch_export_id: str, team_id: int | None) -> BatchExport:
     """Load the export that a pause or unpause changes.
 
@@ -920,6 +926,7 @@ def unpause_batch_export(
     Raises:
         BatchExportIdError: If no export matches ``batch_export_id`` (and ``team_id``, when given).
     """
+    require_batch_exports_enabled()
     batch_export = _get_batch_export_for_schedule_change(batch_export_id, team_id)
 
     if batch_export.paused is False:
@@ -1107,6 +1114,7 @@ def backfill_export(
         backfill_id: Pre-generated UUID for the backfill model. If provided, the Temporal workflow
                      will use this ID when creating the BatchExportBackfill record.
     """
+    require_batch_exports_enabled()
     try:
         batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
     except BatchExport.DoesNotExist:
@@ -1391,6 +1399,9 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
 
 
 def sync_batch_export(batch_export: BatchExport, created: bool):
+    # A paused export starts no runs, so it can still be edited while batch exports are off.
+    if not batch_export.paused:
+        require_batch_exports_enabled()
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
     state = ScheduleState(
         note=f"Schedule updated for BatchExport {batch_export.id} to Destination {batch_export.destination.id} in Team {batch_export.team.id}.",

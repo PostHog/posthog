@@ -139,6 +139,7 @@ func LoadExistingEnv() map[string]string {
 		"SESSION_RECORDING_V2_METADATA_SWITCHOVER",
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
 		"OBJECT_STORAGE_MINIO_REMOVED",
+		"BATCH_EXPORTS_ENABLED",
 	}
 
 	keys = append(keys, dedicatedSecretKeys...)
@@ -237,6 +238,14 @@ func UpdateEnvForUpgrade(version string) error {
 		}
 	}
 
+	// Batch exports are off unless .env turns them on. The old stack is still up here, so an
+	// install keeps them on unless its database shows that it has none.
+	if existing["BATCH_EXPORTS_ENABLED"] == "" && keepBatchExportsEnabled(countBatchExports()) {
+		if err := AppendToEnv("BATCH_EXPORTS_ENABLED", "true"); err != nil {
+			return err
+		}
+	}
+
 	if version != "" {
 		if err := UpdateEnvValue("POSTHOG_APP_TAG", version); err != nil {
 			return err
@@ -244,6 +253,19 @@ func UpdateEnvForUpgrade(version string) error {
 	}
 
 	return nil
+}
+
+func countBatchExports() (string, error) {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "exec", "-T", "db", "psql", "-U", "posthog", "-d", "posthog", "-tAc",
+		"SELECT count(*) FROM posthog_batchexport WHERE deleted IS NOT TRUE")
+	return RunCommand(cmd, fullArgs...)
+}
+
+// A count that cannot be read keeps batch exports on, so that a stopped database never turns
+// off an export that is running.
+func keepBatchExportsEnabled(count string, err error) bool {
+	return err != nil || strings.TrimSpace(count) != "0"
 }
 
 func FixEnvQuoting() error {

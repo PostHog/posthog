@@ -32,6 +32,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.batch_exports.backend.service import (
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
+    require_batch_exports_enabled,
     sync_cancel_running_batch_export_backfill,
 )
 
@@ -221,6 +222,7 @@ def create_backfill(
         start_at_input: ISO formatted datetime string for backfill start
         end_at_input: ISO formatted datetime string for backfill end
     """
+    require_batch_exports_enabled()
     batch_export = load_batch_export(team_id, export_id, "destination")
 
     if start_at_input is None:

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -212,5 +213,24 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBatchExportsStayOnUnlessTheInstallHasNone(t *testing.T) {
+	cases := []struct {
+		name  string
+		count string
+		err   error
+		want  bool
+	}{
+		{"no batch exports", "0\n", nil, false},
+		{"some batch exports", "3\n", nil, true},
+		{"database not reachable", "", errors.New("exit status 1"), true},
+		{"unreadable output", "", nil, true},
+	}
+	for _, c := range cases {
+		if got := keepBatchExportsEnabled(c.count, c.err); got != c.want {
+			t.Errorf("%s: keepBatchExportsEnabled(%q, %v) = %v, want %v", c.name, c.count, c.err, got, c.want)
+		}
 	}
 }

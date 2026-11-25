@@ -29,6 +29,7 @@ from products.batch_exports.backend.facade import (
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
+    BatchExportsDisabledMixin,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
 )
@@ -348,7 +349,9 @@ def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileD
 
 
 @extend_schema(tags=["batch_exports"])
-class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
+class FileDownloadBatchExportOnDemandViewSet(
+    BatchExportsDisabledMixin, TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet
+):
     path_parameters = {"pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run.")}
     scope_object = "batch_export"
     # batch_export is not an access-control resource, so no rule names one run.

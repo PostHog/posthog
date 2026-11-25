@@ -53,6 +53,16 @@ class InvalidBatchExportDestinationError(ValueError):
     """
 
 
+class BatchExportsDisabledError(Exception):
+    """This instance runs no batch exports, so the work the caller asked for would never start."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Batch exports are turned off on this instance. "
+            "To turn them on, set BATCH_EXPORTS_ENABLED=true and restart PostHog."
+        )
+
+
 class BatchExportScheduleError(Exception):
     """Raised when Temporal rejects a change to the schedule of a batch export."""
 

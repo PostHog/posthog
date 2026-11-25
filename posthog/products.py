@@ -2,7 +2,7 @@ import json
 import importlib
 import importlib.util
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from importlib.machinery import PathFinder
 from pathlib import Path
 from types import ModuleType
@@ -48,7 +48,7 @@ def _has_submodule(app_name: str, submodule: str) -> bool:
     return True
 
 
-def load_product_modules(submodule: str) -> Iterator[ModuleType]:
+def load_product_modules(submodule: str, *, skip_apps: Collection[str] = ()) -> Iterator[ModuleType]:
     """Import `<product app>.<submodule>` for every product that has one.
 
     How core picks up per-product declarations (`routes`, `data_freshness`, ...) without a
@@ -57,9 +57,11 @@ def load_product_modules(submodule: str) -> Iterator[ModuleType]:
 
     Products are imported dynamically here, so the core->product edges are invisible to import
     tooling (tach/grimp). Accepted on purpose, as the alternative duplicates PRODUCTS_APPS.
+
+    An app named in `skip_apps` is left out before its module is imported.
     """
     for app_name in product_app_names():
-        if not _has_submodule(app_name, submodule):
+        if app_name in skip_apps or not _has_submodule(app_name, submodule):
             continue
         yield importlib.import_module(f"{app_name}.{submodule}")
 

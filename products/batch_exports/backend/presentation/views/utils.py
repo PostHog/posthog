@@ -1,18 +1,18 @@
 import typing
 
-from django.conf import settings
-
 import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
+from products.batch_exports.backend.facade.contracts import BatchExportsDisabledError
 
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
@@ -24,14 +24,13 @@ HOGQL_MODIFIERS_HELP_TEXT = (
 )
 
 
-def check_batch_exports_enabled() -> None:
-    """Raise if this instance runs no batch exports, so the request would start work that never runs."""
-    if not settings.BATCH_EXPORTS_ENABLED:
-        raise ValidationError(
-            "Batch exports are turned off on this instance. "
-            "To turn them on, set BATCH_EXPORTS_ENABLED=true and restart PostHog.",
-            code="batch_exports_disabled",
-        )
+class BatchExportsDisabledMixin:
+    """Answer 400 when a request would start work on an instance that runs no batch exports."""
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, BatchExportsDisabledError):
+            exc = ValidationError(str(exc), code="batch_exports_disabled")
+        return super().handle_exception(exc)  # type: ignore[misc]
 
 
 def check_hogql_batch_exports_enabled(team: Team) -> None:

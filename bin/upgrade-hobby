@@ -214,16 +214,13 @@ if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
     fi
 fi
 
-# Batch exports are off unless .env turns them on. An install that already has one keeps them on,
-# so that its exports do not stop with the upgrade. This reads the database of the old stack.
+# Batch exports are off unless .env turns them on. An install keeps them on unless the database of
+# the old stack shows that it has none, so that no running export stops with the upgrade.
 if ! grep -qE "^BATCH_EXPORTS_ENABLED=" .env; then
-    EXISTING_BATCH_EXPORTS=$(docker-compose exec -T db psql -U posthog -d posthog -tAc "SELECT count(*) FROM posthog_batchexport WHERE NOT deleted" 2>/dev/null | tr -d '[:space:]' || true)
-    if [[ "$EXISTING_BATCH_EXPORTS" =~ ^[1-9][0-9]*$ ]]; then
+    EXISTING_BATCH_EXPORTS=$(docker-compose exec -T db psql -U posthog -d posthog -tAc "SELECT count(*) FROM posthog_batchexport WHERE deleted IS NOT TRUE" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ "$EXISTING_BATCH_EXPORTS" != "0" ]]; then
         echo "BATCH_EXPORTS_ENABLED=true" >> .env
-        echo "This install has batch exports, so added BATCH_EXPORTS_ENABLED=true to .env file"
-    elif [[ "$EXISTING_BATCH_EXPORTS" != "0" ]]; then
-        echo "Could not check this install for batch exports. They are now off by default."
-        echo "To keep them running, add BATCH_EXPORTS_ENABLED=true to .env and run this upgrade again."
+        echo "Added BATCH_EXPORTS_ENABLED=true to .env file, to keep batch exports running"
     fi
 fi
 
