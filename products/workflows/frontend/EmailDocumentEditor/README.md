@@ -50,6 +50,16 @@ An email that is only one HTML block holding a whole document, or html from outs
 
 `renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes.
 
+Line heights are multiples, so larger text in a block gets its own share instead of the height of the text around it.
+
+## Number limits
+
+`numberLimits` holds the range of each number setting. A number outside it is corrected when the person leaves the field, and the field says so. A saved number outside it opens, renders and saves as it is until someone types another one in that field.
+
+## Preview
+
+Preview shows what a save stores and a send uses, as the HTML view does.
+
 ## The HTML view
 
 The HTML tab is read-only. It hands over a pending edit the way a save does, then shows `content.email.html`, so it matches what a save stores. An email nobody has edited shows its stored html, not a new render.

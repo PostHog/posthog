@@ -2,15 +2,19 @@
 Tests for the WorkOS Radar integration.
 """
 
+from uuid import uuid4
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
+import redis
 import requests
 from parameterized import parameterized
 
-from posthog.tasks.workos_radar import retry_countdown
+from posthog.egress.workos_radar import WorkosRadarEgressBudgetExhausted
+from posthog.tasks.workos_radar import report_radar_attempt_success, retry_countdown
 from posthog.workos_radar import (
     WORKOS_RADAR_API_URL,
     WORKOS_RADAR_LOGIN_TIMEOUT,
@@ -67,7 +71,7 @@ class TestAttemptSuccessReport(SimpleTestCase):
             ("no_id", "", False, 200, 0, None),
         ]
     )
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     def test_send_attempt_success(
         self, _name, attempt_id, challenge_completed, status_code, expected_calls, expected_error, mock_put
     ):
@@ -83,7 +87,7 @@ class TestAttemptSuccessReport(SimpleTestCase):
         assert mock_put.call_count == expected_calls
         if expected_calls:
             assert mock_put.call_args[0][0] == f"{WORKOS_RADAR_API_URL}/{attempt_id}"
-            assert mock_put.call_args[1]["headers"]["Authorization"] == "Bearer test_key"
+            assert mock_put.call_args[1]["api_key"] == "test_key"
             expected_body = {"attempt_status": "success"}
             if challenge_completed:
                 expected_body["challenge_status"] = "success"
@@ -99,7 +103,7 @@ class TestAttemptSuccessRetry(SimpleTestCase):
             ("missing", None, None),
         ]
     )
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
     def test_a_throttled_report_carries_the_retry_after_delay(self, _name, header, expected, mock_put):
         mock_put.return_value.status_code = 429
@@ -121,6 +125,102 @@ class TestAttemptSuccessRetry(SimpleTestCase):
     def test_retry_countdown(self, _name, retries, retry_after, expected):
         assert retry_countdown(retries, retry_after) == expected
 
+    @parameterized.expand(
+        [
+            ("rate_limited", MagicMock(status_code=429, headers={}), 0),
+            ("budget_exhausted", WorkosRadarEgressBudgetExhausted("shed"), 0),
+            ("connection_error", requests.ConnectionError("reset"), 0),
+            ("budget_exhausted_past_the_delivery_retry_limit", WorkosRadarEgressBudgetExhausted("shed"), 7),
+        ]
+    )
+    @patch("posthog.workos_radar.workos_radar_report")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_a_report_that_could_not_go_now_goes_on_a_retry(self, _name, first_answer, retries_so_far, mock_put):
+        mock_put.side_effect = [first_answer, MagicMock(status_code=200, ok=True)]
+
+        report_radar_attempt_success.apply(args=("radar_att_01ABC",), retries=retries_so_far, throw=False).get()
+
+        assert [c[0][0] for c in mock_put.call_args_list] == [f"{WORKOS_RADAR_API_URL}/radar_att_01ABC"] * 2
+
+
+def _allow_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b'{"verdict": "allow", "attempt_id": "radar_att_01ABC"}'
+    return response
+
+
+def _login_check() -> RadarVerdict:
+    return _call_radar_api(
+        email="test@example.com",
+        ip_address="1.2.3.4",
+        user_agent="TestBrowser",
+        action=RadarAction.SIGNIN,
+        auth_method=RadarAuthMethod.PASSWORD,
+    ).verdict
+
+
+@override_settings(
+    WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET=2
+)
+class TestRadarBudget(SimpleTestCase):
+    def test_a_spent_report_budget_sheds_reports_and_never_a_check(self):
+        # A key of its own, so the budget other tests spend cannot change what this one admits
+        with (
+            patch(
+                "posthog.egress.workos_radar.limiter.workos_radar_key", return_value=f"workos_radar:api_key:{uuid4()}"
+            ),
+            patch("requests.request", return_value=_allow_response()) as sent,
+        ):
+            send_attempt_success("radar_att_01ABC")
+            send_attempt_success("radar_att_01ABC")
+            with pytest.raises(WorkosRadarEgressBudgetExhausted):
+                send_attempt_success("radar_att_01ABC")
+            verdicts = [_login_check() for _ in range(5)]
+
+        assert verdicts == [RadarVerdict.ALLOW] * 5
+        assert [c[0][0] for c in sent.call_args_list] == ["PUT", "PUT"] + ["POST"] * 5
+
+    @override_settings(WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET=0)
+    def test_a_zero_report_budget_still_lets_a_report_out(self):
+        with (
+            patch(
+                "posthog.egress.workos_radar.limiter.workos_radar_key", return_value=f"workos_radar:api_key:{uuid4()}"
+            ),
+            patch("requests.request", return_value=_allow_response()) as sent,
+        ):
+            send_attempt_success("radar_att_01ABC")
+
+        assert [c[0][0] for c in sent.call_args_list] == ["PUT"]
+
+    @override_settings(WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET=300)
+    def test_without_redis_each_process_admits_one_report_a_minute(self):
+        with (
+            patch(
+                "posthog.egress.workos_radar.limiter.workos_radar_key", return_value=f"workos_radar:api_key:{uuid4()}"
+            ),
+            patch(
+                "posthog.egress.limiter.backends.LimitsBackend._redis_limiter",
+                side_effect=redis.exceptions.ConnectionError("redis down"),
+            ),
+            patch("requests.request", return_value=_allow_response()) as sent,
+        ):
+            send_attempt_success("radar_att_01ABC")
+            with pytest.raises(WorkosRadarEgressBudgetExhausted):
+                send_attempt_success("radar_att_01ABC")
+
+        assert [c[0][0] for c in sent.call_args_list] == ["PUT"]
+
+    def test_a_check_goes_out_without_the_limiter(self):
+        with (
+            patch(
+                "posthog.egress.workos_radar.limiter.get_outbound_rate_limiter",
+                side_effect=AssertionError("the check waited on the limiter"),
+            ),
+            patch("requests.request", return_value=_allow_response()),
+        ):
+            assert _login_check() == RadarVerdict.ALLOW
+
 
 class TestLoginSample(SimpleTestCase):
     def test_sample_is_stable_per_address_and_close_to_the_percentage(self):
@@ -139,7 +239,7 @@ class TestLoginSample(SimpleTestCase):
 
 
 class TestRadarApiCall(SimpleTestCase):
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_allow_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -159,10 +259,10 @@ class TestRadarApiCall(SimpleTestCase):
         mock_post.assert_called_once()
         call_args = mock_post.call_args
         assert call_args[0][0] == WORKOS_RADAR_API_URL
-        assert "Bearer test_api_key" in str(call_args[1]["headers"])
+        assert call_args[1]["api_key"] == "test_api_key"
         assert call_args[1]["json"]["action"] == "sign-in"
 
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_challenge_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -180,7 +280,7 @@ class TestRadarApiCall(SimpleTestCase):
 
         assert verdict.verdict == RadarVerdict.CHALLENGE
 
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_block_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -205,7 +305,7 @@ class TestRadarApiCall(SimpleTestCase):
             ("server_error_is_not_retried", 500, 1),
         ]
     )
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_with_a_signals_token(self, _name, first_status, expected_calls, mock_post):
         first_response = MagicMock(status_code=first_status, text="error")
@@ -230,7 +330,7 @@ class TestRadarApiCall(SimpleTestCase):
         else:
             assert verdict.verdict == RadarVerdict.ERROR
 
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_api_error(self, mock_post):
         mock_response = MagicMock()
@@ -247,7 +347,7 @@ class TestRadarApiCall(SimpleTestCase):
 
         assert verdict.verdict == RadarVerdict.ERROR
 
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_timeout(self, mock_post):
         mock_post.side_effect = requests.exceptions.Timeout("timeout")
@@ -262,7 +362,7 @@ class TestRadarApiCall(SimpleTestCase):
 
         assert verdict.verdict == RadarVerdict.ERROR
 
-    @patch("posthog.workos_radar.requests.post")
+    @patch("posthog.workos_radar.workos_radar_check")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_exception(self, mock_post):
         mock_post.side_effect = Exception("unexpected error")
@@ -714,7 +814,9 @@ class TestChallengeFlow(TestCase):
         assert exc_info.value.status_code == 428
         assert exc_info.value.extra["challenge_nonce"] == "challenge:abc123:uuid"
         assert exc_info.value.extra["turnstile_site_key"] == "site_key_123"
-        mock_create_nonce.assert_called_once_with("test@example.com", "1.2.3.4", radar_attempt_id="radar_att_01ABC")
+        mock_create_nonce.assert_called_once_with(
+            "test@example.com", "1.2.3.4", action="signup", radar_attempt_id="radar_att_01ABC"
+        )
 
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_challenged"] is True
@@ -813,7 +915,7 @@ class TestChallengeFlow(TestCase):
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
 
-        nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
+        nonce = create_challenge_nonce("test@example.com", "1.2.3.4", action="signup")
 
         from posthog.redis import get_client
 

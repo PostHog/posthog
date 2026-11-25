@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
+import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -6,8 +6,10 @@ import http from 'http'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { ruleOf } from './faults'
+import { FaultRule, heldAnswerRule, ruleOf } from './faults'
+import { Truth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -16,9 +18,11 @@ const BOB = 'run-1-2@www.example.com'
 describe('provider edge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
+    let edgeTruth: Truth
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edgeTruth = new Truth()
+        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS, truth: edgeTruth })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',
@@ -82,7 +86,7 @@ describe('provider edge', () => {
         return json.id
     }
 
-    it('records a send with the unit id from the recipient and the action id from the signed tracking code', async () => {
+    it('records a send with the unit id from the recipient and the action and invocation ids from the signed tracking code', async () => {
         const trackingCode = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com').generate({
             functionId: 'flow-1',
             id: 'invocation-1',
@@ -99,6 +103,7 @@ describe('provider edge', () => {
                 status: 200,
                 unitId: 'run-1-1',
                 actionId: 'email-step',
+                invocationId: 'invocation-1',
             }),
         ])
     })
@@ -353,6 +358,69 @@ describe('provider edge', () => {
         expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
     })
 
+    it.each<[string, (rule: FaultRule) => () => Promise<unknown>]>([
+        [
+            'its valve releases',
+            (rule) => {
+                const hold = edge.hold(rule)
+                return () => hold.release()
+            },
+        ],
+        [
+            'the edge clears its faults',
+            (rule) => {
+                edge.addFault(rule)
+                return () => Promise.resolve(edge.clearFaults())
+            },
+        ],
+        [
+            'the control API removes it by id',
+            (rule) => {
+                const id = edge.addFault(rule)
+                return () => call('DELETE', `/_faults/${id}`)
+            },
+        ],
+        [
+            'the control API clears every fault',
+            (rule) => {
+                edge.addFault(rule)
+                return () => call('DELETE', '/_faults')
+            },
+        ],
+    ])('answers a send it holds once %s', async (_path, park) => {
+        const remove = park(heldAnswerRule())
+        const answer = send(ALICE)
+        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+
+        await remove()
+
+        expect(await answer).toBe('sent')
+    })
+
+    it.each<[string, boolean]>([
+        ['reports a send it took when the drive ends while it waits', true],
+        ['reports no send when the drive ends before it took one', false],
+    ])('%s', async (_story, sends) => {
+        const hold = edge.hold(heldAnswerRule())
+        const drive = new AbortController()
+        const waiting = hold.accepted!(drive.signal)
+        const append = edgeTruth.append.bind(edgeTruth)
+        edgeTruth.append = (record) => {
+            const appended = append(record)
+            drive.abort()
+            return appended
+        }
+        const answer = sends ? send(ALICE) : Promise.resolve(undefined)
+        if (!sends) {
+            drive.abort()
+        }
+
+        const accepted = await waiting
+        await hold.release()
+
+        expect({ accepted, answer: await answer }).toEqual({ accepted: sends, answer: sends ? 'sent' : undefined })
+    })
+
     it.each<[string, Destination]>([
         ['cc', { ToAddresses: [ALICE], CcAddresses: [BOB] }],
         ['bcc', { ToAddresses: [ALICE], BccAddresses: [BOB] }],
@@ -401,6 +469,66 @@ describe('provider edge', () => {
         } finally {
             clock.mockRestore()
         }
+    })
+
+    it('does not observe a fault the edge first applied after the drive released its hold', async () => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            let readArrives = (): void => undefined
+            const answered = new Promise<void>((resolve) => (readArrives = resolve))
+            const held = holdOf({
+                firstAppliedAt: () => answered.then(() => edge.firstAppliedAt(faultId)),
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+            const released = new AbortController()
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + 5)
+            released.abort()
+            clock.mockReturnValue(start + 6)
+            const answer = await send(ALICE)
+            readArrives()
+
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: false })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it.each<[string, (hold: FaultHold) => Promise<boolean>]>([
+        ['observed', (hold) => hold.observed()],
+        ['accepted', (hold) => hold.accepted!(new AbortController().signal)],
+    ])(
+        'keeps a fault %s once it read it applied, when the faults are cleared before another read',
+        async (_, waitOn) => {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            const answer = await send(ALICE)
+            const held = holdOf({
+                firstAppliedAt: () => {
+                    const appliedAt = edge.firstAppliedAt(faultId)
+                    edge.clearFaults()
+                    return Promise.resolve(appliedAt)
+                },
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+
+            expect({ answer, held: await waitOn(held) }).toEqual({ answer: 'MessageRejected', held: true })
+        }
+    )
+
+    it('does not observe a fault for a drive that ended before its observation began', async () => {
+        const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+        const answer = await send(ALICE)
+
+        expect({ answer, observed: await held.observed(AbortSignal.abort()) }).toEqual({
+            answer: 'MessageRejected',
+            observed: false,
+        })
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

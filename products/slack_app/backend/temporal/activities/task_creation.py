@@ -67,6 +67,10 @@ _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
+_SECURITY_FIX_PUBLISH_REMINDER = (
+    "Except for a security fix: then do not commit or push. Ask the user where to publish it first, "
+    "as your system prompt says."
+)
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
@@ -409,6 +413,7 @@ def _build_posthog_code_task_description(
     initiator_ts: str | None,
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
+    channel_name: str | None = None,
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
     context up front and the initiator's @mention is the actionable prompt at the end.
@@ -474,7 +479,16 @@ def _build_posthog_code_task_description(
     if context_entries and context_entries[-1].endswith(_INITIATOR_PLACEHOLDER):
         context_entries.pop()
 
+    channel_line = (
+        f"The thread is in the Slack channel #{channel_name}. Its name can say what the work is for, "
+        "such as an incident."
+        if channel_name
+        else None
+    )
+
     if not context_entries:
+        if channel_line:
+            return f"<{_THREAD_CONTEXT_TAG}>\n{channel_line}\n</{_THREAD_CONTEXT_TAG}>\n\n{prompt}"
         return prompt
 
     # Fall back to deriving the mentioner from `mentioner_slack_user_id` when the
@@ -525,7 +539,7 @@ def _build_posthog_code_task_description(
         "reuse those mention tokens verbatim when you need to ping a participant back.",
     ]
 
-    header_lines = [*origin_lines, _ASK_IN_PROSE_LINE]
+    header_lines = [*origin_lines, *([channel_line] if channel_line else []), _ASK_IN_PROSE_LINE]
     header = "\n".join(header_lines)
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
@@ -708,7 +722,7 @@ def create_posthog_code_task_for_repo_activity(
     )
     from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
+    from products.slack_app.backend.services.slack_conversations import resolve_channel_name, resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
@@ -819,6 +833,7 @@ def create_posthog_code_task_for_repo_activity(
         )
 
     fork_channel, fork_thread_ts = inputs.fork_source_channel, inputs.fork_source_thread_ts
+    conversation_type = resolve_conversation_type(slack, event, channel)
     is_fork = bool(fork_channel and fork_thread_ts)
     if fork_channel and fork_thread_ts:
         source_task_id = inputs.fork_source_task_id
@@ -847,6 +862,7 @@ def create_posthog_code_task_for_repo_activity(
             user_message_ts,
             mentioner_slack_user_id=slack_user_id,
             mentioner_display_name=mentioner_display_name,
+            channel_name=resolve_channel_name(slack, channel),
         )
 
     slack_thread_context = SlackThreadContext(
@@ -909,8 +925,6 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts,
         *(m.ts for m in thread_messages),
     )
-    conversation_type = resolve_conversation_type(slack, event, channel)
-
     if inputs.report_implementation_message_ts and signal_report_id is None:
         return False
 
@@ -1934,7 +1948,8 @@ def _resume_task_with_new_run(
             f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"
             f"Check out the existing PR branch with `gh pr checkout {previous_pr_url}`, "
             "make your changes, commit, and push to that branch. "
-            "Do NOT create a new branch or PR.]\n\n" + initial_prompt_override
+            "Do NOT create a new branch or PR. "
+            f"{_SECURITY_FIX_PUBLISH_REMINDER}]\n\n" + initial_prompt_override
         )
 
     extra_state["initial_prompt_override"] = initial_prompt_override

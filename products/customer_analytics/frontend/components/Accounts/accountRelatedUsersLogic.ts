@@ -20,7 +20,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hogql } from 'lib/utils/hogql'
-import { isEuOrgMembersViewMissingError } from 'lib/utils/userAdmin'
+import { getCurrentCloudRegion, isEuOrgMembersViewMissingError } from 'lib/utils/userAdmin'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, Region } from '~/types'
@@ -36,6 +36,7 @@ import { AccountsEvents } from './constants'
 
 export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'> & {
     region: Region.US | Region.EU
+    source: 'api' | 'warehouse'
 }
 
 export const PAGE_SIZE = 20
@@ -122,6 +123,7 @@ export const fetchEuMembers = async (externalId: string): Promise<AccountOrganiz
             } as AccountOrganizationMember['user'],
             last_login: (row[7] as string | null) ?? null,
             region: Region.EU,
+            source: 'warehouse',
         }))
     } catch (error) {
         if (!isEuOrgMembersViewMissingError(error)) {
@@ -266,13 +268,17 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         })
                         breakpoint()
                         if (response.count > 0) {
-                            cache.isUsOrg = true
+                            cache.hasLocalMembers = true
                             return {
                                 ...response,
-                                results: response.results.map((member) => ({ ...member, region: Region.US })),
+                                results: response.results.map((member) => ({
+                                    ...member,
+                                    region: getCurrentCloudRegion() ?? Region.US,
+                                    source: 'api' as const,
+                                })),
                             }
                         }
-                        if (!cache.isUsOrg) {
+                        if (!cache.hasLocalMembers) {
                             const euMembers = await fetchEuMembers(props.externalId)
                             breakpoint()
                             if (euMembers?.length) {

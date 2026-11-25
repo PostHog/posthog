@@ -9,13 +9,20 @@ export type { WidgetQuery }
 /** A query's result in one shape every kind of chart reads, so a chart can switch kind without running its query again. */
 export interface DataFrame {
     name?: string
-    fields: { name: string; type: 'time' | 'number' | 'string' | 'boolean' | 'other'; values: unknown[] }[]
+    refId?: string
+    fields: {
+        name: string
+        type: 'time' | 'number' | 'string' | 'boolean' | 'other'
+        values: unknown[]
+        unit?: string
+    }[]
 }
 
 /** What a chart asks the host's runner to run. The time range is the chart's own, or the one around it. */
 export interface QueryRequest {
     query: WidgetQuery
     time: TimeRange
+    legend?: string
 }
 
 /** A query's frames, and how fresh they are when the host's runner knows it, such as from a cached result. */

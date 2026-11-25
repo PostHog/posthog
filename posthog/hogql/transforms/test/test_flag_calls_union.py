@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -32,10 +33,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
-from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+from posthog.hogql.database.schema.flag_evaluations import (
+    FLAG_EVALUATIONS_COMPLETE_DAYS,
+    flag_evaluations_coverage_start,
+    utc_midnight,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
@@ -78,6 +84,8 @@ UNION_EXPANSION = "FROM flag_evaluations"
 FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
 FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
 SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
+UNKEYED_READ_MEMORY_CAP = "max_memory_usage=8589934592"
 KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -1289,6 +1297,89 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
     @parameterized.expand(
         [
+            ("mode_2", UNKEYED_FEATURE_PROPERTY, ONLY, True, True),
+            ("mode_0_native", UNKEYED_FEATURE_PROPERTY, EVENTS, True, True),
+            ("subscript", f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'", ONLY, True, True),
+            (
+                "key_the_predicate_cannot_carry",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'café'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "scan_found_by_type",
+                "SELECT count() FROM persons p JOIN events e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called' AND e.properties.`$feature/new-checkout` = 'true'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "flag_key_pinned",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'new-checkout'",
+                ONLY,
+                True,
+                False,
+            ),
+            ("no_feature_property", FLAG_CALLS, ONLY, True, False),
+            ("mode_1_legacy", UNKEYED_FEATURE_PROPERTY, READ, False, False),
+        ]
+    )
+    def test_unkeyed_feature_property_read_runs_under_a_memory_cap(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, capped: bool
+    ):
+        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+        assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
+
+    @parameterized.expand(
+        [
+            (
+                "spill_threshold_above_the_cap",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=20 * 1024**3),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=4294967296"],
+            ),
+            (
+                "lower_memory_limit",
+                HogQLGlobalSettings(max_memory_usage=1024**3, max_bytes_before_external_group_by=2 * 1024**3),
+                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=536870912"],
+            ),
+            (
+                "default_settings",
+                HogQLGlobalSettings(),
+                [
+                    UNKEYED_READ_MEMORY_CAP,
+                    "max_bytes_before_external_sort=4294967296",
+                    "max_bytes_ratio_before_external_sort=0",
+                    "max_bytes_before_external_group_by=4294967296",
+                    "max_bytes_ratio_before_external_group_by=0",
+                ],
+            ),
+            (
+                "lower_spill_threshold_stays",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=512 * 1024**2),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=536870912"],
+            ),
+        ]
+    )
+    def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
+        self, _name: str, settings: HogQLGlobalSettings, expected: list[str]
+    ):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            sql, _ = prepare_and_print_ast(
+                parse_select(UNKEYED_FEATURE_PROPERTY),
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=settings,
+            )
+
+        assert [setting for setting in expected if setting not in sql] == []
+
+    @parameterized.expand(
+        [
             ("mode_0_native", EVENTS, True),
             ("mode_1_native", READ, True),
             ("mode_2_native", ONLY, True),
@@ -1900,28 +1991,48 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
 
-    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
-    def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
-        self, _name: str, mode: FlagEvaluationsMode
+    @parameterized.expand(
+        [
+            ("read_flag_evaluations", READ, None, 2),
+            ("flag_evaluations_only", ONLY, None, 1),
+            ("native_events", READ, True, 1),
+        ]
+    )
+    def test_flag_calls_from_before_the_coverage_start_are_read_only_from_events(
+        self, _name: str, mode: FlagEvaluationsMode, new_events_schema: bool | None, flag_calls: int
     ):
-        # Mode 2 writes a flag call only to flag_evaluations.
-        timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
-        if mode == READ:
-            _create_event(
-                event="$feature_flag_called",
-                distinct_id="edge",
-                team=self.team,
-                timestamp=timestamp,
-                properties={"$feature_flag": "edge-flag"},
-            )
-            flush_persons_and_events()
-        _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+        frozen = utc_midnight(datetime.now(UTC)) + timedelta(hours=12)
+        coverage_start = flag_evaluations_coverage_start(frozen)
         bound = f"distinct_id = 'edge' AND timestamp >= now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS + 3} DAY"
+        with time_machine.travel(frozen, tick=False):
+            for timestamp in (coverage_start - timedelta(hours=12), coverage_start):
+                # Mode 2 writes a flag call only to flag_evaluations.
+                if mode == READ:
+                    _create_event(
+                        event="$feature_flag_called",
+                        distinct_id="edge",
+                        team=self.team,
+                        timestamp=timestamp,
+                        properties={"$feature_flag": "edge-flag"},
+                    )
+                _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+            flush_persons_and_events()
 
-        flag_only = self._run(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}", mode)
-        mixed = self._run(f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}", mode)
+            flag_only = self._run(
+                f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}",
+                mode,
+                new_events_schema=new_events_schema,
+            )
+            mixed = self._run(
+                f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}",
+                mode,
+                new_events_schema=new_events_schema,
+            )
+            direct = self._run(
+                f"SELECT count() FROM posthog.flag_evaluations WHERE {bound}", mode, new_events_schema=new_events_schema
+            )
 
-        assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
+        assert (flag_only.results, mixed.results, direct.results) == ([(flag_calls,)], [(flag_calls,)], [(1,)])
 
     def test_inline_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self):
         fresh = _create_person(distinct_ids=["fresh"], team_id=self.team.pk)
