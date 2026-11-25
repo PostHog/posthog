@@ -22,14 +22,14 @@ operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.writable_metrics4_samples "
         "ADD COLUMN IF NOT EXISTS histogram_bounds_hash UInt64 AFTER histogram_bounds",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.metrics4_input_to_metrics4_samples MODIFY QUERY\n"
         f"{METRICS4_INPUT_TO_METRICS4_SAMPLES_MV_SELECT()}",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

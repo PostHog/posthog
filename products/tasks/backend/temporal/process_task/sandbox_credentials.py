@@ -19,6 +19,7 @@ from posthog.redis import get_client
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
+from products.tasks.backend.logic.services.agent_egress_git_worker import refresh_agent_egress_git_grant
 from products.tasks.backend.logic.services.agentsh import ENV_FILE, GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
@@ -812,6 +813,7 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        refresh_agent_egress_git_grant(ctx, sandbox_id=sandbox.id)
         # A run that started on GitHub keeps this credential in its context after the task moves to
         # GitLab, and a GitLab sandbox must not get a GitHub token back.
         if task.repository_integration_id is not None:

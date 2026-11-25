@@ -357,8 +357,8 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 ### Git read adapter
 
 `internal/gitread` implements the first credential-aware adapter. It is a library;
-the deployed request listener still serves only the probe. Worker publication,
-regional credential storage and route wiring must land before a sandbox can use it.
+the deployed request listener still serves only the probe.
+Route wiring must land before a sandbox can use it.
 
 ```text
 Verified run + repository -> read grant -> GitHub HTTPS with injected token
@@ -388,7 +388,7 @@ upstream errors have generic responses. Successful pack data streams to the gues
 The caller records admission before calling `Forward`, then records its outcome;
 only `CredentialVersion`, never the grant or token, belongs in audit metadata.
 It supplies the upstream transport, which must use the approved external egress path.
-No direct transport, registry client or credential service is selected by this library.
+The adapter does not select its upstream transport or credential source.
 
 Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
 and decoded sizes. The adapter buffers this bounded negotiation before forwarding
@@ -405,6 +405,66 @@ Tests run actual `git clone`, `fetch` and denied operations against a local
 [`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
 They exercise token replacement, scope checks, stripped headers and cancellation.
 They do not prove worker publication, cloud transport or sandbox credential removal.
+
+### Git grant publication
+
+`AgentEgressGitGrants.publish` stores one repository's read credential on an active execution.
+The existing Django encrypted field protects the payload at rest in the regional database.
+The trusted worker must authorize the repository, resolve the correct actor's token, and supply a validity deadline no later than the upstream token's expiry.
+Publication accepts at most one hour of validity; it does not infer expiry from token prefixes or change the minting identity.
+Set `publish_git_read_grant: true` in the regional enrollment config to publish grants
+for read-only runs with exactly one pinned repository. It is off by default.
+The worker uses the team's GitHub installation, scopes the token to that repository's
+contents and metadata, and keeps GitHub's actual expiry. It does not reuse the legacy
+token cache, which does not store expiry.
+
+Enrollment publishes the first grant. The existing GitHub credential refresh activity
+rotates it, reading the live execution from run state. Publication checks authority
+again after minting; a delayed refresh cannot overwrite a newer grant or a withdrawal.
+The execution keeps the opt-in separately, so refresh can retry first publication
+after a temporary owner lookup failure. A withdrawn grant stays withdrawn.
+A failed refresh emits `agent_egress_git_refresh_failed` without token values and leaves
+the previous grant valid only until its original expiry. Ineligible runs receive no
+grant. Losing the repository or integration clears the existing grant at refresh.
+
+This opt-in only exercises worker publication. Sandbox tokens and Git routing stay
+on their existing path; initial enrollment still follows cloning and agent launch.
+Initial publication runs in its own activity while the workflow renews the execution lease.
+Slow minting does not suspend renewal; cancellation or loss of authority stops publication and closes the execution.
+If optional publication exhausts its retries, enrollment continues without a Git grant and the existing refresh activity can retry later.
+Public sandbox repositories need no token; GitHub's rejection of a repository scope leaves it without a grant.
+Before removing guest credentials, enrollment and grant publication must precede
+the first clone, and Git must use a renewable run capability through the adapter.
+
+```text
+Worker: publish(version, previous_version, repository, token, expiry)
+  -> active execution + matching previous version
+  -> encrypted grant
+Proxy: scoped HTTPS lookup
+  -> recheck execution and repository
+  -> credential + version + current lease
+```
+
+Retries with the same version and payload are idempotent.
+A delayed rotation cannot overwrite a newer version.
+`clear` removes the credential and advances its version, fencing earlier publishers.
+Execution revocation, replacement and sandbox cleanup erase the payload.
+Expiry denies access even when cleanup has not run; an abandoned row can retain expired ciphertext until cleanup.
+Registration metadata lookups do not load or return the credential.
+
+The grant endpoint has its own `posthog:agent_egress_credentials` audience and `AGENT_EGRESS_CREDENTIALS_JWT_SECRETS` key list, newest first.
+Provision separate values per region; there is no default or fallback to the registration key.
+Tokens last at most 30 seconds and bind team, run, execution, region, repository and the `git_read_grant` operation.
+The endpoint requires HTTPS and returns `Cache-Control: no-store` on every response.
+After authentication and claim validation, an atomic Redis budget limits each team's execution to a burst of 60 lookups, refilling at 600 per hour.
+Rotating the lookup JWT does not reset the budget. Exhaustion returns `429` with `Retry-After`; an unavailable budget store returns `503` without reading the grant.
+The Go client refuses HTTP and redirects, checks the returned binding, and distinguishes denial from unavailability.
+Neither endpoint nor client mints an upstream token.
+
+This slice supplies storage, opted-in worker publication and a proxy client.
+It does not mount the adapter, provision the service key, or remove sandbox credentials.
+The credential client requires a verified TLS path to Django; the metadata client's optional cluster HTTP path does not apply.
+Before serving Git traffic, maintain proxy state within its lease without a database lookup for every Git request.
 
 ## Registration and time
 

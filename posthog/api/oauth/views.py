@@ -1050,10 +1050,24 @@ class OAuthValidator(OAuth2Validator):
                 user_id=presented_refresh_token.user_id,
                 application_id=presented_refresh_token.application_id,
             )
-            # DOT validated this token in autocommit, so a revoke may have deleted the row while
-            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
-            # would surface as a 500; reject the grant instead so the client re-authorizes.
-            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+            # DOT validated this token in autocommit, so while this request waited for the lock a
+            # revoke may have deleted the row, or a resource removal may have narrowed its teams.
+            # Re-read it so the new tokens copy the committed scope. DOT's own re-read is an
+            # unguarded `.get()`, which would surface as a 500 for a deleted row; reject the grant
+            # instead so the client re-authorizes.
+            was_restricted = bool(presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations)
+            try:
+                presented_refresh_token.refresh_from_db(fields=["scoped_teams", "scoped_organizations"])
+            except OAuthRefreshToken.DoesNotExist:
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            # An empty list means unrestricted, so a token whose last team was removed meanwhile
+            # must end here rather than mint tokens that reach every team.
+            if was_restricted and not (
+                presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations
+            ):
                 raise InvalidGrantError(
                     description="This application's access was revoked; re-authorize.",
                     request=request,
