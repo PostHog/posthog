@@ -16,13 +16,15 @@ from parameterized import parameterized
 from PIL import Image
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -1001,6 +1003,19 @@ class TestWorkflowImportAPI(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
+    def _limit_import_access(self, resource: str, resource_id: str | None = None) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        create_access_control(
+            team_id=self.team.id,
+            resource=resource,
+            resource_id=resource_id,
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
 
@@ -1264,13 +1279,10 @@ class TestWorkflowImportAPI(APIBaseTest):
         if case.get("untranslatable"):
             rules = {"and": [{"event": {"type": "attribute_change", "name": "plan"}, "times": 1, "within": 0}]}
             overrides["segments"] = [{"id": "16", "name": "Active trials", "type": "dynamic", "conditions": rules}]
-        cohort_access = case.get("cohort_access", True)
+        if not case.get("cohort_access", True):
+            self._limit_import_access("cohort")
         cohort_triggers = case.get("cohort_triggers", True)
         with (
-            patch(
-                "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
-                side_effect=lambda resource, *_args, **_kwargs: cohort_access or resource != "cohort",
-            ),
             patch(
                 "products.workflows.backend.presentation.views.workflow_import_drafts.realtime_cohorts_available",
                 return_value=case.get("realtime", True),
@@ -1292,11 +1304,10 @@ class TestWorkflowImportAPI(APIBaseTest):
 
     def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
         first = self._import()
-        with patch(
-            "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_ref",
-            return_value=False,
-        ):
-            second = self._import()
+        HogFlow.objects.filter(team=self.team, pk=first["workflow_id"]).update(created_by=None)
+        self._limit_import_access("hog_flow", first["workflow_id"])
+
+        second = self._import()
 
         assert second["status"] == "skipped"
         assert second["workflow_id"] == first["workflow_id"]
@@ -1581,16 +1592,14 @@ class TestWorkflowImportAPI(APIBaseTest):
                 {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
             ],
         }
-        with patch(
-            "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, *_args, **_kwargs: media_access or resource != "uploaded_media",
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/workflow_imports/",
-                body,
-                format="json",
-                headers={"authorization": f"Bearer {key}"},
-            )
+        if not media_access:
+            self._limit_import_access("uploaded_media")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_imports/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
 
         assert response.status_code == 200, response.json()
         result = response.json()["results"][0]

@@ -10,6 +10,9 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.batch_exports.backend.custom_events_schema import (
     build_events_query_schema,
     parse_events_hogql_query,
@@ -26,6 +29,21 @@ def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
 
 
 class TestSerializeEventsQuerySchema(BaseTest):
+    def _restrict_property(self, name: str, property_type: int, *, group_type_index: int | None = None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, type=property_type, group_type_index=group_type_index
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=definition.pk,
+            access_level="none",
+            organization_member_id=self.organization_membership.pk,
+        )
+
     @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_resaving_legacy_query_preserves_types_and_column_names(self):
         PropertyDefinition.objects.create(
@@ -171,16 +189,9 @@ class TestSerializeEventsQuerySchema(BaseTest):
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_saving_a_materialized_property_reads_it_from_properties(self, _name: str, restricted: bool):
-        restrictions = (
-            {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
-        )
-        with (
-            patch(
-                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
-                return_value=restrictions,
-            ),
-            materialized("events", "$browser"),
-        ):
+        if restricted:
+            self._restrict_property("secret", PropertyDefinition.Type.EVENT)
+        with materialized("events", "$browser"):
             schema = build_events_query_schema(
                 self.team.pk, self.user, "SELECT properties.$browser AS browser FROM events"
             )
@@ -217,11 +228,8 @@ class TestSerializeEventsQuerySchema(BaseTest):
     def test_legacy_fields_drop_restricted_keys_from_a_selected_properties_object(
         self, _name: str, query: str, property_type: int, restricted: str, expected_dropped_keys: list[str]
     ):
-        with patch(
-            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
-            return_value={RestrictedProperty(name=restricted, property_type=property_type)},
-        ):
-            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+        self._restrict_property(restricted, property_type)
+        schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
 
         expression = schema["fields"][0]["expression"]
         assert "JSONDropKeysPool(" in expression, expression
@@ -235,17 +243,17 @@ class TestSerializeEventsQuerySchema(BaseTest):
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
         )
         query = "SELECT properties.secret AS secret, properties.amount AS amount FROM events"
-        with (
-            override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if new_schema else 0),
-            patch(
-                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
-                return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
-            ),
-        ):
-            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+        self._restrict_property("secret", PropertyDefinition.Type.EVENT)
+        self._restrict_property("tier", PropertyDefinition.Type.GROUP, group_type_index=1)
+        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if new_schema else 0):
+            schema = build_events_query_schema(self.team.pk, self.user, query)
 
         fields, _values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
 
+        assert schema["restricted_properties"] == [
+            {"name": "secret", "property_type": PropertyDefinition.Type.EVENT, "group_type_index": None},
+            {"name": "tier", "property_type": PropertyDefinition.Type.GROUP, "group_type_index": 1},
+        ]
         assert schema["fields"][0] == {"expression": "NULL", "alias": "secret"}
         assert fields[0] == {"expression": "NULL", "alias": "secret"}
         assert "accurateCastOrNull(events.properties.amount, 'Float64')" in fields[1]["expression"], fields
@@ -273,14 +281,11 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert any("secret" in value for key, value in values.items() if key.endswith("_sensitive")), values
 
     @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
-    @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
-    def test_new_schema_rejects_a_restricted_properties_object(self, get_restricted_properties):
+    def test_new_schema_rejects_a_restricted_properties_object(self):
         """When saving for the native table, a restricted user cannot save `SELECT properties`, because the native
         table cannot select a restricted properties object. The save fails, so no export stores a query that cannot run.
         """
-        get_restricted_properties.return_value = {
-            RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
-        }
+        self._restrict_property("secret", PropertyDefinition.Type.EVENT)
 
         with self.assertRaises(UnsupportedHogQLQueryError):
             serialize_events_query_schema(
@@ -293,13 +298,10 @@ class TestSerializeEventsQuerySchema(BaseTest):
         the native table cannot select a restricted properties object. The run must then fail with a non-retryable
         error instead of retrying the recompile.
         """
-        with patch(
-            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
-            return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
-        ):
-            schema = serialize_events_query_schema(
-                self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
-            )
+        self._restrict_property("secret", PropertyDefinition.Type.EVENT)
+        schema = serialize_events_query_schema(
+            self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
+        )
 
         with self.assertRaises(UnsupportedHogQLQueryError):
             recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
@@ -311,14 +313,9 @@ class TestSerializeEventsQuerySchema(BaseTest):
         ]
     )
     @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
-    @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
-    def test_native_export_hides_a_restricted_flag(
-        self, _name: str, query: str, expected: str, _use_new_events_schema, get_restricted_properties
-    ):
-        get_restricted_properties.return_value = {
-            RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)
-        }
+    def test_native_export_hides_a_restricted_flag(self, _name: str, query: str, expected: str, _use_new_events_schema):
+        self._restrict_property("$feature/secret", PropertyDefinition.Type.EVENT)
 
         schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
 

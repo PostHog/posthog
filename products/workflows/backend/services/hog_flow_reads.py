@@ -2,7 +2,7 @@
 searched and access-filtered page of them. Each workflow is a contract with its secret inputs masked."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Final, Optional, cast
 from uuid import UUID
 
@@ -15,10 +15,17 @@ from django.db.models.functions import Coalesce
 from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
-from posthog.models import TaggedItem
+from posthog.helpers.full_text_search import build_rank
+from posthog.models import TaggedItem, Team
 from posthog.paging import Page, PageRequest
+from posthog.permissions import REQUIRED_LEVEL_ACTIONS
 from posthog.queryset_paging import select_page
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
@@ -109,8 +116,10 @@ def get_team_workflow_edit_state(
         raise WorkflowNotFound()
     if flow.status == HogFlow.State.ARCHIVED:
         raise WorkflowArchived()
-    if not user_access_control.check_access_level_for_object(
-        flow, required_level=cast("AccessControlLevel", required_level)
+    if not authorization.check(
+        resource=resource_for_object(flow, team=user_access_control.team),
+        action=REQUIRED_LEVEL_ACTIONS[cast("AccessControlLevel", required_level)],
+        subject=Subject(user_id=user_access_control.user.pk),
     ):
         raise WorkflowAccessDenied(required_level)
     return to_edit_state(flow)
@@ -192,8 +201,10 @@ def _checked_flow(
     if (
         user_access_control is not None
         and required_level is not None
-        and not user_access_control.check_access_level_for_object(
-            flow, required_level=cast("AccessControlLevel", required_level)
+        and not authorization.check(
+            resource=resource_for_object(flow, team=user_access_control.team),
+            action=REQUIRED_LEVEL_ACTIONS[cast("AccessControlLevel", required_level)],
+            subject=Subject(user_id=user_access_control.user.pk),
         )
     ):
         raise WorkflowAccessDenied(required_level)
@@ -226,10 +237,19 @@ def list_workflows(
     WorkflowListFiltersInvalid when a field filter does not parse."""
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
     flows = select_page(queryset, page)
-    if user_access_control is not None and flows.results:
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
+    access_levels = (
+        _workflow_access_levels(
+            team_id, [(str(flow.pk), flow.created_by_id) for flow in flows.results], user_access_control
+        )
+        if user_access_control is not None
+        else {}
+    )
     template_cache: TemplateCache = {}
-    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
+    return flows.map(
+        lambda flow: _to_workflow(
+            flow, user_access_control, template_cache, with_schedules=False, access_levels=access_levels
+        )
+    )
 
 
 def list_workflow_summaries(
@@ -326,8 +346,11 @@ def _list_queryset(
         )
 
     if user_access_control is not None:
-        queryset = user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
+        queryset = filter_queryset(
+            queryset,
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=Subject(user_id=user_access_control.user.pk),
+            include_all_if_admin=include_all_if_admin,
         )
 
     filterset = _WorkflowFilterSet(data=query.field_filters, queryset=queryset)
@@ -371,12 +394,26 @@ def _list_queryset(
     return queryset.filter(Q(_action_content_matches(regex_pattern)))
 
 
+def _workflow_access_levels(
+    team_id: int, objects: list[tuple[str, int | None]], user_access_control: UserAccessControl
+) -> dict[str, str | None]:
+    with authorization.authorization_session():
+        authorization.reuse_current_rules(user_access_control)
+        return authorization.object_access_levels(
+            resource_type=ResourceType.HOG_FLOW,
+            project_id=team_id,
+            objects=objects,
+            subject=Subject(user_id=user_access_control.user.pk),
+        )
+
+
 def _to_workflow(
     flow: HogFlow,
     user_access_control: "UserAccessControl | None",
     template_cache: TemplateCache,
     *,
     with_schedules: bool,
+    access_levels: Mapping[str, str | None] | None = None,
 ) -> Workflow:
     masked: dict[str, object] = {"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft}
     mask_workflow_fields(
@@ -388,7 +425,15 @@ def _to_workflow(
         template_cache=template_cache,
     )
     access_level: Optional[str] = (
-        user_access_control.get_user_access_level(flow) if user_access_control is not None else None
+        access_levels.get(str(flow.pk))
+        if access_levels is not None
+        else (
+            _workflow_access_levels(flow.team_id, [(str(flow.pk), flow.created_by_id)], user_access_control).get(
+                str(flow.pk)
+            )
+            if user_access_control is not None
+            else None
+        )
     )
     return Workflow(
         id=flow.id,
@@ -603,3 +648,89 @@ def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) ->
             )
         )
     return targets
+
+
+def search_workflows(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: "UserAccessControl",
+    limit: int,
+    offset: int,
+    include_archived: bool,
+    with_access_levels: bool,
+    include_count: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
+    if include_archived:
+        statuses.append(HogFlow.State.ARCHIVED)
+    queryset = filter_queryset(
+        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
+        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses),
+        resource=Resource(type=ResourceType.HOG_FLOW, project_id=cast(Team, access_control.team).id),
+        subject=Subject(user_id=access_control.user.pk),
+    )
+
+    if query:
+        queryset = queryset.annotate(rank=build_rank({"name": "A", "description": "C"}, query, config="simple"))
+        queryset = queryset.filter(rank__gt=0.05).order_by("-rank")
+    else:
+        queryset = queryset.order_by(F("name").asc(nulls_first=True))
+
+    total_count = queryset.count() if include_count else 0
+    fields = ["id", "name", "description", "status", "created_by_id"]
+    if query:
+        fields.append("rank")
+
+    rows = list(queryset[offset : offset + limit].values(*fields))
+    access_levels = (
+        _workflow_access_levels(
+            cast(Team, access_control.team).id,
+            [(str(row["id"]), row["created_by_id"]) for row in rows],
+            access_control,
+        )
+        if with_access_levels
+        else {}
+    )
+
+    results: list[dict[str, Any]] = []
+    for workflow in rows:
+        result: dict[str, Any] = {
+            "type": "hog_flow",
+            "result_id": str(workflow["id"]),
+            "extra_fields": {
+                "name": workflow["name"],
+                "description": workflow["description"],
+                "status": workflow["status"],
+            },
+        }
+        if query:
+            result["rank"] = workflow["rank"]
+        if with_access_levels:
+            result["user_access_level"] = access_levels.get(str(workflow["id"]))
+        results.append(result)
+
+    return results, total_count
+
+
+def get_viewable_workflow_ids(
+    *,
+    team_id: int,
+    subject: Subject,
+    workflow_ids: Iterable[str] | None = None,
+    tag_name: str | None = None,
+) -> set[str]:
+    """The ids, as strings, of the team's workflows the reader may view."""
+    workflows = HogFlow.objects.filter(team_id=team_id)
+    if workflow_ids is not None:
+        workflows = workflows.filter(id__in=list(workflow_ids))
+    if tag_name is not None:
+        workflows = workflows.filter(tagged_items__tag__name=tag_name)
+    return {
+        str(pk)
+        for pk in filter_queryset(
+            workflows,
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=subject,
+        ).values_list("id", flat=True)
+    }

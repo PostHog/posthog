@@ -289,3 +289,20 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         if status:
             assert response.json()["status"] == status
         suggest.assert_not_called()
+
+    @patch(f"{SERVICE}.suggest_audiences")
+    def test_a_restricted_event_email_does_not_hide_audience_suggestions(self, suggest: MagicMock) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = self.organization_membership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        email = PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.EVENT)
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+        suggest.return_value = [_idea("not_yet", "signed_up", "project_created")]
+
+        body = self._list()
+
+        assert body["status"] == "ready"
+        assert [suggestion["event"] for suggestion in body["suggestions"]] == ["signed_up"]

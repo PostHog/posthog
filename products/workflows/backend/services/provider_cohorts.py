@@ -2,8 +2,9 @@
 
 from posthog.models import User
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.facade.api import (
     DescribedCohort,
     create_empty_static_cohort,
@@ -31,17 +32,18 @@ def described_static_cohorts(team_id: int, description_prefix: str) -> list[Desc
     ]
 
 
-def import_cohort(
-    team_id: int, user: User, access: UserAccessControl, *, description: str, name: str, source: str
-) -> SegmentCohort:
+def import_cohort(team_id: int, user: User, *, description: str, name: str, source: str) -> SegmentCohort:
     """Find the cohort an earlier import made with this description, or create it.
 
     `name` is the cohort's name, and `source` names what it stands for in a problem, such as 'the Resend segment "VIPs"'.
     Nothing else ties a cohort to its source, and the description stays the same when either one is renamed.
     """
+    subject = Subject(user_id=user.pk)
     existing = find_cohort_ref_by_description(team_id=team_id, description=description)
     if existing is None:
-        if not access.check_access_level_for_resource("cohort", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.COHORT, project_id=team_id), action=Action.EDIT, subject=subject
+        ):
             return SegmentCohort(problem=f"Creating a cohort for {source} needs edit access to cohorts.")
         created = create_empty_static_cohort(team_id=team_id, name=name, description=description, created_by_id=user.id)
         return SegmentCohort(name=name, cohort_id=created.id)
@@ -49,9 +51,9 @@ def import_cohort(
         return SegmentCohort(problem=f"The cohort made for {source} was deleted, so it stays deleted.")
     if not existing.is_static:
         return SegmentCohort(problem=f"The cohort made for {source} isn't static anymore.")
-    ref = ObjectAccessRef(
-        resource="cohort", id=str(existing.id), team_id=existing.team_id, created_by_id=existing.created_by_id
+    resource = Resource(
+        type=ResourceType.COHORT, id=str(existing.id), project_id=existing.team_id, created_by_id=existing.created_by_id
     )
-    if not access.check_access_level_for_ref(ref, "editor"):
+    if not authorization.check(resource=resource, action=Action.EDIT, subject=subject):
         return SegmentCohort(problem=f"Adding people to the cohort for {source} needs edit access.")
     return SegmentCohort(name=name, cohort_id=existing.id)

@@ -117,6 +117,7 @@ class ResourceType(StrEnum):
     # Query access checks resolve warehouse tables and views one object at a time.
     WAREHOUSE_TABLE = "warehouse_table"
     WAREHOUSE_VIEW = "warehouse_view"
+    PROPERTY_VALUES = "property_values"
     # The other API scopes. The current rules also read rules that name them.
     ACCESS_CONTROL = "access_control"
     APPROVALS = "approvals"

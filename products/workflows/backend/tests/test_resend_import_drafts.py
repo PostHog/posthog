@@ -3,10 +3,14 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.workflow_import import WorkflowImport
@@ -32,19 +36,30 @@ class TestResendAutomationDrafts(BaseTest):
     def _import(self, automation: dict[str, Any], **kwargs: Any) -> Any:
         return drafts.import_resend_automation(self.team.id, self.user.id, automation, {}, **kwargs)
 
+    def _enable_access_rules(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+
     def test_access_rules_and_gated_templates_load_once_for_a_page_of_automations(self) -> None:
+        self._enable_access_rules()
         with (
-            patch.object(drafts, "UserAccessControl", wraps=drafts.UserAccessControl) as access,
+            CaptureQueriesContext(connection) as queries,
             patch.object(drafts, "hidden_gated_template_ids", wraps=drafts.hidden_gated_template_ids) as gated,
+            drafts.reuse_import_access(),
         ):
-            with drafts.reuse_import_access():
-                results = [
-                    self._import(_automation(automation_id, segment=True), segments={"seg-1": "Pro"})
-                    for automation_id in ("a1", "a2")
-                ]
+            results = [
+                self._import(_automation(automation_id, segment=True), segments={"seg-1": "Pro"})
+                for automation_id in ("a1", "a2")
+            ]
 
         assert [result.status for result in results] == ["created", "created"]
-        assert (access.call_count, gated.call_count) == (1, 1)
+        rules_queries = [
+            query["sql"]
+            for query in queries
+            if query["sql"].startswith("SELECT") and 'FROM "ee_accesscontrol"' in query["sql"]
+        ]
+        assert len(rules_queries) == 2
+        assert gated.call_count == 1
 
     def test_an_automation_whose_draft_was_deleted_imports_again(self) -> None:
         first = self._import(_automation("a1"))
@@ -80,15 +95,17 @@ class TestResendAutomationDrafts(BaseTest):
         if name == "deactivated":
             self.user.is_active = False
             self.user.save()
-        with (
-            patch.object(drafts.UserAccessControl, "has_project_access", name != "no_project_access"),
-            patch.object(
-                drafts.UserAccessControl,
-                "check_access_level_for_resource",
-                side_effect=lambda resource, *_a, **_k: name != "no_workflow_edit_access" or resource != "hog_flow",
-            ),
-        ):
-            result = self._import(_automation("a1"))
+        else:
+            self._enable_access_rules()
+            resource = "project" if name == "no_project_access" else "hog_flow"
+            create_access_control(
+                team_id=self.team.id,
+                resource=resource,
+                resource_id=str(self.team.id) if resource == "project" else None,
+                access_level="none" if resource == "project" else "viewer",
+                organization_member_id=self.organization_membership.id,
+            )
+        result = self._import(_automation("a1"))
 
         assert result.status == "failed"
         assert not HogFlow.objects.filter(team=self.team).exists()
@@ -103,21 +120,23 @@ class TestResendAutomationDrafts(BaseTest):
     def test_a_segment_cohort_needs_cohort_access(
         self, _name: str, existing_static: bool | None, can_edit: bool, note: str
     ) -> None:
+        cohort_id = None
         if existing_static is not None:
-            Cohort.objects.create(
+            cohort_id = Cohort.objects.create(
                 team=self.team, name="Pro", description=SEGMENT_DESCRIPTION, is_static=existing_static
-            )
+            ).id
         cohorts_before = Cohort.objects.filter(team_id=self.team.id).count()
 
-        with (
-            patch.object(
-                drafts.UserAccessControl,
-                "check_access_level_for_resource",
-                side_effect=lambda resource, *_a, **_k: can_edit or resource != "cohort",
-            ),
-            patch.object(drafts.UserAccessControl, "check_access_level_for_ref", return_value=can_edit),
-            patch.object(drafts, "translate_automation", wraps=drafts.translate_automation) as translate,
-        ):
+        if not can_edit:
+            self._enable_access_rules()
+            create_access_control(
+                team_id=self.team.id,
+                resource="cohort",
+                resource_id=str(cohort_id) if cohort_id is not None else None,
+                access_level="viewer",
+                organization_member_id=self.organization_membership.id,
+            )
+        with patch.object(drafts, "translate_automation", wraps=drafts.translate_automation) as translate:
             self._import(_automation("a1", segment=True), segments={"seg-1": "Pro"})
 
         cohort = translate.call_args.args[2].segment_cohorts["seg-1"]

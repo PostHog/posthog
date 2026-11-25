@@ -86,8 +86,8 @@ def stage_provider_contacts(
     creator = _check_creator(team_id, user_id)
     if isinstance(creator, ProviderContactsResult):
         return creator
-    team, user, access = creator.team, creator.user, creator.access
-    cohort = import_cohort(team_id, user, access, description=cohort_description, name=cohort_name, source=source)
+    team, user = creator.team, creator.user
+    cohort = import_cohort(team_id, user, description=cohort_description, name=cohort_name, source=source)
     if cohort.cohort_id is None:
         return ProviderContactsResult(status="failed", notes=(cohort.problem,))
 

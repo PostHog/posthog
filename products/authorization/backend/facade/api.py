@@ -17,7 +17,7 @@ from uuid import UUID
 
 from ..logic import legacy, lists, session
 from . import contracts
-from .enums import Action, Level, SubjectType
+from .enums import Action, Level, ResourceType, SubjectType
 
 if TYPE_CHECKING:
     from posthog.user_permissions import UserPermissions
@@ -89,6 +89,7 @@ def check(
     """Return whether the subject may take the action on the resource, or one result per request, in order.
 
     `subject=None` means the user of the current request. Outside a request, pass `subject`.
+    PROPERTY_VALUES supports QUERY and EDIT, using the property definition ID as the resource ID.
     """
     if requests is None:
         if resource is None or action is None:
@@ -97,6 +98,17 @@ def check(
     if resource is not None or action is not None or subject is not None:
         raise TypeError("Pass either a sequence of check requests or `resource` and `action`, not both.")
     return legacy.check(requests, context)
+
+
+def object_access_levels(
+    *,
+    resource_type: ResourceType,
+    project_id: int,
+    objects: Sequence[tuple[str, int | None]],
+    subject: contracts.Subject,
+) -> dict[str, str | None]:
+    """Resolve display access levels in bulk from (object ID, creator ID) pairs."""
+    return legacy.object_access_levels(resource_type, project_id, objects, subject)
 
 
 def permissions(
@@ -129,7 +141,8 @@ def list_objects(
     or `ResourceType.PROJECT` and an `organization_id`. A project list without an `organization_id`
     lists the projects of every organization the subject belongs to. VIEW gives the rows of today's list filter,
     which applies object rules to org admins too. QUERY gives the rows the query guard reads, so an
-    org admin gets every row. To filter a QuerySet, use `presentation.querysets` instead.
+    org admin gets every row. For PROPERTY_VALUES, QUERY filters property definition IDs by access to their values.
+    To filter a QuerySet, use `presentation.querysets` instead.
     """
     return lists.list_objects(resource, action, subject, context, limit, creator_exempt)
 

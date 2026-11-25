@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections import defaultdict
 from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
@@ -111,6 +112,29 @@ def get_default_access_level() -> PropertyAccessLevel:
     :returns: The default access level for a property
     """
     return PropertyAccessLevel.READ_WRITE
+
+
+def get_property_access_levels(
+    *, team: Team, membership: OrganizationMembership | None
+) -> dict[str, PropertyAccessLevel]:
+    """Resolve all ruled property definitions in one pass, keyed by definition ID."""
+    if not is_property_access_control_enabled(team=team) or (
+        membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
+    ):
+        return {}
+
+    rules_by_property: defaultdict[UUID, list[PropertyAccessControl]] = defaultdict(list)
+    for rule in PropertyAccessControl.objects.filter(team=team, property_definition__isnull=False):
+        if rule.property_definition_id is not None:
+            rules_by_property[rule.property_definition_id].append(rule)
+    if not rules_by_property:
+        return {}
+
+    role_ids = _get_user_role_ids(membership, team.organization)
+    return {
+        str(property_id): _resolve_access_level(rules, membership=membership, user_role_ids=role_ids)
+        for property_id, rules in rules_by_property.items()
+    }
 
 
 def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:

@@ -17,6 +17,8 @@ from .legacy import (
     _principal_key,
     _scope,
     _user_permissions,
+    property_access_levels,
+    property_level_allows,
 )
 from .session import Session, current
 
@@ -47,7 +49,11 @@ def list_objects(
             f"The SDK cannot list {resource.type} yet, because its objects fall back to a parent."
         )
     session = current() or Session()
-    if resource.type == ResourceType.PROJECT:
+    if resource.type == ResourceType.PROPERTY_VALUES:
+        if action != Action.QUERY:
+            raise ValueError(f"{action} does not apply to a list of property values.")
+        result = _list_queryable_properties(session, resource, subject)
+    elif resource.type == ResourceType.PROJECT:
         result = _list_projects(session, resource, action, subject)
     else:
         result = _list_project_objects(session, resource, action, subject, creator_exempt)
@@ -59,6 +65,16 @@ def list_objects(
 def principal_user_id(subject: Subject | None) -> int | None:
     principal = _principal(current() or Session(), subject)
     return principal.pk if isinstance(principal, User) else None
+
+
+def _list_queryable_properties(session: Session, resource: Resource, subject: Subject | None) -> ObjectIds:
+    if resource.id is not None or resource.project_id is None:
+        raise ValueError("A property list takes a project and no object ID.")
+    levels = property_access_levels(session, resource.project_id, subject)
+    if levels is None:
+        return _NOTHING
+    denied = frozenset(id for id, level in levels.items() if not property_level_allows(level, Action.QUERY))
+    return ObjectIds(ids=denied, complete=True, excluded=True)
 
 
 def _list_project_objects(

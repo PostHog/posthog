@@ -335,9 +335,7 @@ export-shape	products.access_control.backend.facade.user_access_control.UserAcce
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.surveys.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.warehouse_sources.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.warehouse_suggestions.backend.facade.api	export-shape(class)	1
-export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.activity	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.api	export-shape(class)	1
-export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.broadcast_conversion	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.send_calendar	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.workflows	export-shape(class)	1
 export-shape	products.aeo.backend.temporal.brand_sentiment.WORKFLOWS	products.aeo.backend.facade.temporal	export-unknown	1

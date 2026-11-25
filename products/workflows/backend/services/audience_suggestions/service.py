@@ -9,6 +9,8 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.hogql.property_metadata import get_restricted_query_properties
+
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -17,10 +19,7 @@ from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
 
-from products.access_control.backend.facade.api import (
-    get_restricted_properties_with_group_type_index_for_team,
-    split_restricted_property_names,
-)
+from products.access_control.backend.facade.api import split_restricted_property_names
 from products.workflows.backend.facade.contracts import (
     AudienceSuggestion,
     AudienceSuggestionsResult,
@@ -61,8 +60,8 @@ _UNAVAILABLE = AudienceSuggestionsResult(status="unavailable", suggestions=())
 
 def can_read_email(user: User, team_id: int) -> bool:
     """The cards count people by their email address, so only someone who can read it may see them."""
-    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
-    return EMAIL_PROPERTY not in split_restricted_property_names(restrictions).person
+    restrictions = get_restricted_query_properties(team_id=team_id, user=user)
+    return restrictions is not None and EMAIL_PROPERTY not in split_restricted_property_names(restrictions).person
 
 
 def get_audience_suggestions(*, team: Team) -> AudienceSuggestionsResult:
