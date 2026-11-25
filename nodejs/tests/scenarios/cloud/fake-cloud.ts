@@ -128,6 +128,7 @@ export type FakeCloudOptions = {
         journalsIntent?: boolean
         pairRoles?: (PairRole | undefined)[]
         controlStatus?: string
+        controlEndedAt?: string
         strayControlRunId?: boolean
     }
     probe?: 'lost' | 'timedOut'
@@ -571,7 +572,10 @@ export class FakeCloud implements Aws {
                   ]
         const midway = card.startedAt + (this.options.now().getTime() - card.startedAt) / 2
         const startedAt = new Date(role === 'faulted' ? midway : card.startedAt).toISOString()
-        const endedAt = role === 'control' ? new Date(midway).toISOString() : this.options.now().toISOString()
+        const endedAt =
+            role === 'control'
+                ? (this.options.card?.controlEndedAt ?? new Date(midway).toISOString())
+                : this.options.now().toISOString()
         const ranFaulted = roles.includes('faulted')
         const attribution =
             controlStatus === 'invalid' || !ranFaulted

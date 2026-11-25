@@ -401,7 +401,10 @@ describe('runCards', () => {
 
     it('refuses more than one card on a run host before it starts the stack', async () => {
         const manifest = path.join(cacheHome, 'manifest.json')
-        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true })))
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
         jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
 
         expect(
@@ -415,9 +418,29 @@ describe('runCards', () => {
         expect(stack.startStack).not.toHaveBeenCalled()
     })
 
+    it.each([
+        ['without a control run id', {}],
+        ['with its own run id as the control run id', { controlRunId: HOST_RUN_ID }],
+    ])('refuses a host manifest that asks for a pair %s', (_story, control) => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, ...control })))
+
+        expect(() =>
+            createRunner(
+                fakeEnvironment({ resetFails: false }),
+                runnerEnv(cacheHome, { SCENARIO_RUN_MANIFEST: manifest })
+            )
+        ).toThrow(
+            `The run manifest at ${manifest} asks for a pair without a control run id of its own, so it is not used.`
+        )
+    })
+
     it('takes --pair on a run host whose manifest asks for the pair', async () => {
         const manifest = path.join(cacheHome, 'manifest.json')
-        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true })))
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
         jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
 
         expect(await main(['run', 'destination-errors', '--pair'], { SCENARIO_RUN_MANIFEST: manifest })).toBe(

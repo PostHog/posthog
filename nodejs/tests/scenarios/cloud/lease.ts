@@ -255,5 +255,11 @@ export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
     if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
         throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
     }
+    const { pair, runId, controlRunId } = parsed.data
+    if (pair && (controlRunId === undefined || controlRunId === runId)) {
+        throw new LeaseError(
+            `The run manifest at ${file} asks for a pair without a control run id of its own, so it is not used.`
+        )
+    }
     return parsed.data
 }

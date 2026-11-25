@@ -313,25 +313,32 @@ describe('cloud controller', () => {
         }
     )
 
-    it('publishes the faulted run of a paired card with the attribution, and reads the reader across both runs', async () => {
-        const { controller } = prepare({
-            cards: { [PAIRED_CARD]: pairedCard() },
-            cloud: { card: { exitCode: 1, runnerStatus: 'failed' } },
-            env: api.credentials,
-        })
+    it.each([
+        ['its own times', undefined],
+        ['a control that ends a day past the run', '2026-03-03T10:00:00.000Z'],
+    ])(
+        'publishes the faulted run of a paired card with the attribution, and reads the reader across both runs within the run, with %s',
+        async (_story, controlEndedAt) => {
+            const { controller } = prepare({
+                cards: { [PAIRED_CARD]: pairedCard() },
+                cloud: { card: { exitCode: 1, runnerStatus: 'failed', controlEndedAt } },
+                env: api.credentials,
+            })
 
-        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(1)
+            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(1)
 
-        expect(published()).toMatchObject({
-            status: 'failed',
-            status_reason: 'the card ended failed',
-            pair_role: 'faulted',
-            pair_attribution: 'fault',
-        })
-        const faulted = evidenceOf(leasedRunId(), leasedRunId())
-        const [firstGap] = published().acu_gaps as string[]
-        expect(Date.parse(firstGap)).toBeLessThan(Date.parse(faulted.startedAt as string) - 60_000)
-    })
+            expect(published()).toMatchObject({
+                status: 'failed',
+                status_reason: 'the card ended failed',
+                pair_role: 'faulted',
+                pair_attribution: 'fault',
+            })
+            const faulted = evidenceOf(leasedRunId(), leasedRunId())
+            const gaps = (published().acu_gaps as string[]).map(Date.parse)
+            expect(gaps[0]).toBeLessThan(Date.parse(faulted.startedAt as string) - 60_000)
+            expect(Math.max(...gaps)).toBeLessThanOrEqual(Date.parse(String(published().ended_at)))
+        }
+    )
 
     it('calls a paired run invalid and the pair unjudged when the controller finds the run invalid', async () => {
         const { controller } = prepare({

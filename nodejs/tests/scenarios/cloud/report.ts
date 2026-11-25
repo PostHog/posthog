@@ -56,13 +56,14 @@ async function hostScorecardOf(evidence: ReturnType<typeof evidenceOf>, manifest
     const { runId, controlRunId } = manifest
     const paired = manifest.pair === true
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    const saved = await Promise.all(keys.map(async (key) => HostScorecard.parse(parseJSON(await evidence.get(key)))))
-    if (saved.length !== (paired ? 2 : 1)) {
-        const reason = saved.length === 1 ? saved[0].event.pair_reason : undefined
+    const read = async (key: string): Promise<HostScorecard> => HostScorecard.parse(parseJSON(await evidence.get(key)))
+    if (keys.length !== (paired ? 2 : 1)) {
+        const reason = keys.length === 1 ? (await read(keys[0])).event.pair_reason : undefined
         throw new Error(
-            `the host uploaded ${saved.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
+            `the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
         )
     }
+    const saved = await Promise.all(keys.map(read))
     const ranAs = (role: string, id: string | undefined): HostScorecard | undefined =>
         saved.find(({ event }) => event.pair_role === role && event.run_id === id)
     const host = paired ? ranAs('faulted', runId) : saved[0]
@@ -125,7 +126,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
         }
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
-    const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
+    const ends = [...minutes.map(({ at }) => at), ...expected.map((at) => minuteOf(Math.min(Math.max(at, from), to)))]
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
