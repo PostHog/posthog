@@ -20,6 +20,9 @@ import type {
     AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilitySessionsListParams,
+    AiObservabilitySessionsRetrieveParams,
+    AiObservabilitySessionsTurnsRetrieveParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -175,6 +178,12 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
     ScoreHistogramApi,
+    SessionListApi,
+    SessionListItemApi,
+    SessionPageRequestApi,
+    SessionPeopleListApi,
+    SessionPreviewListApi,
+    SessionTurnPageApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TestHogRequestApi,
@@ -209,6 +218,8 @@ import type {
     TraceSentimentListApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
+    TraceTurnListApi,
+    TraceTurnsRequestApi,
     TranslateRequestApi,
     UploadReceiptApi,
     UploadSubmissionApi,
@@ -946,6 +957,152 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     })
 }
 
+export const getAiObservabilitySessionsListUrl = (projectId: string, params?: AiObservabilitySessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/`
+}
+
+/**
+ * The project's sessions that have a trace in a date range, newest activity first, a page at a time. Each
+ * session's facts cover all of it that the AI events retention holds, not only the traces in the range. Titles
+ * and people are the sessions' previews and people.
+ */
+export const aiObservabilitySessionsList = async (
+    projectId: string,
+    params?: AiObservabilitySessionsListParams,
+    options?: RequestInit
+): Promise<SessionListApi> => {
+    return apiMutator<SessionListApi>(getAiObservabilitySessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsTurnsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/${id}/turns/`
+}
+
+/**
+ * The session's traces a page at a time, one per turn, oldest first and in either direction. The session is
+ * read over the AI events retention, or with an older timestamp hint, from just before the hint.
+ */
+export const aiObservabilitySessionsTurnsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsTurnsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionTurnPageApi> => {
+    return apiMutator<SessionTurnPageApi>(getAiObservabilitySessionsTurnsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/${id}/`
+}
+
+/**
+ * One session with its facts, read over the window its turns are read in, for a direct link with no list row
+ * to read it from.
+ */
+export const aiObservabilitySessionsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionListItemApi> => {
+    return apiMutator<SessionListItemApi>(getAiObservabilitySessionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/people/`
+}
+
+/**
+ * The person each session on a page ran for, which is its first trace's person, labeled by the project's
+ * display name properties. A read, sent as a POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPeopleCreate = async (
+    projectId: string,
+    sessionPageRequestApi: SessionPageRequestApi,
+    options?: RequestInit
+): Promise<SessionPeopleListApi> => {
+    return apiMutator<SessionPeopleListApi>(getAiObservabilitySessionsPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionPageRequestApi),
+    })
+}
+
+export const getAiObservabilitySessionsPreviewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/previews/`
+}
+
+/**
+ * The titles of a page of sessions: the user's message each session's first trace answered. A read, sent as a
+ * POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPreviewsCreate = async (
+    projectId: string,
+    sessionPageRequestApi: SessionPageRequestApi,
+    options?: RequestInit
+): Promise<SessionPreviewListApi> => {
+    return apiMutator<SessionPreviewListApi>(getAiObservabilitySessionsPreviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionPageRequestApi),
+    })
+}
+
 export const getAiObservabilityTracesListUrl = (projectId: string, params?: AiObservabilityTracesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1593,6 +1750,26 @@ export const aiObservabilityTracesSentimentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tracePageWithBoundsRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesTurnsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/turns/`
+}
+
+/**
+ * The turns of a page of traces: what each trace added to its conversation, with the answer it gave.
+ */
+export const aiObservabilityTracesTurnsCreate = async (
+    projectId: string,
+    traceTurnsRequestApi: TraceTurnsRequestApi,
+    options?: RequestInit
+): Promise<TraceTurnListApi> => {
+    return apiMutator<TraceTurnListApi>(getAiObservabilityTracesTurnsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceTurnsRequestApi),
     })
 }
 

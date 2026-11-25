@@ -801,8 +801,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `metric_uses_feature_flag_called` names each metric that reads `$feature_flag_called`
  * events, in the `evidence` keys `metric_N` and `metric_N_role`. PostHog is reducing how long
  * it keeps these events, so the fix is to read `$experiment_exposure` instead. It is a warning
- * when a primary metric reads them and info otherwise, and it stops at the end. A metric that
- * matches the event through an action step isn't found.
+ * when a primary metric reads them and info otherwise. It runs only on PostHog Cloud, and not
+ * after the end or on an archived experiment. A metric that matches the event through an
+ * action step isn't found.
  *
  * A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
  * after its start date, when the daily calculation leaves it out, with `days_running` from the

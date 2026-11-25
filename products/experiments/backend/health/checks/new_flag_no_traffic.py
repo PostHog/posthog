@@ -20,6 +20,7 @@ from products.experiments.backend.health.skips import (
     FLAG_DELETED,
     NO_FLAG,
     NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
     RUNS_BEFORE_LAUNCH,
     CheckOutcome,
     CheckValues,
@@ -29,7 +30,7 @@ from products.experiments.backend.health.skips import (
 
 
 def new_flag_no_traffic_values(ctx: HealthContext) -> CheckValues:
-    if ctx.archived or ctx.is_launched:
+    if ctx.archived or ctx.is_launched or ctx.warehouse_native_exposures:
         return {}
     values: dict[ExperimentHealthValueKey, bool | str] = {}
     if ctx.flag_called is not None:
@@ -45,6 +46,9 @@ def new_flag_no_traffic(ctx: HealthContext) -> CheckOutcome:
     # After launch, the zero exposures check reports an experiment without traffic.
     if ctx.is_launched:
         return not_applicable(RUNS_BEFORE_LAUNCH)
+    # The warehouse rows count the users, so a flag without calls doesn't leave the run empty.
+    if ctx.warehouse_native_exposures:
+        return not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES)
     if ctx.flag is None:
         return not_applicable(NO_FLAG)
     if ctx.flag.deleted:

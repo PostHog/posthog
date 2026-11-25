@@ -43,6 +43,7 @@ RUNNING_CONTEXT = HealthContext(
     daily_calculation_ends_at=None,
     metric_events=(),
     flag_calls_kept_shorter=True,
+    warehouse_native_exposures=False,
     exposure_events=ExposureEvents(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
     ),

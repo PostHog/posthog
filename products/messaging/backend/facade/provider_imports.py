@@ -24,7 +24,6 @@ from products.messaging.backend.provider_imports.base import (
     ImportCredentialsConflict,
     ImportCredentialsInvalid,
     ImportCredentialsMissing,
-    ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
 )
@@ -150,6 +149,7 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
                     counts_as_events=spec.counts_as_events,
                 )
                 for spec in provider.steps
+                if _flag_enabled(spec.feature_flag, team_uuid, organization_id)
             ),
             retains_credentials=provider.retains_credentials,
             api_key_label=provider.api_key_label,
@@ -169,15 +169,15 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             ),
         )
         for provider in PROVIDERS.values()
-        if _provider_enabled(provider, team_uuid, organization_id)
+        if _flag_enabled(provider.feature_flag, team_uuid, organization_id)
     ]
 
 
-def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id: str) -> bool:
-    if provider.feature_flag is None:
+def _flag_enabled(feature_flag: str | None, team_uuid: str, organization_id: str) -> bool:
+    if feature_flag is None:
         return True
     return feature_enabled_or_false(
-        provider.feature_flag,
+        feature_flag,
         team_uuid,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
