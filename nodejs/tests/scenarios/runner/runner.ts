@@ -61,7 +61,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
-import { JudgedRun, Offered, ScorecardPair, controlOf, pairOf } from './pair'
+import { JudgedRun, Offered, PairRole, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -512,18 +512,19 @@ export function createRunner(
     }
 
     const stage = {
-        async judge(loaded: LoadedCard, signal: AbortSignal): Promise<Judged> {
+        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
             const { card, profile } = loaded
-            if (manifest && ranManifest) {
+            const ownsManifest = manifest !== undefined && role !== 'control'
+            if (ownsManifest && ranManifest) {
                 throw new Error(
                     `This runner already ran run ${manifest.runId} from its run manifest; a run host runs one card per manifest.`
                 )
             }
-            ranManifest = manifest !== undefined
-            const runId = manifest?.runId ?? randomUUID()
+            ranManifest ||= ownsManifest
+            const runId = ownsManifest ? manifest.runId : randomUUID()
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)
@@ -876,7 +877,7 @@ export function createRunner(
         },
 
         async runPair(loaded, signal) {
-            const control = await stage.judge(controlOf(loaded), signal)
+            const control = await stage.judge(controlOf(loaded), signal, 'control')
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))

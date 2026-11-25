@@ -22,6 +22,7 @@ export type Manifest = {
     schedules: string[]
     inputs: Record<string, string>
     card: string
+    pair?: boolean
     readerIdleMaxAcu?: number
     readerMinAcu?: number
 }
@@ -230,11 +231,12 @@ const HostManifest = StoredManifest.extend({
     account: z.string(),
     readerIdleMaxAcu: z.number().positive().optional(),
     readerMinAcu: z.number().nonnegative().optional(),
+    pair: z.boolean().optional(),
 })
 
 export type RunManifest = Pick<
     Manifest,
-    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu'
+    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu' | 'pair'
 >
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
