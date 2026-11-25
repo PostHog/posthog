@@ -45,7 +45,7 @@ The secret is the Django setting `VERCEL_CLIENT_INTEGRATION_SECRET`.
 The marketplace App holds one webhook URL, registered against the secondary region (US), so `receiving_region_domain()` is overridden and the forward runs to the primary region (EU).
 Vercel is the only provider here that does that.
 
-Every event type declares ownership, because each is processed by the region that holds the installation: only there does the billing manager find the `Organization` a billing call needs, only there is there an installation to delete, and only there is the access token a transfer refresh calls Vercel with.
+Every event type declares ownership, because each is processed by the region that holds the installation: only there does the billing manager find the `Organization` a billing call needs, only there is there an installation to delete, and only there is the installation record a transfer refresh reads.
 The ownership lookup reads `OrganizationIntegration` by kind and integration id, which is a scan of a small table rather than an indexed point lookup, so it runs under `bounded_statement_timeout`.
 
 A bad signature answers 401, and so does a missing secret.

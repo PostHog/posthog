@@ -1,4 +1,4 @@
-import { CSSProperties } from 'react'
+import { CSSProperties, useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -49,6 +49,15 @@ export function NotebookAppCanvas({
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
+    const cellsById = useMemo(() => {
+        const index = new Map<string, NotebookBlockNode>()
+        for (const cell of cells) {
+            if (!index.has(cell.id)) {
+                index.set(cell.id, cell)
+            }
+        }
+        return index
+    }, [cells])
     const blocks = layout.blocks.filter((block) => block.tab_id === activeTab)
     return (
         <div className="NotebookAppBuilder__grid" data-attr="notebook-app-canvas">
@@ -146,7 +155,7 @@ export function NotebookAppCanvas({
                         )}
                         <NotebookAppBlock
                             block={block}
-                            cell={cells.find((cell) => cell.id === block.node_id)}
+                            cell={cellsById.get(block.node_id ?? '')}
                             stale={!!staleNodeIds[block.node_id || '']}
                             onSource={!editing ? onSource : undefined}
                             variables={variables}

@@ -52,6 +52,13 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 f"<style>p{{}}</style><p>{ESCAPED_X}</p>",
             ),
             (
+                "whole_unquoted_attributes",
+                "handlebars",
+                "<a href={{x}} title=%recipient.x%><a href=%unsubscribe_url%>",
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{{ variables.x | join: &quot;,&quot; }}">'
+                '<a href="{{ unsubscribe_url }}">',
+            ),
+            (
                 "in_the_title_and_after_a_script",
                 "handlebars",
                 "<title>{{x}}</title><script>a</script><p>{{x}}</p>",
@@ -73,7 +80,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("helper", "{{lookup a b}}", "{{lookup a b}}"),
             ("parent_path_at_the_top", "{{../x}}", "{{../x}}"),
             ("sendgrid_helper", '{{formatDate x "YYYY"}}', '{{formatDate x "YYYY"}}'),
-            ("unquoted_attribute", "<a href={{x}}>", "{{x}}"),
+            ("part_of_an_unquoted_attribute", "<a href=/{{x}}>", "{{x}}"),
+            ("start_of_an_unquoted_attribute", "<a href={{x}}/a>", "{{x}}"),
+            ("raw_unquoted_attribute", "<a href={{{x}}}>", "{{{x}}}"),
+            ("unquoted_event_handler", "<a onclick={{x}} >", "{{x}}"),
+            ("unquoted_attribute_after_a_script_comment", "<script><!--</script><a href={{x}}>", "{{x}}"),
             ("attribute_name", '<a {{x}}="y">', "{{x}}"),
             ("event_handler", '<a onclick="{{x}}">', "{{x}}"),
             ("style_attribute", '<p style="color: {{x}}">', "{{x}}"),
