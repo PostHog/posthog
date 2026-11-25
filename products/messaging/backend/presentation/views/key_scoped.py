@@ -28,12 +28,12 @@ from products.messaging.backend.facade.transactional_email import (
     transactional_email_stage,
 )
 from products.messaging.backend.presentation.views.attachment_uploads import MessagingAttachmentsViewSet
+from products.messaging.backend.presentation.views.batch_outcome import batch_outcome
 from products.messaging.backend.presentation.views.email_batch import (
     BATCH_BODY_MAX_BYTES,
     EMAIL_BATCH_RESPONSES,
     SendEmailBatchSerializer,
     batch_too_large,
-    email_batch_outcome,
     email_batch_response,
     unconfirmed_batch,
 )
@@ -143,7 +143,7 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
     def _report_batch(self, request: Any, sent: EmailBatchSent, usage_properties: dict[str, Any]) -> None:
         with transactional_email_stage("usage_event"):
             for result in sent.results:
-                self._report_transactional_email_send(request, {**usage_properties, **email_batch_outcome(result)})
+                self._report_transactional_email_send(request, {**usage_properties, **batch_outcome(result)})
         if any(isinstance(result, QueuedEmail) and not result.replayed for result in sent.results):
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
 

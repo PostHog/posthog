@@ -839,7 +839,7 @@ class TestTransactionalPushBatchSend(APIBaseTest):
         base = base.format(team_id=self.team.id)
 
         def answer(route: str) -> int:
-            body = {"template_id": str(self.template.id), "distinct_id": "u", "to": "a@example.com"}
+            body: dict[str, Any] = {"template_id": str(self.template.id), "distinct_id": "u", "to": "a@example.com"}
             if route == "push_batch":
                 body = {"template_id": str(self.template.id), "recipients": self._recipients(2)}
             return self.psak.post(f"{base}{route}/", body, format="json").status_code
