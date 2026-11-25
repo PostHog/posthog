@@ -325,13 +325,8 @@ export const ToolConfigSchema = z
                  * Defaults to the tool's title if omitted.
                  */
                 action_label: z.string().optional(),
-                /**
-                 * Module under `src/tools/` that default-exports a `ConfirmedActionPreviewLoader`.
-                 * Prepare puts its text in the message at `{preview}`, and execute refuses when its
-                 * fingerprint changed in between.
-                 */
+                // See `preview` in definitions/README.md.
                 preview: z.string().optional(),
-                /** Body field that carries the preview's `digest`, for an API that compares it under its own lock. */
                 preview_digest_param: z.string().optional(),
             })
             .strict()

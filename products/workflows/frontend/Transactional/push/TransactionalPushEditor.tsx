@@ -2,22 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
-import { CyclotronJobInputIntegrationMulti } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationMulti'
-
-import { CyclotronJobInputSchemaType } from '~/types'
-
-import { PushChannelsSetupWarning } from './PushChannelsSetupWarning'
+import { PushChannelsField } from './PushChannelsField'
 import { transactionalPushLogic } from './transactionalPushLogic'
 import { TransactionalPushPreview } from './TransactionalPushPreview'
 import { TransactionalPushTestSend } from './TransactionalPushTestSend'
-
-const CHANNELS_SCHEMA: CyclotronJobInputSchemaType = {
-    key: 'channels',
-    type: 'integration_multi',
-    integration: 'firebase,apns',
-    label: 'Push channels',
-    required: true,
-}
 
 export function TransactionalPushEditor({ id }: { id: string }): JSX.Element {
     const { draft, dataError, variables, transactionalHogFlowId } = useValues(transactionalPushLogic({ id }))
@@ -26,17 +14,7 @@ export function TransactionalPushEditor({ id }: { id: string }): JSX.Element {
     return (
         <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2">
             <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1">
-                    <LemonLabel info="Each person gets the notification on every device they registered with these apps.">
-                        Send through
-                    </LemonLabel>
-                    <CyclotronJobInputIntegrationMulti
-                        schema={CHANNELS_SCHEMA}
-                        value={draft.channels}
-                        onChange={(channels) => setDraft({ channels })}
-                    />
-                    <PushChannelsSetupWarning channels={draft.channels} />
-                </div>
+                <PushChannelsField channels={draft.channels} onChange={(channels) => setDraft({ channels })} />
                 <div className="flex flex-col gap-1">
                     <LemonLabel
                         htmlFor="transactional-push-title"

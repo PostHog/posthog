@@ -79,17 +79,15 @@ export const CONFIRMATION_WORD_ARG = 'confirmation'
  */
 export type ConfirmedActionScope = Record<string, string>
 
-/** What the action works on, read from the server when the confirmation is made. */
 export interface ConfirmedActionPreview {
     /** Replaces `{preview}` in the message. The loader escapes anything in it that a person wrote. */
     text: string
-    /** Covers everything the user confirms, also the parts that `text` shows cut. */
     fingerprint: string
     /** Sent to the API as `preview_digest_param`, which refuses the request when its own digest differs. */
     digest?: string
 }
 
-/** Declared per tool with `confirmed_action.preview`. A loader that throws stops the prepare or the execute. */
+// A loader that throws stops the prepare or the execute.
 export type ConfirmedActionPreviewLoader<P> = (
     context: Context,
     params: P,
@@ -122,7 +120,6 @@ export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>
      * scope.
      */
     boundScope?: ConfirmedActionScope
-    /** Shown in the message, and compared at execute time. */
     preview?: ConfirmedActionPreview
 }
 
@@ -266,7 +263,6 @@ export interface ExecuteConfirmedActionOptions {
      * actions prepared without a `boundScope`.
      */
     expectedScope?: ConfirmedActionScope
-    /** Reads the preview again from the signed args. A fingerprint other than the prepared one refuses. */
     loadPreview?: (args: Record<string, unknown>) => Promise<ConfirmedActionPreview>
 }
 
@@ -437,7 +433,6 @@ function refusePreviewChanged(purpose: string): { ok: false; result: ToolErrorRe
     )
 }
 
-/** Turns the API's answer to a digest that no longer matches into the refusal a changed preview gets. */
 export async function refuseChangedPreview<T>(purpose: string, request: () => Promise<T>): Promise<T> {
     try {
         return await request()
