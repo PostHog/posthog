@@ -184,7 +184,6 @@ export const todayHomeLogic = kea<todayHomeLogicType>([
                         // Pinned records drop out of Recents, so ask for enough to still fill the shown count.
                         return await loadRecentsPage(values.shownCounts.recents + values.pinnedRows.length)
                     } catch {
-                        // Recents are a side list, so a failed load keeps the current list instead of showing an error toast.
                         return values.recentsPage
                     }
                 },
@@ -239,7 +238,6 @@ export const todayHomeLogic = kea<todayHomeLogicType>([
                 )
             },
         ],
-        /** A search shows every match, so no match hides behind "Show more". */
         shownPinnedRows: [
             (s) => [s.matchingPinnedRows, s.shownCounts, s.isSearching],
             (rows: HomeObjectRow[], shownCounts: Record<TodayHomeSection, number>, isSearching: boolean) =>
@@ -282,7 +280,6 @@ export const todayHomeLogic = kea<todayHomeLogicType>([
                 matchingPinnedRows.length === 0 &&
                 matchingRecentRows.length === 0,
         ],
-        /** A search opens every section, so no match hides in a collapsed one. */
         isSectionOpen: [
             (s) => [s.collapsedSections, s.isSearching],
             (collapsedSections: TodayHomeSection[], isSearching: boolean) =>

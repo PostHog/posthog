@@ -77,9 +77,7 @@ export function ReportDetailToolbar({
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {pullRequest && <OpenPullRequestButton report={report} pullRequest={pullRequest} />}
                 {implementAction}
-                {/* Discuss is always available and stays inline as its own dropdown button. */}
                 <DiscussReportButton report={report} reportUrl={reportUrl} />
-                {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                 <div className="hidden @4xl:flex items-center gap-2">
                     {reportActions.map((action) => (
                         <LemonButton

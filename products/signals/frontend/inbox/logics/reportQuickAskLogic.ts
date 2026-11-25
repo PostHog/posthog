@@ -42,7 +42,6 @@ export interface ReportPrAiAction {
 // don't read as one, short enough that a heavy rewrite around a kept phrase still does.
 const RECOGNIZABLE_RUN = 10
 
-/** Whether a submitted draft is still the suggestion it was filled from, rather than a fresh question. */
 function isEditOf(draft: string, suggestion: string): boolean {
     if (draft.length < RECOGNIZABLE_RUN || suggestion.length < RECOGNIZABLE_RUN) {
         return draft === suggestion

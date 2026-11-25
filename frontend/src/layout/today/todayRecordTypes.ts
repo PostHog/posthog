@@ -17,10 +17,6 @@ const WORKFLOW: TodayRecordType = {
     description: 'A workflow. Open it to see its steps, runs, and metrics.',
 }
 
-/**
- * Every record type a rail pane lists, keyed by its file system type, so a record reads the same in each pane that
- * shows it. A pane only adds the types it claims; Home lists them all.
- */
 const TODAY_RECORD_TYPES: Record<string, TodayRecordType> = {
     person: {
         label: 'Person',

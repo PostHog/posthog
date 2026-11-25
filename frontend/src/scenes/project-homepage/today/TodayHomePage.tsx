@@ -8,7 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { useTodayHomePaneEnabled } from '~/layout/today/todayPaneFlags'
+import { useTodayHomePaneEnabled } from '~/layout/today/useTodayHomePaneEnabled'
 
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 

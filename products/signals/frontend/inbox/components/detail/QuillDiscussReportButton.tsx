@@ -68,14 +68,10 @@ export function QuillDiscussReportButton({
                                 {suggestions.map((suggestion) => (
                                     <Button
                                         key={suggestion}
-                                        // Outlined: above a textarea, rows with no border read as a bulleted list,
-                                        // not as buttons.
                                         variant="outline"
                                         left
                                         className="h-auto w-full py-1.5 text-left whitespace-normal"
                                         onClick={() => {
-                                            // Fills the box and stops, so a mis-click costs nothing and a nearly
-                                            // right suggestion can be edited before it spends a run.
                                             fillFromSuggestion(suggestion)
                                             textAreaRef.current?.focus()
                                         }}
@@ -101,8 +97,6 @@ export function QuillDiscussReportButton({
                                 placeholder={placeholder}
                                 maxLength={REPORT_DISCUSSION_QUESTION_MAX_LENGTH}
                                 rows={3}
-                                // Focus scrolls the textarea into view, which on a short viewport hides the
-                                // suggestions above it.
                                 autoFocus={suggestions.length === 0}
                             />
                             <FieldDescription>Enter to ask, Shift + Enter for a new line</FieldDescription>

@@ -23,6 +23,15 @@ const TODAY_TAB_ICONS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Discussion]: IconChat,
 }
 
+const PRESSED_CLASS = 'aria-pressed:bg-[var(--fill-selected)] aria-pressed:text-foreground'
+// PostHog AI is the bar's main way in, so it names itself. The other tabs stay icons.
+const AI_TAB_BUTTON = { variant: 'outline', size: 'default', className: PRESSED_CLASS } as const
+const ICON_TAB_BUTTON = {
+    variant: 'default',
+    size: 'icon',
+    className: cn(PRESSED_CLASS, 'text-muted-foreground hover:text-foreground'),
+} as const
+
 export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element {
     const { activeTab, docked, floatingOpen, launcherHintVisible } = useValues(todayContextPanelLogic)
     const { togglePanelTab, hideLauncherHint } = useActions(todayContextPanelLogic)
@@ -58,15 +67,9 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                     delay={0}
                     render={
                         <Button
-                            // PostHog AI is the bar's main way in, so it names itself. The other tabs stay icons.
-                            variant={isAi ? 'outline' : 'default'}
-                            size={isAi ? 'default' : 'icon'}
+                            {...(isAi ? AI_TAB_BUTTON : ICON_TAB_BUTTON)}
                             aria-label={countLabel ? `${label}, ${countLabel}` : label}
                             aria-pressed={pressed}
-                            className={cn(
-                                'aria-pressed:bg-[var(--fill-selected)] aria-pressed:text-foreground',
-                                !isAi && 'text-muted-foreground hover:text-foreground'
-                            )}
                             onClick={() => togglePanelTab(tab)}
                             // pinned: the PostHog AI button keeps the side panel button's data-attr
                             data-attr={

@@ -25,7 +25,6 @@ interface TodayHomeRowSpec {
 function homeTopSpecs(): TodayHomeRowSpec[] {
     return [
         { key: 'today', label: 'Today', href: urls.projectHomepage(), navHref: urls.projectRoot(), section: '/' },
-        // Named like the inbox's own title and breadcrumb.
         {
             key: 'inbox-reports',
             label: sceneConfigurations[Scene.Inbox].name ?? 'Self-driving inbox',

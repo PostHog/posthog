@@ -13,10 +13,6 @@ import { prFilesUrl } from '../../utils/reportPresentation'
 import { QuillDiscussReportButton } from './QuillDiscussReportButton'
 import { ReportDetailToolbarProps } from './ReportDetailToolbar'
 
-/**
- * The report page's scene title under the new navigation: the trail back to the inbox, the report's title, and its
- * actions. The trail takes its parent from the inbox's breadcrumbs, so only a `?back=` link passes one.
- */
 export function QuillReportDetailHeader({
     report,
     reportUrl,
@@ -78,7 +74,6 @@ export function QuillReportDetailHeader({
                                 key={action.key}
                                 variant={action.primary ? 'primary' : 'outline'}
                                 loading={action.loading}
-                                // A disabled action explains only why it's unavailable, not what it would do.
                                 tooltip={action.disabledReason ? undefined : action.tooltip}
                                 disabledReason={action.disabledReason}
                                 onClick={action.onClick}
@@ -88,7 +83,6 @@ export function QuillReportDetailHeader({
                             </Button>
                         ))}
                     </div>
-                    {/* A resolved report past its refund window has no secondary actions at all. */}
                     {reportActions.length > 0 && (
                         <DropdownMenu>
                             <DropdownMenuTrigger

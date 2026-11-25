@@ -16,7 +16,6 @@ const PAGE_START_OPACITY = 0.5
 // An ease-out cubic: it settles gradually, where a steeper curve lands all at once and reads as a jolt.
 const EASE_OUT = 'cubic-bezier(0.215, 0.61, 0.355, 1)'
 
-/** 1 when the next pane sits lower on the rail, -1 when higher, 0 when it is the same pane. */
 export function paneTransitionDirection(previous: TodayRailPane, next: TodayRailPane): -1 | 0 | 1 {
     const delta = RAIL_ORDER.indexOf(next) - RAIL_ORDER.indexOf(previous)
     return delta === 0 ? 0 : delta > 0 ? 1 : -1
