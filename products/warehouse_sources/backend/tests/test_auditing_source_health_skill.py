@@ -29,7 +29,7 @@ def _section() -> str:
     "instruction",
     [
         "compare `last_checked_at` with `sync_frequency`",
-        "A null `sync_frequency` means the frequency is `never`",
+        "no sync frequency, the sync cannot be scheduled",
     ],
 )
 def test_staleness_section_gives_the_instruction(instruction: str) -> None:
