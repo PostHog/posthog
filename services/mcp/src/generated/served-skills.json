@@ -61,6 +61,9 @@
             "audience": "customer",
             "feature_flag": "today-rail-nav"
         },
+        "building-loops": {
+            "audience": "customer"
+        },
         "building-notebook-apps": {
             "audience": "customer",
             "feature_flag": "notebook-app-builder"
@@ -519,6 +522,12 @@
             "audience": "customer"
         },
         "working-with-skills": {
+            "audience": "customer"
+        },
+        "working-with-task-comments": {
+            "audience": "customer"
+        },
+        "writing-simplified-technical-english": {
             "audience": "customer"
         },
         "writing-streamlit-apps": {
