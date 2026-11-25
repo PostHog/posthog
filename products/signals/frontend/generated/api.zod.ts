@@ -5588,11 +5588,11 @@ export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.o
     source_product: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
-        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     source_type: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
-        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     expression: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
@@ -5602,6 +5602,44 @@ export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.o
     scope_ids: zod
         .array(zod.string().max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax))
         .max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax)
+        .nullish()
+        .describe(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
+        ),
+})
+
+/**
+ * Check whether a filter expression can be saved as the source's filter, and where it is invalid when it cannot. Checks the expression against the source's active catalog only: reads no warehouse records and works before the source is connected or synced. An empty expression is valid. Saves nothing.
+ * @summary Validate a source filter
+ */
+export const signalsSourceConfigsFilterValidateCreateBodySourceProductMax = 100
+
+export const signalsSourceConfigsFilterValidateCreateBodySourceTypeMax = 100
+
+export const signalsSourceConfigsFilterValidateCreateBodyExpressionMax = 16384
+
+export const signalsSourceConfigsFilterValidateCreateBodyScopeIdsItemMax = 255
+
+export const signalsSourceConfigsFilterValidateCreateBodyScopeIdsMax = 100
+
+export const SignalsSourceConfigsFilterValidateCreateBody = /* @__PURE__ */ zod.object({
+    source_product: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodySourceProductMax)
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
+    source_type: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodySourceTypeMax)
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
+    expression: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodyExpressionMax)
+        .describe(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
+    scope_ids: zod
+        .array(zod.string().max(signalsSourceConfigsFilterValidateCreateBodyScopeIdsItemMax))
+        .max(signalsSourceConfigsFilterValidateCreateBodyScopeIdsMax)
         .nullish()
         .describe(
             "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
