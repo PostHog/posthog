@@ -425,6 +425,16 @@ def test_sides_match_the_anchor_after_repeated_earlier_messages() -> None:
     assert [m.role for m in messages_of(sides.input)] == ["user", "assistant"]
 
 
+def test_sides_match_an_anchor_that_starts_by_repeating_itself() -> None:
+    hi, refund = text_message("user", "hi"), text_message("user", "refund?")
+    first = reading(at_node("gen-1", hi, hi, refund))
+    latest_input = at_node("gen-2", hi, hi, hi, refund, tool_call_message())
+
+    sides = sides_of(first=first, latest_input=latest_input, latest=reading(latest_input))
+
+    assert [m.role for m in messages_of(sides.input)] == ["user", "user", "user", "assistant"]
+
+
 def test_sides_fall_back_when_latest_does_not_share_history() -> None:
     first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?")))
     summarizer_input = at_node("gen-9", text_message("user", "summarize this"))

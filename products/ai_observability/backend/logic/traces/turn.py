@@ -223,14 +223,34 @@ def _anchor_start(messages: list[contracts.TraceMessage]) -> int | None:
 
 def _last_run_start(messages: list[contracts.TraceMessage], run: list[contracts.TraceMessage]) -> int | None:
     """Where `run` last appears in `messages`, comparing role and parts, since ids differ between generations."""
-    return next(
-        (
-            start
-            for start in reversed(range(len(messages) - len(run) + 1))
-            if all(_same_message(messages[start + offset], message) for offset, message in enumerate(run))
-        ),
-        None,
-    )
+    if not run:
+        return len(messages)
+    # Each message is compared a bounded number of times, so repetitive input cannot outlast the page's deadline.
+    restarts = _restarts(run)
+    last_start: int | None = None
+    matched = 0
+    for index, message in enumerate(messages):
+        while matched and not _same_message(message, run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(message, run[matched]):
+            matched += 1
+        if matched == len(run):
+            last_start = index - len(run) + 1
+            matched = restarts[matched - 1]
+    return last_start
+
+
+def _restarts(run: list[contracts.TraceMessage]) -> list[int]:
+    """For each prefix of `run`, how many of its last messages repeat its first ones, where a failed match resumes."""
+    restarts = [0] * len(run)
+    matched = 0
+    for index in range(1, len(run)):
+        while matched and not _same_message(run[index], run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(run[index], run[matched]):
+            matched += 1
+        restarts[index] = matched
+    return restarts
 
 
 def _same_message(a: contracts.TraceMessage, b: contracts.TraceMessage) -> bool:
