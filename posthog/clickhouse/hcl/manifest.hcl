@@ -135,11 +135,11 @@ role "batch_exports" {
 # sharded_flag_evaluations, the Kafka consumer and the MV that fills it, plus the
 # flag_evaluations read table. The data nodes read it through that table, so prod data
 # points it at this cluster (roles/data/prod). Dev is not modeled: no flags cluster is
-# confirmed there, and dev data keeps the storage table. The local flags node keeps only
-# what NodeRole.ALL migrations create, because migration 0394 leaves the storage on data
-# and the consumer on medium outside prod.
+# confirmed there, and dev data keeps the storage table. The local flags node holds no
+# objects, because migration 0394 leaves the storage on data and the consumer on medium
+# outside prod.
 role "flags" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl"] }
+  env "local-multi" { layers = ["roles/flags/local"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
 }
@@ -167,10 +167,10 @@ role "ingestion_events" {
 }
 
 # EVENTS cluster: the storage shards behind the events_json read path. Only the local node
-# is modeled. It keeps only what NodeRole.ALL migrations create, because the events_json
-# storage stays on the local data node.
+# is modeled. It holds no objects, because the events_json storage stays on the local
+# data node.
 role "events" {
-  env "local-multi" { layers = ["roles/shared/qla.hcl"] }
+  env "local-multi" { layers = ["roles/events/local"] }
 }
 
 role "ingestion_small" {
