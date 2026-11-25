@@ -26,6 +26,8 @@ function page(results: PlatformAlertConfigurationApi[]): Awaited<ReturnType<type
     return { count: results.length, next: null, previous: null, results }
 }
 
+const RELOADED_PAGE = page([{ ...CONFIGURATION, id: 'configuration-reloaded' }])
+
 describe('platformAlertsLogic', () => {
     let logic: ReturnType<typeof platformAlertsLogic.build>
 
@@ -36,7 +38,7 @@ describe('platformAlertsLogic', () => {
         logic = platformAlertsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        mockList.mockClear()
+        mockList.mockResolvedValue(RELOADED_PAGE)
         jest.useFakeTimers()
     })
 
@@ -51,38 +53,38 @@ describe('platformAlertsLogic', () => {
     ])('reloads the list when %s ends, so its mute marker goes', async (_, snoozed) => {
         const inAMinute = dayjs().add(1, 'minute').toISOString()
         const later = dayjs().add(1, 'day').toISOString()
-        logic.actions.loadConfigurationsSuccess(
-            page([snoozed(inAMinute), { ...CONFIGURATION, id: 'configuration-2', snooze_until: later }])
-        )
+        const snoozedPage = page([snoozed(inAMinute), { ...CONFIGURATION, id: 'configuration-2', snooze_until: later }])
+        logic.actions.loadConfigurationsSuccess(snoozedPage)
 
         jest.advanceTimersByTime(59_000)
-        expect(mockList).not.toHaveBeenCalled()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.configurationsPage).toEqual(snoozedPage)
 
         jest.advanceTimersByTime(2_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values.configurationsPage).toEqual(RELOADED_PAGE)
     })
 
     it('waits out a snooze longer than the timer limit before it reloads', async () => {
         const inThirtyDays = dayjs().add(30, 'day')
-        logic.actions.loadConfigurationsSuccess(page([{ ...CONFIGURATION, snooze_until: inThirtyDays.toISOString() }]))
+        const snoozedPage = page([{ ...CONFIGURATION, snooze_until: inThirtyDays.toISOString() }])
+        logic.actions.loadConfigurationsSuccess(snoozedPage)
 
         jest.advanceTimersByTime(inThirtyDays.diff(dayjs()) - 1_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.configurationsPage).toEqual(snoozedPage)
 
         jest.advanceTimersByTime(2_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values.configurationsPage).toEqual(RELOADED_PAGE)
     })
 
     it('arms no reload when no snooze is active', async () => {
-        logic.actions.loadConfigurationsSuccess(
-            page([{ ...CONFIGURATION, snooze_until: dayjs().subtract(1, 'minute').toISOString() }])
-        )
+        const endedPage = page([{ ...CONFIGURATION, snooze_until: dayjs().subtract(1, 'minute').toISOString() }])
+        logic.actions.loadConfigurationsSuccess(endedPage)
 
         jest.advanceTimersByTime(24 * 60 * 60 * 1000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.configurationsPage).toEqual(endedPage)
     })
 })
