@@ -60,7 +60,8 @@ import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQue
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
-import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsBackLink'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
+import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsParentBreadcrumb'
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -4810,9 +4811,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ): Breadcrumb[] => {
                 const backUrl = searchParams.backUrl as string | undefined
                 const backName = searchParams.backName as string | undefined
-                const analyticsParent = analyticsParentBreadcrumb(searchParams, featureFlags, 'dashboard')
                 // A back link from another page, such as a flag's usage dashboard, wins over the Analytics list.
-                const otherBackUrl = backUrl && backUrl !== analyticsParent?.path ? backUrl : undefined
+                const otherBackUrl = backUrl && !analyticsBackLink(searchParams, featureFlags) ? backUrl : undefined
                 return [
                     otherBackUrl
                         ? {
@@ -4821,7 +4821,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               path: otherBackUrl,
                               iconType: 'dashboard',
                           }
-                        : (analyticsParent ?? {
+                        : analyticsParentBreadcrumb(searchParams, featureFlags, {
                               key: Scene.Dashboards,
                               name: 'Dashboards',
                               path: urls.dashboards(),
