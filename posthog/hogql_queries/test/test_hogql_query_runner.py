@@ -40,7 +40,11 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
-from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
+from posthog.hogql_queries.hogql_query_runner import (
+    API_SQL_WINDOW_CACHE_AGE_FLAG,
+    HogQLQueryRunner,
+    range_based_freshness,
+)
 from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
@@ -740,6 +744,38 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert CACHE_ENTRY_FRESHNESS_KEY not in runner._cache_entry_with_freshness({})
 
 
+class TestHogQLQueryRunnerRangeFreshness(BaseTest):
+    @parameterized.expand(
+        [
+            ("week_range_outlives_the_minute_rule", True, "-7d", timedelta(minutes=10), False),
+            ("week_range_expires_on_the_day_rule", True, "-7d", timedelta(hours=7), True),
+            ("hour_range_keeps_the_minute_rule", True, "-1h", timedelta(minutes=10), True),
+            ("day_range_uses_the_hour_rule", True, "-1d", timedelta(minutes=30), False),
+            ("year_range_uses_the_week_rule", True, "-180d", timedelta(hours=12), False),
+            ("absolute_range_keeps_the_minute_rule", True, "2026-10-01", timedelta(minutes=10), True),
+            ("overflowing_range_keeps_the_minute_rule", True, "-1000000d", timedelta(minutes=10), True),
+            ("outside_the_batch_keeps_the_minute_rule", False, "-7d", timedelta(minutes=10), True),
+        ]
+    )
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_relative_range_sets_staleness_only_under_range_based_freshness(
+        self, _name: str, in_batch: bool, date_from: str, age: timedelta, expected_stale: bool
+    ) -> None:
+        query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from=date_from)))
+        if in_batch:
+            with range_based_freshness():
+                runner = HogQLQueryRunner(team=self.team, query=query)
+        else:
+            runner = HogQLQueryRunner(team=self.team, query=query)
+        last_refresh = datetime(2026, 10, 29, 15, 0, tzinfo=UTC) - age
+
+        assert runner._is_stale_for_request(last_refresh=last_refresh) == expected_stale
+        assert (
+            runner.cache_target_age(last_refresh)
+            == last_refresh + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
+        )
+
+
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
     @parameterized.expand(
         [
@@ -771,6 +807,21 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
             stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10), lazy=lazy)
         assert stale is expected_stale
+
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_entry_window_age_overrides_the_range_rule(self) -> None:
+        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
+        window = SqlFreshness(
+            window=SqlWindowClass.UP_TO_NOW_LONG,
+            fresh_until=now + timedelta(hours=1),
+            reason=FreshnessReason.WINDOW_AGE,
+        )
+        query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from="-180d")))
+        last_refresh = now - timedelta(minutes=10)
+        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"), range_based_freshness():
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            runner._read_cache_entry_freshness(freshness_record(window))
+            assert runner.range_target_age(last_refresh) == runner.cache_target_age(last_refresh)
 
     def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
         with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):
