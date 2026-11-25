@@ -185,7 +185,11 @@ def _source_created_via(table: DataWarehouseTable) -> str | None:
     return table.created_via if table.created_via in ExternalDataSourceCreatedVia.values else None
 
 
-def create_source_for_upload(table: DataWarehouseTable, job_inputs: dict[str, Any]) -> ExternalDataSource:
+def create_source_for_upload(
+    table: DataWarehouseTable,
+    job_inputs: dict[str, Any],
+    connection_metadata: dict[str, Any] | None = None,
+) -> ExternalDataSource:
     source = SourceInputsStore.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
@@ -199,6 +203,7 @@ def create_source_for_upload(table: DataWarehouseTable, job_inputs: dict[str, An
         access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         created_by=table.created_by,
         created_via=_source_created_via(table),
+        connection_metadata=connection_metadata or {},
     )
     ExternalDataSourceDestination.objects.for_team(table.team_id).create(
         team_id=table.team_id, source_id=source.pk, destination=get_or_create_warehouse_destination(table.team_id)
