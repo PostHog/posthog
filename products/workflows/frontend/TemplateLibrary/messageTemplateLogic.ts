@@ -71,6 +71,18 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
+function preserveNewerSettings(incoming: MessageTemplate, loaded: MessageTemplate): MessageTemplate {
+    if (loaded.updated_at && incoming.updated_at && dayjs(incoming.updated_at).isBefore(dayjs(loaded.updated_at))) {
+        return {
+            ...incoming,
+            sensitive: loaded.sensitive,
+            click_tracking_enabled: loaded.click_tracking_enabled,
+            updated_at: loaded.updated_at,
+        }
+    }
+    return incoming
+}
+
 function applySettingUpdate(
     updated: Awaited<ReturnType<typeof messagingTemplatesPartialUpdate>>,
     values: {
@@ -94,16 +106,17 @@ function applySettingUpdate(
             values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>>
         ) => void
     }
-): void {
+): boolean {
     const loadedUpdatedAt = values.originalTemplate.updated_at
     if (loadedUpdatedAt && updated.updated_at && dayjs(updated.updated_at).isBefore(dayjs(loadedUpdatedAt))) {
-        return
+        return false
     }
 
     if (values.isDiscardingDraft || values.templateLoading || values.isTemplateSubmitting) {
         const settingChanges = {
             sensitive: updated.sensitive,
             click_tracking_enabled: updated.click_tracking_enabled,
+            updated_at: updated.updated_at,
         }
         actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
         if (values.templateChanged) {
@@ -111,7 +124,7 @@ function applySettingUpdate(
         } else {
             actions.resetTemplate({ ...values.template, ...settingChanges })
         }
-        return
+        return true
     }
 
     const {
@@ -131,7 +144,7 @@ function applySettingUpdate(
         actions.setDraftState(serverDraft, serverPublished)
         actions.setOriginalTemplate(serverForm)
         actions.resetTemplate(serverForm)
-        return
+        return true
     }
 
     if (hasExternalChanges) {
@@ -149,6 +162,7 @@ function applySettingUpdate(
     } else {
         actions.resetTemplate({ ...values.template, ...changes })
     }
+    return true
 }
 
 export interface MessageTemplateLogicProps {
@@ -1053,17 +1067,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     draft_content: null,
                 })
                 const published = updated.content as TemplateContent
+                const nextOriginal = preserveNewerSettings(
+                    {
+                        ...values.originalTemplate,
+                        content: published,
+                        sensitive: updated.sensitive,
+                        click_tracking_enabled: updated.click_tracking_enabled,
+                        updated_at: updated.updated_at,
+                    },
+                    values.originalTemplate
+                )
                 const discardChanges = {
                     content: published,
-                    sensitive: updated.sensitive,
-                    click_tracking_enabled: updated.click_tracking_enabled,
-                    updated_at: updated.updated_at,
+                    sensitive: nextOriginal.sensitive,
+                    click_tracking_enabled: nextOriginal.click_tracking_enabled,
+                    updated_at: nextOriginal.updated_at,
                 }
                 actions.setDraftState(null, published)
-                actions.setOriginalTemplate({
-                    ...values.originalTemplate,
-                    ...discardChanges,
-                })
+                actions.setOriginalTemplate(nextOriginal)
                 actions.resetTemplate({ ...values.template, ...discardChanges })
             } catch {
                 lemonToast.error("Couldn't discard your draft. Try again.")
@@ -1139,16 +1160,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     click_tracking_enabled: clickTrackingEnabled ? true : null,
                 })
-                applySettingUpdate(updated, values, actions)
-                if (updated.sensitive) {
-                    posthog.capture('email template click tracking changed', {
-                        template_id: props.id,
-                        click_tracking_enabled: updated.click_tracking_enabled === true,
-                    })
-                } else {
-                    lemonToast.info(
-                        'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
-                    )
+                if (applySettingUpdate(updated, values, actions)) {
+                    if (updated.sensitive) {
+                        posthog.capture('email template click tracking changed', {
+                            template_id: props.id,
+                            click_tracking_enabled: updated.click_tracking_enabled === true,
+                        })
+                    } else {
+                        lemonToast.info(
+                            'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
+                        )
+                    }
                 }
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
@@ -1204,9 +1226,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             )
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
+            const reconciled = preserveNewerSettings(template, values.originalTemplate)
             actions.setExternallyEdited(false)
-            actions.resetTemplate(template)
-            actions.setOriginalTemplate(template)
+            actions.resetTemplate(reconciled)
+            actions.setOriginalTemplate(reconciled)
             if (values.transactionalHogFlowId) {
                 // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
                 workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()

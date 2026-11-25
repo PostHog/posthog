@@ -26,7 +26,6 @@ describe('NameStep', () => {
 
         expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument()
 
-        // Clicking the visible label toggles the associated switch.
         fireEvent.click(screen.getByText('Protect sensitive data'))
         expect(screen.getByLabelText('Protect sensitive data')).toHaveAttribute('aria-checked', 'true')
 

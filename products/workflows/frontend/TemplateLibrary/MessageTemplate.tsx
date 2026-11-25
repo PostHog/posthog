@@ -146,7 +146,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
     const settingDisabledReason =
-        editDisabledReason ?? (isSavingSensitive || isSavingClickTracking ? 'Saving the setting' : undefined)
+        editDisabledReason ??
+        (isSavingSensitive || isSavingClickTracking || isTemplateSubmitting || templateLoading || isDiscardingDraft
+            ? 'Wait for the current save to finish'
+            : undefined)
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft

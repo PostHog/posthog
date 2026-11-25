@@ -763,6 +763,76 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(bodies.at(-1)).toEqual({ draft_content: postPublishEdit })
         })
+
+        it('keeps a newer click tracking setting when an older publish response arrives after it', async () => {
+            logic.unmount()
+            const baseTemplate = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null as boolean | null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            let releasePublish!: () => void
+            const publishGate = new Promise<void>((resolve) => {
+                releasePublish = resolve
+            })
+            let publishStarted!: () => void
+            const publishArrived = new Promise<void>((resolve) => {
+                publishStarted = resolve
+            })
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                if ('click_tracking_enabled' in body) {
+                    return [
+                        200,
+                        {
+                            ...baseTemplate,
+                            content: draft,
+                            draft_content: null,
+                            click_tracking_enabled: true,
+                            updated_at: '2026-01-01T00:02:00Z',
+                        },
+                    ]
+                }
+                publishStarted()
+                await publishGate
+                return [
+                    200,
+                    {
+                        ...baseTemplate,
+                        ...body,
+                        draft_content: null,
+                        click_tracking_enabled: null,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    },
+                ]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, baseTemplate] },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            logic.actions.setClickTrackingEnabled(true)
+            logic.actions.submitTemplate()
+            await publishArrived
+            await jest.advanceTimersByTimeAsync(10)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+
+            releasePublish()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.hasDraft).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+        })
     })
 
     describe('make transactional', () => {
