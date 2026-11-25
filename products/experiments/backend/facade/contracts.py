@@ -712,6 +712,25 @@ class ExperimentValidationError(Exception):
         self.field = field
 
 
+class ExperimentVersionConflict(Exception):
+    """Raised when a stale write raced a concurrent update and could not be applied safely. The detail is written for
+    the person who sent the write, so a caller at an HTTP boundary can return it as a 409."""
+
+    def __init__(
+        self,
+        detail: str = "This experiment changed since you loaded it. Review the latest changes and try again.",
+        *,
+        current_version: int,
+        conflicting_fields: list[str] | None = None,
+        conflicting_metric_uuids: list[str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.current_version = current_version
+        self.conflicting_fields = conflicting_fields or []
+        self.conflicting_metric_uuids = conflicting_metric_uuids or []
+
+
 class LegacyMigrationError(Exception):
     """Raised when a legacy experiment can't move onto the new engine. The message is written for the person who asked
     for the migration."""
