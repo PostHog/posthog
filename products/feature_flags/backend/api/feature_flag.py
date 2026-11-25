@@ -800,6 +800,13 @@ def _group_type_indexes_for_condition_property(
     return indexes if indexes else {None}
 
 
+def _property_key_is_restricted(
+    key: str, *, is_group: bool, group_type_index: int | None, restricted: RestrictedPropertyNames
+) -> bool:
+    names = restricted.group_property_names(group_type_index) if is_group else restricted.person
+    return property_key_overlaps_restriction(key, names)
+
+
 def _redact_restricted_actual_values(
     conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
 ) -> Any:
@@ -811,9 +818,12 @@ def _redact_restricted_actual_values(
         if not isinstance(key, str):
             return False
         if prop.get("type") != "group":
-            return property_key_overlaps_restriction(key, restricted.person)
+            return _property_key_is_restricted(key, is_group=False, group_type_index=None, restricted=restricted)
         indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
-        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
+        return any(
+            _property_key_is_restricted(key, is_group=True, group_type_index=index, restricted=restricted)
+            for index in indexes
+        )
 
     redacted: list[Any] = []
     for condition in conditions:
@@ -828,12 +838,6 @@ def _redact_restricted_actual_values(
                 properties.append(prop)
         redacted.append({**condition, "properties": properties})
     return redacted
-
-
-def _request_user(request: Any) -> User | None:
-    """The member a request acts for, or None when it carries no authenticated user."""
-    user = getattr(request, "user", None)
-    return cast(User, user) if user is not None and user.is_authenticated else None
 
 
 _TARGETING_CONDITION_KEYS = ("groups", "super_groups", "holdout_groups")
@@ -858,8 +862,15 @@ def _targeting_conditions(filters: Mapping[str, Any]) -> Iterator[Mapping[str, A
             yield condition
 
 
-def _targeting_property_filters(filters: Mapping[str, Any]) -> Iterator[tuple[str, int | None, bool]]:
-    """Each person or group property filter in the targeting of ``filters``, as (key, group type index, is group)."""
+@frozen
+class _TargetingPropertyFilter:
+    key: str
+    is_group: bool
+    group_type_index: int | None
+
+
+def _targeting_property_filters(filters: Mapping[str, Any]) -> Iterator[_TargetingPropertyFilter]:
+    """Each person or group property filter in the targeting of ``filters``."""
     flag_aggregation = filters.get("aggregation_group_type_index")
     for condition in _targeting_conditions(filters):
         for prop in condition["properties"]:
@@ -867,18 +878,22 @@ def _targeting_property_filters(filters: Mapping[str, Any]) -> Iterator[tuple[st
                 continue
             prop_type = prop.get("type")
             if prop_type == "group":
-                yield prop["key"], _group_filter_type_index(prop, condition, flag_aggregation), True
+                yield _TargetingPropertyFilter(
+                    key=prop["key"],
+                    is_group=True,
+                    group_type_index=_group_filter_type_index(prop, condition, flag_aggregation),
+                )
             elif prop_type in (None, "person"):
-                yield prop["key"], None, False
+                yield _TargetingPropertyFilter(key=prop["key"], is_group=False, group_type_index=None)
             # Cohort and flag filters hold an id in their key, not a property name.
 
 
 def _unreadable_targeting_keys(filters: Mapping[str, Any], restricted: RestrictedPropertyNames) -> set[str]:
     return {
-        key
-        for key, group_type_index, is_group in _targeting_property_filters(filters)
-        if property_key_overlaps_restriction(
-            key, restricted.group_property_names(group_type_index) if is_group else restricted.person
+        prop.key
+        for prop in _targeting_property_filters(filters)
+        if _property_key_is_restricted(
+            prop.key, is_group=prop.is_group, group_type_index=prop.group_type_index, restricted=restricted
         )
     }
 
@@ -2741,14 +2756,15 @@ class FeatureFlagSerializer(
             candidate = filters or stored
         else:
             candidate = {**stored, **filters}
-        if _targeting_part(candidate) == _targeting_part(stored) or not any(_targeting_property_filters(candidate)):
+        if not any(_targeting_property_filters(candidate)) or _targeting_part(candidate) == _targeting_part(stored):
             return
 
         team_id = self.instance.team_id if self.instance is not None else self.context.get("team_id")
         if team_id is None:
-            # Only a serializer built for validation alone lacks a team, and it can't save a flag.
+            # Only a serializer built for validation alone lacks a team. That serializer can't save a flag.
             return
-        user = _request_user(request)
+        request_user = getattr(request, "user", None)
+        user = cast(User, request_user) if request_user is not None and request_user.is_authenticated else None
         try:
             restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
         except UserNotOrganizationMemberError:

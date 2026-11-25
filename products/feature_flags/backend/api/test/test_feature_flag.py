@@ -80,6 +80,8 @@ from products.feature_flags.backend.api.feature_flag import (
     parse_created_by_ids,
 )
 from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import (
+    SALARY,
+    SALARY_CONDITION,
     TURN_ON_MODES,
     restrict_properties,
     turn_flag_on,
@@ -8974,10 +8976,6 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(group["description"], "First rollout cohort")
         self.assertEqual(group["sort_key"], "g1")
         self.assertEqual(group["properties"][0]["label"], "Email")
-
-
-SALARY = ("salary", PropertyDefinition.Type.PERSON, None)
-SALARY_CONDITION = {"key": "salary", "type": "person", "value": "100000", "operator": "gt"}
 
 
 class TestFeatureFlagPropertyAccessControl(APIBaseTest):

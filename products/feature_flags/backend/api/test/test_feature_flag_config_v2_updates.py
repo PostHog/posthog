@@ -27,9 +27,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
-from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import restrict_properties
+from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import (
+    SALARY,
+    SALARY_CONDITION,
+    restrict_properties,
+)
 from products.feature_flags.backend.facade import (
     api as flag_facade,
     config_writes,
@@ -414,19 +417,21 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
 
 
 class TestV2PropertyAccessControl(AdmittedV2TestCase):
-    SALARY = {"key": "salary", "type": "person", "value": "100000", "operator": "gt"}
-
     def setUp(self) -> None:
         super().setUp()
-        restrict_properties(self, [("salary", PropertyDefinition.Type.PERSON, None)])
+        restrict_properties(self, [SALARY])
 
     @parameterized.expand(
         [
-            ("adds_restricted_property", config(targeted()), config(targeted(targeting={"properties": [SALARY]}))),
+            (
+                "adds_restricted_property",
+                config(targeted()),
+                config(targeted(targeting={"properties": [SALARY_CONDITION]})),
+            ),
             (
                 "changes_flag_holding_restricted_property",
-                config(targeted(targeting={"properties": [SALARY]}), rollout()),
-                config(targeted(targeting={"properties": [SALARY]})),
+                config(targeted(targeting={"properties": [SALARY_CONDITION]}), rollout()),
+                config(targeted(targeting={"properties": [SALARY_CONDITION]})),
             ),
         ]
     )
@@ -441,7 +446,7 @@ class TestV2PropertyAccessControl(AdmittedV2TestCase):
         assert (flag.filters, flag.version) == (stored, 3)
 
     def test_echo_of_a_flag_holding_a_restricted_property_saves(self) -> None:
-        stored = config(targeted(targeting={"properties": [self.SALARY]}))
+        stored = config(targeted(targeting={"properties": [SALARY_CONDITION]}))
         flag = self.flag(stored)
         response = self.patch_flag(flag, {"version": 3, "name": "Renamed", "filters": copy.deepcopy(stored)})
         assert response.status_code == status.HTTP_200_OK, response.json()

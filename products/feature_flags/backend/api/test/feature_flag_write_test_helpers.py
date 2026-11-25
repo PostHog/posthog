@@ -34,7 +34,6 @@ def restrict_properties(
     test: "APIBaseTest",
     restrictions: list[tuple[str, int, int | None]],
     *,
-    default: PropertyAccessLevel | None = PropertyAccessLevel.NONE,
     member: PropertyAccessLevel | None = None,
 ) -> None:
     test.organization.available_product_features = [
@@ -45,10 +44,9 @@ def restrict_properties(
         definition = PropertyDefinition.objects.create(
             team=test.team, name=name, property_type="String", type=property_type, group_type_index=group_type_index
         )
-        if default is not None:
-            create_property_access_control(
-                team_id=test.team.pk, property_definition_id=definition.id, access_level=default.value
-            )
+        create_property_access_control(
+            team_id=test.team.pk, property_definition_id=definition.id, access_level=PropertyAccessLevel.NONE.value
+        )
         if member is not None:
             create_property_access_control(
                 team_id=test.team.pk,
@@ -56,3 +54,7 @@ def restrict_properties(
                 access_level=member.value,
                 organization_member_id=test.organization_membership.id,
             )
+
+
+SALARY = ("salary", PropertyDefinition.Type.PERSON, None)
+SALARY_CONDITION = {"key": "salary", "type": "person", "value": "100000", "operator": "gt"}
