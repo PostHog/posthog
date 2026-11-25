@@ -515,8 +515,10 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         def plugin_server_verdict(submitted: str):
+            if submitted != token:
+                return mock_response(400, {"error": "Invalid token"})
             claims = jwt.decode(submitted, options={"verify_signature": False})
-            if submitted != token or time.time() - claims["iat"] >= 60 * 24 * 3600:
+            if time.time() - claims["iat"] >= 60 * 24 * 3600:
                 return mock_response(400, {"error": "Invalid token"})
             return mock_response(200, {"valid": True, "team_id": claims["team_id"], "identifier": claims["identifier"]})
 
