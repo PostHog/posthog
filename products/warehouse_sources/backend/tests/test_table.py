@@ -22,7 +22,7 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import DatabaseField, DecimalDatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
@@ -228,6 +228,23 @@ class TestSafeExposeChError:
         with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize("code", [209, 210])  # SOCKET_TIMEOUT, NETWORK_ERROR
+    def test_clickhouse_connection_errors_keep_their_own_message_instead_of_blaming_the_bucket(self, code: int) -> None:
+        # A mid-query connection drop to a ClickHouse node is unrelated to the customer's bucket.
+        # wrap_clickhouse_query_error already gives these codes their own safe, generic message, but
+        # the raw text ("Connection reset by peer...") matches no ExtractErrors/TRANSIENT_OBJECT_STORE
+        # needle, so this used to fall through to the storage-bucket fallback.
+        raw_message = (
+            "DB::Exception: Connection reset by peer, while reading from socket "
+            "(peer: 10.0.0.1:9440, local: 10.0.0.2:55632): while receiving packet from "
+            "ch-node:9440. While executing Remote."
+        )
+        with pytest.raises(Exception) as exc_info:
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=code))
+
+        assert "temporary problem" in str(exc_info.value)
+        assert "storage bucket" not in str(exc_info.value)
+
 
 class TestWarehouseReadErrorClassification:
     # Engine wording, written from the shape of each failure rather than copied from a customer's
@@ -393,17 +410,50 @@ class TestGetCountEngineChoice:
         if not uses_chdb:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
 
+    @pytest.mark.parametrize(
+        "name,count_error,expected_attempts",
+        [
+            (
+                "unclassified_cluster_error",
+                ServerException("DB::Exception: Connection reset by peer", code=1002),
+                5,
+            ),
+            (
+                "query_performance_error",
+                ClickHouseQueryTimeOut(),
+                1,
+            ),
+        ],
+    )
+    def test_a_failed_count_retries_a_transient_cluster_error_but_not_a_query_performance_error(
+        self, name: str, count_error: Exception, expected_attempts: int
+    ) -> None:
+        # Mirrors get_columns' retry: the cluster fails intermittently on an unclassified error, so
+        # that's worth retrying, but a query-performance-limit error is a property of this query
+        # against this file and fails the same way every time.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", side_effect=count_error
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(None).get_count()
+
+        assert mock_sync_execute.call_count == expected_attempts
+
 
 class TestChdbEngineChoiceByFormat:
     def _table(
         self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
     ) -> DataWarehouseTable:
+        team = Team(id=1)
         return DataWarehouseTable(
             name="t",
             format=table_format,
-            team=Team(id=1),
+            team=team,
             url_pattern=url_pattern,
-            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret", team=team)
+            if has_credential
+            else None,
         )
 
     @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])
@@ -826,6 +876,27 @@ class TestGetHogqlFieldForColumn(SimpleTestCase):
 
         assert type(field) is expected_type
         assert field.is_nullable()
+
+    @parameterized.expand(
+        [
+            (
+                "precision_and_scale",
+                {"clickhouse": "Decimal(38, 8)", "hogql": "DecimalDatabaseField"},
+                "Decimal(38, 8)",
+                8,
+            ),
+            ("sized_decimal", {"clickhouse": "Decimal64(4)", "hogql": "DecimalDatabaseField"}, "Decimal64(4)", 4),
+            ("precision_only", {"clickhouse": "Decimal(10)", "hogql": "DecimalDatabaseField"}, "Decimal(10)", 0),
+            ("old_style", "Decimal(18, 3)", "Decimal(18, 3)", 3),
+        ]
+    )
+    def test_decimal_column_keeps_its_scale(
+        self, _name: str, column_definition: dict[str, Any] | str, clickhouse_type: str, scale: int
+    ) -> None:
+        field = get_hogql_field_for_column("amount", column_definition, clickhouse_type, is_nullable=False)
+
+        assert isinstance(field, DecimalDatabaseField)
+        assert field.scale == scale
 
 
 class TestUrlPatternChangeGuard(BaseTest):

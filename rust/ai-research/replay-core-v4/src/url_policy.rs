@@ -420,11 +420,12 @@ pub fn is_remote(url: &str) -> bool {
 }
 
 /// The media types the image fetcher stores, the `SUPPORTED_IMAGE_MEDIA_TYPES` of `image-fetch-v4/image-transport.ts`.
-pub const FETCHED_IMAGE_TYPES: [&str; 5] = [
+pub const FETCHED_IMAGE_TYPES: [&str; 6] = [
     "image/png",
     "image/jpeg",
     "image/gif",
     "image/webp",
+    "image/avif",
     "image/svg+xml",
 ];
 

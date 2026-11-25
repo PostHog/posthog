@@ -39,15 +39,22 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tags_context
-from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.hogql_queries.hogql_query_runner import (
+    API_SQL_WINDOW_CACHE_AGE_FLAG,
+    HogQLQueryRunner,
+    range_based_freshness,
+)
 from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
 from posthog.models.utils import UUIDT
 
-from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade.query_labels import (
+    MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
+    MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -143,8 +150,28 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertIsNotNone(response.limit)
 
+    @parameterized.expand(
+        [
+            ("default_complete", None, 100, 100, False, 100),
+            ("default_truncated", None, 168, 100, True, 100),
+            ("requested_truncated", 500, 600, 500, True, 500),
+            ("requested_complete", 500, 300, 300, False, 500),
+            ("requested_above_cap", 60000, 50001, 49999, True, 49999),
+        ]
+    )
+    def test_default_row_limit_flags_truncated_results(
+        self, _name, requested_limit, row_count, returned, has_more, reported_limit
+    ):
+        response = self._create_runner(
+            HogQLQuery(query=f"SELECT number FROM numbers({row_count})", limit=requested_limit)
+        ).calculate()
+        assert response.results is not None
+        assert len(response.results) == returned
+        assert response.hasMore is has_more
+        assert response.limit == reported_limit
+
     def test_default_hogql_query_with_limit(self):
-        runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 5", limit=500))
         response = runner.calculate()
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
@@ -228,6 +255,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
+        self.assertEqual(response.results[0][0], 1)
+
+    @parameterized.expand([("values",), ("variables",)])
+    def test_filters_placeholder_with_values_or_variables(self, source: str) -> None:
+        if source == "values":
+            query = HogQLQuery(
+                query="select count(event) from events where event = {e} and {filters}",
+                values={"e": "clicky-3"},
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            )
+        else:
+            variable = InsightVariable.objects.create(team=self.team, name="E", code_name="e", type="String")
+            query = HogQLQuery(
+                query="select count(event) from events where event = {variables.e} and {filters}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="e", variableId=str(variable.id), value="clicky-3")
+                },
+            )
+        response = self._create_runner(query).calculate()
         self.assertEqual(response.results[0][0], 1)
 
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
@@ -383,6 +429,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = self._create_runner(query)
         expected_query_status_labels = [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"]
+        if credential_kind == "duckgres_service":
+            expected_query_status_labels.append(MANAGED_TRINO_RAW_QUERY_STATUS_LABEL)
         self.assertEqual(runner.query_status_labels(), expected_query_status_labels)
         built_in_cache_key = runner.get_cache_key()
         response = cast(
@@ -453,12 +501,12 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
 
         first_runner = self._create_runner(query)
-        self.assertIsNone(first_runner.query_status_labels())
+        self.assertEqual(first_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertNotIn("managed_warehouse_sql_mode", first_runner.get_cache_payload())
         first_cache_key = first_runner.get_cache_key()
 
         second_runner = self._create_runner(query)
-        self.assertIsNone(second_runner.query_status_labels())
+        self.assertEqual(second_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertEqual(second_runner.get_cache_key(), first_cache_key)
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
@@ -615,6 +663,34 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 app_runner.single_flight_variant(),
             )
 
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY, True),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, LimitContext.QUERY, True),
+            ("oauth", AccessMethod.OAUTH, LimitContext.QUERY, False),
+            ("api_key_with_extended_time", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY_ASYNC, False),
+        ]
+    )
+    def test_api_key_cap_applies_without_query_service(self, _name, access_method, limit_context, capped):
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select event from events limit 1"),
+            limit_context=limit_context,
+        )
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk + 1},
+            ),
+            tags_context(access_method=access_method),
+        ):
+            variant = runner.single_flight_variant()
+            clickhouse_sql = runner.calculate().clickhouse
+        assert clickhouse_sql is not None
+        assert variant.endswith(":max_execution_time=10") is capped
+        assert ("max_execution_time=10," in clickhouse_sql) is capped
+        assert ("max_threads=60" in clickhouse_sql) is capped
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):
         # Product queries (Trends/Funnels/etc.) have is_query_service=False — must pass through
@@ -668,6 +744,38 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert CACHE_ENTRY_FRESHNESS_KEY not in runner._cache_entry_with_freshness({})
 
 
+class TestHogQLQueryRunnerRangeFreshness(BaseTest):
+    @parameterized.expand(
+        [
+            ("week_range_outlives_the_minute_rule", True, "-7d", timedelta(minutes=10), False),
+            ("week_range_expires_on_the_day_rule", True, "-7d", timedelta(hours=7), True),
+            ("hour_range_keeps_the_minute_rule", True, "-1h", timedelta(minutes=10), True),
+            ("day_range_uses_the_hour_rule", True, "-1d", timedelta(minutes=30), False),
+            ("year_range_uses_the_week_rule", True, "-180d", timedelta(hours=12), False),
+            ("absolute_range_keeps_the_minute_rule", True, "2026-10-01", timedelta(minutes=10), True),
+            ("overflowing_range_keeps_the_minute_rule", True, "-1000000d", timedelta(minutes=10), True),
+            ("outside_the_batch_keeps_the_minute_rule", False, "-7d", timedelta(minutes=10), True),
+        ]
+    )
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_relative_range_sets_staleness_only_under_range_based_freshness(
+        self, _name: str, in_batch: bool, date_from: str, age: timedelta, expected_stale: bool
+    ) -> None:
+        query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from=date_from)))
+        if in_batch:
+            with range_based_freshness():
+                runner = HogQLQueryRunner(team=self.team, query=query)
+        else:
+            runner = HogQLQueryRunner(team=self.team, query=query)
+        last_refresh = datetime(2026, 10, 29, 15, 0, tzinfo=UTC) - age
+
+        assert runner._is_stale_for_request(last_refresh=last_refresh) == expected_stale
+        assert (
+            runner.cache_target_age(last_refresh)
+            == last_refresh + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
+        )
+
+
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
     @parameterized.expand(
         [
@@ -699,6 +807,21 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
             stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10), lazy=lazy)
         assert stale is expected_stale
+
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
+    def test_entry_window_age_overrides_the_range_rule(self) -> None:
+        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
+        window = SqlFreshness(
+            window=SqlWindowClass.UP_TO_NOW_LONG,
+            fresh_until=now + timedelta(hours=1),
+            reason=FreshnessReason.WINDOW_AGE,
+        )
+        query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from="-180d")))
+        last_refresh = now - timedelta(minutes=10)
+        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"), range_based_freshness():
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            runner._read_cache_entry_freshness(freshness_record(window))
+            assert runner.range_target_age(last_refresh) == runner.cache_target_age(last_refresh)
 
     def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
         with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):

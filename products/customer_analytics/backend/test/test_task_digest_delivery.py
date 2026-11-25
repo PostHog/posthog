@@ -1,6 +1,6 @@
 import smtplib
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -10,6 +10,7 @@ from django.core import mail
 from django.db import DatabaseError
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 
 from posthog.models import OrganizationMembership
@@ -100,6 +101,43 @@ class TestTaskDigestDelivery(BaseTest):
         record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
         assert record.sent_at is None
         assert record.campaign_count == MAX_SEND_ATTEMPTS
+
+    def test_workflows_timeout_retries_and_a_reused_key_counts_as_sent(self) -> None:
+        queued: dict[str, Any] = {}
+        reused_keys: list[str] = []
+
+        def send_api(_url: str, *, headers: dict[str, str], json: dict[str, Any], **_kwargs: Any) -> MagicMock:
+            key = headers["Idempotency-Key"]
+            if key not in queued:
+                # Workflows queues the email, then the response is lost.
+                queued[key] = json
+                raise requests.Timeout("no response")
+            if queued[key] != json:
+                reused_keys.append(key)
+                return MagicMock(
+                    status_code=422, text="reused", json=MagicMock(return_value={"code": "idempotency_key_reused"})
+                )
+            return MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1", "replayed": True}))
+
+        with (
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+            patch("posthog.email.requests.post", side_effect=send_api),
+        ):
+            with self.assertRaises(TemporaryTaskDigestFailure):
+                deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+            # A task added before the retry changes the digest, so the retry carries other content under the same key.
+            CustomerTask.objects.for_team(self.team.pk).create(
+                team=self.team,
+                assigned_to=self.user,
+                name="Example added task",
+                due_at=datetime(2026, 9, 18, 15, tzinfo=UTC),
+            )
+            deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+
+        assert len(reused_keys) == 1
+        assert len(mail.outbox) == 0
+        record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
+        assert record.sent_at is not None
 
     @parameterized.expand(
         [

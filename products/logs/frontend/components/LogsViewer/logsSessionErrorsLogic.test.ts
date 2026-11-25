@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -63,8 +60,6 @@ describe('logsSessionErrorsLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_SESSION_ERROR_BADGES]: true })
         dataLogic = logsViewerDataLogic({ id: VIEWER_ID, autoLoad: false })
         dataLogic.mount()
         logic = logsSessionErrorsLogic({ id: VIEWER_ID })
@@ -114,14 +109,6 @@ describe('logsSessionErrorsLogic', () => {
 
         expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
         expect(queryBodies[0].query.query).toContain('2026-')
-    })
-
-    it('queries nothing while the feature flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        await loadPage([makeLog('log-1', 'session-a')])
-
-        expect(queryBodies).toHaveLength(0)
-        expect(logic.values.sessionErrorCounts).toEqual({})
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {

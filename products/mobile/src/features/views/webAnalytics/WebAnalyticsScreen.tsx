@@ -1,8 +1,10 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useState } from 'react'
-import { RefreshControl, ScrollView, Text, View } from 'react-native'
+import { type ReactElement, type Ref, useRef, useState } from 'react'
+import { RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
+import { InternalUsersToggle } from '@/features/settings/InternalUsersToggle'
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
@@ -50,6 +52,7 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
     const tab = chrome === 'tab'
     const visit = useTabVisit(tab)
     const screen = useWebAnalyticsScreen({ from, chrome, visit })
+    const scrollRef = useRef<ScrollViewInstance>(null)
     const scrollTitle = useScrollTitle('Web analytics')
     const back = useViewBack()
     const insets = useScreenInsets()
@@ -64,7 +67,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
     let body: ReactElement
     if (allowed) {
         body = (
-            <WebAnalyticsBody chrome={chrome} scrollTitle={scrollTitle} screen={screen} toasts={toasts} onBack={back} />
+            <WebAnalyticsBody
+                scrollRef={scrollRef}
+                chrome={chrome}
+                scrollTitle={scrollTitle}
+                screen={screen}
+                toasts={toasts}
+                onBack={back}
+            />
         )
     } else if (tab) {
         body = (
@@ -93,6 +103,7 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
             {tab ? (
                 <TabHeaderPublisher
                     tab="web_analytics"
+                    scrollToTop={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
                     status={allowed ? refresh.status.text : null}
                     hint={allowed ? refresh.hint : null}
                     refreshing={allowed && refresh.busy}
@@ -105,11 +116,17 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
                     onClose={() => setMoreOpen(false)}
                     webUrl={viewWebUrl(scope, '/web')}
                     viewType="web_analytics"
-                    navPin={{
-                        pinned,
-                        onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
-                    }}
-                />
+                    navPin={
+                        NAV_PINS_ENABLED
+                            ? {
+                                  pinned,
+                                  onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
+                              }
+                            : undefined
+                    }
+                >
+                    <InternalUsersToggle testID="web-exclude-internal-users" />
+                </ViewMoreSheet>
             )}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={tab ? undefined : TOAST_BOTTOM} />
         </ViewScreenFrame>
@@ -117,12 +134,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
 }
 
 function WebAnalyticsBody({
+    scrollRef,
     chrome,
     screen,
     toasts,
     onBack,
     scrollTitle,
 }: {
+    scrollRef: Ref<ScrollViewInstance>
     chrome: NavChrome
     screen: WebAnalyticsScreenState
     toasts: Toasts
@@ -148,7 +167,7 @@ function WebAnalyticsBody({
     const sheetTile = screen.tiles.find((tile) => tile.def.id === tabsFor) ?? null
     const liveChip = (
         <View style={styles.liveChip}>
-            <LiveChip />
+            <LiveChip key={String(screen.internalUsersFilter)} internalUsersFilter={screen.internalUsersFilter} />
         </View>
     )
     // No compare row: every card compares with the previous period, as the web's tiles do.
@@ -180,33 +199,24 @@ function WebAnalyticsBody({
         />
     )
 
-    const filterChips = (
-        <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
-    )
-
-    if (!overview) {
-        return (
-            <ScrollView contentContainerStyle={[contentStyle, styles.grow]}>
-                {filterChips}
-                {screen.overview.isError && screen.error ? (
-                    <ViewErrorState
-                        kind={screen.error}
-                        noun="view"
-                        match={{ kind: 'web_analytics', ref: null }}
-                        onRetry={() => screen.overview.refetch()}
-                        onBack={onBack}
-                    />
-                ) : (
-                    <ViewSkeleton cards={3} />
-                )}
-            </ScrollView>
+    const pendingContent =
+        screen.overview.isError && screen.error ? (
+            <ViewErrorState
+                kind={screen.error}
+                noun="view"
+                match={{ kind: 'web_analytics', ref: null }}
+                onRetry={() => screen.overview.refetch()}
+                onBack={onBack}
+            />
+        ) : (
+            <ViewSkeleton cards={3} />
         )
-    }
 
     return (
         <>
             <ScrollView
-                contentContainerStyle={contentStyle}
+                ref={scrollRef}
+                contentContainerStyle={[contentStyle, !overview && styles.grow]}
                 onScroll={(event) => {
                     motion.onScroll()
                     scrollTitle.onScroll(event)
@@ -222,12 +232,14 @@ function WebAnalyticsBody({
                         progressViewOffset={contentTop}
                     />
                 }
-                testID="web-analytics-scroll"
+                testID={overview ? 'web-analytics-scroll' : undefined}
             >
                 {title}
                 <RefreshFailedBanner status={refresh.status} />
-                {filterChips}
-                {overview.metrics.length === 0 ? (
+                <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
+                {!overview ? (
+                    pendingContent
+                ) : overview.metrics.length === 0 ? (
                     <Text style={styles.empty}>No web analytics data for this range.</Text>
                 ) : (
                     <OverviewGrid
@@ -237,36 +249,38 @@ function WebAnalyticsBody({
                         stale={overview.refreshFailed}
                     />
                 )}
-                <View style={styles.cards}>
-                    <TrendCard
-                        data={screen.trend}
-                        metric={screen.metric}
-                        interval={screen.interval}
-                        rangeText={rangeDetail}
-                    />
-                    {screen.tiles.map((tile) => (
-                        <View key={tile.def.id} style={styles.section}>
-                            <Eyebrow>{tile.def.title}</Eyebrow>
-                            <BreakdownCard
-                                tile={tile}
-                                filters={screen.filters}
-                                onOpenTabs={() => setTabsFor(tile.def.id)}
-                                onPressRow={(row) => {
-                                    if (row.filter) {
-                                        actions.tapRow(tile.def.id, tile.breakdown, row.filter, 'card')
-                                    }
-                                }}
-                                onOpenList={() => {
-                                    trackWebListOpened({ tile: tile.def.id, breakdown: tile.breakdown })
-                                    router.push(webAnalyticsListHref(tile.def.id, tile.breakdown))
-                                }}
-                            />
-                        </View>
-                    ))}
-                    <RetentionCard data={screen.retention} />
-                    <ActiveHoursCard data={screen.activeHours} />
-                    <MoreOnWeb webUrl={viewWebUrl(scope, '/web')} />
-                </View>
+                {overview ? (
+                    <View style={styles.cards}>
+                        <TrendCard
+                            data={screen.trend}
+                            metric={screen.metric}
+                            interval={screen.interval}
+                            rangeText={rangeDetail}
+                        />
+                        {screen.tiles.map((tile) => (
+                            <View key={tile.def.id} style={styles.section}>
+                                <Eyebrow>{tile.def.title}</Eyebrow>
+                                <BreakdownCard
+                                    tile={tile}
+                                    filters={screen.filters}
+                                    onOpenTabs={() => setTabsFor(tile.def.id)}
+                                    onPressRow={(row) => {
+                                        if (row.filter) {
+                                            actions.tapRow(tile.def.id, tile.breakdown, row.filter, 'card')
+                                        }
+                                    }}
+                                    onOpenList={() => {
+                                        trackWebListOpened({ tile: tile.def.id, breakdown: tile.breakdown })
+                                        router.push(webAnalyticsListHref(tile.def.id, tile.breakdown))
+                                    }}
+                                />
+                            </View>
+                        ))}
+                        <RetentionCard data={screen.retention} />
+                        <ActiveHoursCard data={screen.activeHours} />
+                        <MoreOnWeb webUrl={viewWebUrl(scope, '/web')} />
+                    </View>
+                ) : null}
             </ScrollView>
             <BreakdownSheet
                 tile={sheetTile?.def ?? null}

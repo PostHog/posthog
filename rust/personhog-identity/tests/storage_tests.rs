@@ -1,15 +1,21 @@
 mod common;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
+use rstest::rstest;
 use uuid::Uuid;
 
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, Person};
+use personhog_common::storage_error::TimeoutKind;
 use personhog_identity::config::OutboxWrites;
-use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
+use personhog_identity::storage::{
+    AttachOutcome, IdentityStorage, PersonAttach, PersonStub, StorageError, StubOutcome,
+};
 
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
@@ -23,6 +29,18 @@ impl TestContext {
         .await
         .expect("Failed to fetch distinct id version")
         .flatten()
+    }
+
+    async fn person_partition(&self, person_id: i64) -> String {
+        sqlx::query_scalar(&format!(
+            "SELECT tableoid::regclass::text FROM {} WHERE team_id = $1 AND id = $2",
+            self.tables.person
+        ))
+        .bind(self.team_id as i32)
+        .bind(person_id)
+        .fetch_one(&self.pool)
+        .await
+        .expect("person row should name its partition")
     }
 
     async fn person_count(&self) -> i64 {
@@ -71,9 +89,8 @@ impl TestContext {
         sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version, is_deleted)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, $3, true)
+                (created_at, properties, team_id, is_identified, uuid, version, is_deleted)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, $3, true)
             RETURNING id
             "#,
         )
@@ -351,13 +368,30 @@ async fn batch_mixes_created_existing_and_lost_race_outcomes_per_row() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::own_transactions(false)]
+#[case::coalesced(true)]
 #[tokio::test]
-async fn concurrent_creates_for_one_distinct_id_create_exactly_once() {
+async fn concurrent_creates_for_one_distinct_id_create_exactly_once(#[case] coalesced: bool) {
     let ctx = TestContext::new().await;
+    let storage: Arc<dyn IdentityStorage> = if coalesced {
+        Arc::new(CoalescingIdentityStorage::spawn(
+            ctx.storage.clone(),
+            Some(CoalesceSettings {
+                workers: 2,
+                max_batch_distinct_ids: 50,
+                max_queued_calls: 100,
+                max_queue_wait: Duration::from_secs(60),
+            }),
+            None,
+        ))
+    } else {
+        ctx.storage.clone()
+    };
 
     let tasks: Vec<_> = (0..8)
         .map(|_| {
-            let storage = ctx.storage.clone();
+            let storage = storage.clone();
             let stub = stub(&ctx, "race-key", &[]);
             tokio::spawn(async move { storage.create_person_stubs(&[stub]).await })
         })
@@ -398,9 +432,8 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     let winner_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
     )
@@ -448,6 +481,91 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     ctx.cleanup().await.ok();
 }
 
+/// The writer and the lifecycle sagas lock persons in (team_id, id) order. A
+/// multi-row create that locks them in another order deadlocks with those.
+#[tokio::test]
+async fn multi_row_create_waits_for_a_holder_locking_in_id_order() {
+    let ctx = TestContext::new().await;
+    let mut keys = ["cycle-a", "cycle-b"];
+    keys.sort_by_key(|key| std::cmp::Reverse(person_uuid(ctx.team_id, key)));
+    let mut ids: Vec<i64> = Vec::new();
+    for key in keys {
+        let id = sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_person
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
+            RETURNING id
+            "#,
+        )
+        .bind(ctx.team_id as i32)
+        .bind(person_uuid(ctx.team_id, key))
+        .fetch_one(&ctx.pool)
+        .await
+        .expect("insert live person");
+        ids.push(id);
+    }
+    assert!(ids[0] < ids[1], "the lower id must hold the higher uuid");
+
+    let lock_sql = "SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR NO KEY UPDATE";
+    let mut held = ctx.pool.begin().await.expect("begin held tx");
+    let held_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *held)
+        .await
+        .expect("held pid");
+    sqlx::query(lock_sql)
+        .bind(ctx.team_id as i32)
+        .bind(ids[0])
+        .execute(&mut *held)
+        .await
+        .expect("holder locks the lower id first");
+
+    let storage = ctx.storage.clone();
+    let stubs = vec![stub(&ctx, keys[0], &[]), stub(&ctx, keys[1], &[])];
+    let racer = tokio::spawn(async move { storage.create_person_stubs(&stubs).await });
+
+    let blocked = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+            )
+            .bind(held_pid)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("count blocked sessions");
+            if waiting > 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(blocked.is_ok(), "the create must block behind the holder");
+
+    sqlx::query(lock_sql)
+        .bind(ctx.team_id as i32)
+        .bind(ids[1])
+        .execute(&mut *held)
+        .await
+        .expect("holder locks the higher id without a deadlock");
+    held.commit().await.expect("commit holder");
+
+    let outcomes = racer
+        .await
+        .expect("task must not panic")
+        .expect("create must not be a deadlock victim");
+    let resolved: Vec<(i64, bool)> = outcomes
+        .iter()
+        .map(|outcome| match outcome {
+            StubOutcome::Committed { person, created } => (person.id, *created),
+            StubOutcome::LostRace => panic!("unexpected lost race"),
+        })
+        .collect();
+    assert_eq!(resolved, vec![(ids[0], false), (ids[1], false)]);
+
+    ctx.cleanup().await.ok();
+}
+
 /// The uncommitted mapping-steal window: a concurrent writer (a merge, an
 /// add-distinct-id) has mapped the distinct id to a different person but not
 /// yet committed. Our stub insert succeeds (different uuid), the distinct id
@@ -461,9 +579,8 @@ async fn create_blocked_on_uncommitted_mapping_rolls_back_as_lost_race() {
     let other_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, gen_random_uuid(), 0)
         RETURNING id
         "#,
     )
@@ -743,46 +860,86 @@ async fn duplicate_batch_keys_against_tombstones_do_not_error() {
 }
 
 #[tokio::test]
-async fn resolve_returns_only_existing_keys() {
+async fn every_resolve_statement_returns_only_live_keys() {
     let ctx = TestContext::new().await;
+    let other_team = TestContext::new().await;
     let person_id = ctx.insert_person_with_distinct_id("known").await;
+    ctx.insert_person_with_distinct_id("dead-mapping").await;
+    ctx.tombstone_distinct_id("dead-mapping", 5).await;
+    let dead_person = ctx.insert_person_with_distinct_id("dead-person").await;
+    ctx.tombstone_person(dead_person, 5).await;
+    let elsewhere_id = other_team.insert_person_with_distinct_id("elsewhere").await;
 
-    let resolved = ctx
-        .storage
-        .resolve_distinct_ids(&[
-            (ctx.team_id, "known".to_string()),
-            (ctx.team_id, "unknown".to_string()),
-        ])
-        .await
-        .expect("resolve should succeed");
+    let one_team: Vec<(i64, String)> = ["known", "unknown", "dead-mapping", "dead-person"]
+        .into_iter()
+        .map(|distinct_id| (ctx.team_id, distinct_id.to_string()))
+        .collect();
+    let mut across_teams = one_team.clone();
+    across_teams.push((other_team.team_id, "elsewhere".to_string()));
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(resolved[&(ctx.team_id, "known".to_string())].id, person_id);
+    let resolve = |keys: Vec<(i64, String)>| {
+        let storage = ctx.storage.clone();
+        async move {
+            storage
+                .resolve_distinct_ids(&keys)
+                .await
+                .expect("resolve should succeed")
+        }
+    };
+    let in_one_team = resolve(one_team).await;
+    let in_both_teams = resolve(across_teams.clone()).await;
+    let mut alone = HashMap::new();
+    for key in across_teams {
+        alone.extend(resolve(vec![key]).await);
+    }
+
+    let fields = |resolved: &HashMap<(i64, String), Person>| {
+        resolved
+            .iter()
+            .map(|(key, p)| {
+                let person = (
+                    p.id,
+                    p.uuid,
+                    p.team_id,
+                    p.created_at,
+                    p.version,
+                    p.is_identified,
+                    p.is_user_id,
+                    p.last_seen_at,
+                );
+                (key.clone(), person)
+            })
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(fields(&in_both_teams), fields(&alone));
+    let mut alone_in_one_team = alone.clone();
+    alone_in_one_team.retain(|(team_id, _), _| *team_id == ctx.team_id);
+    assert_eq!(fields(&in_one_team), fields(&alone_in_one_team));
+    let ids: BTreeSet<i64> = alone.values().map(|person| person.id).collect();
+    assert_eq!(ids, BTreeSet::from([person_id, elsewhere_id]));
 
     ctx.cleanup().await.ok();
+    other_team.cleanup().await.ok();
 }
 
 #[tokio::test]
 async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
     let ctx = TestContext::new().await;
+    let other_team = TestContext::new().await;
     let person_id = ctx.insert_person_with_distinct_id("pruned").await;
+    let elsewhere_id = other_team.insert_person_with_distinct_id("elsewhere").await;
 
-    let own_partition: String = sqlx::query_scalar(&format!(
-        "SELECT tableoid::regclass::text FROM {} WHERE team_id = $1 AND id = $2",
-        ctx.tables.person
-    ))
-    .bind(ctx.team_id as i32)
-    .bind(person_id)
-    .fetch_one(&ctx.pool)
-    .await
-    .expect("person row should name its partition");
+    let touched_partitions = vec![
+        ctx.person_partition(person_id).await,
+        other_team.person_partition(elsewhere_id).await,
+    ];
     let other_partition: String = sqlx::query_scalar(
         "SELECT inhrelid::regclass::text FROM pg_inherits
-         WHERE inhparent = $1::regclass AND inhrelid::regclass::text <> $2
+         WHERE inhparent = $1::regclass AND inhrelid::regclass::text <> ALL($2)
          ORDER BY 1 LIMIT 1",
     )
     .bind(&ctx.tables.person)
-    .bind(&own_partition)
+    .bind(&touched_partitions)
     .fetch_one(&ctx.pool)
     .await
     .expect("person table should have another partition");
@@ -795,41 +952,108 @@ async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
     .await
     .expect("lock should succeed");
 
-    let resolved = tokio::time::timeout(
-        Duration::from_secs(5),
-        ctx.storage
-            .resolve_distinct_ids(&[(ctx.team_id, "pruned".to_string())]),
-    )
-    .await
-    .expect("resolve waited on a person partition its batch does not touch")
-    .expect("resolve should succeed");
-    assert_eq!(resolved[&(ctx.team_id, "pruned".to_string())].id, person_id);
+    let pruned = (ctx.team_id, "pruned".to_string());
+    let absent = (ctx.team_id, "pruned-absent".to_string());
+    let elsewhere = (other_team.team_id, "elsewhere".to_string());
+    for keys in [
+        vec![pruned.clone()],
+        vec![pruned.clone(), absent],
+        vec![pruned.clone(), elsewhere],
+    ] {
+        let resolved = tokio::time::timeout(
+            Duration::from_secs(5),
+            ctx.storage.resolve_distinct_ids(&keys),
+        )
+        .await
+        .expect("resolve waited on a person partition its batch does not touch")
+        .expect("resolve should succeed");
+        assert_eq!(resolved[&pruned].id, person_id);
+    }
 
     blocker.rollback().await.ok();
     ctx.cleanup().await.ok();
+    other_team.cleanup().await.ok();
 }
 
+#[derive(Clone, Copy, Debug)]
+enum AttachShape {
+    Alone,
+    BatchOfOne,
+    Batched,
+}
+
+async fn attach_in_shape(
+    ctx: &TestContext,
+    shape: AttachShape,
+    person_id: i64,
+    distinct_ids: &[&str],
+) -> HashMap<String, AttachOutcome> {
+    let distinct_ids: Vec<String> = distinct_ids.iter().map(|d| d.to_string()).collect();
+    let attach = PersonAttach {
+        team_id: ctx.team_id,
+        person_id,
+        distinct_ids: distinct_ids.clone(),
+    };
+    match shape {
+        AttachShape::Alone => {
+            return ctx
+                .storage
+                .attach_distinct_ids(ctx.team_id, person_id, &distinct_ids)
+                .await
+                .expect("attach should succeed");
+        }
+        AttachShape::BatchOfOne => {
+            let mut outcomes = ctx
+                .storage
+                .attach_distinct_ids_batch(&[attach])
+                .await
+                .expect("batch of one should succeed");
+            return outcomes.pop().expect("one outcome per attach");
+        }
+        AttachShape::Batched => {}
+    }
+    let other_team = TestContext::new_with_tables(ctx.tables.clone()).await;
+    let companion = other_team.insert_person_with_distinct_id("companion").await;
+    let mut outcomes = ctx
+        .storage
+        .attach_distinct_ids_batch(&[
+            PersonAttach {
+                team_id: other_team.team_id,
+                person_id: companion,
+                distinct_ids: distinct_ids.clone(),
+            },
+            attach,
+        ])
+        .await
+        .expect("batched attach should succeed");
+    let all_fresh: HashMap<String, AttachOutcome> = distinct_ids
+        .iter()
+        .map(|d| (d.clone(), AttachOutcome::Attached { version: 1 }))
+        .collect();
+    assert_eq!(outcomes[0], all_fresh, "the other team's attach");
+    other_team.cleanup().await.ok();
+    outcomes.pop().expect("one outcome per attach")
+}
+
+#[rstest]
+#[case::alone(AttachShape::Alone)]
+#[case::batch_of_one(AttachShape::BatchOfOne)]
+#[case::batched(AttachShape::Batched)]
 #[tokio::test]
-async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
+async fn attach_covers_fresh_revived_and_live_mappings_per_row(#[case] shape: AttachShape) {
     let ctx = TestContext::new().await;
     let owner = ctx.insert_person_with_distinct_id("attach-owner").await;
     let target = ctx.insert_person_with_distinct_id("attach-target").await;
     ctx.insert_tombstoned_distinct_id("attach-tomb", owner, 5)
         .await;
 
-    let outcomes = ctx
-        .storage
-        .attach_distinct_ids(
-            ctx.team_id,
-            target,
-            &[
-                "attach-fresh".to_string(),
-                "attach-tomb".to_string(),
-                "attach-owner".to_string(),
-            ],
-        )
-        .await
-        .expect("attach should succeed");
+    let outcomes = attach_in_shape(
+        &ctx,
+        shape,
+        target,
+        &["attach-fresh", "attach-tomb", "attach-owner"],
+    )
+    .await;
 
     assert_eq!(
         outcomes.get("attach-fresh"),
@@ -859,16 +1083,16 @@ async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::alone(AttachShape::Alone)]
+#[case::batch_of_one(AttachShape::BatchOfOne)]
+#[case::batched(AttachShape::Batched)]
 #[tokio::test]
-async fn attach_to_a_dead_person_attaches_nothing() {
+async fn attach_to_a_dead_person_attaches_nothing(#[case] shape: AttachShape) {
     let ctx = TestContext::new().await;
     let corpse = ctx.insert_tombstoned_person(uuid::Uuid::new_v4(), 3).await;
 
-    let outcomes = ctx
-        .storage
-        .attach_distinct_ids(ctx.team_id, corpse, &["attach-corpse".to_string()])
-        .await
-        .expect("attach should succeed");
+    let outcomes = attach_in_shape(&ctx, shape, corpse, &["attach-corpse"]).await;
 
     assert!(outcomes.is_empty());
     assert_eq!(ctx.distinct_id_state("attach-corpse").await, None);
@@ -876,8 +1100,12 @@ async fn attach_to_a_dead_person_attaches_nothing() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::alone(AttachShape::Alone)]
+#[case::batch_of_one(AttachShape::BatchOfOne)]
+#[case::batched(AttachShape::Batched)]
 #[tokio::test]
-async fn attach_works_on_a_configured_table_set() {
+async fn attach_works_on_a_configured_table_set(#[case] shape: AttachShape) {
     // Runs attach against the tmp namespace — a leftover hardcoded posthog_
     // table in its interpolated queries would pass silently on the default
     // set. Asserted through table-aware storage reads, not the raw-SQL
@@ -887,15 +1115,21 @@ async fn attach_works_on_a_configured_table_set() {
         .insert_person_with_distinct_id("tmp-attach-target")
         .await;
 
-    let outcomes = ctx
-        .storage
-        .attach_distinct_ids(ctx.team_id, target, &["tmp-attach-fresh".to_string()])
-        .await
-        .expect("attach should succeed");
+    let outcomes = attach_in_shape(
+        &ctx,
+        shape,
+        target,
+        &["tmp-attach-fresh", "tmp-attach-target"],
+    )
+    .await;
 
     assert_eq!(
         outcomes.get("tmp-attach-fresh"),
         Some(&AttachOutcome::Attached { version: 1 })
+    );
+    assert_eq!(
+        outcomes.get("tmp-attach-target"),
+        Some(&AttachOutcome::AlreadyMapped { person_id: target })
     );
     let key = (ctx.team_id, "tmp-attach-fresh".to_string());
     let resolved = ctx
@@ -908,8 +1142,12 @@ async fn attach_works_on_a_configured_table_set() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::alone(AttachShape::Alone)]
+#[case::batch_of_one(AttachShape::BatchOfOne)]
+#[case::batched(AttachShape::Batched)]
 #[tokio::test]
-async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
+async fn attach_refuses_a_person_held_by_a_live_lifecycle_op(#[case] shape: AttachShape) {
     // A deletion overlapping an attach: the delete saga's destructive
     // transaction sweeps the person's distinct id rows, then tombstones
     // the person row, then commits. An attach whose liveness join runs
@@ -955,11 +1193,7 @@ async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
         .expect("sweep distinct ids");
 
     // The overlapping attach must refuse: the person is mark-held.
-    let outcomes = ctx
-        .storage
-        .attach_distinct_ids(ctx.team_id, victim, &["zombie-did".to_string()])
-        .await
-        .expect("attach call succeeds");
+    let outcomes = attach_in_shape(&ctx, shape, victim, &["zombie-did"]).await;
     assert!(
         outcomes.is_empty(),
         "attach must not touch a mark-held person, got {outcomes:?}"
@@ -982,6 +1216,113 @@ async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
         .execute(&ctx.pool)
         .await
         .expect("cleanup op");
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn a_batch_blocked_on_one_row_stops_waiting_at_the_lock_timeout() {
+    let ctx = TestContext::new().await;
+    let free_owner = ctx.insert_person_with_distinct_id("free-owner").await;
+    let held_owner = ctx.insert_person_with_distinct_id("held-owner").await;
+    let mut held = ctx.pool.begin().await.expect("begin held tx");
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) \
+         VALUES ('held-did', $1, $2, 0)",
+    )
+    .bind(held_owner)
+    .bind(ctx.team_id as i32)
+    .execute(&mut *held)
+    .await
+    .expect("hold the mapping row");
+
+    let attempt = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage.attach_distinct_ids_batch(&[
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: free_owner,
+                distinct_ids: vec!["free-did".to_string()],
+            },
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: free_owner,
+                distinct_ids: vec!["held-did".to_string()],
+            },
+        ]),
+    )
+    .await
+    .expect("the batch waited on the held row past its lock timeout");
+    held.rollback().await.expect("release the held row");
+
+    assert!(
+        matches!(
+            attempt,
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Lock,
+                ..
+            })
+        ),
+        "expected a lock timeout, got {attempt:?}"
+    );
+    assert_eq!(ctx.distinct_id_state("free-did").await, None);
+
+    ctx.cleanup().await.ok();
+}
+
+// Each wait ends before the lock timeout, so only the statement-wide cap stops
+// the batch. A slow runner may hit the lock timeout instead, so either passes.
+#[tokio::test]
+async fn a_batch_that_waits_on_row_after_row_stops_at_the_statement_timeout() {
+    let ctx = TestContext::new().await;
+    let owner = ctx.insert_person_with_distinct_id("waits-owner").await;
+    let held_ids: Vec<String> = (0..6).map(|i| format!("waits-held-{i}")).collect();
+    let mut holders = Vec::new();
+    for distinct_id in &held_ids {
+        let mut held = ctx.pool.begin().await.expect("begin held tx");
+        sqlx::query(
+            "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) \
+             VALUES ($1, $2, $3, 0)",
+        )
+        .bind(distinct_id)
+        .bind(owner)
+        .bind(ctx.team_id as i32)
+        .execute(&mut *held)
+        .await
+        .expect("hold the mapping row");
+        holders.push(held);
+    }
+    let releases = tokio::spawn(async move {
+        for held in holders {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            held.rollback().await.expect("release one held row");
+        }
+    });
+
+    let attempt = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage.attach_distinct_ids_batch(&[
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: owner,
+                distinct_ids: vec!["waits-free".to_string()],
+            },
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: owner,
+                distinct_ids: held_ids.clone(),
+            },
+        ]),
+    )
+    .await
+    .expect("the batch outlived its statement timeout");
+    releases.await.expect("release the held rows");
+
+    assert!(
+        matches!(attempt, Err(StorageError::Timeout { .. })),
+        "expected a timeout, got {attempt:?}"
+    );
+    assert_eq!(ctx.distinct_id_state("waits-free").await, None);
+
     ctx.cleanup().await.ok();
 }
 
@@ -1168,6 +1509,53 @@ async fn the_outbox_holds_exactly_the_live_mappings_a_create_or_attach_added() {
         assert_outbox_matches_added_mappings(&ctx, "attach", "attach", &before).await,
         2
     );
+
+    // Batched attach across two teams that share a distinct id: each row
+    // names its own team's person, and only written mappings publish.
+    let other_team = TestContext::new().await;
+    let companion = other_team
+        .insert_person_with_distinct_id("ob-batch-companion")
+        .await;
+    let target = ctx.insert_person_with_distinct_id("ob-batch-target").await;
+    ctx.insert_tombstoned_distinct_id("ob-batch-tomb", owner, 3)
+        .await;
+    let before = live_mappings(&ctx).await;
+    let other_before = live_mappings(&other_team).await;
+    storage
+        .attach_distinct_ids_batch(&[
+            PersonAttach {
+                team_id: other_team.team_id,
+                person_id: companion,
+                distinct_ids: vec!["ob-batch-shared".to_string()],
+            },
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: target,
+                distinct_ids: vec![
+                    "ob-batch-shared".to_string(),
+                    "ob-batch-own".to_string(),
+                    "ob-batch-tomb".to_string(),
+                    "ob-attach-owner".to_string(),
+                ],
+            },
+        ])
+        .await
+        .expect("batched attach");
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "batched attach", "attach", &before).await,
+        3
+    );
+    assert_eq!(
+        assert_outbox_matches_added_mappings(
+            &other_team,
+            "batched attach, other team",
+            "attach",
+            &other_before
+        )
+        .await,
+        1
+    );
+    other_team.cleanup().await.ok();
 
     // Mixed batch: one stub commits with an extra it shares with a second
     // stub that loses its race. The shared extra stays live under the

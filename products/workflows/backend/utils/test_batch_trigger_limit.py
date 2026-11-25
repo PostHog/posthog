@@ -120,6 +120,32 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         # executes it, so the detector must not key on the declared type alone.
         assert hog_flow_sends_email(actions) is expected
 
+    @parameterized.expand(
+        [
+            ("no rate limit", None, True, TIER_BATCH_CAPS[2]),
+            ("the fastest hourly rate that qualifies", {"count": 62, "period": "hour"}, True, 62 * 24 * 7),
+            ("an hourly rate over half the daily cap", {"count": 63, "period": "hour"}, True, TIER_BATCH_CAPS[2]),
+            ("a per-minute rate", {"count": 1, "period": "minute"}, True, 1 * 24 * 60 * 7),
+            ("a rate too slow to beat the tier cap", {"count": 1, "period": "hour"}, True, TIER_BATCH_CAPS[2]),
+            ("an unknown period", {"count": 10, "period": "day"}, True, TIER_BATCH_CAPS[2]),
+            ("a workflow without an email step", {"count": 62, "period": "hour"}, False, 5000),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=TIER_BATCH_CAPS,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+    )
+    def test_a_slow_enough_rate_limit_raises_the_email_limit(
+        self, _name: str, email_rate_limit: dict | None, sends_email: bool, expected: int
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        assert (
+            get_hogflow_batch_trigger_limit(self.team.id, sends_email=sends_email, email_rate_limit=email_rate_limit)
+            == expected
+        )
+
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_team_without_a_config_row_is_treated_as_tier_zero(self) -> None:
         # A brand-new project has no workflows config row yet, and it must land on the lowest tier

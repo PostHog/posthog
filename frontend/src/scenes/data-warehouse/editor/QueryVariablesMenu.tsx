@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconBrackets, IconChevronRight, IconExternal, IconGear } from '@posthog/icons'
@@ -68,7 +69,7 @@ const buildVariableMenuItems = (
     insertTextAtCursor: (text: string) => void,
     openExistingVariableModal: (variable: Variable) => void,
     closeMenu: () => void,
-    options?: { showSettingsButton?: boolean; insertOnClick?: boolean }
+    options?: { showSettingsButton?: boolean; insertOnClick?: boolean; onRemove?: (variableId: string) => void }
 ): LemonMenuItem[] => {
     return variables.map((variable): LemonMenuItem => {
         const variableAsHogQL = `{variables.${variable.code_name}}`
@@ -119,6 +120,15 @@ const buildVariableMenuItems = (
                         closeMenu()
                     },
                 },
+                options?.onRemove
+                    ? {
+                          label: 'Remove from this query',
+                          onClick: () => {
+                              options.onRemove?.(variable.id)
+                              closeMenu()
+                          },
+                      }
+                    : null,
                 {
                     label: 'Copy variable code',
                     onClick: () => {
@@ -142,7 +152,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variablesLoading, variablesUsedInQuery, variablesNotInQuery, searchTerm, internalSelectedVariables } =
         useValues(variablesLogic)
-    const { setSearchTerm, updateVariableValue, addVariable } = useActions(variablesLogic)
+    const { setSearchTerm, updateVariableValue, addVariable, removeVariable } = useActions(variablesLogic)
     const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
     const { insertTextAtCursor } = useActions(sqlEditorLogic)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -173,8 +183,21 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         openExistingVariableModal,
         closeMenu
     )
+    const unusedVariablesItems = buildVariableMenuItems(
+        variablesNotInQuery.filter((variable) => selectedVariableIds.has(variable.id)),
+        handleChange,
+        insertTextAtCursor,
+        openExistingVariableModal,
+        closeMenu,
+        {
+            onRemove: (variableId) => {
+                removeVariable(variableId)
+                posthog.capture('sql unused variable removed')
+            },
+        }
+    )
     const otherVariablesItems = buildVariableMenuItems(
-        variablesNotInQuery,
+        variablesNotInQuery.filter((variable) => !selectedVariableIds.has(variable.id)),
         null,
         insertTextAtCursor,
         openExistingVariableModal,
@@ -212,16 +235,16 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
                 title: 'Used in query',
                 items: variablesUsedItems,
             })
-        } else if (variablesNotInQuery.length) {
+        }
+        if (unusedVariablesItems.length) {
             variableSections.push({
-                title: 'Variables',
-                items: otherVariablesItems,
+                title: 'Unused in query (values retained)',
+                items: unusedVariablesItems,
             })
         }
-
-        if (variablesUsedItems.length && variablesNotInQuery.length) {
+        if (otherVariablesItems.length) {
             variableSections.push({
-                title: 'Other variables',
+                title: variablesUsedItems.length || unusedVariablesItems.length ? 'Other variables' : 'Variables',
                 items: otherVariablesItems,
             })
         }

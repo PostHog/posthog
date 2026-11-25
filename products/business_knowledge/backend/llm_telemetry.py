@@ -24,6 +24,7 @@ logger = structlog.get_logger(__name__)
 BK_AI_PRODUCT = "business_knowledge"
 
 INGEST_SAFETY_FEATURE = "bk_ingest_safety"
+INGEST_SAFETY_SHADOW_FEATURE = "bk_ingest_safety_shadow"
 INGEST_EMBEDDING_FEATURE = "bk_ingest_embedding"
 INGEST_EMBEDDING_REFRESH_FEATURE = "bk_ingest_embedding_refresh"
 RETRIEVAL_EMBEDDING_FEATURE = "bk_retrieval_embedding"

@@ -32,9 +32,10 @@ import {
 export const scene: SceneExport<TracingOperationSceneLogicProps> = {
     component: TracingOperationScene,
     logic: tracingOperationSceneLogic,
-    paramsToProps: ({ searchParams: { service, name } }) => ({
+    paramsToProps: ({ searchParams: { service, name, route_attribute, route } }) => ({
         serviceName: String(service ?? ''),
         spanName: String(name ?? ''),
+        route: route_attribute && route ? { attribute: String(route_attribute), value: String(route) } : null,
     }),
     productKey: ProductKey.TRACING,
 }
@@ -72,6 +73,7 @@ export function TracingOperationScene(): JSX.Element {
     const {
         serviceName,
         spanName,
+        route,
         dateRange,
         histogramData,
         rawHistogramLoading,
@@ -88,14 +90,13 @@ export function TracingOperationScene(): JSX.Element {
         chartType,
         latencyHeatmapData,
         rawLatencyHeatmapLoading,
-        heatmapEnabled,
     } = useValues(tracingOperationSceneLogic)
     const { setDateRange, setDurationSelection, setSampleIndex, selectSpan, setChartType, applyHeatmapBrush } =
         useActions(tracingOperationSceneLogic)
 
     const agentContextItems = useMemo(
-        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange),
-        [serviceName, spanName, dateRange]
+        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange, route),
+        [serviceName, spanName, dateRange, route]
     )
     useSceneAgentPanel({
         sceneKey: 'tracing-operation',
@@ -118,7 +119,7 @@ export function TracingOperationScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={spanName}
+                name={route ? `${spanName} ${route.value}` : spanName}
                 description={serviceName}
                 resourceType={{
                     type: 'tracing',
@@ -145,7 +146,7 @@ export function TracingOperationScene(): JSX.Element {
                     <StatBlock label="p99" value={formatDuration(operationStats.p99_duration_nano)} />
                 </div>
             )}
-            {heatmapEnabled && chartType === 'heatmap' ? (
+            {chartType === 'heatmap' ? (
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 min-h-6">
                         <span className="text-xs text-muted">Latency heatmap</span>
@@ -190,9 +191,7 @@ export function TracingOperationScene(): JSX.Element {
                     onSelect={setDurationSelection}
                     onClear={() => setDurationSelection(null)}
                     samplesLoading={samplesLoading}
-                    actions={
-                        heatmapEnabled ? <OperationChartToggle chartType={chartType} onChange={setChartType} /> : null
-                    }
+                    actions={<OperationChartToggle chartType={chartType} onChange={setChartType} />}
                 />
             )}
             <SceneDivider />

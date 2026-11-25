@@ -9,6 +9,9 @@ WHOP_API_VERSION_2025_01_01 = "2025-01-01"
 WHOP_API_VERSION_2026_10_13_1 = "2026-10-13-1"
 WHOP_API_VERSION_2026_10_29_8 = "2026-10-29-8"
 WHOP_API_VERSIONS = (WHOP_API_VERSION_2025_01_01, WHOP_API_VERSION_2026_10_13_1, WHOP_API_VERSION_2026_10_29_8)
+# The dated versions, whose contract names the company filter `account_id`. Endpoints Whop added after
+# 2025-01-01 are only verified against these.
+WHOP_DATED_API_VERSIONS = (WHOP_API_VERSION_2026_10_13_1, WHOP_API_VERSION_2026_10_29_8)
 API_VERSION_HEADER = "Api-Version-Date"
 
 # The query param that narrows a list to the connected company. Later versions renamed it, and
@@ -34,16 +37,23 @@ class WhopEndpointConfig:
     # filter, which we always send so a key reaching several companies stays pinned to the one the
     # user connected.
     company_id_required: bool = False
+    # False when the list takes no company filter and the key's own account scope bounds the rows.
+    company_filter: bool = True
     # Set when the endpoint's `order` enum contains `created_at`. Only then can we force a known
     # ascending page order and let the pipeline checkpoint the watermark after every batch.
     supports_created_at_order: bool = False
     # Set when the endpoint exposes a `direction` param. Endpoints with `direction` but no `order`
     # sort on an undocumented column, so we pin `direction=desc` and defer the watermark.
     supports_direction: bool = False
-    # Set when the endpoint accepts the server-side `created_after` ISO 8601 filter *and* the
-    # resource carries a `created_at` column for the pipeline to track.
+    # Set when the endpoint accepts the server-side `time_filter_param` ISO 8601 filter *and* the
+    # resource carries the `incremental_field` column for the pipeline to track.
     supports_created_after: bool = False
+    incremental_field: str = "created_at"
+    time_filter_param: str = "created_after"
     partition_key: str | None = "created_at"
+    # Most lists page Relay-style with `first` + `after`. A few newer ones take `limit` + `cursor`.
+    page_size_param: str = "first"
+    cursor_param: str = "after"
     latest_path: str | None = None
     # The versions the endpoint is verified on. None means every supported version.
     versions: tuple[str, ...] | None = None
@@ -133,11 +143,6 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         company_id_required=True,
         supports_created_after=True,
     ),
-    "leads": WhopEndpointConfig(
-        path="/leads",
-        company_id_required=True,
-        supports_created_after=True,
-    ),
     "experiences": WhopEndpointConfig(
         path="/experiences",
         company_id_required=True,
@@ -164,6 +169,65 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         partition_key=None,
         versions=(WHOP_API_VERSION_2026_10_13_1, WHOP_API_VERSION_2026_10_29_8),
     ),
+    # Formerly plans. `/variants` responds on every dated version, and from 2026-10-27-1 it is the
+    # only non-deprecated path.
+    "variants": WhopEndpointConfig(
+        path="/variants",
+        company_id_required=True,
+        supports_created_at_order=True,
+        supports_direction=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # Documented newest first, with no sort params.
+    "payouts": WhopEndpointConfig(
+        path="/payouts",
+        company_id_required=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # Immutable ledger lines, keyed by when they posted. The page order is undocumented.
+    "financial_activity": WhopEndpointConfig(
+        path="/financial_activity",
+        company_id_required=True,
+        supports_created_after=True,
+        incremental_field="posted_at",
+        time_filter_param="posted_after",
+        partition_key="posted_at",
+        page_size_param="limit",
+        cursor_param="cursor",
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # Takes no account filter, only `origin_id` and `destination_id`, which cannot express "sent or
+    # received". A company API key only lists its own account's transfers.
+    "transfers": WhopEndpointConfig(
+        path="/transfers",
+        company_filter=False,
+        supports_created_at_order=True,
+        supports_direction=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # The native reviews resource, from 2026-10-13-1. It lists published reviews only.
+    "reviews": WhopEndpointConfig(
+        path="/reviews",
+        supports_created_at_order=True,
+        supports_direction=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # No sort or timestamp filter params, so it only syncs as a full refresh.
+    "courses": WhopEndpointConfig(path="/courses", versions=WHOP_DATED_API_VERSIONS),
+}
+
+# Tables Whop no longer serves. Leaving WHOP_ENDPOINTS drops them from discovery; the reason here
+# is what a job already scheduled against one of them fails with, instead of a KeyError.
+RETIRED_ENDPOINTS: dict[str, str] = {
+    "leads": (
+        "Whop retired the leads endpoint and moved existing leads to members, so syncing for the leads table "
+        "has stopped. Sync the members table instead. A member that was a lead has the lead's ID in its "
+        "metadata as lead_id."
+    ),
 }
 
 ENDPOINTS = tuple(WHOP_ENDPOINTS.keys())
@@ -174,13 +238,16 @@ def endpoints_for(api_version: str) -> tuple[str, ...]:
 
 
 # Every Whop resource we sync exposes `created_at` as an immutable ISO 8601 datetime, and
-# `created_after` is the only server-side timestamp filter offered across the catalog. `/payments`
+# `created_after` is the only server-side timestamp filter offered across the catalog, except the
+# financial activity ledger, which filters its immutable `posted_at` with `posted_after`. `/payments`
 # also takes `updated_after`, but its `order` enum has no `updated_at` column, so an updated_at
 # cursor could never be paired with a known page order. Incremental sync therefore tracks
-# `created_at` everywhere, which does not re-surface in-place updates - webhooks cover those for the
+# `created_at` everywhere else, which does not re-surface in-place updates - webhooks cover those for the
 # resources Whop emits events for.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [incremental_field("created_at")] for name, config in WHOP_ENDPOINTS.items() if config.supports_created_after
+    name: [incremental_field(config.incremental_field)]
+    for name, config in WHOP_ENDPOINTS.items()
+    if config.supports_created_after
 }
 
 INCREMENTAL_ENDPOINTS = tuple(INCREMENTAL_FIELDS.keys())

@@ -15,7 +15,7 @@ import importlib
 from pathlib import Path
 
 from posthog.scope_docs import SCOPE_GROUPS, ScopeDoc, collect_scope_docs
-from posthog.scopes import PRIVILEGED_SCOPES
+from posthog.scopes.exposure import PRIVILEGED_SCOPES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = "frontend/src/lib/scopeDocs.generated.ts"
@@ -67,7 +67,7 @@ def render_scope_docs() -> str:
         "    actions: ('read' | 'write')[]\n"
         "    docsUrl?: string\n"
         "    organizationWide?: true\n"
-        "    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes.py).\n"
+        "    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes/exposure.py).\n"
         "    privileged?: true\n"
         "    // A scope that writing this object also needs, and why.\n"
         "    writeRequires?: { scope: string; reason: string }\n"

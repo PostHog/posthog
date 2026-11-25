@@ -5,10 +5,9 @@ import { processArtifacts, select } from '@/error-tracking/run'
 
 import {
     DRY_RUN_OPTION,
-    PATHS,
+    PATHS_OR_STDIN,
     readOptions,
     RELEASE_OPTIONS,
-    renderRelease,
     renderUpload,
     SELECTION_OPTIONS,
     UPLOAD_OPTIONS,
@@ -17,7 +16,7 @@ import {
 
 export default defineCommand({
     description: 'Inject chunk IDs into JavaScript bundles, then upload every artifact',
-    args: PATHS,
+    args: PATHS_OR_STDIN,
     options: { ...SELECTION_OPTIONS, ...UPLOAD_OPTIONS, ...RELEASE_OPTIONS, ...DRY_RUN_OPTION },
     scopes: UPLOAD_SCOPES,
     notes: [
@@ -43,13 +42,16 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
-        if (result.injected.length > 0) {
-            const changed = result.injected.filter((item) => item.action !== 'unchanged').length
-            out.line(
-                `Injected chunk IDs into ${plural(changed, 'bundle')}${changed < result.injected.length ? `, ${result.injected.length - changed} already had them` : ''}.`
-            )
-        }
-        renderUpload(out, result)
+        const changed = result.injected.filter((item) => item.action !== 'unchanged').length
+        const already = result.injected.length - changed
+        renderUpload(
+            out,
+            result,
+            result.injected.length > 0
+                ? [
+                      `Injected chunk IDs into ${plural(changed, 'bundle')}${already > 0 ? `, ${already} already had them` : ''}`,
+                  ]
+                : []
+        )
     },
 })

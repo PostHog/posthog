@@ -505,6 +505,12 @@ class TestResumableRestEndpoints:
                 [IntercomResumeConfig(cursor="c2"), IntercomResumeConfig(cursor="c3")],
             ),
             (
+                "data_connectors",
+                "data",
+                [{"starting_after": "d2"}, {"starting_after": "d3"}, None],
+                [IntercomResumeConfig(cursor="d2"), IntercomResumeConfig(cursor="d3")],
+            ),
+            (
                 "news_items",
                 "data",
                 [f"{INTERCOM_API_BASE}/news/news_items?page=2", SECOND_URL, None],
@@ -631,6 +637,7 @@ class TestPageNumberEndpoints:
             ("dynamic_contents", "50", False),
             ("folders", "50", True),
             ("deleted_contacts", "150", True),
+            ("calls", "25", True),
         ],
     )
     def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str, per_page: str, nested: bool):
@@ -833,3 +840,154 @@ class TestResumableConversationParts:
         ]
         # A conversation with no events still moves the cursor, so the next run skips it.
         assert cursor_manager.staged == IntercomConversationCursor(updated_at=1700000200)
+
+    def test_handling_events_walk_parents_from_the_source_cursor_and_advance_it(self):
+        cursor_manager = SourceCursorManager(
+            IntercomConversationCursor, IntercomConversationCursor(updated_at=1700000000), IntercomSource()
+        )
+        events = [
+            {
+                "teammate": {"type": "admin", "id": 123, "name": "Jane Example"},
+                "type": "paused",
+                "timestamp": "2026-01-09T09:00:00Z",
+                "reason": "Away",
+            },
+            {"teammate": {"type": "admin", "id": "124"}, "type": "resumed", "timestamp": "2026-01-09T09:10:00Z"},
+        ]
+        result = _drive(
+            "conversation_handling_events",
+            [
+                ScriptedResponse(
+                    json={
+                        "conversations": [
+                            {"id": "c1", "updated_at": 1700000100},
+                            {"id": "c2", "updated_at": 1700000200},
+                        ],
+                        "pages": {"next": None},
+                    }
+                ),
+                ScriptedResponse(json={"handling_events": events}),
+                ScriptedResponse(json={"handling_events": []}),
+            ],
+            should_use_incremental_field=True,
+            incremental_field="timestamp",
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert [(e["conversation_id"], e["teammate_id"], e["type"]) for e in result.rows] == [
+            ("c1", "123", "paused"),
+            ("c1", "124", "resumed"),
+        ]
+        assert result.requests[0].json()["query"] == {"field": "updated_at", "operator": ">", "value": 1700000000}
+        assert result.paths == [
+            "/conversations/search",
+            "/conversations/c1/handling_events",
+            "/conversations/c2/handling_events",
+        ]
+        assert cursor_manager.staged == IntercomConversationCursor(updated_at=1700000200)
+
+    def test_handling_events_full_refresh_ignores_the_stored_cursor(self):
+        cursor_manager = SourceCursorManager(
+            IntercomConversationCursor, IntercomConversationCursor(updated_at=1700000000), IntercomSource()
+        )
+        result = _drive(
+            "conversation_handling_events",
+            [ScriptedResponse(json={"conversations": [], "pages": {"next": None}})],
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].json()["query"]["value"] == 0
+
+
+def _notes_page(ids: list[str], page: int, total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "type": "list",
+            "data": [{"type": "note", "id": nid, "created_at": 1733932587} for nid in ids],
+            "pages": {"type": "pages", "page": page, "per_page": 60, "total_pages": total_pages},
+        }
+    )
+
+
+class TestContactNotes:
+    def test_walks_contacts_and_every_notes_page(self):
+        result = _drive(
+            "contact_notes",
+            route(
+                {
+                    "/contacts/search": [
+                        ScriptedResponse(
+                            json={"data": [{"id": "u1"}, {"id": "u2"}], "pages": {"next": {"starting_after": "p2"}}}
+                        ),
+                        ScriptedResponse(json={"data": [{"id": "u3"}], "pages": {"next": None}}),
+                    ],
+                    "/contacts/u1/notes": [_notes_page(["n1"], 1, 2), _notes_page(["n2"], 2, 2)],
+                    # A contact deleted between the search and the notes request is skipped.
+                    "/contacts/u2/notes": [ScriptedResponse(status=404)],
+                    "/contacts/u3/notes": [_notes_page(["n3"], 1, 1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(n["contact_id"], n["id"]) for n in result.rows] == [("u1", "n1"), ("u1", "n2"), ("u3", "n3")]
+        # Contacts have no notes filter, so the parent search always walks every contact.
+        assert result.requests[0].json()["query"] == {"field": "updated_at", "operator": ">", "value": 0}
+        assert list(zip(result.paths, result.params("page"), result.params("per_page"))) == [
+            ("/contacts/search", None, None),
+            ("/contacts/u1/notes", "1", "60"),
+            ("/contacts/u1/notes", "2", "60"),
+            ("/contacts/u2/notes", "1", "60"),
+            ("/contacts/search", None, None),
+            ("/contacts/u3/notes", "1", "60"),
+        ]
+        assert result.final_state == IntercomResumeConfig(cursor="p2", query_value=0, completed_conversation_ids=["u3"])
+
+    @pytest.mark.parametrize(
+        "pages",
+        [
+            pytest.param({"page": 1, "total_pages": 1}, id="last_page"),
+            pytest.param({"total_pages": 3}, id="page_not_echoed"),
+            pytest.param({"page": 1}, id="no_total_pages"),
+            pytest.param(None, id="no_pages_block"),
+        ],
+    )
+    def test_notes_walk_stops_unless_the_response_confirms_more_pages(self, pages: dict[str, Any] | None):
+        body: dict[str, Any] = {"type": "list", "data": [{"id": "n1"}]}
+        if pages is not None:
+            body["pages"] = pages
+        result = _drive(
+            "contact_notes",
+            route(
+                {
+                    "/contacts/search": [ScriptedResponse(json={"data": [{"id": "u1"}], "pages": {"next": None}})],
+                    "/contacts/u1/notes": [ScriptedResponse(json=body)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [n["id"] for n in result.rows] == ["n1"]
+        assert result.paths == ["/contacts/search", "/contacts/u1/notes"]
+
+    def test_resumed_run_skips_completed_contacts(self):
+        result = _drive(
+            "contact_notes",
+            route(
+                {
+                    "/contacts/search": [
+                        ScriptedResponse(json={"data": [{"id": "u3"}, {"id": "u4"}], "pages": {"next": None}})
+                    ],
+                    "/contacts/u4/notes": [_notes_page(["n4"], 1, 1)],
+                }
+            ),
+            resume_state=IntercomResumeConfig(cursor="p2", query_value=0, completed_conversation_ids=["u3"]),
+        )
+
+        assert result.raised is None
+        assert [n["id"] for n in result.rows] == ["n4"]
+        assert result.requests[0].json()["pagination"]["starting_after"] == "p2"
+        assert result.paths == ["/contacts/search", "/contacts/u4/notes"]

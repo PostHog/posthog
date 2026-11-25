@@ -92,19 +92,18 @@ export const NewSources: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const body = within(canvasElement.ownerDocument.body)
-        await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
+        await waitFor(() => expect(canvas.getAllByText('Add source')).toHaveLength(2))
         const team = teamLogic.values.currentTeam!
         teamLogic.actions.loadCurrentTeamSuccess({
             ...team,
             effective_membership_level: OrganizationMembershipLevel.Member,
         })
-        await waitFor(() => expect(canvas.queryAllByText('New')).toHaveLength(0))
         await userEvent.hover(canvas.getAllByText('Add source')[0])
         await body.findByText(/This area is restricted to project admins/)
         expect(body.queryByText('New ad sources are available')).not.toBeInTheDocument()
         await userEvent.unhover(canvas.getAllByText('Add source')[0])
         teamLogic.actions.loadCurrentTeamSuccess(team)
-        await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
+        await waitFor(() => expect(canvas.getAllByText('Add source')).toHaveLength(2))
         expect(canvas.getAllByText('Add source')[0].closest('button')).toHaveAccessibleName('Add source')
         await userEvent.hover(canvas.getAllByText('Add source')[0])
         await body.findByText('New ad sources are available')
@@ -114,12 +113,11 @@ export const NewSources: Story = {
 export const OpenMenu: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
+        await waitFor(() => expect(canvas.getAllByText('Add source')).toHaveLength(2))
         await userEvent.click(canvas.getAllByText('Add source')[0])
         const body = within(canvasElement.ownerDocument.body)
         await body.findByText('New ad sources')
         expect(body.queryByText('Got it')).not.toBeInTheDocument()
-        await waitFor(() => expect(canvas.queryAllByText('New')).toHaveLength(0))
         await userEvent.keyboard('{ArrowDown}')
         const googleAds = body.getByText('Google Ads').closest('a')!
         expect(googleAds).toHaveAttribute('href', expect.stringContaining('GoogleAds'))

@@ -70,7 +70,7 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
-        hooks: featureFlags/conditionIdHooks
+        hooks: featureFlags/createFeatureFlagHooks
     delete-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -301,8 +301,9 @@ tools:
         param_overrides:
             search:
                 description:
-                    Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
-                    tools.
+                    Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same
+                    separator. The words of the term must appear together and in order, so a shorter term matches more
+                    flags. Use this to find the flag ID for get/update/delete tools.
             active:
                 description:
                     Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"`
@@ -346,6 +347,28 @@ tools:
                     - feature_flag_id
                     - featureFlagId
         hooks: featureFlags/conditionIdHooks
+    feature-flag-get-version:
+        operation: feature_flags_versions_retrieve
+        enabled: true
+        title: Get a past version of a feature flag
+        description: >
+            Rebuild a feature flag as it was at a past version, from its activity log. Returns the key, name, `filters`
+            (release conditions, variants and payloads), enabled state and evaluation options at that version, plus
+            `version_timestamp` and `modified_by` for the edit that produced it. The flag's current `version` is on
+            `feature-flag-get-definition`; every saved edit adds one.
+
+
+            Use it to compare a past version with the current flag before restoring it with
+            `feature-flag-restore-version`. Returns 400 for a flag with encrypted payloads, 404 for a version above the
+            current one, and 422 when the activity log is missing entries needed to rebuild that version.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
     feature-flag-restore:
         operation: feature_flags_partial_update
         enabled: true
@@ -396,6 +419,46 @@ tools:
                 - archived
                 - deleted
                 - status
+                - version
+    feature-flag-restore-version:
+        operation: feature_flags_versions_restore_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Restore a past version of a feature flag
+        description: >
+            Set a feature flag's release conditions, variants, payloads, name and evaluation options back to what they
+            were at `version_number`. The key, the enabled state, the archived state, tags and evaluation contexts stay
+            as they are. The restore is saved as a new version, so it can be undone by restoring the version before it.
+
+
+            Before calling, read the past version with `feature-flag-get-version`, show the user what will change
+            against the current flag, and confirm. Send the flag's current `version` (not the version to restore), from
+            `feature-flag-get-definition`; never guess it. A stale `version` returns 409: read the flag again. Returns
+            409 with a `change_request_id` when an approval policy gates the change: tell the user a change request was
+            opened. Returns 400 for an archived flag, a flag with encrypted payloads, a flag whose `filters.version` is
+            2, or a past version that no longer validates, for example because it targets a deleted cohort. Restoring a
+            version that matches the current configuration changes nothing.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
+        feature_flag: mcp-feature-flag-restore-version
+        response:
+            include:
+                - id
+                - key
+                - name
+                - active
+                - archived
+                - filters
                 - version
     feature-flag-roll-out-to-everyone:
         operation: feature_flags_roll_out_to_everyone_create
@@ -1005,6 +1068,17 @@ tools:
             keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it
             returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you
             already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.
+
+
+            Release conditions normally combine with OR: a user who matches any condition gets the flag, subject to that
+            condition's rollout percentage. When `filters.early_exit` is true, evaluation can stop after an earlier
+            condition misses its rollout, so check condition order and do not assume an edit widens access. Property
+            filters inside one condition combine with AND. To give more users access, add a new release condition. Add
+            values to an existing `exact` property filter only when that condition has no other filters, has a 100%
+            rollout, and doing so is safe given `early_exit` and condition order. A new property filter on an existing
+            condition, such as an `is_not` filter, removes access from some users who match that condition today. Add a
+            property filter to an existing condition only when the user asks to restrict access. When the request can
+            mean either, ask the user which one they mean before you write.
         include_params:
             - key
             - name

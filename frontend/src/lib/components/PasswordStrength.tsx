@@ -1,15 +1,21 @@
+import type { ZXCVBNResult } from 'zxcvbn'
+
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { QuillPasswordStrength } from 'lib/components/QuillPasswordStrength'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 export type ValidatedPasswordResult = {
     score: number // 0 is no passsword - otherwise 1-5,
     feedback?: string
+    crackTimeSeconds?: number
+    crackTimeDisplay?: string | number
 }
 
-let zxcvbnFn: ((password: string) => { score: number; feedback: { warning: string } }) | null = null
-let zxcvbnLoading = false
+let zxcvbnFn: ((password: string) => ZXCVBNResult) | null = null
+let zxcvbnLoading: Promise<boolean> | null = null
 
 const PASSWORD_NEXT_STEP = "Try a longer password that isn't a common word or pattern."
 
@@ -20,21 +26,26 @@ function weakPasswordFeedback(warning: string): string {
 }
 
 // We load zxcvbn asynchronously as it's a large dependency and we don't want to block the main thread
-function ensureZxcvbnLoaded(): void {
-    if (!zxcvbnFn && !zxcvbnLoading) {
-        zxcvbnLoading = true
-        void import('zxcvbn')
+export function loadPasswordEstimator(): Promise<boolean> {
+    if (zxcvbnFn) {
+        return Promise.resolve(true)
+    }
+    if (!zxcvbnLoading) {
+        zxcvbnLoading = import('zxcvbn')
             .then(({ default: zxcvbn }) => {
                 zxcvbnFn = zxcvbn
+                return true
             })
             .catch(() => {
-                zxcvbnLoading = false
+                zxcvbnLoading = null
+                return false
             })
     }
+    return zxcvbnLoading
 }
 
 export function validatePassword(password: string = ''): ValidatedPasswordResult {
-    ensureZxcvbnLoaded()
+    void loadPasswordEstimator()
 
     if (password.length > 72) {
         return {
@@ -64,6 +75,8 @@ export function validatePassword(password: string = ''): ValidatedPasswordResult
     return {
         score: result.score + 1,
         feedback: result.score < 3 ? weakPasswordFeedback(result.feedback.warning) : '',
+        crackTimeSeconds: result.guesses / 1e10,
+        crackTimeDisplay: result.crack_times_display.offline_fast_hashing_1e10_per_second,
     }
 }
 
@@ -73,6 +86,11 @@ export default function PasswordStrength({
     validatedPassword: ValidatedPasswordResult
 }): JSX.Element {
     const { score, feedback } = validatedPassword
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return <QuillPasswordStrength score={score} feedback={feedback} />
+    }
 
     return (
         <Tooltip

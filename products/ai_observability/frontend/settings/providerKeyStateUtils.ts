@@ -67,6 +67,19 @@ export function providerKeyStateSuffix(state: LLMProviderKeyState): string {
     return ''
 }
 
+export function formatProviderKeyDate(dateString: string | null): string {
+    if (!dateString) {
+        return 'Never'
+    }
+    return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    })
+}
+
 export function providerLabel(provider: LLMProvider): string {
     return LLM_PROVIDER_LABELS[provider]
 }

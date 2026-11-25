@@ -26,6 +26,10 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Built-in SQL tables
+
+SQL autocomplete includes qualified table names from the visible schema alongside the existing unqualified shortcuts. Typing a namespace such as `posthog.` completes its tables, including when part of the table name is already entered. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -35,6 +39,28 @@ Existing reserved-name rows remain queryable, editable, and deletable. Model val
 Direct-connection catalogs contain no authored models and are exempt from the reservation. Upstream tables and schemas named `models` remain available there, including case variants resolved by Snowflake and Trino.
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
+
+## Model refresh minimums
+
+Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it sets the `alerts` limit.
+Billing sync stores the feature in `available_product_features`.
+An organization without the feature, or with a feature that has no `limit`, has no minimum.
+A `limit` that is not a cadence rounds up to the next one, and the minimum stops at seven days, the coarsest cadence an endpoint can use.
+
+The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
+A billing feature override only replaces a plan's `limit` when the new value is higher or `null`, so an override can make the minimum stricter or remove it, but can't lower it to `30`.
+Because `15` minutes is the fastest cadence, an override of `null` gives the same cadences as the `15` plans.
+
+The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
+The minimum refuses new and faster cadences.
+Each DAG run first rewrites every cadence in that DAG saved faster than the minimum to the minimum and reconciles its schedules, so a flag or plan change reaches a view or endpoint on its next run.
+The rewrite is permanent: an upgrade or turning the flag off does not restore the old cadence, and the person picks a faster one again.
+Each rewrite records the previous cadence, the minimum, and the time on the node under `properties.system.frequency.plan_clamp`, and sends a `data modeling refresh clamped to plan floor` event.
+Saving a different cadence, or clearing it, removes the record.
+Un-materializing a rewritten endpoint uses the previous cadence as its cache duration.
+Managed views keep the cadence their provider declares.
+When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
+Picking a cadence at or above the minimum materializes it.
 
 ## Model materialization usage
 
@@ -56,6 +82,16 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## Table definitions in SQL
+
+Hover over a table name in a SQL `FROM` or `JOIN` clause to see whether it is a table or a saved view.
+Saved views also show their SQL and a link to open the definition.
+
+## SQL table headers
+
+SQL and Trends table headers stay visible while scrolling inside a bounded table, including horizontal scrolling.
+On a full page, headers pin when the table fits its container and the scene is wide enough for sticky controls; wider tables keep horizontal scrolling.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -63,8 +99,22 @@ Scalar subqueries can still read data, so column inference shares the organizati
 API-key requests and background jobs retain the query runner's existing exemptions from that limit.
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
-An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
-Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
+An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding. Opening a saved query without SQL variables leaves the Edited label hidden until the query changes.
+Views and insights can be saved or updated before running the SQL. Save and update buttons show a warning when the query has not been run successfully. Clicking opens a confirmation near the pointer: **Run latest** runs the current editor SQL without saving, **Show diff** compares it with the saved view or insight (or the latest run for a new query), and **Save anyway** saves without opening a diff. All three choices close the confirmation. The read-only diff lets you review and save the changes or cancel to continue editing. Managed Trino views still require a successful run to determine their columns. View updates use the same change check as the **Edited** label, including saved query filters. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+Choose **Save as cohort** after running a single query against PostHog. Return a column named `person_id`, `actor_id`, or `distinct_id`. A query on the `persons` table can also return `id`. Give the cohort a name to save a static snapshot with the query's filters and variables.
+
+In a Markdown notebook, open the SQL cell’s **⋯** menu after running it. **Save as warehouse table** saves the returned rows under a new name. To refresh a table created by that cell, choose **Update from this run** and confirm **Replace rows**. **Manage table** opens the table in the warehouse, where you can delete it. **Save as cohort** saves a static cohort when the result includes a `person_id`, `actor_id`, or `distinct_id` column. Direct SQL runs keep up to 300 rows. SQL results stored in the notebook’s compute sandbox can be saved from runs of up to 10,000 rows.
+
+If the warehouse rejects a save, you can retry from the same dialog with the captured rows. Closing the dialog releases the browser’s copy.
+
+On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
+The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
+
+Saved SQL insight tables keep column headers visible while scrolling through rows or across columns. Tall results scroll inside an area capped at 70% of the window height; short results keep their natural height.
+
+**Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
@@ -76,7 +126,7 @@ Returning to a notebook can reuse completed query results from the last two minu
 
 Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
 
-**Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
+**Business intelligence** lists saved worksheets at `/bi`. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. Certified sources have a checkmark beside their table icon and appear in a separate **Certified sources** folder. All table folders can be expanded and collapsed, including while searching. Deprecated sources have a warning icon. Hover over either status icon for details. Deprecated and uncertified sources remain selectable; search preserves the same ordering. **Run** is the first toolbar action, before **Swap rows and columns**.
 
@@ -90,7 +140,8 @@ Panes share their value scale by default; **Independent value scales** lets each
 
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
-The Series panel accepts custom colors for individual breakdown values. Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+The Series panel accepts custom colors for individual breakdown values. The settings button beside a breakdown value lets you change its label without changing the query or grouping; clearing the label restores the original name. Clearing a color keeps the custom label. These controls also work in the SQL editor.
+Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. Value text and background colors can be customized independently of the series color. Clearing a color restores automatic styling; turning off the value background preserves its color for later use. These label controls also work in the SQL editor. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -129,12 +180,25 @@ The comparison picker adds the previous period or a custom offset, including one
 Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
 
 Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
+If a table name is too long to fit, the picker keeps its ending visible. Hover over the table or focus it with the keyboard to see its full name. The selected name wraps in the data pane.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## Moving averages on SQL charts
+
+In a SQL line or area chart, enable **Show moving average** under **Display** to overlay a trailing average on each series.
+The window defaults to three chart points in result order. Each point averages the available numeric values in its window, including the current point.
+
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
 
 ## Calculated measures in BI mode
 
@@ -167,7 +231,7 @@ BI worksheet menus and the left-click **Explore this result** dialog offer **Fil
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
-With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
+Choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
 
 Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 
@@ -349,6 +413,19 @@ This changes setup recommendations and diagnostic actions, not report attributio
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
 ## Validating ad source metric imports
+
+The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
+For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
+Stats tables contain performance metrics and do not replace the dimension table's data.
+
+X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for each entity separately, then for each account-local day if needed.
+Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
+If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
+The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
+For `429` responses during an import, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+Account listing and credential validation run inside web requests, so they keep the shared retry policy and request budget and do not wait for X's reset.
+This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
+Each retry prepares a new OAuth1 signature after the wait, so a rate-limit reset does not leave the request with an expired timestamp.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.

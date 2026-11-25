@@ -7,6 +7,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytz
 import dateutil
+from parameterized import parameterized
 
 from posthog.schema import (
     AggregationAxisFormat,
@@ -26,7 +27,7 @@ from posthog.schema import (
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
@@ -47,6 +48,7 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
+        keep_team_alerts_on_insight(self.team)
 
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
@@ -114,7 +116,11 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         return insight
 
-    def create_aggregate_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
+    def create_aggregate_trend_insight(
+        self,
+        breakdown: Optional[BreakdownFilter] = None,
+        display: ChartDisplayType = ChartDisplayType.ACTIONS_PIE,
+    ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(
@@ -128,7 +134,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 ),
             ],
             breakdownFilter=breakdown,
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_PIE),
+            trendsFilter=TrendsFilter(display=display),
             interval=IntervalType.WEEK,
             dateRange=DateRange(date_from="-8w"),
         ).model_dump()
@@ -450,10 +456,30 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("pie", ChartDisplayType.ACTIONS_PIE, None, 3, "signed_up"),
+            ("calendar heatmap", ChartDisplayType.CALENDAR_HEATMAP, None, 3, "signed_up"),
+            (
+                "pie with breakdown",
+                ChartDisplayType.ACTIONS_PIE,
+                BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+                2,
+                "signed_up - Chrome",
+            ),
+        ]
+    )
     def test_aggregate_trend_high_threshold_breached(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        _name: str,
+        display: ChartDisplayType,
+        breakdown: Optional[BreakdownFilter],
+        value: int,
+        series: str,
     ) -> None:
-        insight = self.create_aggregate_trend_insight()
+        insight = self.create_aggregate_trend_insight(breakdown, display=display)
         alert = self.create_alert(insight, series_index=0, upper=1)
 
         with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
@@ -488,62 +514,13 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert updated_alert.next_check_at.date() == next_check.date()
 
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.calculated_value == 3
+        assert alert_check.calculated_value == value
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for current interval (3) is more than upper threshold (1)"],
-            idempotency_key=ANY,
-            extra_properties=ANY,
-        )
-
-    def test_aggregate_trend_with_breakdown_high_threshold_breached(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ) -> None:
-        insight = self.create_aggregate_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
-        alert = self.create_alert(insight, series_index=0, upper=1)
-
-        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="3",
-                properties={"$browser": "Firefox"},
-            )
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="1",
-                properties={"$browser": "Chrome"},
-            )
-            _create_event(
-                team=self.team,
-                event="signed_up",
-                distinct_id="2",
-                properties={"$browser": "Chrome"},
-            )
-            flush_persons_and_events()
-
-        run_alert_check(alert["id"])
-
-        updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
-        assert updated_alert.state == AlertState.FIRING
-
-        next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
-        assert updated_alert.next_check_at is not None
-        assert updated_alert.next_check_at.hour == next_check.hour
-        assert updated_alert.next_check_at.date() == next_check.date()
-
-        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
-        assert alert_check.calculated_value == 2
-        assert alert_check.state == AlertState.FIRING
-        assert alert_check.error is None
-
-        mock_send_breaches.assert_called_once_with(
-            ANY,
-            ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1)"],
+            [f"The insight value ({series}) for current interval ({value}) is more than upper threshold (1)"],
             idempotency_key=ANY,
             extra_properties=ANY,
         )

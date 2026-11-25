@@ -49,6 +49,25 @@ the listed services (skipping core) — for jobs that launched a subset.
 EOF
 }
 
+LAUNCH_STARTED_US="${EPOCHREALTIME:-}"
+LAUNCH_STARTED_US="${LAUNCH_STARTED_US/[.,]/}"
+
+# Prefixes each line with the wall clock and the time since launch began, so the
+# launch log separates image pulls from container creation and boot.
+stamp_lines() {
+    local line now_us elapsed_ms
+
+    if [ -z "$LAUNCH_STARTED_US" ]; then
+        cat
+        return
+    fi
+    while IFS= read -r line; do
+        now_us="${EPOCHREALTIME/[.,]/}"
+        elapsed_ms=$(( (now_us - LAUNCH_STARTED_US) / 1000 ))
+        printf '%(%H:%M:%S)T +%d.%03ds %s\n' -1 $(( elapsed_ms / 1000 )) $(( elapsed_ms % 1000 )) "$line"
+    done
+}
+
 compose() {
     local compose_files=()
     local compose_args=()
@@ -189,10 +208,17 @@ login_to_depot_mirrors() {
 pull_from_first_mirror() {
     local path="$1" image="$2"
     local mirror
+    local pull_started=$SECONDS
 
+    # Compose pulls only missing images, so an image already on the host stays as it is.
+    if docker image inspect "$image" >/dev/null 2>&1; then
+        echo "${image} is already present; skipping the mirror pull."
+        return 0
+    fi
+    echo "Pulling ${image} from mirrors."
     for mirror in "${REGISTRY_MIRRORS[@]}"; do
         if docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
-            echo "Pulled ${image} from ${mirror}."
+            echo "Pulled ${image} from ${mirror} in $(( SECONDS - pull_started ))s."
             return 0
         fi
     done
@@ -239,8 +265,11 @@ run_launch_once() {
             ;;
     esac
 
+    echo "Mirror pulls started."
     pull_from_registry_mirror "$@"
-    compose_up "$@"
+    echo "Mirror pulls finished. docker compose up started."
+    compose_up "$@" || return
+    echo "docker compose up finished."
 }
 
 run_launch() {
@@ -310,14 +339,14 @@ run_launch() {
         (
             printf '%s\n' "$BASHPID" > "$pid_file"
             trap 'rm -f "$pid_file"' EXIT
-            launch_runner
+            launch_runner 2>&1 | stamp_lines
         ) &
         echo "Docker Compose launch started in background (pid $!)."
         return 0
     fi
 
     clear_background_launch_pid
-    launch_runner
+    launch_runner 2>&1 | stamp_lines
 }
 
 run_wait() {

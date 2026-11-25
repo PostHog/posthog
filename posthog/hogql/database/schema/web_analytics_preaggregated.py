@@ -8,6 +8,7 @@ from posthog.hogql.database.models import (
     EventsRetentionTable,
     FieldOrTable,
     IntegerDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
     UUIDDatabaseField,
@@ -196,6 +197,10 @@ WEB_DIMENSIONAL_SPECIFIC_FIELDS = {
     "job_id": UUIDDatabaseField(
         name="job_id", description="Precomputation job that wrote this row; reads filter to READY job ids."
     ),
+    "channel_type": StringDatabaseField(
+        name="channel_type",
+        description="Session channel type with the team's custom channel rules applied when the row was written.",
+    ),
 }
 
 
@@ -227,6 +232,19 @@ class WebStatsDimensionalPreAggregatedTable(EventsRetentionTable):
         return "web_stats_dimensional_preaggregated"
 
 
+WEB_BOUNCES_DIMENSIONAL_SPECIFIC_FIELDS = {
+    "session_hosts": StringArrayDatabaseField(
+        name="session_hosts",
+        description="Every host the session viewed, sorted, with '' for events without a host. `host` is one of them.",
+    ),
+    "bounce_eligible_sessions_state": DatabaseField(
+        name="bounce_eligible_sessions_state",
+        description="AggregateFunction state for the sessions with a non-NULL bounce value, the bounce rate "
+        "denominator; merge with sumMerge to read.",
+    ),
+}
+
+
 class WebBouncesDimensionalPreAggregatedTable(EventsRetentionTable):
     description: str = (
         "Precomputation-framework successor to web_pre_aggregated_bounces: same dimensions plus a job_id "
@@ -246,6 +264,7 @@ class WebBouncesDimensionalPreAggregatedTable(EventsRetentionTable):
         **SHARED_SCHEMA_FIELDS,
         **WEB_BOUNCES_SPECIFIC_FIELDS,
         **WEB_DIMENSIONAL_SPECIFIC_FIELDS,
+        **WEB_BOUNCES_DIMENSIONAL_SPECIFIC_FIELDS,
     }
 
     def to_printed_clickhouse(self, context):

@@ -22,7 +22,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     # trigger a regen.
     "build:openapi": (
         "posthog/api/*.py",
-        "posthog/scopes.py",
+        "posthog/scopes/*.py",
         "ee/api/*.py",
         "products/*/backend/api/*.py",
         "products/*/backend/presentation/*.py",

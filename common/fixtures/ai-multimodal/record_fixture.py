@@ -30,7 +30,7 @@ def main() -> None:
     ph = Posthog(
         "phc_recording_only",
         host="http://localhost:8010",
-        _enable_multimodal_capture=True,
+        enable_full_ai_capture=True,
         before_send=record,
         sync_mode=True,
     )
@@ -56,7 +56,7 @@ def main() -> None:
     properties = captured["properties"]
     encoded = json.dumps(properties["$ai_input"])
     if "[base64 image redacted]" in encoded:
-        raise SystemExit("image was redacted — _enable_multimodal_capture did not take effect")
+        raise SystemExit("image was redacted — enable_full_ai_capture did not take effect")
     if len(image_b64) <= 20000:
         raise SystemExit(
             f"screenshot is too small ({len(image_b64)} base64 chars); "

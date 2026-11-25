@@ -2,51 +2,14 @@ import re
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-from django.contrib import admin
-from django.template.loader import render_to_string
 from django.test import Client, SimpleTestCase
-from django.urls import reverse
 
 from parameterized import parameterized
 
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, User
-
-
-class _PostHogPermissions:
-    def __init__(self, *, change_organization: bool):
-        self.view_organization = True
-        self.change_organization = change_organization
-
-
-class _TemplatePermissions:
-    def __init__(self, *, change_organization: bool):
-        self.posthog = _PostHogPermissions(change_organization=change_organization)
-
-
-class TestOrganizationToolsAdminTemplate(SimpleTestCase):
-    def test_links_to_bulk_deactivation_for_users_with_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=True)},
-        )
-
-        assert "Organization tools" in rendered
-        assert 'id="organization-tools"' in rendered
-        assert "Bulk deactivate organizations" in rendered
-        assert "/admin/console/tools/bulk-deactivate-organizations/" in rendered
-
-    def test_hides_bulk_deactivation_without_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=False)},
-        )
-
-        assert "Organization tools" in rendered
-        assert "Send usage report" in rendered
-        assert "Bulk deactivate organizations" not in rendered
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
@@ -120,29 +83,6 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
-
-    def test_changelist_links_to_organization_tools_module(self) -> None:
-        self.client.force_login(self.user)
-
-        with patch.object(
-            admin.site,
-            "each_context",
-            return_value={
-                "site_title": admin.site.site_title,
-                "site_header": admin.site.site_header,
-                "site_url": admin.site.site_url,
-                "has_permission": True,
-                "available_apps": [],
-                "is_popup": False,
-                "is_nav_sidebar_enabled": False,
-                "log_entries": [],
-            },
-        ):
-            response = self.client.get(reverse("admin:posthog_organization_changelist"))
-
-        assert response.status_code == 200
-        assert b"Organization tools" in response.content
-        assert f"{reverse('admin:index')}#organization-tools".encode() in response.content
 
     def _preview(self, organization_ids: str, reason: str = DESKTOP_ABUSE, custom_reason: str = ""):
         return self.client.post(
@@ -231,3 +171,42 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         assert response["Location"] == TOOL_URL
         self.organization.refresh_from_db()
         assert self.organization.is_active
+
+
+class TestDeactivateOrganizationOperation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Staff deactivate organizations they are not members of.
+        self.staff = User.objects.create(email="staff@example.com", is_staff=True)
+        self.client.force_login(self.staff)
+        self.url = f"/admin/console/organizations/{self.organization.pk}/overview/deactivate/"
+
+    @parameterized.expand([("active", True, 302, False), ("already_inactive", False, 404, False)])
+    def test_deactivates_an_active_organization_with_the_reason(
+        self, _name: str, active: bool, expected_status: int, expected_active: bool
+    ) -> None:
+        reason = Organization.DeactivationReason.TERMS_OF_SERVICE_VIOLATION_SECURITY.value
+        if not active:
+            Organization.objects.filter(id=self.organization.id).update(
+                is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
+            )
+
+        response = self.client.post(self.url, {"reason": reason, "custom_reason": ""})
+
+        assert response.status_code == expected_status
+        self.organization.refresh_from_db()
+        assert (self.organization.is_active, self.organization.is_not_active_reason) == (
+            expected_active,
+            reason if active else COMPLIANCE_REVIEW,
+        )
+        updates = ActivityLog.objects.filter(
+            scope="Organization", item_id=str(self.organization.id), activity="updated"
+        )
+        assert [
+            (
+                logged.user_id,
+                logged.is_system,
+                [(change["field"], change["after"]) for change in (logged.detail or {})["changes"]],
+            )
+            for logged in updates
+        ] == ([(None, False, [("is_active", False), ("is_not_active_reason", reason)])] if active else [])

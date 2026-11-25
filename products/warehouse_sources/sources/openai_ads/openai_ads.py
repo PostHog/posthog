@@ -43,6 +43,10 @@ NO_ACCESS_ERROR = (
 UNREACHABLE_ERROR = (
     "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
 )
+UNSUPPORTED_CHARACTER_ERROR = (
+    "Your OpenAI Ads API key contains an unsupported character, such as a space or a line break. Copy "
+    "the key again from the Settings tab of OpenAI Ads Manager, then reconnect."
+)
 SERVER_ERROR_MESSAGE = (
     "OpenAI Ads had a temporary server error. This can also happen for a few minutes after you create an "
     "API key. The next sync will try again automatically."
@@ -158,6 +162,11 @@ def _headers() -> dict[str, str]:
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    # `requests` refuses such a key before sending anything, and the probe would read that as an
+    # unreachable API, telling the user to retry something that can never work.
+    if not api_key.isascii() or not api_key.isprintable() or any(char.isspace() for char in api_key):
+        return False, UNSUPPORTED_CHARACTER_ERROR
+
     # One cheap probe against the campaigns list confirms the key is genuine. 200 => valid.
     # 403 => a real key the API recognizes but with restricted access; accept it at create time
     # (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.

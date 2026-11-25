@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class Cin7SourceConfig(config.Config):
-    pass
+    account_id: str
+    application_key: str

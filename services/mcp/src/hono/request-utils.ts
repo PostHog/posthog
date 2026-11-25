@@ -7,7 +7,9 @@ import {
     mapErrorToAuthResponse,
     validateBearerToken,
 } from '@/lib/auth-errors'
+import { findRecoverableApiError, getApiLimitErrorType, PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { validateCredentialForPath } from '@/lib/project-secret-key'
 import {
     type ClientInfo,
     parseRequestProperties,
@@ -104,7 +106,9 @@ function parseClientInfo(bodyText: string): ClientInfo {
 
 function authenticate(c: HonoCtx): Response | null {
     const token = extractBearerToken(c.req.raw)
-    const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    const error =
+        validateCredentialForPath(token, c.req.raw) ??
+        validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
     if (error) {
         const reason = !token ? 'missing_token' : 'invalid_token'
         authFailuresTotal.inc({ reason })
@@ -131,7 +135,6 @@ export async function authenticateAndParse(
 
     const bodyText = await preserveBody(c)
     const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
-
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
     props.region = props.region || getRegionFromRequest(c.req.raw) || undefined
@@ -156,13 +159,25 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
         trackAuthFailure(props, classifyAuthFailure(error))
         return authResponse
     }
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogApiError && getApiLimitErrorType(apiError)) {
+        return new Response(apiError.message, {
+            status: apiError.status,
+            ...(apiError.retryAfterSeconds === null
+                ? {}
+                : { headers: { 'Retry-After': String(apiError.retryAfterSeconds) } }),
+        })
+    }
     try {
         if (error instanceof Error) {
-            getPostHogClient().captureException(error, props.userHash, {
-                team: 'posthog_ai',
-                source: 'mcp_hono_request',
-                mcp_transport: props.transport,
-                suppress_analytics: props.suppressAnalytics === true,
+            getPostHogClient().captureException(error, {
+                distinctId: props.userHash,
+                properties: {
+                    team: 'posthog_ai',
+                    source: 'mcp_hono_request',
+                    mcp_transport: props.transport,
+                    suppress_analytics: props.suppressAnalytics === true,
+                },
             })
         }
     } catch {}

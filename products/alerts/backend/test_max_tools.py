@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,8 +14,18 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertSt
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.test.insight_alerts import move_to_platform
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    owned_copies_by_legacy_id,
+    subscriber_user_ids_by_public_id,
+)
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
@@ -43,16 +54,21 @@ class TestUpsertAlertTool(BaseTest):
         return UpsertAlertTool(team=self.team, user=self.user, config=config)
 
     async def _create_insight(
-        self, name: str = "Test Insight", team: Team | None = None, query_kind: str = "TrendsQuery"
+        self,
+        name: str = "Test Insight",
+        team: Team | None = None,
+        query_kind: str = "TrendsQuery",
+        events: tuple[str, ...] = ("$pageview",),
+        formula: str | None = None,
     ) -> Insight:
+        source: dict = {"kind": query_kind, "series": [{"kind": "EventsNode", "event": event} for event in events]}
+        if formula is not None:
+            source["trendsFilter"] = {"formula": formula}
         return await sync_to_async(Insight.objects.create)(
             team=team or self.team,
             name=name,
             created_by=self.user,
-            query={
-                "kind": "InsightVizNode",
-                "source": {"kind": query_kind, "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            },
+            query={"kind": "InsightVizNode", "source": source},
         )
 
     async def _create_alert(
@@ -135,6 +151,110 @@ class TestUpsertAlertTool(BaseTest):
         subscription = await sync_to_async(AlertSubscription.objects.get)(alert_configuration=alert)
         assert subscription.user_id == self.user.id
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_an_alert_created_in_a_team_creating_native_alerts_is_only_on_the_platform_and_updates_there(
+        self,
+    ):
+        insight = await self._create_insight()
+        tool = self._setup_tool()
+
+        with mock.patch(
+            "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True
+        ):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Hourly signups below 100",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                    calculation_interval=AlertCalculationInterval.HOURLY,
+                )
+            )
+
+        assert "created successfully" in content, content
+        alert_id = UUID(artifact["alert_id"])
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def _stored() -> tuple[PlatformAlertConfigurationView | None, dict[UUID, tuple[int, ...]]]:
+            with team_scope(self.team.id):
+                return (
+                    get_configuration(
+                        team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+                    ),
+                    subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[alert_id]),
+                )
+
+        created, subscribers = await sync_to_async(_stored)()
+        assert created is not None
+        assert (created.name, created.check_interval_minutes, created.created_by_id) == (
+            "Hourly signups below 100",
+            60,
+            self.user.id,
+        )
+        assert subscribers == {alert_id: (self.user.id,)}
+        logged = [
+            row
+            async for row in ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="AlertConfiguration",
+                item_id=str(alert_id),
+                detail__type="alert_subscription_change",
+            ).values_list("activity", "user_id")
+        ]
+        assert logged == [("created", self.user.id)]
+
+        with mock.patch("posthog.event_usage.report_user_action") as report:
+            updated_content, _ = await tool._arun_impl(
+                action=UpdateAlertAction(
+                    alert_id=str(alert_id),
+                    name="Daily signups below 50",
+                    lower_threshold=50.0,
+                    calculation_interval=AlertCalculationInterval.DAILY,
+                    enabled=False,
+                )
+            )
+
+        assert "updated successfully" in updated_content, updated_content
+        reported = report.call_args.args[2]
+        assert (reported["alert_name"], reported["calculation_interval"], reported["enabled"]) == (
+            "Daily signups below 50",
+            AlertCalculationInterval.DAILY,
+            False,
+        )
+        updated, _ = await sync_to_async(_stored)()
+        assert updated is not None
+        assert (updated.name, updated.check_interval_minutes) == ("Daily signups below 50", 60 * 24)
+        assert updated.source_config["condition"]["threshold"]["bounds"]["lower"] == 50.0
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def can_view(_access_control: UserAccessControl, obj: object, *_args: object) -> bool:
+            return not isinstance(obj, Insight)
+
+        with mock.patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view):
+            hidden_content, hidden = await tool._arun_impl(
+                action=UpdateAlertAction(alert_id=str(alert_id), name="Renamed without insight access")
+            )
+            preview = await tool.format_dangerous_operation_preview(
+                UpdateAlertAction(alert_id=str(alert_id), enabled=True)
+            )
+
+        assert preview == f"**Update** alert (ID: {alert_id})"
+
+        assert hidden.get("error"), hidden_content
+        still_named, _ = await sync_to_async(_stored)()
+        assert still_named is not None
+        assert still_named.name == "Daily signups below 50"
+
+        refused_content, refused = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert_id), upper_threshold=10.0)
+        )
+
+        assert refused == {"error": "validation_failed"}, refused_content
+        unchanged, _ = await sync_to_async(_stored)()
+        assert unchanged is not None
+        assert unchanged.source_config["condition"]["threshold"]["bounds"]["upper"] is None
+
     @parameterized.expand(
         [
             (
@@ -198,7 +318,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_alert_with_option(self, _name, extra_kwargs, check):
-        insight = await self._create_insight()
+        insight = await self._create_insight(events=("$pageview", "$pageleave"))
         tool = self._setup_tool()
 
         action_kwargs = {
@@ -338,6 +458,53 @@ class TestUpsertAlertTool(BaseTest):
 
         assert "threshold" in content.lower()
         assert artifact["error"] == "validation_failed"
+
+    @parameterized.expand([("create",), ("edit",), ("native_edit",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_refuses_a_series_index_past_the_formula_results(self, path):
+        insight = await self._create_insight(events=("$pageview", "$pageleave"), formula="A+B")
+        tool = self._setup_tool()
+
+        with mock.patch(
+            "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled",
+            return_value=path == "native_edit",
+        ):
+            if path == "create":
+                alert_id = None
+                content, artifact = await tool._arun_impl(
+                    action=CreateAlertAction(
+                        name="Second formula",
+                        condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                        insight_id=insight.id,
+                        lower_threshold=1.0,
+                        series_index=1,
+                    )
+                )
+            else:
+                if path == "edit":
+                    alert_id = str((await self._create_alert(insight)).id)
+                else:
+                    created_content, created = await tool._arun_impl(
+                        action=CreateAlertAction(
+                            name="First formula",
+                            condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                            insight_id=insight.id,
+                            lower_threshold=1.0,
+                        )
+                    )
+                    assert "created successfully" in created_content, created_content
+                    alert_id = created["alert_id"]
+                content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=alert_id, series_index=1))
+
+            assert artifact == {"error": "validation_failed"}, content
+            assert "series_index 1 is out of range (query has 1 series)" in content
+            if alert_id is None:
+                assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+            else:
+                stored = await tool._resolve_alert(alert_id)
+                assert stored is not None
+                assert (stored.config or {})["series_index"] == 0
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -651,7 +818,11 @@ class TestUpsertAlertTool(BaseTest):
             ),
             (
                 "change_threshold_type",
-                {"lower_threshold": 100.0, "threshold_type": InsightThresholdType.ABSOLUTE},
+                {
+                    "condition_type": AlertConditionType.RELATIVE_DECREASE,
+                    "lower_threshold": 100.0,
+                    "threshold_type": InsightThresholdType.ABSOLUTE,
+                },
                 {"threshold_type": InsightThresholdType.PERCENTAGE, "lower_threshold": 0.5},
                 lambda a, t: (
                     t.configuration["type"] == InsightThresholdType.PERCENTAGE
@@ -702,6 +873,36 @@ class TestUpsertAlertTool(BaseTest):
         assert check(alert, threshold), f"Check failed for {_name}"
         assert alert.next_check_at is not None
         assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(self):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, lower_threshold=100.0)
+        await sync_to_async(move_to_platform)(alert)
+        # A write that bypasses every API leaves the row apart from the copy.
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(skip_weekend=True)
+
+        content, _ = await self._setup_tool()._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
+        )
+
+        assert "updated successfully" in content
+
+        def _copy() -> PlatformAlertConfigurationView:
+            with team_scope(self.team.id):
+                return owned_copies_by_legacy_id(
+                    team_id=self.team.id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert.id]
+                )[alert.id]
+
+        copy = await sync_to_async(_copy)()
+        assert (copy.source_config["condition"]["threshold"]["bounds"], copy.source_config["skip_weekend"]) == (
+            {"lower": 100.0, "upper": 200.0},
+            False,
+        )
+        row = await AlertConfiguration.objects.select_related("threshold").aget(id=alert.id)
+        assert row.threshold is not None
+        assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

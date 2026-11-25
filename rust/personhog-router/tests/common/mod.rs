@@ -31,13 +31,14 @@ use personhog_proto::personhog::types::v1::{
     CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
     CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
     CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest, DeleteCohortMembersByPersonIdsResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
     GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -308,6 +309,15 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<DeleteCohortMembersBulkRequest>,
     ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
         Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _request: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
             deleted_count: 0,
         }))
     }
@@ -732,8 +742,6 @@ pub fn create_test_person() -> Person {
         team_id: 1,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         properties: b"{}".to_vec(),
-        properties_last_updated_at: vec![],
-        properties_last_operation: vec![],
         created_at: 0,
         version: 1,
         is_identified: true,
@@ -1053,6 +1061,8 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
             changelog: changelog.clone(),
             timeout: Duration::from_secs(5),
             num_channels: 1,
+            keepalive_interval: None,
+            keepalive_timeout: None,
             http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
@@ -1088,6 +1098,8 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
             changelog: changelog.clone(),
             timeout: Duration::from_millis(200),
             num_channels: 1,
+            keepalive_interval: None,
+            keepalive_timeout: None,
             http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
@@ -1358,8 +1370,10 @@ pub const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 pub const H2_FRAME_DATA: u8 = 0x0;
 pub const H2_FRAME_HEADERS: u8 = 0x1;
 pub const H2_FRAME_SETTINGS: u8 = 0x4;
+pub const H2_FRAME_PING: u8 = 0x6;
 pub const H2_FRAME_WINDOW_UPDATE: u8 = 0x8;
 pub const H2_FLAG_END_STREAM: u8 = 0x1;
+pub const H2_FLAG_ACK: u8 = 0x1;
 pub const H2_FLAG_END_HEADERS: u8 = 0x4;
 
 pub struct H2Frame {
@@ -1384,18 +1398,19 @@ pub fn h2_frame(frame_type: u8, flags: u8, stream_id: u32, payload: &[u8]) -> Ve
 }
 
 pub async fn read_h2_frame(stream: &mut TcpStream) -> H2Frame {
+    try_read_h2_frame(stream).await.expect("frame")
+}
+
+pub async fn try_read_h2_frame(stream: &mut TcpStream) -> std::io::Result<H2Frame> {
     let mut header = [0u8; 9];
-    stream.read_exact(&mut header).await.expect("frame header");
+    stream.read_exact(&mut header).await?;
     let len = u32::from_be_bytes([0, header[0], header[1], header[2]]) as usize;
     let mut payload = vec![0u8; len];
-    stream
-        .read_exact(&mut payload)
-        .await
-        .expect("frame payload");
-    H2Frame {
+    stream.read_exact(&mut payload).await?;
+    Ok(H2Frame {
         frame_type: header[3],
         flags: header[4],
         stream_id: u32::from_be_bytes([header[5], header[6], header[7], header[8]]) & 0x7fff_ffff,
         payload,
-    }
+    })
 }

@@ -45,6 +45,8 @@ export interface Series<Meta = unknown> {
     key: string
     /** Human-readable name shown in tooltips and legends. */
     label: string
+    /** Short pill after the label in the legend only, e.g. "Previous" on a comparison series. */
+    legendTag?: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
     /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar
@@ -228,6 +230,8 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Backing pixels per CSS pixel to rasterise the canvas at. Absent means `devicePixelRatio`. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */
@@ -290,6 +294,10 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Turn it on only for charts whose
+     *  labels are x values, such as dates. Defaults to false; the time-series charts default it to
+     *  true. */
+    syncHover?: boolean
     /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced

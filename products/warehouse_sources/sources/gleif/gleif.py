@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -31,10 +32,9 @@ class GleifResumeConfig:
 
 def _flatten_json_api_item(item: dict[str, Any]) -> dict[str, Any]:
     """Hoist a JSON:API resource's `attributes` to the row root, keeping the top-level `id`."""
-    attributes = item.get("attributes")
-    if not isinstance(attributes, dict):
-        return {"id": item.get("id")}
-    return {"id": item.get("id"), **attributes}
+    return flatten_jsonapi(
+        {"id": item.get("id"), "attributes": item.get("attributes")}, relationships_as_ids=False, on_clash="nested"
+    )
 
 
 def _flatten_lei_record(item: dict[str, Any]) -> dict[str, Any]:

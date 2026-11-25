@@ -2,7 +2,9 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
+from requests.exceptions import HTTPError
+
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches, route
 from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.settings import DAY_MS
 from products.warehouse_sources.sources.umami.source import UmamiSource
@@ -134,6 +136,37 @@ def test_expired_login_replays_once_and_keeps_new_token(second_status: int) -> N
         assert result.rows == [{"id": "site-a"}]
     else:
         assert "401 Client Error" in str(result.raised)
+        assert result.rows == []
+
+
+@pytest.mark.parametrize(
+    "login_statuses, retryable",
+    [
+        ([530, 200], None),
+        ([502, 520, 200], None),
+        ([530, 530, 530], True),
+        ([503, 503, 503], True),
+        ([404], False),
+        ([501], False),
+    ],
+)
+def test_transient_login_failure_is_retried_then_classified_as_retryable(
+    login_statuses: list[int], retryable: bool | None
+) -> None:
+    logins = [
+        ScriptedResponse(json={"token": "fake-token"}) if status == 200 else ScriptedResponse(status=status)
+        for status in login_statuses
+    ]
+    result = driver("https://analytics.example.com/api", username="reader", password="fake-password").run(
+        "websites", route({"/auth/login": logins, "/websites": [page([{"id": "site-a"}]), page([])]})
+    )
+    assert result.paths.count("/api/auth/login") == len(login_statuses)
+    if retryable is None:
+        assert result.raised is None
+        assert result.rows == [{"id": "site-a"}]
+    else:
+        assert isinstance(result.raised, HTTPError)
+        assert error_message_matches(str(result.raised), UmamiSource().get_retryable_errors()) is retryable
         assert result.rows == []
 
 

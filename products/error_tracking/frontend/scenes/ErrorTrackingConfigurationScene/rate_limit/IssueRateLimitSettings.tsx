@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconRefresh } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -13,12 +14,18 @@ import { urls } from 'scenes/urls'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
+import { QuillIssueRateLimitSettings } from './QuillIssueRateLimitSettings'
 import { BUCKET_OPTIONS } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
 import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimulationChart'
 
 export function IssueRateLimitSettings(): JSX.Element {
     const { configLoading } = useValues(issueRateLimitConfigLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillIssueRateLimitSettings />
+    }
 
     if (configLoading) {
         return (

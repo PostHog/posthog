@@ -52,7 +52,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         body: dict[str, str] = {"pr_url": pr_url}
         if run_mode is not None:
             body["run_mode"] = run_mode
-        return self.client.post(f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", body, format="json")
+        return self.client.post(f"/api/projects/{self.team.id}/code_review/reviews/trigger/", body, format="json")
 
     @time_machine.travel("2026-10-10T12:00:00Z", tick=False)
     @patch(_META, return_value=_pr_meta())
@@ -66,7 +66,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # perspectives instead of the person who asked for it.
         member = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
         self.client.force_login(member)
-        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="review")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         # A first run has no report yet, and an author with no linked PostHog user owns nothing, so
@@ -107,6 +107,8 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             # (run_mode, expected review_mode)
             ("review_only", "full"),
             ("flash", "flash"),
+            # An MCP or API caller that names no mode gets the Standard review an `@posthog review` comment runs.
+            (None, "flash"),
         ]
     )
     @patch(_META, return_value=_pr_meta())
@@ -371,7 +373,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("full", None, ReviewTier.HUMAN),
+            ("full", "review", ReviewTier.HUMAN),
             ("review_only", "review_only", ReviewTier.HUMAN),
             ("flash", "flash", ReviewTier.AGENT_P2),
         ]
@@ -476,7 +478,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         for method, path, data in endpoints:
             with self.subTest(method=method, path=path, data=data):
                 response = getattr(self.client, method)(
-                    f"/api/projects/{self.team.id}/review_hog/{path}", data, format="json"
+                    f"/api/projects/{self.team.id}/code_review/{path}", data, format="json"
                 )
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
@@ -559,7 +561,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             published_head_sha=published_head_sha,
             published_heads_by_mode=published_modes,
         )
-        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="review")
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertEqual(resp.json()["status"], expected_marker)

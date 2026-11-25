@@ -12,6 +12,7 @@ import {
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_experimentCreate from '@/tools/experiments/createExperimentHooks'
 import hooks_experimentGet from '@/tools/experiments/getExperimentHooks'
+import hooks_experimentLaunch from '@/tools/experiments/launchExperimentHooks'
 import hooks_experimentList from '@/tools/experiments/listExperimentsHooks'
 import hooks_experimentUpdate from '@/tools/experiments/updateExperimentHooks'
 import hooks_experimentArchive from '@/tools/featureFlags/conditionIdHooks'
@@ -238,6 +239,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
+        feature_flag_rule_id: true,
         parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
@@ -440,6 +442,7 @@ const ExperimentDuplicateSchema = () => {
                     description: true,
                     start_date: true,
                     end_date: true,
+                    feature_flag_rule_id: true,
                     holdout_id: true,
                     parameters: true,
                     running_time_calculation: true,
@@ -775,31 +778,34 @@ const experimentLaunch = (): ToolBase<ReturnType<typeof ExperimentLaunchSchema>,
     withUiApp('experiment', {
         name: 'experiment-launch',
         schema: ExperimentLaunchSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentLaunchSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
-            })
-            const filtered = pickResponseFields(result, [
-                'id',
-                'name',
-                'description',
-                'type',
-                'feature_flag_key',
-                'status',
-                'archived',
-                'start_date',
-                'end_date',
-                'created_at',
-                'parameters',
-                'metrics',
-                'metrics_secondary',
-                'conclusion',
-                'conclusion_comment',
-            ]) as typeof result
-            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
-        },
+        handler: withToolHooks(
+            hooks_experimentLaunch,
+            async (context: Context, params: z.infer<ReturnType<typeof ExperimentLaunchSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.Experiment>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
+                })
+                const filtered = pickResponseFields(result, [
+                    'id',
+                    'name',
+                    'description',
+                    'type',
+                    'feature_flag_key',
+                    'status',
+                    'archived',
+                    'start_date',
+                    'end_date',
+                    'created_at',
+                    'parameters',
+                    'metrics',
+                    'metrics_secondary',
+                    'conclusion',
+                    'conclusion_comment',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+            }
+        ),
     })
 
 const ExperimentListSchema = () => {
@@ -834,6 +840,7 @@ const experimentList = (): ToolBase<
                         event: params.event,
                         excluded_tags: params.excluded_tags,
                         feature_flag_id: params.feature_flag_id,
+                        feature_flag_ids: params.feature_flag_ids,
                         limit: params.limit,
                         offset: params.offset,
                         order: params.order,
@@ -1531,6 +1538,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    feature_flag_rule_id: true,
                     parameters: true,
                     secondary_metrics: true,
                     filters: true,

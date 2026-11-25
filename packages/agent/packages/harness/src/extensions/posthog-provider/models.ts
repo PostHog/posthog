@@ -329,10 +329,17 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 128000,
     supports_vision: false,
   },
+  // Retired, and kept so a saved session pinned to it still restores.
   {
     id: "moonshotai/kimi-k3",
     owned_by: "modal",
     context_window: 262144,
+    supports_vision: false,
+  },
+  {
+    id: "moonshotai/kimi-k3.1-pro",
+    owned_by: "modal",
+    context_window: 1048576,
     supports_vision: false,
   },
   {

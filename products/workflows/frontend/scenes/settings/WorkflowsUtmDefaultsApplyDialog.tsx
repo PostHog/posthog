@@ -2,16 +2,28 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCheckbox, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils/strings'
 
+import { QuillWorkflowsUtmDefaultsApplyDialog } from './QuillWorkflowsUtmDefaultsApplyDialog'
+import {
+    applyUtmDefaultsButtonLabel,
+    applyUtmDefaultsDisabledReason,
+    utmDefaultsPreviewSummary,
+} from './utmDefaultsApplyPreview'
 import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
 
 export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
     const { isApplyDialogOpen, enableWhereOff, preview, previewLoading, isPreviewCurrent, applyResultLoading } =
         useValues(workflowsUtmDefaultsApplyLogic)
     const { closeApplyDialog, setEnableWhereOff, applyDefaults } = useActions(workflowsUtmDefaultsApplyLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const nothingToUpdate = !!preview && preview.emails_updated === 0
+    const applyState = { preview, previewLoading, isPreviewCurrent }
+
+    if (todayRailNav) {
+        return <QuillWorkflowsUtmDefaultsApplyDialog />
+    }
 
     return (
         <LemonModal
@@ -28,18 +40,10 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         type="primary"
                         onClick={applyDefaults}
                         loading={applyResultLoading}
-                        disabledReason={
-                            previewLoading || !preview || !isPreviewCurrent
-                                ? 'Counting the emails to update'
-                                : nothingToUpdate
-                                  ? 'No emails to update'
-                                  : undefined
-                        }
+                        disabledReason={applyUtmDefaultsDisabledReason(applyState)}
                         data-attr="workflows-utm-defaults-apply"
                     >
-                        {preview && isPreviewCurrent && !nothingToUpdate
-                            ? `Update ${pluralize(preview.emails_updated, 'email')}`
-                            : 'Update emails'}
+                        {applyUtmDefaultsButtonLabel(applyState)}
                     </LemonButton>
                 </>
             }
@@ -50,15 +54,7 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                 <p className="m-0">Couldn't count the emails to update. Close this and try again.</p>
             ) : (
                 <div className="flex flex-col gap-3">
-                    <p className="m-0">
-                        {nothingToUpdate
-                            ? preview.emails_off > 0
-                                ? 'The emails left to update have UTM tags off.'
-                                : 'Every email already uses these values.'
-                            : `${pluralize(preview.emails_updated, 'email')} in ${pluralize(preview.workflows_updated, 'broadcast or workflow', 'broadcasts and workflows')} will use the new values.`}
-                        {preview.active_workflows_updated > 0 &&
-                            ` ${preview.active_workflows_updated} of them ${preview.active_workflows_updated === 1 ? 'is' : 'are'} live, so the next send uses the new values.`}
-                    </p>
+                    <p className="m-0">{utmDefaultsPreviewSummary(preview)}</p>
                     {preview.workflows_without_access > 0 && (
                         <p className="m-0 text-secondary">
                             {preview.workflows_without_access} more workflows have emails to update, but you don't have

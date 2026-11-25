@@ -120,7 +120,8 @@ export class HogFunctionInvocationPipeline {
                         const { invocations, metrics, logs, buildFailures } = await buildHogFunctionInvocations(
                             this.deps.hogInputsService,
                             teamHogFunctions,
-                            globals
+                            globals,
+                            { markInputsRebuildable: true }
                         )
 
                         this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')

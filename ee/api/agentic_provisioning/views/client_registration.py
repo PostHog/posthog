@@ -37,7 +37,9 @@ from posthog.api.oauth.client_assertion import (
     describe_jwks,
     verify_client_assertion,
 )
+from posthog.api.oauth.provisioning_review import ORGANIZATION_LINK_REQUIRED_MESSAGE, ensure_review_running
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -85,12 +87,12 @@ class ClientRegistrationView(ProvisioningAPIView):
                 "jwks_uri": app.jwks_uri,
                 "scopes": app.ceiling_scopes,
                 "provisioning": {
-                    "active": app.provisioning.active,
+                    "active": app.provisioning_allowed,
                     "can_create_accounts": app.provisioning.can_create_accounts,
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
                 "capabilities": {
-                    "account_requests": app.provisioning.active
+                    "account_requests": app.provisioning_allowed
                     and app.provisioning.can_create_accounts
                     and not app.cannot_meet_provisioning_signature,
                     "unsigned_requests": not app.requires_provisioning_signature,
@@ -144,8 +146,8 @@ class ClientRegistrationView(ProvisioningAPIView):
         if not app.is_provisioning_partner:
             _record(checks, "provisioning_enabled", False, _not_a_partner_detail(app, document_read=document_read))
             return None
-        if not app.provisioning.active:
-            _record(checks, "provisioning_enabled", False, "Provisioning is deactivated for this client")
+        if not app.provisioning_allowed:
+            _record(checks, "provisioning_enabled", False, _inactive_detail(app))
             return None
         _record(checks, "provisioning_enabled", True, "Active")
         return app
@@ -180,6 +182,34 @@ class ClientRegistrationView(ProvisioningAPIView):
             _record(checks, "client_assertion", False, str(exc))
             return
         _record(checks, "client_assertion", True, "Verified, and its jti is now consumed")
+
+
+def _inactive_detail(app: OAuthApplication) -> str:
+    """Why a registered partner cannot provision yet. A partner waiting on its review is told so,
+    rather than that it was deactivated, because it needs to wait rather than contact anyone."""
+    if app.provisioning.disabled:
+        return "Provisioning is blocked for this client. Contact PostHog support if that is unexpected."
+    if app.needs_organization_link:
+        return ORGANIZATION_LINK_REQUIRED_MESSAGE
+    if ensure_review_running(app) is not None:
+        return "PostHog is reviewing this client before it can provision. Register again in a few minutes to check."
+    review_status = CIMDProvisioningReview.objects.filter(application=app).values_list("status", flat=True).first()
+    if review_status == ProvisioningReviewStatus.NEEDS_HUMAN:
+        return "PostHog staff are reviewing this client before it can provision. Register again later to check."
+    # The message from staff is for the organization's admins, so only the way to read it goes here.
+    if review_status in (ProvisioningReviewStatus.DECLINED, ProvisioningReviewStatus.CHANGES_REQUESTED):
+        verdict = (
+            "PostHog declined this client for provisioning"
+            if review_status == ProvisioningReviewStatus.DECLINED
+            else "PostHog needs changes or more information before this client can provision"
+        )
+        return (
+            f"{verdict}. An admin of the PostHog organization linked to this client can read why and ask for another "
+            "review in organization settings, under OAuth applications. If no organization is linked yet, an "
+            "organization admin creates a CIMD verification token in organization settings, and you publish it in "
+            "your client metadata document, then register again."
+        )
+    return "Provisioning is deactivated for this client"
 
 
 def _not_a_partner_detail(app: OAuthApplication, *, document_read: bool) -> str:

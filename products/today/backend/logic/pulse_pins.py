@@ -8,7 +8,7 @@ from pydantic import TypeAdapter, ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.api import get_key_metric_names

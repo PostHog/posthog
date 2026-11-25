@@ -13,7 +13,7 @@ import { AppContext } from '~/types'
 
 import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
-import { PendingApprovalRedirect, aiConsentLogic } from './aiConsentLogic'
+import { AI_DATA_PROCESSING_LOCKED_REASON, PendingApprovalRedirect, aiConsentLogic } from './aiConsentLogic'
 
 jest.mock('products/platform_features/frontend/generated/api', () => ({
     requestAiAccessCreate: jest.fn(),
@@ -82,6 +82,22 @@ describe('aiConsentLogic', () => {
 
             expect(logic.values.dataProcessingApprovalDisabledReason).toBe(expected)
         })
+
+        it.each([OrganizationMembershipLevel.Member, OrganizationMembershipLevel.Admin])(
+            'is the lock reason for membership level %s when the organization is locked',
+            (level) => {
+                initKeaTests(true, undefined, undefined, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    membership_level: level,
+                    is_ai_data_processing_locked: true,
+                })
+                logic = aiConsentLogic()
+                logic.mount()
+
+                expect(logic.values.dataProcessingLocked).toBe(true)
+                expect(logic.values.dataProcessingApprovalDisabledReason).toBe(AI_DATA_PROCESSING_LOCKED_REASON)
+            }
+        )
     })
 
     // Regression guard for the extraction: dismissal must persist under the exact
@@ -248,6 +264,23 @@ describe('aiConsentLogic', () => {
             expect(logic.values.aiAccessRequested).toBe(false)
             expect(logic.values.requestingAiAccess).toBe(false)
             expect(lemonToast.error).toHaveBeenCalled()
+        })
+
+        it('does not ask admins when the organization is locked', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_locked: true,
+            })
+            logic = aiConsentLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.requestAiAccess()
+            }).toFinishAllListeners()
+
+            expect(requestAiAccessCreate).not.toHaveBeenCalled()
+            expect(logic.values.aiAccessRequested).toBe(false)
+            expect(logic.values.requestingAiAccess).toBe(false)
         })
     })
 })

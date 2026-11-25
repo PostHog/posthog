@@ -96,7 +96,7 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     repositories = serializers.ListField(
         child=serializers.CharField(max_length=255),
         required=False,
-        max_length=10,
+        max_length=20,
         help_text="GitHub repositories the agent can work in, each as organization/repo. Omit for a task with no code access.",
     )
     channel = serializers.CharField(

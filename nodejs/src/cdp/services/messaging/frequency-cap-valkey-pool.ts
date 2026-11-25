@@ -17,7 +17,10 @@ export type FrequencyCapValkeyConfig = Pick<
  * Creates a connection to the dedicated frequency cap Valkey instance. Returns null when the host
  * is unset, and the frequency cap is then off in that environment.
  */
-export function createFrequencyCapValkeyPool(config: FrequencyCapValkeyConfig): RedisV2 | null {
+export function createFrequencyCapValkeyPool(
+    config: FrequencyCapValkeyConfig,
+    { exitOnRepeatedErrors = true }: { exitOnRepeatedErrors?: boolean } = {}
+): RedisV2 | null {
     const name = 'workflows-frequency-cap'
     if (!config.CDP_FREQUENCY_CAP_VALKEY_HOST) {
         logger.info('🧢', `[${name}] no frequency cap Valkey host configured — frequency cap disabled`)
@@ -38,6 +41,7 @@ export function createFrequencyCapValkeyPool(config: FrequencyCapValkeyConfig): 
                 tls: config.CDP_FREQUENCY_CAP_VALKEY_TLS ? {} : undefined,
             },
             name,
+            exitOnRepeatedErrors,
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,

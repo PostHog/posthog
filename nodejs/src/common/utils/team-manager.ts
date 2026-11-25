@@ -184,7 +184,6 @@ export class TeamManager {
                 t.name,
                 t.anonymize_ips,
                 t.api_token,
-                t.secret_api_token,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
@@ -197,6 +196,7 @@ export class TeamManager {
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 COALESCE(ocfg.flag_evaluations_mode, 0) AS flag_evaluations_mode,
+                COALESCE(ocfg.keep_writing_flag_calls_to_events, false) AS keep_writing_flag_calls_to_events,
                 -- The keys are the only part of available_product_features a caller reads. Picking
                 -- them out here returns a text[], which the pg driver reads with its plain array
                 -- parser. Selecting the jsonb[] column makes the driver JSON-parse every feature

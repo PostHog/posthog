@@ -3,6 +3,12 @@ steps:
     - launch: { ios: com.posthog.code.mobile, android: com.posthog.mobile }
     - await: { visible: { id: try-demo }, timeout: 30000 }
     - tap: { id: try-demo }
+    - await: { visible: { id: live-scroll } }
+    - await: { idle: true }
+    - echo: Home
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
+    - tap: { id: nav-inbox }
     - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
     - echo: Inbox

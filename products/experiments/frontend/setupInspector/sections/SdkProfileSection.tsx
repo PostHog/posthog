@@ -35,7 +35,7 @@ export function SdkProfileSection({
                             { label: 'Flags seen', value: formatCount(data.flags_seen) },
                             {
                                 label: 'Same flag evaluated on a server and on the web',
-                                value: `${formatYesNo(data.evaluated_on_server_and_web)} (${formatCount(data.flags_evaluated_on_server_and_web)} flags)`,
+                                value: `${formatYesNo(data.evaluated_on_server_and_web)} (${formatCount(data.flags_evaluated_on_server_and_web)} ${data.flags_evaluated_on_server_and_web === 1 ? 'flag' : 'flags'})`,
                                 help: 'The same flag decided on the server and read in the browser can put one user in two variants.',
                             },
                             { label: 'Computed at', value: formatTimestamp(data.computed_at) },

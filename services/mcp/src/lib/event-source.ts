@@ -131,3 +131,8 @@ export function resolveEventSource(input: EventSourceInput): EventSource {
     }
     return FIRST_PARTY_CONSUMER_TO_SOURCE.get(input.mcpConsumer) ?? EVENT_SOURCE.MCP
 }
+
+// A first-party token with no mapped consumer resolves to `mcp` but is still one of PostHog's own agents.
+export function isCustomerAgentCaller(input: EventSourceInput): boolean {
+    return resolveEventSource(input) === EVENT_SOURCE.MCP && !isFirstPartyCaller(input)
+}

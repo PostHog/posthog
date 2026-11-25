@@ -1,11 +1,11 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from products.web_analytics.dags.cache_favicons import (
-    get_authorized_domains,
-    get_last_cached_domains,
-    upload_if_missing,
-)
+import httpx
+
+from posthog.dags.common.favicons import DownloadedFavicon, download_favicon, get_last_cached_domains, upload_if_missing
+
+from products.web_analytics.dags.cache_favicons import get_authorized_domains
 
 
 class TestGetLastCachedDomains:
@@ -99,6 +99,45 @@ class TestGetAuthorizedDomains:
         assert result == expected
 
 
+class TestDownloadFavicon:
+    @pytest.mark.parametrize(
+        "statuses,expected_data,expected_hosts",
+        [
+            ({"icons.duckduckgo.com": 200}, b"icons.duckduckgo.com", ["icons.duckduckgo.com"]),
+            (
+                {"icons.duckduckgo.com": 404, "t0.gstatic.com": 200},
+                b"t0.gstatic.com",
+                ["icons.duckduckgo.com", "t0.gstatic.com"],
+            ),
+            (
+                {"icons.duckduckgo.com": 404, "t0.gstatic.com": 404},
+                None,
+                ["icons.duckduckgo.com", "t0.gstatic.com"],
+            ),
+        ],
+    )
+    def test_uses_first_source_that_has_the_favicon(self, statuses, expected_data, expected_hosts):
+        requested_hosts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requested_hosts.append(request.url.host)
+            return httpx.Response(
+                statuses[request.url.host], content=request.url.host.encode(), headers={"content-type": "image/png"}
+            )
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            favicon = download_favicon(Mock(), "example.com", client)
+
+        assert requested_hosts == expected_hosts
+        if expected_data is None:
+            assert favicon is None
+        else:
+            assert favicon is not None
+            assert favicon.data == expected_data
+            assert favicon.content_type == "image/png"
+            assert httpx.URL(favicon.source_url).host == expected_data.decode()
+
+
 class TestUploadIfMissing:
     def test_skips_upload_when_object_exists(self):
         context = Mock()
@@ -132,11 +171,11 @@ class TestUploadIfMissing:
 
 
 class TestCacheFaviconsAsset:
-    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("posthog.dags.common.favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.sync_execute")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
-    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
-    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    @patch("posthog.dags.common.favicons.download_favicon")
+    @patch("posthog.dags.common.favicons.upload_if_missing")
     def test_skips_previously_cached_domains(
         self, mock_upload, mock_download, mock_get_cached, mock_sync_execute, mock_httpx_client
     ):
@@ -146,14 +185,14 @@ class TestCacheFaviconsAsset:
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
         mock_get_cached.return_value = {"cached.com"}
-        mock_download.return_value = ("new.com", b"data", "image/png", "http://url")
+        mock_download.return_value = DownloadedFavicon(data=b"data", content_type="image/png", source_url="http://url")
 
         context = dagster.build_asset_context()
         s3 = Mock()
         s3.get_client.return_value = Mock()
         config = CacheFaviconsConfig(force_refresh=False)
 
-        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+        with patch("posthog.dags.common.favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
             result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -162,11 +201,11 @@ class TestCacheFaviconsAsset:
         assert result.metadata["domains_skipped"] == 1
         assert result.metadata["favicons_cached"] == 1
 
-    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("posthog.dags.common.favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.sync_execute")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
-    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
-    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    @patch("posthog.dags.common.favicons.download_favicon")
+    @patch("posthog.dags.common.favicons.upload_if_missing")
     def test_force_refresh_downloads_all(
         self, mock_upload, mock_download, mock_get_cached, mock_sync_execute, mock_httpx_client
     ):
@@ -176,8 +215,8 @@ class TestCacheFaviconsAsset:
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
         mock_download.side_effect = [
-            ("cached.com", b"data1", "image/png", "http://url1"),
-            ("new.com", b"data2", "image/png", "http://url2"),
+            DownloadedFavicon(data=b"data1", content_type="image/png", source_url="http://url1"),
+            DownloadedFavicon(data=b"data2", content_type="image/png", source_url="http://url2"),
         ]
 
         context = dagster.build_asset_context()
@@ -185,7 +224,7 @@ class TestCacheFaviconsAsset:
         s3.get_client.return_value = Mock()
         config = CacheFaviconsConfig(force_refresh=True)
 
-        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+        with patch("posthog.dags.common.favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
             result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -197,11 +236,11 @@ class TestCacheFaviconsAsset:
 
 
 class TestCacheAuthorizedDomainFaviconsAsset:
-    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("posthog.dags.common.favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.get_authorized_domains")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
-    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
-    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    @patch("posthog.dags.common.favicons.download_favicon")
+    @patch("posthog.dags.common.favicons.upload_if_missing")
     def test_fetches_favicons_for_authorized_domains(
         self, mock_upload, mock_download, mock_get_cached, mock_get_authorized, mock_httpx_client
     ):
@@ -212,8 +251,8 @@ class TestCacheAuthorizedDomainFaviconsAsset:
         mock_get_authorized.return_value = {"mysite.com", "other.com"}
         mock_get_cached.return_value = set()
         mock_download.side_effect = [
-            ("mysite.com", b"data1", "image/png", "http://url1"),
-            ("other.com", b"data2", "image/png", "http://url2"),
+            DownloadedFavicon(data=b"data1", content_type="image/png", source_url="http://url1"),
+            DownloadedFavicon(data=b"data2", content_type="image/png", source_url="http://url2"),
         ]
 
         context = dagster.build_asset_context()
@@ -221,7 +260,7 @@ class TestCacheAuthorizedDomainFaviconsAsset:
         s3.get_client.return_value = Mock()
         config = CacheFaviconsConfig(force_refresh=False)
 
-        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+        with patch("posthog.dags.common.favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
             result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -230,11 +269,11 @@ class TestCacheAuthorizedDomainFaviconsAsset:
         assert result.metadata["authorized_domains_queried"] == 2
         assert result.metadata["favicons_cached"] == 2
 
-    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("posthog.dags.common.favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.get_authorized_domains")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
-    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
-    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    @patch("posthog.dags.common.favicons.download_favicon")
+    @patch("posthog.dags.common.favicons.upload_if_missing")
     def test_skips_previously_cached_authorized_domains(
         self, mock_upload, mock_download, mock_get_cached, mock_get_authorized, mock_httpx_client
     ):
@@ -244,14 +283,14 @@ class TestCacheAuthorizedDomainFaviconsAsset:
 
         mock_get_authorized.return_value = {"cached.com", "new.com"}
         mock_get_cached.return_value = {"cached.com"}
-        mock_download.return_value = ("new.com", b"data", "image/png", "http://url")
+        mock_download.return_value = DownloadedFavicon(data=b"data", content_type="image/png", source_url="http://url")
 
         context = dagster.build_asset_context()
         s3 = Mock()
         s3.get_client.return_value = Mock()
         config = CacheFaviconsConfig(force_refresh=False)
 
-        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+        with patch("posthog.dags.common.favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
             result: dagster.MaterializeResult = cache_authorized_domain_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 

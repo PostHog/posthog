@@ -105,6 +105,45 @@ class TestGetRows:
         assert any(key in error_message for key in GorgiasSource().get_non_retryable_errors())
 
 
+class TestTopLevelRows:
+    @parameterized.expand(
+        [
+            (
+                "integration_credentials_dropped",
+                "integrations",
+                {
+                    "data": [
+                        {
+                            "id": 1,
+                            "type": "http",
+                            "http": {
+                                "url": "https://example.com/hook",
+                                "headers": {"Authorization": "Bearer fake-token"},
+                                "oauth2": {"client_secret": "fake-secret"},
+                            },
+                        },
+                        {"id": 2, "type": "email", "http": None},
+                    ],
+                    "meta": {"next_cursor": None},
+                },
+                [
+                    {"id": 1, "type": "http", "http": {"url": "https://example.com/hook"}},
+                    {"id": 2, "type": "email", "http": None},
+                ],
+            ),
+            ("rules_bare_array", "rules", [{"id": 5, "name": "auto-close"}], [{"id": 5, "name": "auto-close"}]),
+            ("widgets_bare_array", "widgets", [{"id": 7, "order": 1}], [{"id": 7, "order": 1}]),
+        ]
+    )
+    def test_rows(self, _name: str, endpoint: str, body: object, expected: list[dict]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == [f"/api/{endpoint}"]
+        assert result.params("order_by") == ["created_datetime:asc"]
+        assert result.rows == expected
+
+
 class TestParamVariants:
     @parameterized.expand(
         [
@@ -238,6 +277,86 @@ class TestCustomerFieldValues:
         assert result.committed_states == result.saved_states
 
 
+def _items(ids: list[int], next_items: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": [{"id": i, "created_datetime": f"2024-01-0{i}T00:00:00+00:00"} for i in ids],
+            "meta": {"next_items": next_items},
+        }
+    )
+
+
+VIEWS_PAGE = _page(
+    [
+        {"id": 3, "type": "ticket-list"},
+        {"id": 1, "type": "ticket-list"},
+        {"id": 2, "type": "customer-list"},
+        {"id": 4, "type": "ticket-list", "deactivated_datetime": "2024-01-01T00:00:00"},
+        {"id": 5},
+    ]
+)
+NEXT_LINK = "/api/views/1/items/?direction=next&ignored_item=11&cursor=abc"
+
+
+class TestViewItems:
+    def test_walks_ticket_views_in_id_order_following_next_items(self) -> None:
+        result = _driver().run(
+            "view_items",
+            [
+                VIEWS_PAGE,
+                _items([1, 2], next_items=NEXT_LINK),
+                # A link that points back at the same page must not loop forever.
+                _items([3], next_items=NEXT_LINK),
+                ScriptedResponse(status=404),
+                _items([]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/views",
+            "/api/views/1/items",
+            "/api/views/1/items",
+            "/api/views/3/items",
+            "/api/views/5/items",
+        ]
+        assert [(r.param("cursor"), r.param("ignored_item"), r.param("order_by")) for r in result.requests[1:]] == [
+            (None, None, "created_datetime:asc"),
+            ("abc", "11", "created_datetime:asc"),
+            (None, None, "created_datetime:asc"),
+            (None, None, "created_datetime:asc"),
+        ]
+        assert [(r["view_id"], r["ticket_id"], r["ticket_created_datetime"]) for r in result.rows] == [
+            (1, 1, "2024-01-01T00:00:00+00:00"),
+            (1, 2, "2024-01-02T00:00:00+00:00"),
+            (1, 3, "2024-01-03T00:00:00+00:00"),
+        ]
+        assert result.saved_states == [
+            GorgiasResumeConfig(cursor=NEXT_LINK, parent_id=1),
+            GorgiasResumeConfig(cursor=None, parent_id=1),
+            GorgiasResumeConfig(cursor=None, parent_id=3),
+            GorgiasResumeConfig(cursor=None, parent_id=5),
+        ]
+        assert result.final_state == GorgiasResumeConfig(cursor=None, parent_id=5)
+
+    @parameterized.expand(
+        [
+            ("mid_view", GorgiasResumeConfig(cursor=NEXT_LINK, parent_id=3), "/api/views/3/items", "abc"),
+            ("view_complete", GorgiasResumeConfig(cursor=None, parent_id=3), "/api/views/5/items", None),
+            ("view_deleted", GorgiasResumeConfig(cursor=NEXT_LINK, parent_id=2), "/api/views/3/items", None),
+        ]
+    )
+    def test_resume_skips_completed_views(
+        self, _name: str, state: GorgiasResumeConfig, first_path: str, first_cursor: str | None
+    ) -> None:
+        result = _driver().run("view_items", [VIEWS_PAGE, _items([]), _items([])], resume_state=state)
+
+        assert result.raised is None
+        assert result.paths[1] == first_path
+        assert result.requests[1].param("cursor") == first_cursor
+        assert "/api/views/1/items" not in result.paths
+
+
 class TestServerFilteredIncremental:
     def test_filters_from_watermark_ascending_on_every_page(self) -> None:
         result = _driver().run(
@@ -317,9 +436,14 @@ DOCUMENTED_ORDER_BY_DATETIME_FIELDS: dict[str, set[str]] = {
     "voice_call_events": set(),  # accepts no order_by
     "voice_call_recordings": set(),  # accepts no order_by
     "customer_field_values": {"created_datetime", "updated_datetime"},
+    "view_items": {"created_datetime"},  # sorts the parent view list
+    "integrations": {"created_datetime"},
+    "rules": {"created_datetime"},
+    "widgets": {"created_datetime"},
 }
 DOCUMENTED_NON_DATETIME_ORDER_BY: dict[str, set[str]] = {
     "custom_fields": {"priority:asc", "priority:desc"},
+    "widgets": {"order:asc", "order:desc"},
 }
 
 

@@ -136,11 +136,15 @@ class PropertyValueVisibility:
         if organization_id not in self._admin_of_organization:
             from posthog.models import OrganizationMembership  # noqa: PLC0415
 
-            self._admin_of_organization[organization_id] = OrganizationMembership.objects.filter(
-                user=self._user,
-                organization_id=organization_id,
-                level__gte=OrganizationMembership.Level.ADMIN,
-            ).exists()
+            self._admin_of_organization[organization_id] = (
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
+                    user=self._user,
+                    organization_id=organization_id,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
+                )
+                .exists()
+            )
         return self._admin_of_organization[organization_id]
 
     def _restricted_group_property_names_by_type(self, team_id: int) -> GroupPropertyNamesByType:

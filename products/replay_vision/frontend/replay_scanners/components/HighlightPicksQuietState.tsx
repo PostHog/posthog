@@ -15,7 +15,6 @@ import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
 import { weeklyVolume } from '../highlightPicksStarter'
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
 import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
-import { SWEEP_INTERVAL_MINUTES } from '../scannerStatus'
 import { HighlightPicksStateFrame } from './HighlightPicksStateFrame'
 import { HighlightPicksVolumeTiles } from './HighlightPicksVolumeTiles'
 
@@ -49,7 +48,7 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
         <HighlightPicksStateFrame
             size={size}
             image={HedgehogNoir}
-            title="Nothing to watch yet"
+            title="No highlights to watch yet"
             body={
                 sweepStale ? (
                     <>
@@ -64,7 +63,7 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
                                 , last sweep <TZLabel time={lastSweptAt} showPopover={false} noStyles />
                             </>
                         )}
-                        . New recordings are checked every {SWEEP_INTERVAL_MINUTES} minutes and picks appear here.
+                        . New recordings are checked regularly and picks appear here.
                     </>
                 )
             }

@@ -6,23 +6,48 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
 import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
+import { deadlineError, deadlineRemainingMs } from './deadline'
 import { Semaphore } from './sempahore'
 
 const semaphore = new Semaphore(1)
 
 export async function execHog(
     bytecode: any,
-    options?: ExecOptions
+    options?: ExecOptions,
+    signal?: AbortSignal
 ): Promise<{
     execResult?: ExecResult
     error?: any
     durationMs: number
 }> {
-    return await semaphore.run(async () => {
-        return await instrumentFn(`hog-exec`, async () => {
-            return await yieldEventLoopIfNeeded('hog-exec', () => execHogImmediate(bytecode, options))
-        })
-    })
+    try {
+        return await semaphore.run(async () => {
+            return await instrumentFn(`hog-exec`, async () => {
+                const result = await yieldEventLoopIfNeeded('hog-exec', () => {
+                    const passedBefore = deadlineError(signal)
+                    if (passedBefore !== undefined) {
+                        return { error: passedBefore, durationMs: 0 }
+                    }
+                    return execHogImmediate(bytecode, withinDeadline(options, signal))
+                })
+                const passed = deadlineError(signal)
+                return passed !== undefined ? { error: passed, durationMs: result.durationMs } : result
+            })
+        }, signal)
+    } catch (error) {
+        if (signal?.aborted && error === signal.reason) {
+            return { error, durationMs: 0 }
+        }
+        throw error
+    }
+}
+
+function withinDeadline(options: ExecOptions | undefined, signal: AbortSignal | undefined): ExecOptions | undefined {
+    const remainingMs = deadlineRemainingMs(signal)
+    if (remainingMs === undefined) {
+        return options
+    }
+    return { ...options, timeout: Math.min(options?.timeout ?? DEFAULT_TIMEOUT_MS, Math.ceil(remainingMs) + 1) }
 }
 
 export function execHogImmediate(

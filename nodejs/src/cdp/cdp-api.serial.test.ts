@@ -1,31 +1,64 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { kafkaRecordsOn, mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
+
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { DateTime } from 'luxon'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { Pool } from 'pg'
+import pino from 'pino'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { version as uuidVersion } from 'uuid'
 
+import * as intakeMessage from '~/cdp/intake/message'
+import { keyedRunId } from '~/cdp/intake/run-intake'
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { decodeJobState } from '~/cdp/services/cyclotron-v2/job-codec'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { APP_METRICS_OUTPUT } from '~/common/outputs'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
-import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
+import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from './_tests/builders/hogflow.builder'
+import {
+    BucketProxy,
+    EmailQueueOfOneTest,
+    HeldQuery,
+    PostgresProxy,
+    StoredFile,
+    attachmentFile,
+    attachmentStoreConfig,
+    deliveredTo,
+    sesClientFor,
+    uploadAttachment,
+} from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { startFakeSes } from './_tests/fake-ses'
 import {
     insertHogFunction as _insertHogFunction,
     createHogFunction,
@@ -34,17 +67,49 @@ import {
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
+import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
+import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
+import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
+import { requestFingerprint } from './services/hogflows/idempotency-keys'
 import {
+    ATTACHMENT_CONTENT_ID_MAX_LENGTH,
+    ATTACHMENT_CONTENT_TYPE_MAX_LENGTH,
+    ATTACHMENT_FILENAME_MAX_LENGTH,
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { BATCH_PUBLISH_DEADLINE_MS } from './services/hogflows/transactional-email-batch'
+import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
+import {
+    ATTACHMENT_LIFETIME_MS,
+    DAY_MS,
+    S3AttachmentStore,
+    buildAttachmentStore,
+} from './services/messaging/attachment-store'
+import {
+    ATTACHMENT_VERIFICATION_DEADLINE_MS,
+    AttachmentUploads,
+    createEmailAttachmentsValkeyPool,
+} from './services/messaging/attachment-uploads'
+import { cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
+import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
+import { InFlightRegistry } from './services/messaging/in-flight-registry'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './services/messaging/message-estimate'
+import {
+    HOG_FLOW_VERSION_APP_SOURCE,
+    versionedAppSourceId,
+} from './services/monitoring/hog-function-monitoring.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { EMAIL_BODY_TAG_LIMIT, LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -59,6 +124,31 @@ jest.mock('node:dns/promises', () => ({
     })),
 }))
 
+const fakeJobProducer = (overrides: Partial<CyclotronV2JobProducer> = {}): CyclotronV2JobProducer => ({
+    createJob: jest.fn(),
+    countInFlightJobs: jest.fn(),
+    rescheduleParkedJobs: jest.fn(),
+    cancelJobs: jest.fn(),
+    resumeParkedSteps: jest.fn(),
+    resumeParkedBatchResolver: jest.fn(),
+    cancelUnclaimed: jest.fn(),
+    rescheduleUnclaimed: jest.fn(),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+})
+
+const emittedLogLines = (): { lines: string[]; stop: () => void } => {
+    const target = logger as unknown as { pino: pino.Logger }
+    const original = target.pino
+    const lines: string[] = []
+    target.pino = pino({ level: 'debug' }, { write: (line: string) => void lines.push(line) })
+    return {
+        lines,
+        stop: () => {
+            target.pino = original
+        },
+    }
+}
 describe('CDP API', () => {
     let hub: Hub
     let cdpDeps: CdpConsumerBaseDeps
@@ -106,6 +196,19 @@ describe('CDP API', () => {
         return item
     }
 
+    const observeKafka = (): (() => Record<string, any>[]) => {
+        const outputs = api['emailStatusService']['outputs']['outputs'] as unknown as Record<
+            string,
+            { producer: KafkaProducerWrapper }
+        >
+        const observers = [...new Set(Object.values(outputs).map((output) => output.producer))].map(
+            (producer) => new KafkaProducerObserver(producer)
+        )
+        observers.forEach((observer) => observer.resetKafkaProducer())
+        return () =>
+            observers.flatMap((observer) => observer.getProducedKafkaMessages().map((message) => message.value))
+    }
+
     beforeAll(async () => {
         // Reset before caching the team: without this, getFirstTeam picks up
         // whatever team the previous suite left with the lowest id, and every
@@ -121,7 +224,7 @@ describe('CDP API', () => {
         cdpDeps = createCdpConsumerDeps(hub)
         api = new CdpApi(
             hub,
-            { ...cdpDeps, idempotencyValkey: createIdempotencyValkeyPool(hub) },
+            { ...cdpDeps, emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: createMockJobQueue(),
@@ -212,6 +315,67 @@ describe('CDP API', () => {
         expect(res.status).toEqual(200)
         expect(res.body.errors).toEqual([])
     })
+
+    it.each([
+        ['hog function', () => `hog_functions/${hogFunction.id}`, 'Received invocation', 200],
+        ['hog flow', () => 'hog_flows/new', 'Received hogflow invocation', undefined],
+    ])('keeps event data out of the received %s invocation log', async (_name, path, message, expectedStatus) => {
+        const sentinel = `sample-value-${randomUUID()}`
+        const emitted = emittedLogLines()
+        let res: supertest.Response
+        try {
+            res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/${path()}/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event, properties: { email: sentinel } } },
+                    clickhouse_event: { event: '$exception', properties: JSON.stringify({ email: sentinel }) },
+                    mock_async_functions: true,
+                })
+        } finally {
+            emitted.stop()
+        }
+
+        if (expectedStatus) {
+            expect(res.status).toEqual(expectedStatus)
+        }
+        expect(emitted.lines.some((line) => String(parseJSON(line).msg).endsWith(message))).toBe(true)
+        expect(emitted.lines.join('')).not.toContain(sentinel)
+    })
+
+    it.each([
+        ['hog function', 'one line', () => `hog_functions/${hogFunction.id}`, (s: string) => s],
+        ['hog flow', 'one line', () => 'hog_flows/new', (s: string) => s],
+        ['hog function', 'several lines', () => `hog_functions/${hogFunction.id}`, (s: string) => `x\n${s}`],
+        ['hog flow', 'several lines', () => 'hog_flows/new', (s: string) => `x\n${s}`],
+    ])(
+        'keeps event data out of the error log when a %s test event is malformed on %s',
+        async (_name, _shape, path, payload) => {
+            const sentinel = `x${randomUUID().slice(0, 7)}`
+            const emitted = emittedLogLines()
+            let res: supertest.Response
+            try {
+                res = await supertest(app)
+                    .post(`/api/projects/${hogFunction.team_id}/${path()}/invocations`)
+                    .send({
+                        clickhouse_event: {
+                            event: '$exception',
+                            timestamp: '2021-09-28 14:00:00.000',
+                            properties: payload(sentinel),
+                        },
+                        mock_async_functions: true,
+                    })
+            } finally {
+                emitted.stop()
+            }
+
+            expect(res.status).toEqual(500)
+            expect(JSON.stringify(res.body)).toContain(sentinel)
+            expect(emitted.lines.some((line) => String(parseJSON(line).msg).endsWith('Test invocation failed'))).toBe(
+                true
+            )
+            expect(emitted.lines.join('')).not.toContain(sentinel)
+        }
+    )
 
     it("does not error if hog function is 'new'", async () => {
         const res = await supertest(app)
@@ -1257,6 +1421,75 @@ describe('CDP API', () => {
         expect(allLogText).toContain('***REDACTED***')
     })
 
+    it('returns only the next step id from a branch step test run', async () => {
+        const SECRET_TOKEN = 'fake-branch-next-step-value-xyz'
+        const ALWAYS_TRUE_BYTECODE = ['_H', 1, 29]
+
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-cdp-api-flow-branch-fetch',
+            name: 'Flow branch fetch',
+            code: `fetch(inputs.url, { 'method': 'POST', 'headers': { 'Authorization': f'Bearer {inputs.access_token}' } })`,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+            ],
+        })
+
+        const res = await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+            .send({
+                globals,
+                mock_async_functions: true,
+                current_action_id: 'branch_node',
+                configuration: {
+                    name: 'Flow with a branch before a fetch',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'branch_node',
+                            name: 'Branch',
+                            type: 'conditional_branch',
+                            config: { conditions: [{ filters: { bytecode: ALWAYS_TRUE_BYTECODE } }] },
+                            output_variable: { key: 'next_step', result_path: 'conditionResult.nextAction.id' },
+                        },
+                        {
+                            id: 'fetch_node',
+                            name: 'Fetch',
+                            type: 'function',
+                            config: {
+                                template_id: 'template-cdp-api-flow-branch-fetch',
+                                inputs: {
+                                    url: { value: 'https://example.com/hook' },
+                                    access_token: { value: SECRET_TOKEN },
+                                },
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                    edges: [
+                        { from: 'trigger_node', to: 'branch_node', type: 'continue' },
+                        { from: 'branch_node', to: 'fetch_node', type: 'branch', index: 0 },
+                        { from: 'branch_node', to: 'exit_node', type: 'continue' },
+                        { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+                    ],
+                },
+            })
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toMatchObject({
+            status: 'success',
+            nextActionId: 'fetch_node',
+            execResult: { conditionResult: { nextAction: { id: 'fetch_node' } } },
+            variables: { next_step: 'fetch_node' },
+        })
+        expect(JSON.stringify(res.body)).not.toContain(SECRET_TOKEN)
+    })
+
     it.each([
         ['real', false, ['https://example.com']],
         ['mocked', true, []],
@@ -1389,15 +1622,10 @@ describe('CDP API', () => {
 
         it('queues batch job to the cyclotron resolver', async () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1445,6 +1673,39 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a deadline', { wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no request', undefined, 200, undefined],
+            ['an unreadable deadline', { wait_until: 'soon' }, 400, undefined],
+        ])(
+            'resolves the audience up front only on a valid deadline: %s',
+            async (_desc, audienceSnapshot, status, waitUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-794`
+                        )
+                        .send({ audience_snapshot: audienceSnapshot })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    // The resolver asks Django for the snapshot on its first dequeue, so the job starts now.
+                    expect(arg.scheduled).toBeUndefined()
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.audienceSnapshot).toEqual(waitUntil ? { waitUntil } : undefined)
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
+        it.each([
             ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
             ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
             ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
@@ -1453,15 +1714,7 @@ describe('CDP API', () => {
             'parks a realtime cohort resolver only on a valid deadline: %s',
             async (_desc, cohort, status, parkedUntil) => {
                 const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-                api['batchResolverProducer'] = {
-                    createJob: createJobMock,
-                    countInFlightJobs: jest.fn(),
-                    rescheduleParkedJobs: jest.fn(),
-                    cancelJobs: jest.fn(),
-                    resumeParkedSteps: jest.fn(),
-                    resumeParkedBatchResolver: jest.fn(),
-                    disconnect: jest.fn().mockResolvedValue(undefined),
-                }
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
 
                 try {
                     const res = await supertest(app)
@@ -1495,15 +1748,10 @@ describe('CDP API', () => {
             const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1548,15 +1796,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1609,15 +1852,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1674,15 +1912,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1777,6 +2010,68 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        it.each([
+            ['once when the run is queued', false, 200],
+            ['not at all when the run cannot be queued', true, 500],
+        ])('counts the run as triggered %s', async (_desc, queueFails, expectedStatus) => {
+            const producedToKafka = observeKafka()
+            if (queueFails) {
+                mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(expectedStatus)
+            if (queueFails) {
+                // A failed request flushes nothing, so flush here to expose a metric left in the buffer.
+                await api['invocationResultsService'].monitoringService.flush()
+            }
+            const versioned = versionedAppSourceId(scheduleHogFlow.id, scheduleHogFlow.version)
+            await waitForExpect(() =>
+                expect(
+                    producedToKafka()
+                        .filter((row) => row.metric_name === 'triggered')
+                        .map((row) => [row.app_source, row.app_source_id, row.count])
+                        .sort()
+                ).toEqual(
+                    queueFails
+                        ? []
+                        : [
+                              ['hog_flow', scheduleHogFlow.id, 1],
+                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 1],
+                          ].sort()
+                )
+            )
+        })
+
+        it('answers queued while the triggered metric is still being produced', async () => {
+            const outputs = api['invocationResultsService'].monitoringService['outputs']
+            const queueMessages = outputs.queueMessages.bind(outputs)
+            let releaseMetrics!: () => void
+            const metricsStalled = new Promise<void>((resolve) => (releaseMetrics = resolve))
+            const queueSpy = jest
+                .spyOn(outputs, 'queueMessages')
+                .mockImplementation(async (name, messages) =>
+                    name === APP_METRICS_OUTPUT ? metricsStalled : queueMessages(name, messages)
+                )
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                expect(res.body.status).toEqual('queued')
+            } finally {
+                releaseMetrics()
+                queueSpy.mockRestore()
+            }
+        })
+
         it('stamps the run start into the state before the invocation is queued', async () => {
             // Snapshot at call time, so a stamp applied after queueInvocations does not count.
             let stateWhenQueued: string | undefined
@@ -1828,6 +2123,58 @@ describe('CDP API', () => {
             }
         })
 
+        it('refuses to queue a run over the workflow quota without waiting on metrics Kafka', async () => {
+            const billableHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            mockProducerObserver.resetKafkaProducer()
+            const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
+            const stalledMetricAcks: (() => void)[] = []
+            kafka.produce.mockImplementation((topic: string, ...rest: any[]) => {
+                const ack = rest[rest.length - 1]
+                if (topic === 'clickhouse_app_metrics2_test') {
+                    stalledMetricAcks.push(() => ack?.())
+                } else {
+                    ack?.()
+                }
+            })
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${billableHogFlow.team_id}/hog_flows/${billableHogFlow.id}/scheduled_invocations`
+                    )
+                    .timeout(3000)
+                    .send({})
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(hogflowQueue.queued).toEqual([])
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .map((message) => message.value)
+                    expect(metrics).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                })
+            } finally {
+                kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
+                stalledMetricAcks.forEach((ack) => ack())
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+            }
+        })
+
         it('queues invocation with empty variables when none provided', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
@@ -1837,6 +2184,180 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        const mintScheduledRunsToken = (
+            teamIds: number[],
+            { secret = 'local-dev-workflows-cancel-jwt', audience = 'posthog:workflows:scheduled_runs' } = {}
+        ) => jwt.sign({ team_ids: teamIds }, secret, { audience, expiresIn: '2m' })
+
+        it('queues every admissible run of a batch and answers each run in request order', async () => {
+            const eventHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                trigger: { type: 'event', filters: {} },
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({
+                    runs: [
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hello' } },
+                        { team_id: team.id, hog_flow_id: new UUIDT().toString() },
+                        { team_id: team.id, hog_flow_id: eventHogFlow.id },
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hi' } },
+                    ],
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                { status: 'queued', invocation_id: hogflowQueue.queued[0].id },
+                { status: 'workflow_not_found' },
+                { status: 'not_a_schedule_trigger' },
+                { status: 'queued', invocation_id: hogflowQueue.queued[1].id },
+            ])
+            expect(
+                hogflowQueue.queued.map((invocation: any) => [invocation.functionId, invocation.state.variables])
+            ).toEqual([
+                [scheduleHogFlow.id, { greeting: 'Hello' }],
+                [scheduleHogFlow.id, { greeting: 'Hi' }],
+            ])
+        })
+
+        it.each([
+            ['no token', () => ({}), () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })],
+            ['no token and a malformed body', () => ({}), () => ({ runs: 'all of them' })],
+            [
+                'a token signed with the wrong key',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id], { secret: 'wrong-key' })}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+            [
+                "another route's token",
+                () => ({
+                    Authorization: `Bearer ${mintScheduledRunsToken([team.id], { audience: 'posthog:workflows:manual_run' })}`,
+                }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+            [
+                'a token that leaves out a team of the batch',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id + 1])}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+        ])('refuses a batch with %s and queues nothing', async (_desc, headers, body) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app).post('/api/hog_flows/scheduled_invocations').set(headers()).send(body())
+
+            expect(res.status).toEqual(401)
+            expect(hogflowQueue.queued).toEqual([])
+        })
+
+        it.each([100, 20])(
+            'queues a batch of 100 runs and refuses 101 whatever the queue insert size (%i)',
+            async (insertBatchSize) => {
+                const hogflowQueue = createInMemoryJobQueue()
+                api['hogflowQueue'] = hogflowQueue
+                const defaultInsertBatchSize = hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
+                hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = insertBatchSize
+                const post = (length: number) =>
+                    supertest(app)
+                        .post('/api/hog_flows/scheduled_invocations')
+                        .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                        .send({
+                            runs: Array.from({ length }, () => ({ team_id: team.id, hog_flow_id: scheduleHogFlow.id })),
+                        })
+                try {
+                    const refused = await post(101)
+                    expect(refused.status).toEqual(400)
+                    expect(hogflowQueue.queued).toEqual([])
+
+                    const accepted = await post(100)
+                    expect(accepted.status).toEqual(200)
+                    expect(hogflowQueue.queued).toHaveLength(100)
+                } finally {
+                    hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
+                }
+            }
+        )
+
+        it('queues a batch of 100 runs in one insert when the queue inserts 20 rows at a time', async () => {
+            const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, {
+                ...hub,
+                CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 20,
+            })
+            const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            await queue.startAsProducer()
+            api['hogflowQueue'] = queue
+            const pool = queue['manager']!['pool']
+            const query = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+            let inserts = 0
+            const failAfterFirstInsert = jest
+                .spyOn(pool, 'query')
+                .mockImplementation(((...args: unknown[]) =>
+                    String(args[0]).includes('INSERT INTO cyclotron_jobs') && inserts++ > 0
+                        ? Promise.reject(new Error('db down'))
+                        : query(...args)) as typeof pool.query)
+            try {
+                const res = await supertest(app)
+                    .post('/api/hog_flows/scheduled_invocations')
+                    .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                    .send({
+                        runs: Array.from({ length: 100 }, () => ({
+                            team_id: team.id,
+                            hog_flow_id: scheduleHogFlow.id,
+                        })),
+                    })
+                const { rows } = await cyclotron.query(
+                    'SELECT count(*)::int AS queued FROM cyclotron_jobs WHERE function_id = $1',
+                    [scheduleHogFlow.id]
+                )
+
+                expect(res.status).toEqual(200)
+                expect(rows[0].queued).toEqual(100)
+            } finally {
+                failAfterFirstInsert.mockRestore()
+                await queue.stopProducer()
+                await cyclotron.end()
+            }
+        })
+
+        it.each([
+            [
+                503,
+                'a workflow lookup before the insert',
+                () => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    return jest
+                        .spyOn(hub.postgres, 'query')
+                        .mockImplementation(((...args: Parameters<typeof query>) =>
+                            args[3] === 'fetchHogFlows'
+                                ? Promise.reject(new Error('db down'))
+                                : query(...args)) as typeof query)
+                },
+            ],
+            [
+                500,
+                'the queue insert',
+                () => jest.spyOn(api['hogflowQueue'], 'queueInvocations').mockRejectedValueOnce(new Error('db down')),
+            ],
+        ])('answers a batch with %i and queues nothing when %s fails', async (status, _desc, breakStep) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            const broken = breakStep()
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+            broken.mockRestore()
+
+            expect(res.status).toEqual(status)
+            expect(hogflowQueue.queued).toEqual([])
         })
     })
 
@@ -1848,15 +2369,7 @@ describe('CDP API', () => {
             mockCountInFlightJobs = jest
                 .fn()
                 .mockResolvedValue({ count: 3, byAction: { delay_1: 2 }, positionUnknown: 1 })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: mockCountInFlightJobs,
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ countInFlightJobs: mockCountInFlightJobs })
 
             countHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -1943,15 +2456,7 @@ describe('CDP API', () => {
                 sweepFloor,
                 sweepUntil,
             })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: mockRescheduleParkedJobs,
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ rescheduleParkedJobs: mockRescheduleParkedJobs })
 
             rescheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -2120,15 +2625,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: mockResumeParkedSteps,
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedSteps: mockResumeParkedSteps })
         })
 
         afterEach(() => {
@@ -2240,7 +2737,8 @@ describe('CDP API', () => {
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
             status: HogFlow['status'],
-            category: 'transactional' | 'marketing' = 'transactional'
+            category: 'transactional' | 'marketing' = 'transactional',
+            inputs: Record<string, CyclotronInputType> = {}
         ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -2251,7 +2749,7 @@ describe('CDP API', () => {
                         trigger: { type: 'trigger', config: { type: trigger } },
                         email: {
                             type: 'function_email',
-                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+                            config: { template_id: 'template-email', inputs, message_category_type: category },
                         },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
@@ -2260,11 +2758,17 @@ describe('CDP API', () => {
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
-            (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+            (await transactionalEmailRequestsTotal.get()).values
+                .filter((v) => v.labels.outcome === outcome && v.labels.route === 'single')
+                .reduce((total, v) => total + v.value, 0)
         const stageCounts = async (): Promise<Record<string, number>> =>
             Object.fromEntries(
                 (await transactionalEmailStageDurationMs.get()).values
-                    .filter((v) => v.metricName === 'cdp_transactional_email_stage_duration_ms_count')
+                    .filter(
+                        (v) =>
+                            v.metricName === 'cdp_transactional_email_stage_duration_ms_count' &&
+                            v.labels.route === 'single'
+                    )
                     .map((v) => [String(v.labels.stage), v.value])
             )
         const stageCountChanges = (before: Record<string, number>, after: Record<string, number>) =>
@@ -2299,6 +2803,62 @@ describe('CDP API', () => {
             payload: Record<string, unknown>
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
+        const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
+        const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
+
+        let queue: CyclotronJobQueuePostgresV2
+        let manager: CyclotronV2Manager
+        let cyclotron: Pool
+
+        beforeAll(async () => {
+            queue = new CyclotronJobQueuePostgresV2(100, hub)
+            await queue.startAsProducer()
+            manager = new CyclotronV2Manager({
+                pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                depthLimit: 1_000_000,
+            })
+            await manager.connect()
+            cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+        })
+
+        afterAll(async () => {
+            await queue.stopProducer()
+            await manager.disconnect()
+            await cyclotron.end()
+        })
+
+        const useRealQueue = async (): Promise<void> => {
+            await cyclotron.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'email'`)
+            api['hogflowQueue'] = queue
+            api['batchResolverProducer'] = manager
+        }
+
+        const storedJob = async (id: string) =>
+            (await cyclotron.query('SELECT status, scheduled, priority, state FROM cyclotron_jobs WHERE id = $1', [id]))
+                .rows[0]
+
+        const idsAnEmailWorkerClaims = async (): Promise<string[]> => {
+            const worker = new CyclotronV2Worker({
+                pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                queueName: 'email',
+                batchMaxSize: 100,
+                pollDelayMs: 10,
+                includeEmptyBatches: true,
+            })
+            let claimed: string[] = []
+            await new Promise<void>((resolve, reject) => {
+                worker
+                    // eslint-disable-next-line @typescript-eslint/require-await
+                    .connect(async (batch) => {
+                        claimed = batch.map((job) => job.id)
+                        resolve()
+                    })
+                    .catch(reject)
+            })
+            await worker.disconnect()
+            return claimed
+        }
+
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
@@ -2309,14 +2869,154 @@ describe('CDP API', () => {
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = Object.assign(createMockJobQueue(), { queueInvocations: mockQueueInvocations })
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
-            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
-            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
             jest.restoreAllMocks()
+        })
+
+        describe('with its team in intake async mode', () => {
+            const authorized = () => ({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+            const producedTo = (prefix: string) =>
+                produceOutput.mock.calls.filter(([output]) => output.startsWith(prefix)).map(([, message]) => message)
+
+            beforeEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
+            })
+
+            afterEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
+            })
+
+            it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
+                const queuedEmails = async () =>
+                    (await cdpEmailQueuedTotal.get()).values.find((v) => v.labels.priority_class === 'fast')?.value ?? 0
+                const queuedBefore = await queuedEmails()
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ status: 'queued', replayed: false })
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([
+                    expect.objectContaining({ key: res.body.invocation_id }),
+                ])
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(emailStatusRows()).toEqual([])
+                expect(producedTo('hog_invocation_results')).toEqual([])
+                expect(await queuedEmails()).toBe(queuedBefore)
+            })
+
+            it('answers 503 intake_unavailable when the broker refuses the run', async () => {
+                produceOutput.mockImplementation((output: string) =>
+                    output === 'cdp_intake_msk_transactional_email'
+                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+                        : Promise.resolve()
+                )
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(503)
+                expect(res.body).toEqual({ error: 'intake_unavailable' })
+            })
+
+            it('answers 413 for a send too large for the intake topic', async () => {
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    send: { ...codeSend, content: { ...codeSend.content, html: 'x'.repeat(2 * 1024 * 1024) } },
+                })
+
+                expect(res.status).toEqual(413)
+                expect(producedTo('cdp_intake_')).toEqual([])
+            })
+
+            it.each([
+                ['on', true],
+                ['off', false],
+            ])(
+                'replays a keyed retry from its claim without producing it again with sealing %s',
+                async (_, sealing) => {
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                    const headers = authorized()
+                    const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                    const first = await send(hogFlow.id, headers, keyed)
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                    api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+
+                    const retry = await send(hogFlow.id, headers, keyed)
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                    expect(producedTo('cdp_intake_')).toEqual([])
+                }
+            )
+
+            it.each([
+                ['refuses a sensitive send with 503 and produces nothing when sealing is off', false, false, 503, 0],
+                [
+                    'refuses a keyed sensitive send with 503 and produces nothing when sealing is off',
+                    false,
+                    true,
+                    503,
+                    0,
+                ],
+                ['produces a sensitive send when sealing is on and the send is keyed', true, true, 202, 1],
+                ['produces a sensitive send when sealing is on and the send has no key', true, false, 202, 1],
+            ])('%s', async (_name, sealing, keyed, status, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+                const notSealingBefore = await outcomeCount('not_sealing')
+
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    ...(keyed ? { idempotency_key: `key-${new UUIDT().toString()}` } : {}),
+                    send: { ...codeSend, sensitive: true },
+                })
+
+                expect(res.status).toEqual(status)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
+                expect(await outcomeCount('not_sealing')).toEqual(notSealingBefore + (sealing ? 0 : 1))
+            })
+
+            it('produces a keyed send when its claim lookup does not answer in time', async () => {
+                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKeys').mockReturnValue(new Promise(() => {}))
+
+                const res = await send(hogFlow.id, authorized(), {
+                    ...body,
+                    idempotency_key: `key-${new UUIDT().toString()}`,
+                })
+
+                expect(res.status).toEqual(202)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
+            })
+
+            it('produces a send when its refusal checks do not answer in time', async () => {
+                jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                    new Promise(() => {})
+                )
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(202)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
+            })
+
+            it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
+                jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                    new Promise(() => {})
+                )
+                jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+
+                const res = await send(marketingFlow.id, {
+                    Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+                })
+
+                expect(res.status).toEqual(429)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([])
+            })
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
@@ -2327,6 +3027,14 @@ describe('CDP API', () => {
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
             expect(res.status).toEqual(202)
+            expect(res.body).toEqual({
+                status: 'queued',
+                invocation_id: expect.any(String),
+                scheduled_at: null,
+                replayed: false,
+                attachment_count: 0,
+                attachment_bytes: 0,
+            })
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
             // Without an Idempotency-Key the request makes no idempotency call.
             expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
@@ -2340,6 +3048,8 @@ describe('CDP API', () => {
                 total: 1,
             })
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            // The intake topic stays empty while the team is in no intake list.
+            expect(produceOutput.mock.calls.filter(([output]) => output.startsWith('cdp_intake_'))).toEqual([])
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation).toMatchObject({
                 id: res.body.invocation_id,
@@ -2351,6 +3061,7 @@ describe('CDP API', () => {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
                     triggerMetricPending: true,
+                    acceptedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
                 },
             })
             // The email worker counts the run as triggered, so a count here would count it twice.
@@ -2409,6 +3120,7 @@ describe('CDP API', () => {
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
@@ -2422,29 +3134,45 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send from a sender without an address',
+                    'a code send without a from address after it resolved to another sender',
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
-                    { ...body, send: addresslessSend },
+                    { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
-                    const sent = await sendKeyedOn(route, first)
-                    const replayed = await sendKeyedOn(route, retry)
+                    const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                    const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                    await queue.startAsProducer()
+                    api['hogflowQueue'] = queue
+                    try {
+                        const sent = await sendKeyedOn(route, first)
+                        const replayed = await sendKeyedOn(route, retry)
 
-                    expect(sent.status).toEqual(202)
-                    expect(sent.body).toMatchObject({ replayed: false })
-                    expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({
-                        status: 'queued',
-                        invocation_id: sent.body.invocation_id,
-                        replayed: true,
-                    })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                    ])
+                        expect(sent.status).toEqual(202)
+                        expect(sent.body).toMatchObject({ replayed: false })
+                        expect(replayed.status).toEqual(202)
+                        expect(replayed.body).toEqual({ ...sent.body, replayed: true })
+                        const { rows } = await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [
+                            hogFlow.id,
+                        ])
+                        expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
+                        await waitForExpect(() =>
+                            expect(
+                                mockProducerObserver
+                                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                                    .filter(({ key }) => key === sent.body.invocation_id)
+                            ).toEqual([
+                                expect.objectContaining({
+                                    value: expect.objectContaining({ status: 'queued' }),
+                                }),
+                            ])
+                        )
+                    } finally {
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    }
                 }
             )
 
@@ -2473,14 +3201,6 @@ describe('CDP API', () => {
                     ],
                 ],
                 [
-                    'another sender without an address',
-                    ['transactional_email/send', { ...body, send: addresslessSend }],
-                    [
-                        'transactional_email/send',
-                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
-                    ],
-                ],
-                [
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
@@ -2498,7 +3218,7 @@ describe('CDP API', () => {
                 }
             )
 
-            it('tells a retry to wait while the first request is still queueing', async () => {
+            it('replays to a retry that arrives while the first request is still queueing', async () => {
                 let finishQueueing: () => void = () => {}
                 mockQueueInvocations.mockImplementationOnce(
                     () => new Promise<void>((resolve) => (finishQueueing = resolve))
@@ -2506,11 +3226,11 @@ describe('CDP API', () => {
                 const first = sendKeyed().then((res) => res)
                 await waitForExpect(() => expect(mockQueueInvocations).toHaveBeenCalledTimes(1))
 
-                const retry = await sendKeyed()
+                const retry = sendKeyed().then((res) => res)
                 finishQueueing()
 
-                expect(retry.status).toEqual(409)
-                expect((await first).status).toEqual(202)
+                expect((await retry).status).toEqual(202)
+                expect((await retry).body).toEqual({ ...(await first).body, replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
 
@@ -2526,38 +3246,400 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
             })
 
-            it('refuses a keyed send when no idempotency store is configured', async () => {
-                const keys = api['transactionalEmailIdempotencyKeys']
-                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, 'transactional-email')
-                try {
+            it('returns the first scheduled send for a retry that names the same time in another offset', async () => {
+                const scheduledAt = new Date(Date.now() + 2 * DAY_MS)
+                scheduledAt.setUTCMilliseconds(0)
+                const inBerlin = new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)
+                    .toISOString()
+                    .replace('.000Z', '+02:00')
+
+                const first = await sendKeyedOn('transactional_email', {
+                    ...body,
+                    scheduled_at: scheduledAt.toISOString(),
+                })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inBerlin })
+
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toEqual({ ...first.body, replayed: true })
+                const scheduledRow = expect.objectContaining({
+                    message_id: first.body.invocation_id,
+                    status: 'scheduled',
+                    recipient: body.to,
+                    scheduled_at: toClickHouseTime(scheduledAt),
+                })
+                expect(emailStatusRows()).toEqual([scheduledRow])
+            })
+
+            it('frees the key when the scheduled time is too far ahead', async () => {
+                const tooFar = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(31) })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(2) })
+
+                expect(tooFar.status).toEqual(400)
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ status: 'scheduled', replayed: false })
+            })
+
+            describe('claimed in the cyclotron database', () => {
+                const jobsOfFlow = async (): Promise<string[]> =>
+                    (
+                        await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                    ).rows.map((row) => row.id)
+                const unkeyedFingerprint = (): string =>
+                    requestFingerprint([hogFlow.id, keyed.to, keyed.distinct_id, keyed.variables])
+                const claimFingerprint = async (id: string): Promise<string | undefined> =>
+                    (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
+                        .rows[0]?.fingerprint
+
+                beforeEach(async () => {
+                    await useRealQueue()
+                })
+
+                afterEach(async () => {
+                    api['batchResolverProducer'] = null
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                })
+
+                it('claims a keyed send in the cyclotron database under an id derived from the key', async () => {
+                    const sent = await sendKeyed()
+
+                    expect(sent.status).toEqual(202)
+                    expect(sent.body.invocation_id).toEqual(
+                        keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
+                    )
+                    expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    expect(await claimFingerprint(sent.body.invocation_id)).toEqual(
+                        new EncryptedFields(hub.CDP_SEALED_STATE_KEYS).sign(FINGERPRINT_PURPOSE, unkeyedFingerprint())
+                    )
+                })
+
+                it.each([
+                    ['a signature under the shared keys it was signed with before the sealed state keys', () => {}],
+                    [
+                        'a keyed signature under a key that has since rotated',
+                        () => {
+                            api['fingerprintSigner'] = new EncryptedFields(
+                                `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
+                            )
+                        },
+                    ],
+                ])('replays a retry whose claim holds %s', async (_, rotateKeys) => {
+                    const fingerprintSigner = api['fingerprintSigner']
+                    try {
+                        const sent = await sendKeyed()
+                        await cyclotron.query('UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1', [
+                            sent.body.invocation_id,
+                            new EncryptedFields(hub.ENCRYPTION_SALT_KEYS).sign(
+                                FINGERPRINT_PURPOSE,
+                                unkeyedFingerprint()
+                            ),
+                        ])
+                        rotateKeys()
+
+                        const retry = await sendKeyed()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    } finally {
+                        api['fingerprintSigner'] = fingerprintSigner
+                    }
+                })
+
+                it.each([
+                    [
+                        'its recipient is now suppressed',
+                        () => jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockResolvedValue(true),
+                    ],
+                    [
+                        'its workflow is gone',
+                        () =>
+                            jest
+                                .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
+                                .mockResolvedValue(null),
+                    ],
+                ])('replays a retry from the cyclotron database when %s', async (_, refuse) => {
+                    const sent = await sendKeyed()
+                    refuse()
+
+                    const retry = await sendKeyed()
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                })
+
+                it('replays a scheduled send from the cyclotron database with the time it was scheduled for', async () => {
+                    const scheduledAt = inDays(2)
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+
+                    const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+
+                    expect(sent.body).toMatchObject({ status: 'scheduled', scheduled_at: scheduledAt })
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                })
+
+                it.each([
+                    ['refuses', inDays(30.01), 400],
+                    ['schedules', inDays(29.9), 202],
+                ])('%s a keyed send scheduled that far after it was accepted', async (_, scheduledAt, status) => {
+                    const res = await sendKeyedOn('transactional_email', { ...body, scheduled_at: scheduledAt })
+
+                    expect(res.status).toEqual(status)
+                })
+
+                it('answers 503 and queues nothing when the claim lookup fails', async () => {
+                    jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
+                        new Error('canceling statement due to statement timeout')
+                    )
+
                     const res = await sendKeyed()
 
                     expect(res.status).toEqual(503)
                     expect(res.body).toEqual({ error: 'idempotency_unavailable' })
-                    expect(mockQueueInvocations).not.toHaveBeenCalled()
-                } finally {
-                    api['transactionalEmailIdempotencyKeys'] = keys
-                }
+                    expect(await jobsOfFlow()).toEqual([])
+                })
+
+                it('answers 503 and queues nothing while a stalled pod holds the claim uncommitted', async () => {
+                    const runId = keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
+                    const stalledPod = await cyclotron.connect()
+                    await stalledPod.query('BEGIN')
+                    await stalledPod.query(
+                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                         VALUES ($1, $2, 'a', NOW() + interval '1 day')`,
+                        [runId, team.id]
+                    )
+                    try {
+                        const res = await sendKeyed()
+
+                        expect(res.status).toEqual(503)
+                        expect(res.body).toEqual({ error: 'idempotency_unavailable' })
+                    } finally {
+                        await stalledPod.query('ROLLBACK')
+                        stalledPod.release()
+                    }
+
+                    expect(await jobsOfFlow()).toEqual([])
+                    expect((await sendKeyed()).status).toEqual(202)
+                })
+
+                it.each([
+                    ['its lookup', () => undefined],
+                    [
+                        'the claim itself, after the lookup missed it',
+                        () => jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null),
+                    ],
+                ])('rejects a reused key found by %s', async (_, missLookup) => {
+                    const sent = await sendKeyed()
+                    missLookup()
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                })
+
+                it('queues one job for two first requests with the same key', async () => {
+                    const responses = await Promise.all([sendKeyed(), sendKeyed()])
+
+                    const jobs = await jobsOfFlow()
+                    expect(jobs).toHaveLength(1)
+                    expect(
+                        responses.map((res) => [res.status, res.body.invocation_id, res.body.replayed]).sort()
+                    ).toEqual([
+                        [202, jobs[0], false],
+                        [202, jobs[0], true],
+                    ])
+                })
             })
         })
 
-        it.each([
-            ['a code send with rendered content', codeSend],
-            [
-                'a code send with html that has no text to derive',
-                { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
-            ],
-            ['a code send for a local template', { tracking: { captureEngagement: false } }],
-            [
-                'a code send with copies to addresses that use atext symbols',
-                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
-            ],
-        ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
-            const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+        describe('with a scheduled_at', () => {
+            beforeEach(async () => {
+                await useRealQueue()
+            })
 
-            expect(res.status).toEqual(202)
-            const [invocation] = mockQueueInvocations.mock.calls[0][0]
-            expect(invocation.state.send).toEqual(acceptedSend)
+            const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
+                sendOn(
+                    route,
+                    hogFlow.id,
+                    { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
+                    {
+                        ...(route === 'transactional_email' ? body : { ...body, send: codeSend }),
+                        scheduled_at: scheduledAt,
+                    }
+                )
+
+            it.each(['transactional_email', 'transactional_email/send'] as const)(
+                'parks a send on %s until its time on the fast lane',
+                async (route) => {
+                    const scheduledAt = new Date(Date.now() + 30 * DAY_MS).toISOString()
+
+                    const res = await sendAt(route, scheduledAt)
+
+                    expect(res.status).toEqual(202)
+                    expect(res.body).toEqual({
+                        status: 'scheduled',
+                        invocation_id: expect.any(String),
+                        scheduled_at: scheduledAt,
+                        replayed: false,
+                        attachment_count: 0,
+                        attachment_bytes: 0,
+                    })
+                    const job = await storedJob(res.body.invocation_id)
+                    expect(new Date(job.scheduled).toISOString()).toEqual(scheduledAt)
+                    expect(job.priority).toEqual(0)
+                    const { state } = parseJSON(job.state.toString())
+                    expect(state).toMatchObject({ scheduledAt })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
+                    expect(emailStatusRows()).toEqual([
+                        expect.objectContaining({
+                            message_id: res.body.invocation_id,
+                            status: 'scheduled',
+                            recipient: body.to,
+                            function_id: hogFlow.id,
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                            status_at: toClickHouseTime(new Date(state.statusAt)),
+                        }),
+                    ])
+                }
+            )
+
+            it.each([
+                ['another scheduled time', inDays(2), inDays(3)],
+                ['a scheduled time added', undefined, inDays(2)],
+            ])('rejects the key for a retry with %s and keeps only the first job', async (_desc, first, retry) => {
+                const idempotency_key = `key-${new UUIDT().toString()}`
+                const sendKeyedAt = (scheduledAt: string | undefined) =>
+                    sendOn(
+                        'transactional_email/send',
+                        hogFlow.id,
+                        { Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, hogFlow.id)}` },
+                        { ...body, send: codeSend, idempotency_key, ...(scheduledAt && { scheduled_at: scheduledAt }) }
+                    )
+                const accepted = await sendKeyedAt(first)
+
+                const res = await sendKeyedAt(retry)
+
+                expect(res.status).toEqual(422)
+                expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                const emailJobs = await cyclotron.query(`SELECT id FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                expect(emailJobs.rows.map((row) => row.id)).toEqual([accepted.body.invocation_id])
+            })
+
+            it('sends at once when the time has passed', async () => {
+                const res = await sendAt('transactional_email', new Date(Date.now() - 60_000).toISOString())
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ status: 'queued', scheduled_at: null })
+                expect(await idsAnEmailWorkerClaims()).toEqual([res.body.invocation_id])
+                expect(emailStatusRows()).toEqual([expect.objectContaining({ status: 'queued' })])
+            })
+
+            it.each([
+                ['more than 30 days ahead', inDays(30.01), 'invalid_scheduled_at'],
+                ['without an offset', '2026-12-01T09:00:00', 'invalid_request'],
+                ['that is not a time', 'tomorrow', 'invalid_request'],
+            ])('refuses a time %s and queues nothing', async (_desc, scheduledAt, outcome) => {
+                const before = await outcomeCount(outcome)
+
+                const res = await sendAt('transactional_email/send', scheduledAt)
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount(outcome)).toEqual(before + 1)
+                if (outcome === 'invalid_scheduled_at') {
+                    expect(res.body).toEqual({ error: 'invalid_scheduled_at', reason: 'too_far' })
+                }
+                expect(
+                    (await cyclotron.query(`SELECT 1 FROM cyclotron_jobs WHERE queue_name = 'email'`)).rowCount
+                ).toEqual(0)
+                expect(emailStatusRows()).toEqual([])
+            })
+        })
+
+        describe('through the cyclotron queue', () => {
+            const queuedSends = async (flowId: string): Promise<unknown[]> => {
+                const { rows } = await cyclotron.query('SELECT state FROM cyclotron_jobs WHERE function_id = $1', [
+                    flowId,
+                ])
+                return rows.map((row) => parseJSON(row.state.toString('utf-8')).state.send)
+            }
+
+            beforeEach(async () => {
+                await useRealQueue()
+            })
+
+            it.each([
+                ['a code send with rendered content', codeSend],
+                [
+                    'a code send with html that has no text to derive',
+                    { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
+                ],
+                ['a code send for a local template', { tracking: { captureEngagement: false } }],
+                [
+                    'a code send without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false } },
+                ],
+                [
+                    'a code send with click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: true } },
+                ],
+                [
+                    'a code send without click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: false } },
+                ],
+                ['a code send marked sensitive', { ...codeSend, sensitive: true }],
+                ['a code send marked not sensitive', { ...codeSend, sensitive: false }],
+                [
+                    'a code send with copies to addresses that use atext symbols',
+                    { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+                ],
+            ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(202)
+                expect(await queuedSends(hogFlow.id)).toEqual([acceptedSend])
+            })
+
+            it.each([
+                ['a field this version does not know', { ...codeSend, priority: 'high' }],
+                [
+                    'a content field this version does not know',
+                    { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+                ],
+                [
+                    'a sender field this version does not know',
+                    { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+                ],
+                [
+                    'a tracking field this version does not know',
+                    { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+                ],
+                [
+                    'click tracking without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
+                ],
+                ['a sensitivity that is not a boolean', { ...codeSend, sensitive: 'yes' }],
+                ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
+                ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
+                ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
+                ['no tracking choice', { content: codeSend.content }],
+                [
+                    'more than 10 cc addresses',
+                    { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+                ],
+            ])('refuses a code send with %s', async (_desc, acceptedSend) => {
+                const invalidBefore = await outcomeCount('invalid_request')
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
         })
 
         it('queues a template send without an accepted send, even when the request carries one', async () => {
@@ -2576,38 +3658,6 @@ describe('CDP API', () => {
             const invalidBefore = await outcomeCount('invalid_request')
 
             const res = await sendAccepted(hogFlow.id, body)
-
-            expect(res.status).toEqual(400)
-            expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
-        })
-
-        it.each([
-            ['a field this version does not know', { ...codeSend, priority: 'high' }],
-            [
-                'a content field this version does not know',
-                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
-            ],
-            [
-                'a sender field this version does not know',
-                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
-            ],
-            [
-                'a tracking field this version does not know',
-                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
-            ],
-            ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
-            ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
-            ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
-            ['no tracking choice', { content: codeSend.content }],
-            [
-                'more than 10 cc addresses',
-                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
-            ],
-        ])('refuses a code send with %s', async (_desc, acceptedSend) => {
-            const invalidBefore = await outcomeCount('invalid_request')
-
-            const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
             expect(res.status).toEqual(400)
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
@@ -2646,27 +3696,1149 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it('refuses a code send with files as a field it does not take, and leaves its key free for a send without them', async () => {
-            const idempotencyKey = `key-${new UUIDT().toString()}`
-            const file = { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' }
+        describe('queued on Cyclotron Postgres', () => {
+            let cyclotron: Pool
+            let posthogDb: PostgresProxy
+            let personsDb: PostgresProxy
+            let bucket: BucketProxy
+            let router: PostgresRouter
+            let queueName: string
+            let filesApi: CdpApi
+            let filesApp: express.Application
+            let filesServer: Server
+            let invoice: StoredFile
+            let receipt: StoredFile
+            let large: StoredFile
 
-            const refused = await sendAccepted(hogFlow.id, {
-                ...body,
-                idempotency_key: idempotencyKey,
-                send: { ...codeSend, attachments: [file] },
+            const personsReadFrom = (persons: PostgresPersonRepository): PersonReadRepository => ({
+                fetchPerson: (teamId, distinctId, callerTag) => persons.fetchPerson(teamId, distinctId, { callerTag }),
+                fetchPersonsByDistinctIds: (teamPersons, callerTag) =>
+                    persons.fetchPersonsByDistinctIds(teamPersons, true, callerTag),
+                fetchPersonsByPersonIds: (teamPersons, callerTag) =>
+                    persons.fetchPersonsByPersonIds(teamPersons, true, callerTag),
+                fetchDistinctIdsForPersons: (teamId, personIntIds, options) =>
+                    persons.fetchDistinctIdsForPersons(teamId, personIntIds, options),
             })
-            expect(refused.status).toEqual(400)
-            expect(parseJSON(refused.body.error)).toEqual([
-                expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
-            ])
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+            const apisOfOneTest: { cdpApi: CdpApi; server: Server }[] = []
+            const buildFilesApi = async (settings: Partial<Hub> = {}): Promise<CdpApi> => {
+                const producer = new EmailQueueOfOneTest(queueName, hub)
+                await producer.startAsProducer()
+                return new CdpApi(
+                    {
+                        ...hub,
+                        CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id}`,
+                        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
+                        CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
+                        ...settings,
+                    },
+                    {
+                        ...cdpDeps,
+                        postgres: router,
+                        personRepository: personsReadFrom(new PostgresPersonRepository(router)),
+                        emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub),
+                    },
+                    { hogQueue: createMockJobQueue(), hogflowQueue: producer }
+                )
+            }
+            const servedForOneTest = async (settings: Partial<Hub>): Promise<express.Application> => {
+                const cdpApi = await buildFilesApi(settings)
+                const served = serve(cdpApi)
+                apisOfOneTest.push({ cdpApi, server: served.listen(0, () => {}) })
+                return served
+            }
+            const serve = (cdpApi: CdpApi): express.Application => {
+                const served = setupExpressApp()
+                served.use('/', cdpApi.router())
+                return served
+            }
 
-            const withoutFiles = await sendAccepted(hogFlow.id, {
-                ...body,
-                idempotency_key: idempotencyKey,
-                send: codeSend,
+            type QueuedJob = { id: string; status: string; send: Record<string, unknown>; stored: string }
+            const queuedJobs = async (): Promise<QueuedJob[]> => {
+                const { rows } = await cyclotron.query(
+                    'SELECT id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
+                    [queueName]
+                )
+                return rows.map((row) => ({
+                    id: row.id,
+                    status: row.status,
+                    send: parseJSON(row.state.toString()).state.send,
+                    stored: row.state.toString('latin1'),
+                }))
+            }
+            const queuedIds = async (): Promise<string[]> => (await queuedJobs()).map((job) => job.id)
+
+            const reference = (file: StoredFile) => ({
+                sha256: file.metadata.sha256,
+                filename: 'invoice.pdf',
+                content_type: 'application/pdf',
             })
-            expect(withoutFiles.status).toEqual(202)
+            const newKey = () => `key-${new UUIDT().toString()}`
+            type SendOptions = {
+                acceptedSend?: object
+                flowId?: string
+                variables?: Record<string, string>
+                distinctId?: string
+                to?: string
+                app?: express.Application
+            }
+            const sendOnFilesApi = (
+                payload: Record<string, unknown>,
+                { flowId = hogFlow.id, app: served = filesApp }: SendOptions = {}
+            ) =>
+                supertest(served)
+                    .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email/send`)
+                    .set({ Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, flowId)}` })
+                    .send(payload)
+            const sendWithFiles = (
+                key: string,
+                attachments: object[],
+                {
+                    acceptedSend = codeSend as object,
+                    variables = body.variables as Record<string, string>,
+                    distinctId = body.distinct_id,
+                    to = body.to,
+                    ...options
+                }: SendOptions = {}
+            ) =>
+                sendOnFilesApi(
+                    {
+                        ...body,
+                        to,
+                        distinct_id: distinctId,
+                        variables,
+                        idempotency_key: key,
+                        send: { ...acceptedSend, attachments },
+                    },
+                    options
+                )
+
+            beforeAll(async () => {
+                cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                posthogDb = await PostgresProxy.start(new URL(hub.DATABASE_URL))
+                personsDb = await PostgresProxy.start(new URL(hub.PERSONS_DATABASE_URL || hub.DATABASE_URL))
+                bucket = await BucketProxy.start()
+                router = new PostgresRouter({
+                    ...hub,
+                    DATABASE_URL: posthogDb.url,
+                    DATABASE_READONLY_URL: posthogDb.url,
+                    PERSONS_DATABASE_URL: personsDb.url,
+                    PERSONS_READONLY_DATABASE_URL: personsDb.url,
+                })
+                queueName = `transactional-email-test-${randomUUID()}`
+                filesApi = await buildFilesApi()
+                filesApp = serve(filesApi)
+                filesServer = filesApp.listen(0, () => {})
+                invoice = await uploadAttachment(team.id, { filename: 'invoice.pdf' })
+                receipt = await uploadAttachment(team.id, { filename: 'receipt.pdf' })
+                large = await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(28_800_000, 'a'))
+            })
+
+            beforeEach(async () => {
+                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+            })
+
+            afterEach(async () => {
+                posthogDb.releaseAll()
+                personsDb.releaseAll()
+                bucket.lastModifiedAgeMs = 0
+                bucket.release('pass')
+                await Promise.all(
+                    apisOfOneTest.splice(0).map(({ cdpApi, server: served }) => {
+                        served.close()
+                        return cdpApi.stop()
+                    })
+                )
+                await cyclotron.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [queueName])
+            })
+
+            afterAll(async () => {
+                filesServer.close()
+                await filesApi.stop()
+                await Promise.all([bucket.close(), posthogDb.close(), personsDb.close()])
+                await router.end()
+                await cyclotron.end()
+            })
+
+            const withFile = (fields: Record<string, unknown>) => ({
+                ...codeSend,
+                attachments: [{ ...reference(invoice), ...fields }],
+            })
+            const filenameOf = (length: number) => `${'x'.repeat(length - '.pdf'.length)}.pdf`
+            const contentTypeOf = (length: number) => `application/${'x'.repeat(length - 'application/'.length)}`
+            const contentIdOf = (length: number) => 'x'.repeat(length)
+            const filenameReason = `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`
+            const contentTypeReason = `content_type needs 1 to ${ATTACHMENT_CONTENT_TYPE_MAX_LENGTH} characters`
+            const contentIdReason = `content_id needs 1 to ${ATTACHMENT_CONTENT_ID_MAX_LENGTH} characters`
+
+            it.each<[string, () => object, () => object, string]>([
+                [
+                    'a field this version does not know',
+                    () => ({ ...codeSend, priority: 'high' }),
+                    () => codeSend,
+                    '"priority"',
+                ],
+                [
+                    'a content field this version does not know',
+                    () => ({ ...codeSend, content: { ...codeSend.content, amp: '<p/>' } }),
+                    () => codeSend,
+                    '"amp"',
+                ],
+                [
+                    'a sender field this version does not know',
+                    () => ({ ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } }),
+                    () => codeSend,
+                    '"replyName"',
+                ],
+                [
+                    'a tracking field this version does not know',
+                    () => ({ ...codeSend, tracking: { captureEngagement: true, pixel: false } }),
+                    () => codeSend,
+                    '"pixel"',
+                ],
+                [
+                    'content without a body',
+                    () => ({ ...codeSend, content: { subject: 'Hi', html: '', text: '' } }),
+                    () => codeSend,
+                    'content needs html or text',
+                ],
+                [
+                    'content with an empty subject',
+                    () => ({ ...codeSend, content: { subject: '', text: 'Hi' } }),
+                    () => codeSend,
+                    '"subject"',
+                ],
+                [
+                    'a sender without an integration',
+                    () => ({ ...codeSend, from: { email: 'security@example.com' } }),
+                    () => codeSend,
+                    '"integrationId"',
+                ],
+                ['no tracking choice', () => ({ content: codeSend.content }), () => codeSend, '"tracking"'],
+                [
+                    'more than 10 cc addresses',
+                    () => ({ ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) }),
+                    () => codeSend,
+                    '"cc"',
+                ],
+                [
+                    'more than 10 files',
+                    () => ({ ...codeSend, attachments: Array(11).fill(reference(invoice)) }),
+                    () => codeSend,
+                    '"attachments"',
+                ],
+                [
+                    'a file hash that is not 64 lowercase hex characters',
+                    () => withFile({ sha256: invoice.metadata.sha256.toUpperCase() }),
+                    () => codeSend,
+                    '"sha256"',
+                ],
+                ['a file without a name', () => withFile({ filename: '' }), () => codeSend, '"filename"'],
+                [
+                    'a file field this version does not know',
+                    () => withFile({ disposition: 'inline' }),
+                    () => codeSend,
+                    '"disposition"',
+                ],
+                [
+                    'an inline file instead of a reference',
+                    () => ({
+                        ...codeSend,
+                        attachments: [
+                            { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' },
+                        ],
+                    }),
+                    () => codeSend,
+                    '"sha256"',
+                ],
+                [
+                    'a file name over the SES limit',
+                    () => withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH + 1) }),
+                    () => withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH) }),
+                    filenameReason,
+                ],
+                [
+                    'a content type over the SES limit',
+                    () => withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH + 1) }),
+                    () => withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH) }),
+                    contentTypeReason,
+                ],
+                ['an empty content type', () => withFile({ content_type: '' }), () => withFile({}), contentTypeReason],
+                [
+                    'a content id over the SES limit',
+                    () => withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH + 1) }),
+                    () => withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH) }),
+                    contentIdReason,
+                ],
+                ['an empty content id', () => withFile({ content_id: '' }), () => withFile({}), contentIdReason],
+                [
+                    'a file name that starts a new header line',
+                    () => withFile({ filename: 'invoice.pdf\r\nBcc: someone@example.com' }),
+                    () => withFile({ filename: 'invoice.pdf' }),
+                    'filename cannot contain control characters',
+                ],
+                [
+                    'a content type that starts a new header line',
+                    () => withFile({ content_type: 'application/pdf\r\nBcc: someone@example.com' }),
+                    () => withFile({}),
+                    'content_type cannot contain control characters',
+                ],
+                [
+                    'a content id with a control character',
+                    () => withFile({ content_id: 'logo\n' }),
+                    () => withFile({}),
+                    'content_id cannot contain control characters',
+                ],
+                [
+                    'a file type SES does not send',
+                    () => withFile({ filename: 'setup.exe' }),
+                    () => withFile({ filename: 'setup.exe.pdf' }),
+                    'SES does not send .exe files, so setup.exe cannot be attached',
+                ],
+                [
+                    'a file type SES does not send, in upper case',
+                    () => withFile({ filename: 'Invoice.PDF.JS' }),
+                    () => withFile({ filename: 'Invoice.PDF.JSON' }),
+                    'SES does not send .js files, so Invoice.PDF.JS cannot be attached',
+                ],
+            ])(
+                'refuses a code send with %s, naming it, queues nothing, and its key sends once it is fixed',
+                async (_desc, refused, fixed, reason) => {
+                    const invalidBefore = await outcomeCount('invalid_request')
+                    const idempotency_key = newKey()
+
+                    const res = await sendOnFilesApi({ ...body, idempotency_key, send: refused() })
+                    const queuedOnRefusal = await queuedIds()
+                    const retried = await sendOnFilesApi({ ...body, idempotency_key, send: fixed() })
+
+                    expect(res.status).toEqual(400)
+                    expect(res.body.error).toContain(reason)
+                    expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retried.status).toEqual(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            it('queues the references of the files it verified, without their bytes, answers their totals, and the worker delivers those files', async () => {
+                const recipient = `${randomUUID()}@example.com`
+                await insertIntegration(hub.postgres, team.id, {
+                    id: codeSend.from.integrationId,
+                    kind: 'email',
+                    config: {
+                        email: codeSend.from.email,
+                        name: codeSend.from.name,
+                        domain: 'example.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const logo = {
+                    sha256: receipt.metadata.sha256,
+                    filename: 'logo.png',
+                    content_type: 'image/png',
+                    content_id: 'logo',
+                }
+
+                const generated = await flowThrough(
+                    { exit },
+                    [step('trigger', 'email'), step('email', 'exit')],
+                    'transactional',
+                    {
+                        email: {
+                            templating: 'liquid',
+                            value: {
+                                to: { email: '{{ event.properties.to | raw }}', name: '' },
+                                cc: '',
+                                bcc: '',
+                                from: { integrationId: null },
+                                replyTo: '',
+                                subject: '',
+                                preheader: '',
+                                text: '',
+                                html: '',
+                            },
+                        },
+                    }
+                )
+
+                const res = await sendWithFiles(newKey(), [reference(invoice), logo], {
+                    to: recipient,
+                    flowId: generated.id,
+                })
+
+                expect(res.status).toBe(202)
+                expect(res.body).toEqual({
+                    status: 'queued',
+                    invocation_id: expect.any(String),
+                    scheduled_at: null,
+                    replayed: false,
+                    attachment_count: 2,
+                    attachment_bytes: invoice.bytes.length + receipt.bytes.length,
+                })
+                const [job] = await queuedJobs()
+                expect(job.id).toBe(res.body.invocation_id)
+                expect(job.send).toEqual({
+                    ...codeSend,
+                    attachments: [
+                        {
+                            sha256: invoice.metadata.sha256,
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: invoice.bytes.length,
+                        },
+                        {
+                            sha256: receipt.metadata.sha256,
+                            filename: 'logo.png',
+                            contentType: 'image/png',
+                            contentId: 'logo',
+                            sizeBytes: receipt.bytes.length,
+                        },
+                    ],
+                })
+                for (const file of [invoice, receipt]) {
+                    expect(job.stored).not.toContain(file.bytes.toString('latin1'))
+                    expect(job.stored).not.toContain(file.bytes.toString('base64'))
+                }
+
+                const ses = await startFakeSes({
+                    [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                    [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+                })
+                const workerConfig = {
+                    ...hub,
+                    CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+                    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
+                }
+                const worker = new CdpCyclotronWorkerEmail(
+                    workerConfig,
+                    createCdpConsumerDeps(hub),
+                    new EmailQueueOfOneTest(queueName, workerConfig),
+                    new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
+                )
+                worker.emailService.sesV2Client = sesClientFor(ses)
+                await worker.start()
+                try {
+                    const delivered = await waitForExpect(() => {
+                        expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                        return deliveredTo(ses, recipient)[0]
+                    })
+                    expect(delivered.attachments).toEqual([
+                        {
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            contentId: undefined,
+                            inline: false,
+                            bytes: invoice.bytes,
+                        },
+                        {
+                            filename: 'logo.png',
+                            contentType: 'image/png',
+                            contentId: 'logo',
+                            inline: true,
+                            bytes: receipt.bytes,
+                        },
+                    ])
+                } finally {
+                    await worker.stop()
+                    await ses.close()
+                }
+            })
+
+            it.each([
+                ['goes out now', undefined],
+                ['is scheduled', inDays(1)],
+            ])(
+                'keeps the files of a send that %s until the last day a reschedule can move it to',
+                async (_desc, scheduledAt) => {
+                    const file = await uploadAttachment(team.id, {})
+                    bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
+
+                    const res = await sendOnFilesApi({
+                        ...body,
+                        idempotency_key: newKey(),
+                        send: { ...codeSend, attachments: [reference(file)] },
+                        ...(scheduledAt && { scheduled_at: scheduledAt }),
+                    })
+
+                    expect(res.status).toBe(202)
+                    expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(1)
+                }
+            )
+
+            it.each([
+                ['the same files', () => [reference(invoice)], 202],
+                ['other files', () => [reference(receipt)], 422],
+            ])(
+                'answers a retry of a keyed send with files that names %s from its first send, and queues one job',
+                async (_name, retryFiles, status) => {
+                    const key = newKey()
+                    const sent = await sendWithFiles(key, [reference(invoice)])
+
+                    const retried = await sendWithFiles(key, retryFiles())
+
+                    expect(sent.status).toBe(202)
+                    expect(retried.status).toBe(status)
+                    expect(retried.body).toEqual(
+                        status === 202 ? { ...sent.body, replayed: true } : { error: 'idempotency_key_reused' }
+                    )
+                    expect(await queuedIds()).toEqual([sent.body.invocation_id])
+                }
+            )
+
+            const flowThrough = async (
+                steps: SimpleHogFlowRepresentation['actions'],
+                edges: SimpleHogFlowRepresentation['edges'],
+                category: 'transactional' | 'marketing' = 'transactional',
+                emailInputs: Record<string, CyclotronInputType> = {},
+                emailConfig: { skip_frequency_cap?: boolean } = {}
+            ): Promise<HogFlow> =>
+                await insertHogFlow(
+                    new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withStatus('active')
+                        .withExitCondition('exit_only_at_end')
+                        .withWorkflow({
+                            actions: {
+                                trigger: { type: 'trigger', config: { type: 'api' } },
+                                ...steps,
+                                email: {
+                                    type: 'function_email',
+                                    config: {
+                                        template_id: 'template-email',
+                                        inputs: emailInputs,
+                                        message_category_type: category,
+                                        ...emailConfig,
+                                    },
+                                },
+                            },
+                            edges,
+                        })
+                        .build()
+                )
+            const delay = { type: 'delay', config: { delay_duration: '1h' } } as const
+            const exit = { type: 'exit', config: {} } as const
+            const step = (from: string, to: string) => ({ from, to, type: 'continue' as const })
+
+            const shapesThatCannotCarryFiles: [string, () => Promise<HogFlow>, string][] = [
+                [
+                    'a delay before its email step',
+                    () => flowThrough({ delay }, [step('trigger', 'delay'), step('delay', 'email')]),
+                    'workflow_shape_not_supported',
+                ],
+                [
+                    'an email step the frequency cap can hold',
+                    () => flowThrough({}, [step('trigger', 'email')], 'marketing'),
+                    'workflow_can_wait',
+                ],
+                [
+                    'a marketing email step that skips the frequency cap, which the team sending cap can still hold',
+                    () => flowThrough({}, [step('trigger', 'email')], 'marketing', {}, { skip_frequency_cap: true }),
+                    'workflow_can_wait',
+                ],
+            ]
+
+            it.each(shapesThatCannotCarryFiles)(
+                'refuses a send with files to a workflow with %s, queues nothing, and releases the key',
+                async (_name, arrange, code) => {
+                    const flow = await arrange()
+                    const key = newKey()
+                    const stagesBefore = await stageCounts()
+
+                    const res = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+                    const stagesOfTheRefusal = stageCountChanges(stagesBefore, await stageCounts())
+                    const queuedOnRefusal = await queuedIds()
+                    const retry = await sendWithFiles(key, [reference(invoice)])
+
+                    expect(res.status).toBe(400)
+                    expect(res.body).toEqual({
+                        error: code,
+                        reason: expect.any(String),
+                        fix: expect.any(String),
+                    })
+                    expect(stagesOfTheRefusal).toEqual({
+                        auth: 1,
+                        validate: 1,
+                        load: 1,
+                        build: 1,
+                        idempotency: 1,
+                        total: 1,
+                    })
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retry.status).toBe(202)
+                    expect(retry.body).toMatchObject({ replayed: false })
+                    expect(await queuedIds()).toEqual([retry.body.invocation_id])
+                }
+            )
+
+            it.each(shapesThatCannotCarryFiles)(
+                'replays a keyed send with files after its workflow changed to %s',
+                async (_name, arrange) => {
+                    const flow = await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])
+                    const key = newKey()
+                    const first = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+                    expect(first.status).toBe(202)
+                    const changed = await arrange()
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `UPDATE posthog_hogflow SET actions = changed.actions, edges = changed.edges
+                         FROM posthog_hogflow changed WHERE posthog_hogflow.id = $1 AND changed.id = $2`,
+                        [flow.id, changed.id],
+                        'change-workflow-shape'
+                    )
+                    filesApi['hogFlowManager']['onHogFlowsReloaded'](team.id, [flow.id])
+
+                    const retry = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+
+                    expect(retry.status).toBe(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    expect(await queuedIds()).toEqual([first.body.invocation_id])
+                }
+            )
+
+            it('refuses files from a team off the allowlist before it claims the key, and queues nothing', async () => {
+                const offTheList = await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id + 1}` })
+                const stagesBefore = await stageCounts()
+
+                const key = newKey()
+
+                const res = await sendWithFiles(key, [reference(invoice)], { app: offTheList })
+
+                expect(res.status).toBe(400)
+                expect(res.body).toEqual({ error: 'field_not_accepted' })
+                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                    auth: 1,
+                    validate: 1,
+                    idempotency: 1,
+                    total: 1,
+                })
+                expect(await queuedIds()).toEqual([])
+            })
+
+            it.each<[string, () => Promise<{ file: StoredFile; fix: () => Promise<unknown> }>]>([
+                [
+                    'a file that was never uploaded',
+                    () => {
+                        const file = attachmentFile()
+                        return Promise.resolve({ file, fix: () => uploadAttachment(team.id, {}, file.bytes) })
+                    },
+                ],
+                [
+                    'a file only another team uploaded',
+                    async () => {
+                        const file = await uploadAttachment(await createTeam(hub.postgres, team.organization_id), {})
+                        return { file, fix: () => uploadAttachment(team.id, {}, file.bytes) }
+                    },
+                ],
+            ])(
+                'refuses a send with %s, queues nothing, and its key sends once that is fixed',
+                async (_name, arrange) => {
+                    const { file, fix } = await arrange()
+                    const key = newKey()
+
+                    const refused = await sendWithFiles(key, [reference(file)])
+                    const queuedOnRefusal = await queuedIds()
+                    await fix()
+                    const retried = await sendWithFiles(key, [reference(file)])
+
+                    expect(refused.status).toBe(400)
+                    expect(refused.body).toEqual({ error: 'attachment_not_uploaded', sha256: file.metadata.sha256 })
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retried.status).toBe(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            const storedEmail = (email: Record<string, string>): Record<string, CyclotronInputType> => ({
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{ event.properties.to }}', name: '' },
+                        from: {},
+                        subject: 'Your report',
+                        text: 'Your report is attached',
+                        ...email,
+                    },
+                },
+            })
+            const storedTemplateRendering = async (
+                email: Record<string, string>,
+                chunk: string
+            ): Promise<SendOptions> => {
+                const flow = await insertHogFlow(
+                    transactionalFlow('api', 'active', 'transactional', storedEmail(email))
+                )
+                return {
+                    flowId: flow.id,
+                    variables: { chunk },
+                    acceptedSend: { tracking: { captureEngagement: false } },
+                }
+            }
+            const storedTemplateOnAFreshApi = async (): Promise<HeldSend> => ({
+                options: await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x'),
+                app: await servedForOneTest({}),
+            })
+            const aPersonWithTheDistinctId = async (): Promise<string> => {
+                const distinctId = `person-${randomUUID()}`
+                await hub.personRepository.createPerson(
+                    DateTime.now(),
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    new UUIDT().toString(),
+                    { distinctId }
+                )
+                return distinctId
+            }
+
+            type HeldSend = { options?: SendOptions; app?: express.Application; fix?: () => void }
+            const caught = async (query: Promise<HeldQuery>, expire: () => void): Promise<HeldQuery> => {
+                const held = await query
+                expire()
+                return held
+            }
+            const realAbortSignalTimeout = AbortSignal.timeout.bind(AbortSignal)
+            let verificationDeadline = new AbortController()
+            const expireTheVerificationDeadline = (): void =>
+                verificationDeadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+            const queriesFor = (value: string) => (request: string) => request.includes(value)
+
+            it.each<[string, () => Promise<HeldSend>]>([
+                [
+                    'no attachment store',
+                    async () => ({ app: await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_S3_BUCKET: '' }) }),
+                ],
+                [
+                    'an attachment store that does not answer',
+                    () => {
+                        bucket.answer = 'refuse'
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'an attachment store whose HEAD outlasts the deadline, on a file that needs keeping',
+                    () => {
+                        bucket.answer = 'hold'
+                        bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - SEND_NEEDS_FILES_FOR_MS + DAY_MS
+                        void waitForExpect(() => expect(bucket.heldRequests).toBe(1)).then(
+                            expireTheVerificationDeadline
+                        )
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'an attachment store whose COPY outlasts the deadline, on a file that needs keeping',
+                    () => {
+                        bucket.answer = 'holdCopies'
+                        bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - SEND_NEEDS_FILES_FOR_MS + DAY_MS
+                        void waitForExpect(() => expect(bucket.heldRequests).toBe(1)).then(
+                            expireTheVerificationDeadline
+                        )
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'the recipient checks before the files use up the deadline',
+                    async () => {
+                        const to = `${randomUUID()}@example.com`
+                        const lookup = posthogDb.hold(
+                            (request) => request.includes('posthog_messagesuppression') && request.includes(to)
+                        )
+                        void lookup.then((held) => {
+                            expireTheVerificationDeadline()
+                            held.release()
+                        })
+                        return Promise.resolve({ options: { to } })
+                    },
+                ],
+                [
+                    'the template lookup of the email step fails',
+                    async () => {
+                        void posthogDb.hold(queriesFor('posthog_hogfunctiontemplate')).then((held) => held.drop())
+                        return await storedTemplateOnAFreshApi()
+                    },
+                ],
+                [
+                    'the template lookup of the email step outlasts the deadline',
+                    async () => {
+                        void caught(
+                            posthogDb.hold(queriesFor('posthog_hogfunctiontemplate')),
+                            expireTheVerificationDeadline
+                        )
+                        return await storedTemplateOnAFreshApi()
+                    },
+                ],
+                [
+                    'the person lookup fails',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        void personsDb.hold(queriesFor(distinctId)).then((held) => held.drop())
+                        return { options: { distinctId } }
+                    },
+                ],
+                [
+                    'the person lookup outlasts the deadline',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        void caught(personsDb.hold(queriesFor(distinctId)), expireTheVerificationDeadline)
+                        return { options: { distinctId } }
+                    },
+                ],
+                [
+                    'the custom UTM tags of the email step render past the deadline',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        const flow = transactionalFlow('api', 'active', 'transactional', storedEmail({ html: 'x' }))
+                        const emailStep = flow.actions.find((action) => action.type === 'function_email')!
+                        const slowUtmTag = renderThatOutlastsTheLiquidLimit
+                        Object.assign(emailStep.config, {
+                            utm_tags_enabled: true,
+                            utm_params: {
+                                utm_source: slowUtmTag,
+                                utm_medium: slowUtmTag,
+                                utm_campaign: slowUtmTag,
+                                utm_content: slowUtmTag,
+                            },
+                        })
+                        const { id: flowId } = await insertHogFlow(flow)
+                        const realNow = performance.now.bind(performance)
+                        let skippedMs = 0
+                        const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                        void personsDb.hold(queriesFor(distinctId)).then((held) => {
+                            skippedMs = ATTACHMENT_VERIFICATION_DEADLINE_MS - 2 * LIQUID_RENDER_LIMIT_MS
+                            held.release()
+                        })
+                        return {
+                            options: {
+                                flowId,
+                                distinctId,
+                                acceptedSend: { tracking: { captureEngagement: false } },
+                            },
+                            fix: () => clock.mockRestore(),
+                        }
+                    },
+                ],
+            ])(
+                'answers 503 when %s without waiting on held work, queues nothing, asks the store for nothing after the answer, and its key sends once that is fixed',
+                async (_name, arrange) => {
+                    const deadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+                        if (ms !== ATTACHMENT_VERIFICATION_DEADLINE_MS) {
+                            return realAbortSignalTimeout(ms)
+                        }
+                        verificationDeadline = new AbortController()
+                        return verificationDeadline.signal
+                    })
+                    const { options, app: refusingApp, fix } = await arrange()
+                    const key = newKey()
+
+                    const refused = await sendWithFiles(key, [reference(invoice)], { ...options, app: refusingApp })
+                    const bucketRequestsAtTheAnswer = bucket.requests
+                    posthogDb.releaseAll()
+                    personsDb.releaseAll()
+                    fix?.()
+                    await waitForExpect(() => expect(bucket.heldRequests).toBe(0))
+                    const queuedBeforeTheRetry = await queuedIds()
+                    const bucketRequestsBeforeTheRetry = bucket.requests
+                    deadlines.mockRestore()
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                    expect(refused.status).toBe(503)
+                    expect(refused.body).toEqual({ error: 'delivery_unavailable' })
+                    expect(queuedBeforeTheRetry).toEqual([])
+                    expect(bucketRequestsBeforeTheRetry).toBe(bucketRequestsAtTheAnswer)
+                    expect(retried.status).toBe(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            const roomForBodies = MESSAGE_MAX_BYTES - estimateMessageBytes([28_800_000])
+            const bodyThatOverflows = 'x'.repeat(roomForBodies)
+            const chunkThatFitsOnceNotTwice = 'x'.repeat(Math.ceil(roomForBodies / 2))
+            const link = '<a href="https://example.com/">x</a>'
+            const linksThatFitUntilTracked = link.repeat(Math.floor((roomForBodies * 0.7) / link.length))
+            const contentOf = (html: string): SendOptions => ({
+                acceptedSend: { ...codeSend, content: { subject: 'Your report', html } },
+            })
+            const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
+            const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
+            const renderThatOutlastsTheLiquidLimit =
+                '{% for a in (1..1000) %}{% for b in (1..1000) %}{% for c in (1..1000) %}x{% endfor %}{% endfor %}{% endfor %}'
+            const chunkRenderedTwiceBehindAnUnclosedTag = { html: `{% if variables.chunk %}${chunkRenderedTwice.html}` }
+
+            it.each<[string, () => Promise<SendOptions>]>([
+                ['content', () => Promise.resolve(contentOf('x'))],
+                ['a stored template whose rendered body', () => storedTemplateRendering(chunkRenderedTwice, 'x')],
+                [
+                    'a stored template that fails to parse at accept, counted as no body, whose body',
+                    () => storedTemplateRendering(chunkRenderedTwiceBehindAnUnclosedTag, chunkThatFitsOnceNotTwice),
+                ],
+                [
+                    'content on the generated workflow, a trigger, an email step and an exit, whose body',
+                    async () => ({
+                        ...contentOf('x'),
+                        flowId: (await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])).id,
+                    }),
+                ],
+            ])('accepts a send with files and %s fits beside them, and queues it', async (_name, arrange) => {
+                const res = await sendWithFiles(newKey(), [reference(large)], await arrange())
+
+                expect(res.status).toBe(202)
+                expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.bytes.length })
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+            })
+
+            it.each<[string, () => Promise<SendOptions>]>([
+                ['content', () => Promise.resolve(contentOf(bodyThatOverflows))],
+                [
+                    'content whose links grow once the worker tracks them',
+                    () => Promise.resolve(contentOf(linksThatFitUntilTracked)),
+                ],
+                [
+                    'a stored template that renders a chunk twice',
+                    () => storedTemplateRendering(chunkRenderedTwice, chunkThatFitsOnceNotTwice),
+                ],
+                [
+                    'a stored template whose preheader goes into the html',
+                    () => storedTemplateRendering(chunkAsPreheader, bodyThatOverflows),
+                ],
+                [
+                    'a stored template whose body grows with the person it sends to',
+                    async () => ({
+                        ...(await storedTemplateRendering(
+                            { html: '<p>Your report</p>{% if person.id %}{{ variables.chunk }}{% endif %}' },
+                            bodyThatOverflows
+                        )),
+                        distinctId: await aPersonWithTheDistinctId(),
+                    }),
+                ],
+                [
+                    'a stored template whose body renders only once the worker supplies its groups',
+                    () =>
+                        storedTemplateRendering(
+                            { html: '<p>Your report</p>{% if groups %}{{ variables.chunk }}{% endif %}' },
+                            bodyThatOverflows
+                        ),
+                ],
+                [
+                    'content whose subject',
+                    () =>
+                        Promise.resolve({
+                            acceptedSend: {
+                                ...codeSend,
+                                content: { subject: bodyThatOverflows, html: '<p>Your report</p>' },
+                            },
+                        }),
+                ],
+                [
+                    'a stored template whose rendered subject',
+                    () => storedTemplateRendering({ subject: '{{ variables.chunk }}' }, bodyThatOverflows),
+                ],
+            ])(
+                'refuses a send with files and %s too large to fit beside them, queues nothing, and its key sends smaller files',
+                async (_name, arrange) => {
+                    const options = await arrange()
+                    const key = newKey()
+
+                    const res = await sendWithFiles(key, [reference(large)], options)
+                    const queuedOnRefusal = await queuedIds()
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                    expect(res.status).toBe(400)
+                    expect(res.body).toEqual({
+                        error: 'message_too_large',
+                        message_bytes: expect.any(Number),
+                        max_message_bytes: MESSAGE_MAX_BYTES,
+                        attachment_bytes: large.bytes.length,
+                    })
+                    expect(res.body.message_bytes).toBeGreaterThan(MESSAGE_MAX_BYTES)
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retried.status).toBe(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            it('answers 503, not a template refusal, when the text of a text-only email step renders into the deadline, and queues nothing', async () => {
+                const distinctId = await aPersonWithTheDistinctId()
+                const { id: flowId } = await insertHogFlow(
+                    transactionalFlow(
+                        'api',
+                        'active',
+                        'transactional',
+                        storedEmail({ text: renderThatOutlastsTheLiquidLimit })
+                    )
+                )
+                const realNow = performance.now.bind(performance)
+                let skippedMs = 0
+                const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                void personsDb.hold(queriesFor(distinctId)).then((held) => {
+                    skippedMs = ATTACHMENT_VERIFICATION_DEADLINE_MS - LIQUID_RENDER_LIMIT_MS / 2
+                    held.release()
+                })
+                try {
+                    const res = await sendWithFiles(newKey(), [reference(invoice)], {
+                        flowId,
+                        distinctId,
+                        acceptedSend: { tracking: { captureEngagement: false } },
+                    })
+
+                    expect(res.status).toBe(503)
+                    expect(res.body).toEqual({ error: 'delivery_unavailable' })
+                    expect(await queuedIds()).toEqual([])
+                } finally {
+                    clock.mockRestore()
+                }
+            })
+
+            it('queues a send with files whose email step fails to render at accept, and logs none of its variables', async () => {
+                const secret = `reset-token-${randomUUID()}`
+                const options = await storedTemplateRendering({ html: '{% include variables.chunk %}' }, secret)
+                const emitted = emittedLogLines()
+
+                let res: supertest.Response
+                try {
+                    res = await sendWithFiles(newKey(), [reference(invoice)], options)
+                } finally {
+                    emitted.stop()
+                }
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+                expect(
+                    emitted.lines.some((line) =>
+                        String(parseJSON(line).msg).endsWith('Could not render the email step of a send with files')
+                    )
+                ).toBe(true)
+                expect(emitted.lines.join('')).not.toContain(secret)
+            })
+
+            const storedUtmValue = async (utmCampaign: string): Promise<SendOptions> => {
+                const flow = transactionalFlow('api', 'active', 'transactional', storedEmail({ html: '<p>x</p>' }))
+                const emailStep = flow.actions.find((action) => action.type === 'function_email')!
+                Object.assign(emailStep.config, { utm_tags_enabled: true, utm_params: { utm_campaign: utmCampaign } })
+                const { id: flowId } = await insertHogFlow(flow)
+                return { flowId, acceptedSend: { tracking: { captureEngagement: false } } }
+            }
+
+            it.each<[string, string, () => Promise<SendOptions>]>([
+                [
+                    'goes over a template limit',
+                    'email_render_limit_exceeded',
+                    () => storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x'),
+                ],
+                [
+                    'has a body whose HTML and text together hold one Liquid tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            {
+                                html: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT / 2 + 1),
+                                text: '{% if variables.chunk %}x{% endif %}'.repeat(EMAIL_BODY_TAG_LIMIT / 4),
+                            },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body whose one Liquid block brings it one tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{% liquid\n${'echo variables.chunk\n'.repeat(EMAIL_BODY_TAG_LIMIT)}%}` },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body whose quoted Liquid block opener comes before the Liquid tags over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{{ '{% liquid ' }}${'{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT)}` },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body whose one Liquid block, opened with an encoded space, brings it one tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{% liquid%20\n${'echo variables.chunk\n'.repeat(EMAIL_BODY_TAG_LIMIT)}%}` },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body whose one Liquid block, opened after a blank only Liquid reads as blank, brings it one tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{%\u180Eliquid\n${'echo variables.chunk\n'.repeat(EMAIL_BODY_TAG_LIMIT)}%}` },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body full of Liquid tags, which would take seconds to parse',
+                    'email_body_too_many_tags',
+                    () => storedTemplateRendering({ html: '{{ x }}'.repeat(100_000) }, 'x'),
+                ],
+                [
+                    'has a subject full of Liquid tags, which would take seconds to parse',
+                    'email_body_too_many_tags',
+                    () => storedTemplateRendering({ subject: '{{ x }}'.repeat(100_000) }, 'x'),
+                ],
+                [
+                    'has a UTM value one character over the length limit',
+                    'utm_value_too_long',
+                    () => storedUtmValue('x'.repeat(UTM_VALUE_LIMIT_CHARS + 1)),
+                ],
+                [
+                    'has a UTM value full of Liquid tags, which would take seconds to parse',
+                    'utm_value_too_long',
+                    () => storedUtmValue('{{ x }}'.repeat(100_000)),
+                ],
+            ])(
+                'refuses a send with files whose email step %s, queues nothing, and frees its key',
+                async (_name, error, arrange) => {
+                    const options = await arrange()
+                    const key = newKey()
+
+                    const refused = await sendWithFiles(key, [reference(invoice)], options)
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                    expect(refused.status).toBe(400)
+                    expect(refused.body).toEqual({
+                        error,
+                        reason: expect.stringContaining('"function_email"'),
+                        fix: expect.any(String),
+                    })
+                    expect(retried.body.error).toBe(error)
+                    expect(await queuedIds()).toEqual([])
+                }
+            )
+
+            it('accepts a send with files whose email editor design state holds more Liquid tags than the step may render', async () => {
+                const inputs = storedEmail({ html: '<p>{{ variables.chunk }}</p>' })
+                inputs.email.value.design = { body: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT + 1) }
+                const { id: flowId } = await insertHogFlow(transactionalFlow('api', 'active', 'transactional', inputs))
+
+                const res = await sendWithFiles(newKey(), [reference(invoice)], {
+                    flowId,
+                    variables: { chunk: 'x' },
+                    acceptedSend: { tracking: { captureEngagement: false } },
+                })
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+            })
+
+            it('accepts a send without files whose email step body holds more Liquid tags than a send with files may', async () => {
+                const options = await storedTemplateRendering(
+                    { html: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT + 1) },
+                    'x'
+                )
+
+                const res = await sendWithFiles(newKey(), [], options)
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+            })
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
@@ -2785,7 +4957,18 @@ describe('CDP API', () => {
                     total: 1,
                 })
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
+                const refusedSend = {
+                    team_id: team.id,
+                    message_id: expect.any(String),
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ ...refusedSend, status: 'queued', reason: '' }),
+                    expect.objectContaining({ ...refusedSend, status: 'failed', reason: code }),
+                ])
+                const [queuedRow, failedRow] = emailStatusRows()
+                expect(failedRow.message_id).toEqual(queuedRow.message_id)
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -3027,6 +5210,1085 @@ describe('CDP API', () => {
             expect(res.status).toEqual(401)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
+
+        describe('to many recipients in one batch', () => {
+            type BatchRoute = 'transactional_email/batch' | 'transactional_email/send/batch'
+            const TEMPLATE: BatchRoute = 'transactional_email/batch'
+            const CODE: BatchRoute = 'transactional_email/send/batch'
+            const kindOf = (route: BatchRoute) => (route === CODE ? 'code_send_batch' : 'template_batch')
+            const pathOf = (route: BatchRoute) => `/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`
+            // A null kind mints the single template send's token, which carries no kind.
+            const authorizationFor = (kind: string | null) =>
+                `Bearer ${mintToken(team.id, hogFlow.id, { claims: kind ? { kind } : {} })}`
+            const sendBatchTo = (
+                served: express.Application,
+                route: BatchRoute,
+                payload: unknown,
+                kind: string | null = kindOf(route)
+            ) =>
+                supertest(served)
+                    .post(pathOf(route))
+                    .set({ Authorization: authorizationFor(kind) })
+                    .send(payload as object)
+            const sendBatch = (route: BatchRoute, payload: unknown, kind?: string | null) =>
+                sendBatchTo(app, route, payload, kind)
+            const recipient = (to: string, extra: Record<string, unknown> = {}) => ({
+                to,
+                distinct_id: `person-${to}`,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                ...extra,
+            })
+            const runIdOf = ({ idempotency_key }: { idempotency_key: string }) =>
+                keyedRunId(team.id, 'transactional-email', idempotency_key)
+            const storedRuns = async (): Promise<string[]> => {
+                const { rows } = await cyclotron.query(`SELECT id FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                return rows.map((row) => row.id)
+            }
+            const intakeRunsOf = (records: Buffer[]) =>
+                records.map((value) => {
+                    const { kind, teamId, job } = parseJSON(value.toString())
+                    return { kind, teamId, id: job.id, distinctId: job.distinctId }
+                })
+            const queuedAs = (invocationId: string) =>
+                expect.objectContaining({ status: 'queued', replayed: false, invocation_id: invocationId })
+            const refusableRecipients = async () => {
+                const suppressed = recipient(`bounced-${new UUIDT().toString()}@example.com`)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [suppressed.to])
+                // A domain no other test sends to, so no cached verdict answers before its null MX record does.
+                const noMailDomain = `${new UUIDT().toString()}.example.org`
+                jest.spyOn(api['emailValidationService']['resolver'], 'resolveMx').mockImplementation((domain) =>
+                    Promise.resolve([{ exchange: domain === noMailDomain ? '.' : 'mx.example.com', priority: 10 }])
+                )
+                return { suppressed, unreachable: recipient(`user@${noMailDomain}`) }
+            }
+            const variablesOf = (records: Buffer[]): Record<string, unknown> =>
+                Object.fromEntries(
+                    records.map((value) => {
+                        const { job } = parseJSON(value.toString())
+                        const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
+                        const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
+                        const variables = decodeJobState(row, opener).state?.variables ?? {}
+                        for (const variable of Object.values(variables)) {
+                            const plaintext = typeof variable === 'string' ? variable : JSON.stringify(variable)
+                            expect(value.toString()).not.toContain(plaintext)
+                        }
+                        return [job.id, variables]
+                    })
+                )
+            let releaseStalledReads = () => {}
+            const stallSuppressionReads = () => {
+                const postgres = api['emailSuppressionService']['postgres']
+                const query = postgres.query.bind(postgres)
+                let reachedRead!: () => void
+                const reached = new Promise<void>((resolve) => (reachedRead = resolve))
+                const held: (() => void)[] = []
+                let holding = true
+                jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
+                    if (!holding || !String(args[1]).includes('blocks_transactional')) {
+                        return query(...args)
+                    }
+                    reachedRead()
+                    return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
+                }) as typeof postgres.query)
+                const release = () => {
+                    holding = false
+                    held.splice(0).forEach((read) => read())
+                }
+                releaseStalledReads = release
+                // Later reads go through while the held ones stay held.
+                const pass = () => (holding = false)
+                return { reached, release, pass }
+            }
+            const setIntakeModes = ({ async = '', sealing = true }: { async?: string; sealing?: boolean }) => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+            }
+            let intakeRecords: () => Buffer[]
+
+            beforeEach(async () => {
+                await useRealQueue()
+                setIntakeModes({ async: String(team.id) })
+                intakeRecords = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+            })
+
+            afterEach(() => {
+                setIntakeModes({ sealing: false })
+                releaseStalledReads()
+                api['refusalDeadline'] = undefined
+                // The team outlives each test, so its cached workflows config would carry a suspension into the next one.
+                api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
+            })
+
+            it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
+                const recipients = [
+                    recipient('ada@example.com', { variables: { name: 'Ada Lovelace' } }),
+                    recipient('not-an-address'),
+                    recipient('cy@example.com', { distinct_id: null }),
+                    recipient('bo@example.com'),
+                    suppressed,
+                    unreachable,
+                ]
+
+                const res = await sendBatch(TEMPLATE, { variables: { name: 'you there' }, recipients })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.results).toEqual([
+                    { status: 202, body: queuedAs(runIdOf(recipients[0])) },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(recipients[1]) } },
+                    { status: 400, body: { error: 'invalid_recipient', invocation_id: runIdOf(recipients[2]) } },
+                    { status: 202, body: queuedAs(runIdOf(recipients[3])) },
+                    { status: 422, body: { error: 'recipient_suppressed', invocation_id: runIdOf(suppressed) } },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
+                ])
+                expect(intakeRunsOf(intakeRecords())).toEqual(
+                    expect.arrayContaining([
+                        {
+                            kind: 'transactional-email',
+                            teamId: team.id,
+                            id: runIdOf(recipients[0]),
+                            distinctId: 'person-ada@example.com',
+                        },
+                        {
+                            kind: 'transactional-email',
+                            teamId: team.id,
+                            id: runIdOf(recipients[3]),
+                            distinctId: 'person-bo@example.com',
+                        },
+                    ])
+                )
+                expect(intakeRecords()).toHaveLength(2)
+                expect(variablesOf(intakeRecords())).toEqual({
+                    [runIdOf(recipients[0])]: { name: 'Ada Lovelace' },
+                    [runIdOf(recipients[3])]: { name: 'you there' },
+                })
+                expect(await storedRuns()).toEqual([])
+                const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
+                    const row = {
+                        team_id: team.id,
+                        message_id: runIdOf(refused),
+                        recipient: refused.to,
+                        function_id: hogFlow.id,
+                    }
+                    return [
+                        expect.objectContaining({ ...row, status: 'queued' }),
+                        expect.objectContaining({ ...row, status: 'failed', reason }),
+                    ]
+                }
+                // An address the request schema refuses gets no row, as on a single send.
+                expect(emailStatusRows()).toEqual(
+                    expect.arrayContaining([
+                        ...refusedRows(suppressed, 'recipient_suppressed'),
+                        ...refusedRows(unreachable, 'recipient_unreachable'),
+                    ])
+                )
+                expect(emailStatusRows()).toHaveLength(4)
+            })
+
+            it('refuses the recipients whose lookups answered and publishes the rest when the suppression read does not answer in time', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
+                const sendable = recipient(`ada-${new UUIDT().toString()}@example.com`)
+                const read = stallSuppressionReads()
+                const validation = api['emailValidationService']
+                const skipReason = validation.getRecipientSkipReason.bind(validation)
+                let mxAnswered!: () => void
+                const verdict = new Promise<void>((resolve) => (mxAnswered = resolve))
+                jest.spyOn(validation, 'getRecipientSkipReason').mockImplementation(async (teamId, email) => {
+                    const reason = await skipReason(teamId, email)
+                    if (email === unreachable.to) {
+                        mxAnswered()
+                    }
+                    return reason
+                })
+                // The time runs out once the suppression read hangs and the mail server verdict answered.
+                api['refusalDeadline'] = () =>
+                    Promise.all([read.reached, verdict]).then(() => new Promise<void>((done) => setImmediate(done)))
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [suppressed, unreachable, sendable],
+                })
+                read.release()
+
+                expect(res.body.results).toEqual([
+                    { status: 202, body: queuedAs(runIdOf(suppressed)) },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
+                    { status: 202, body: queuedAs(runIdOf(sendable)) },
+                ])
+                expect(
+                    intakeRunsOf(intakeRecords())
+                        .map(({ id }) => id)
+                        .sort()
+                ).toEqual([runIdOf(suppressed), runIdOf(sendable)].sort())
+            })
+
+            it('replays a recipient whose key a single send queued, suppressed since or not, and refuses one whose key it used for other data', async () => {
+                const [replayed, reused, fresh, bouncedSince] = [
+                    recipient('ada@example.com'),
+                    recipient('bo@example.com'),
+                    recipient('cy@example.com'),
+                    recipient(`bounced-${new UUIDT().toString()}@example.com`),
+                ]
+                const singleSendOf = (to: typeof replayed, variables: Record<string, unknown>) =>
+                    send(
+                        hogFlow.id,
+                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                        { to: to.to, distinct_id: to.distinct_id, idempotency_key: to.idempotency_key, variables }
+                    )
+                setIntakeModes({})
+                const single = await singleSendOf(replayed, body.variables)
+                await singleSendOf(reused, { ...body.variables, other: true })
+                const singleBeforeBounce = await singleSendOf(bouncedSince, body.variables)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [bouncedSince.to])
+                setIntakeModes({ async: String(team.id) })
+                const afterSingles = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [replayed, reused, fresh, bouncedSince],
+                })
+
+                expect(res.body.results).toEqual([
+                    {
+                        status: 202,
+                        body: expect.objectContaining({ invocation_id: single.body.invocation_id, replayed: true }),
+                    },
+                    { status: 422, body: { error: 'idempotency_key_reused', invocation_id: runIdOf(reused) } },
+                    { status: 202, body: queuedAs(runIdOf(fresh)) },
+                    {
+                        status: 202,
+                        body: expect.objectContaining({
+                            invocation_id: singleBeforeBounce.body.invocation_id,
+                            replayed: true,
+                        }),
+                    },
+                ])
+                expect(intakeRunsOf(afterSingles()).map(({ id }) => id)).toEqual([runIdOf(fresh)])
+            })
+
+            it.each([
+                [
+                    'the workflow is disabled',
+                    400,
+                    'not_sendable',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                            [hogFlow.id],
+                            'disable-workflow'
+                        )
+                    },
+                ],
+                [
+                    'the workflow is gone',
+                    400,
+                    'not_sendable',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `DELETE FROM posthog_hogflow WHERE id = $1`,
+                            [hogFlow.id],
+                            'delete-workflow'
+                        )
+                    },
+                ],
+                [
+                    "the workflow's sending is paused and the suspension lookup stalls",
+                    422,
+                    'sending_paused',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET email_sending_paused_at = now() WHERE id = $1`,
+                            [hogFlow.id],
+                            'pause-workflow-sending'
+                        )
+                        const lockHolder = new Pool({ connectionString: hub.DATABASE_URL, max: 1 })
+                        const client = await lockHolder.connect()
+                        await client.query('BEGIN')
+                        await client.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                        await client.query('LOCK TABLE workflows_teamworkflowsconfig IN ACCESS EXCLUSIVE MODE')
+                        api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
+                        return async () => {
+                            await client.query('COMMIT')
+                            client.release()
+                            await lockHolder.end()
+                        }
+                    },
+                ],
+                [
+                    'email sending is suspended for the project',
+                    422,
+                    'sending_suspended',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `INSERT INTO workflows_teamworkflowsconfig
+                                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                                 email_sending_suspended_at, email_sending_suspension_reason)
+                             VALUES ($1, false, 'off', now(), 'suspended by staff')
+                             ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                            [team.id],
+                            'suspend-email-sending'
+                        )
+                        await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
+                        await waitForExpect(async () =>
+                            expect(await api['teamWorkflowsConfigService'].getEmailSendingSuspension(team.id)).toEqual(
+                                'staff'
+                            )
+                        )
+                    },
+                ],
+            ])(
+                'refuses a whole batch when %s, a recipient already queued included, and publishes none of it',
+                async (_case, status, error, arrange) => {
+                    const accepted = recipient('ada@example.com')
+                    setIntakeModes({})
+                    const single = await send(
+                        hogFlow.id,
+                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                        {
+                            ...body,
+                            to: accepted.to,
+                            distinct_id: accepted.distinct_id,
+                            idempotency_key: accepted.idempotency_key,
+                        }
+                    )
+                    expect(single.status).toEqual(202)
+                    setIntakeModes({ async: String(team.id) })
+                    const release = await arrange()
+                    api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
+
+                    const retry = await Promise.resolve(
+                        sendBatch(TEMPLATE, {
+                            variables: body.variables,
+                            recipients: [accepted, recipient('bo@example.com')],
+                        })
+                    ).finally(() => release?.())
+
+                    expect(retry.status).toEqual(status)
+                    expect(retry.body).toEqual({ error })
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it('refuses a whole batch of a marketing email when the team is over its email quota, without waiting on its recipients', async () => {
+                await setTeamQuotaLimited(hub, team, 'workflow_emails', true)
+                const read = stallSuppressionReads()
+                api['refusalDeadline'] = () => new Promise<void>(() => {})
+                // An address no other test sends to, so no cached verdict answers before the held read.
+                const fresh = recipient(`ada-${new UUIDT().toString()}@example.com`)
+                try {
+                    const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+
+                    const res = await supertest(app)
+                        .post(`/api/projects/${team.id}/hog_flows/${marketingFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(team.id, marketingFlow.id, { claims: { kind: 'template_batch' } })}`,
+                        })
+                        .send({ variables: body.variables, recipients: [fresh] })
+                    await read.reached
+
+                    expect(res.status).toEqual(429)
+                    expect(res.body).toEqual({ error: 'quota_limited' })
+                    expect(intakeRecords()).toEqual([])
+                } finally {
+                    await setTeamQuotaLimited(hub, team, 'workflow_emails', false)
+                }
+            })
+
+            const batchRequestsCounted = async (outcome: string): Promise<number> => {
+                const exported = await register.getSingleMetricAsString('cdp_transactional_email_batch_requests_total')
+                const sample = exported
+                    .split('\n')
+                    .find((line) =>
+                        line.startsWith(`cdp_transactional_email_batch_requests_total{outcome="${outcome}"} `)
+                    )
+                return sample ? Number(sample.split(' ').pop()) : 0
+            }
+
+            it.each([
+                ['in intake mode off', false, true, 409, 'batch_unavailable', 'batch_unavailable'],
+                [
+                    'in intake mode async, on a pod that does not seal',
+                    true,
+                    false,
+                    503,
+                    expect.any(String),
+                    'not_sealing',
+                ],
+            ])(
+                'refuses a whole batch for a team %s, and sends nothing',
+                async (_name, onAsync, sealing, status, error, outcome) => {
+                    setIntakeModes({ async: onAsync ? String(team.id) : '', sealing })
+                    const countedBefore = await batchRequestsCounted(outcome)
+
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com')],
+                    })
+
+                    expect(res.status).toEqual(status)
+                    expect(res.body).toEqual({ error })
+                    expect(await batchRequestsCounted(outcome)).toEqual(countedBefore + 1)
+                    expect(intakeRecords()).toEqual([])
+                    expect(await storedRuns()).toEqual([])
+                }
+            )
+
+            it.each([
+                [
+                    'a repeated idempotency key',
+                    TEMPLATE,
+                    () => {
+                        const ada = recipient('ada@example.com')
+                        return {
+                            recipients: [ada, recipient('bo@example.com', { idempotency_key: ada.idempotency_key })],
+                        }
+                    },
+                ],
+                [
+                    'copies on its send',
+                    CODE,
+                    () => ({
+                        send: { ...codeSend, cc: ['cy@example.com'] },
+                        recipients: [recipient('ada@example.com')],
+                    }),
+                ],
+            ])(
+                'refuses a whole batch carrying %s and sends to none of its recipients',
+                async (_case, route, payload) => {
+                    const res = await sendBatch(route, payload())
+
+                    expect([res.status, res.body]).toEqual([400, { error: 'invalid_request' }])
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it.each([
+                ['transactional_email/batch', null],
+                ['transactional_email/send/batch', 'code_send'],
+                ['transactional_email/batch', 'code_send_batch'],
+                ['transactional_email', 'template_batch'],
+                ['transactional_email/send', 'code_send_batch'],
+            ])('refuses %s with a token of kind %s and sends nothing', async (route, kind) => {
+                const payload = route.endsWith('/batch')
+                    ? { recipients: [recipient('ada@example.com')] }
+                    : route.endsWith('/send')
+                      ? { ...body, send: codeSend }
+                      : body
+
+                const res = await sendOn(route, hogFlow.id, { Authorization: authorizationFor(kind) }, payload)
+
+                expect(res.status).toEqual(401)
+                expect(intakeRecords()).toEqual([])
+                expect(await storedRuns()).toEqual([])
+            })
+
+            it('answers a retryable error and publishes nothing when the team lookup fails', async () => {
+                jest.spyOn(api['deps'].teamManager, 'getTeam').mockRejectedValue(new Error('connection reset'))
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [recipient('ada@example.com')],
+                })
+
+                expect([res.status, res.body]).toEqual([500, { error: 'internal_error' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            it.each([
+                [
+                    'its claim lookup',
+                    () => api['hogflowQueue'] as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'findIdempotencyKeys',
+                    1,
+                ],
+                [
+                    // On the second record, so a batch that published the first before encoding the next would fail.
+                    'encoding its records',
+                    () => intakeMessage as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'encodeIntakeMessage',
+                    2,
+                ],
+            ] as const)(
+                'answers 503 and publishes nothing when the batch passes its publish deadline during %s',
+                async (_stage, ownerOf, method, crossingCall) => {
+                    const realNow = performance.now.bind(performance)
+                    let skippedMs = 0
+                    jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                    const owner = ownerOf()
+                    const original = owner[method].bind(owner)
+                    let calls = 0
+                    jest.spyOn(owner, method).mockImplementation((...args: unknown[]) => {
+                        if (++calls === crossingCall) {
+                            skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                        }
+                        return original(...args)
+                    })
+
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com'), recipient('bo@example.com')],
+                    })
+
+                    expect([res.status, res.body]).toEqual([503, { error: 'deadline_exceeded' }])
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it('answers each recipient with its own broker result when one ack fails and another succeeds', async () => {
+                const [unacked, acked] = [recipient('ada@example.com'), recipient('bo@example.com')]
+                const outputs = api['outputs']
+                // The status rows' spy already wraps this instance's method, so the pass-through calls the class's own.
+                const produce = Object.getPrototypeOf(outputs).produce as typeof outputs.produce
+                jest.spyOn(outputs, 'produce').mockImplementation(((...args: Parameters<typeof produce>) =>
+                    args[1].key === runIdOf(unacked)
+                        ? Promise.reject(new Error('Broker: Request timed out'))
+                        : produce.apply(outputs, args)) as typeof outputs.produce)
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients: [unacked, acked] })
+
+                expect(res.body.results).toEqual([
+                    { status: 503, body: expect.objectContaining({ error: 'intake_unavailable' }) },
+                    { status: 202, body: queuedAs(runIdOf(acked)) },
+                ])
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual([runIdOf(acked)])
+            })
+
+            it('answers each recipient on its own when one is too large for the intake topic', async () => {
+                const [large, small] = [
+                    recipient('ada@example.com', { variables: { padding: 'x'.repeat(2 * 1024 * 1024) } }),
+                    recipient('bo@example.com'),
+                ]
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients: [large, small] })
+
+                expect(res.body.results).toEqual([
+                    { status: 413, body: { error: 'message_too_large', invocation_id: runIdOf(large) } },
+                    { status: 202, body: queuedAs(runIdOf(small)) },
+                ])
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual([runIdOf(small)])
+            })
+
+            it.each([
+                { copied: 50_000, ownKeysOfBo: ['b'], status: 200, error: undefined, published: 2 },
+                { copied: 50_001, ownKeysOfBo: ['b', 'c'], status: 413, error: 'too_large', published: 0 },
+            ])(
+                'answers $status for a batch whose recipients copy $copied variable keys',
+                async ({ ownKeysOfBo, status, error, published }) => {
+                    const shared = Object.fromEntries(Array.from({ length: 24_999 }, (_, i) => [`v${i}`, i]))
+                    const recipients = [
+                        recipient('ada@example.com', { variables: { a: 1 } }),
+                        recipient('bo@example.com', {
+                            variables: Object.fromEntries(ownKeysOfBo.map((key) => [key, 1])),
+                        }),
+                    ]
+
+                    const res = await sendBatch(TEMPLATE, { variables: shared, recipients })
+
+                    expect([res.status, res.body.error]).toEqual([status, error])
+                    expect(intakeRecords()).toHaveLength(published)
+                }
+            )
+
+            it('refuses with 413 a batch whose variables nest deeper than its fingerprint can sort', async () => {
+                const levels = 10_000
+                const variables = `${'{"a":'.repeat(levels)}1${'}'.repeat(levels)}`
+                const recipients = JSON.stringify([recipient('ada@example.com')])
+
+                const res = await supertest(app)
+                    .post(pathOf(TEMPLATE))
+                    .set({ Authorization: authorizationFor(kindOf(TEMPLATE)), 'Content-Type': 'application/json' })
+                    .send(`{"variables":${variables},"recipients":${recipients}}`)
+
+                expect([res.status, res.body]).toEqual([413, { error: 'too_large' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            describe('on a pod of its own', () => {
+                const served: { cdpApi: CdpApi; server: Server }[] = []
+                const servedWith = async (
+                    settings: Partial<Hub>,
+                    options: Parameters<typeof setupExpressApp>[0] = {}
+                ): Promise<{ app: express.Application }> => {
+                    const ownQueue = new CyclotronJobQueuePostgresV2(100, hub)
+                    await ownQueue.startAsProducer()
+                    const cdpApi = new CdpApi(
+                        {
+                            ...hub,
+                            CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id),
+                            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+                            ...settings,
+                        },
+                        cdpDeps,
+                        { hogQueue: createMockJobQueue(), hogflowQueue: ownQueue }
+                    )
+                    const ownApp = setupExpressApp(options)
+                    ownApp.use('/', cdpApi.router())
+                    await new Promise<void>((listening) => {
+                        served.push({ cdpApi, server: ownApp.listen(0, listening) })
+                    })
+                    return { app: ownApp }
+                }
+                const batchOf = (...recipients: Record<string, unknown>[]) => ({
+                    variables: body.variables,
+                    recipients,
+                })
+                afterEach(async () => {
+                    await Promise.all(
+                        served.splice(0).map(({ cdpApi, server }) => {
+                            server.close()
+                            return cdpApi.stop()
+                        })
+                    )
+                })
+
+                it('refuses with 503 a batch that arrives while another holds the pod cap, and frees the slot at the answer', async () => {
+                    const { app: off } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 0 })
+                    const { app: one } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 1 })
+                    const pod = served[served.length - 1].cdpApi
+                    const read = stallSuppressionReads()
+                    let expire!: () => void
+                    pod['refusalDeadline'] = () => new Promise<void>((done) => (expire = done))
+                    const holder = recipient(`ada-${new UUIDT().toString()}@example.com`)
+
+                    const switchedOff = await sendBatchTo(off, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const first = sendBatchTo(one, TEMPLATE, batchOf(holder)).then((answer) => answer)
+                    await read.reached
+                    const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+                    expire()
+                    const held = await first
+                    read.pass()
+                    const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
+                    read.release()
+
+                    expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([held.status, after.status]).toEqual([200, 200])
+                    expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
+                        `person-${holder.to}`,
+                        'person-di@example.com',
+                    ])
+                })
+
+                it('admits a batch from another team while one team holds its share of the pod', async () => {
+                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+                    const otherFlow = await insertHogFlow({
+                        ...transactionalFlow('api', 'active'),
+                        team_id: otherTeamId,
+                    })
+                    const { app: two } = await servedWith({
+                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
+                        CDP_INTAKE_KAFKA_ASYNC_TEAMS: `${team.id},${otherTeamId}`,
+                    })
+                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
+                        team.id
+                    )!
+
+                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const otherTeam = await supertest(two)
+                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                        })
+                        .send(batchOf(recipient('cy@example.com')))
+                    releaseTeamSlot()
+                    const ada = recipient('ada@example.com')
+                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+
+                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
+                    ])
+                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
+                    ])
+                })
+
+                it.each([
+                    [TEMPLATE, 200],
+                    [CODE, 200],
+                    [`${CODE}/extra`, 401],
+                ])(
+                    'lets a scoped token reach %s on a pod that requires the internal secret only as its pattern allows',
+                    async (route, status) => {
+                        const { app: guarded } = await servedWith({}, { internalApiSecret: 'internal-secret' })
+                        const recipients = [recipient('ada@example.com')]
+
+                        const res = await sendBatchTo(
+                            guarded,
+                            route as BatchRoute,
+                            route === CODE ? { send: codeSend, recipients } : batchOf(...recipients)
+                        )
+
+                        expect(res.status).toEqual(status)
+                    }
+                )
+            })
+        })
+
+        describe('cancel and reschedule of a scheduled send', () => {
+            type ManageAction = 'cancel' | 'reschedule'
+            const mintManageToken = (
+                teamId: number,
+                messageId: string,
+                action: ManageAction,
+                {
+                    secret = 'local-dev-workflows-transactional-email-jwt',
+                    audience = 'posthog:workflows:manage_transactional_email',
+                }: { secret?: string; audience?: string } = {}
+            ) => jwt.sign({ team_id: teamId, message_id: messageId, action }, secret, { audience, expiresIn: '2m' })
+            const manage = (
+                action: ManageAction,
+                messageId: string,
+                payload: Record<string, unknown> = {},
+                headers: Record<string, string> = {
+                    Authorization: `Bearer ${mintManageToken(team.id, messageId, action)}`,
+                }
+            ) =>
+                supertest(app)
+                    .post(`/api/projects/${team.id}/transactional_emails/${messageId}/${action}`)
+                    .set(headers)
+                    .send(payload)
+
+            const sendFor = async (scheduledAt: string | undefined): Promise<string> => {
+                const res = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    { ...body, ...(scheduledAt && { scheduled_at: scheduledAt }) }
+                )
+                expect(res.status).toEqual(202)
+                return res.body.invocation_id
+            }
+            const scheduleSend = (): Promise<string> => sendFor(inDays(2))
+            const claimedSend = async (): Promise<string> => {
+                const id = await sendFor(undefined)
+                expect(await idsAnEmailWorkerClaims()).toEqual([id])
+                return id
+            }
+            const scheduledTime = async (id: string): Promise<string> =>
+                new Date((await storedJob(id)).scheduled).toISOString()
+
+            beforeEach(async () => {
+                await useRealQueue()
+            })
+
+            afterEach(() => {
+                api['batchResolverProducer'] = null
+            })
+
+            it('moves and cancels a keyed scheduled send by its id, and dates every status row of it alike', async () => {
+                const idempotencyKey = `key-${new UUIDT().toString()}`
+                const sent = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    { ...body, scheduled_at: inDays(2), idempotency_key: idempotencyKey }
+                )
+                const messageId = sent.body.invocation_id
+                expect(messageId).toEqual(keyedRunId(team.id, 'transactional-email', idempotencyKey))
+
+                const tooFar = await manage('reschedule', messageId, { scheduled_at: inDays(30.01) })
+                const moved = await manage('reschedule', messageId, { scheduled_at: inDays(5) })
+                const canceled = await manage('cancel', messageId)
+
+                expect(tooFar.status).toEqual(400)
+                expect(moved.status).toEqual(200)
+                expect(canceled.status).toEqual(200)
+                const rows = emailStatusRows().filter((row) => row.message_id === messageId)
+                expect(rows.map((row) => row.status)).toEqual(['scheduled', 'scheduled', 'canceled'])
+                expect(new Set(rows.map((row) => row.created_at)).size).toEqual(1)
+            })
+
+            it.each([
+                ['loads', true],
+                ['fails to load', false],
+            ])(
+                'cancels a moved send before a worker claims it, and counts the run once, when its workflow %s',
+                async (_desc, flowLoads) => {
+                    const producedToKafka = observeKafka()
+                    const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                    try {
+                        const messageId = await scheduleSend()
+                        expect((await manage('reschedule', messageId, { scheduled_at: inDays(5) })).status).toEqual(200)
+                        if (!flowLoads) {
+                            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
+                                new Error('database unavailable')
+                            )
+                        }
+
+                        const first = await manage('cancel', messageId)
+                        const repeat = await manage('cancel', messageId)
+
+                        expect(first.status).toEqual(200)
+                        expect(first.body).toEqual({ id: messageId, status: 'canceled' })
+                        expect(repeat.status).toEqual(200)
+                        expect(repeat.body).toEqual(first.body)
+                        expect((await storedJob(messageId)).status).toEqual('canceled')
+                        expect(await idsAnEmailWorkerClaims()).toEqual([])
+                        const versioned = versionedAppSourceId(hogFlow.id, hogFlow.version)
+                        await waitForExpect(() =>
+                            expect(
+                                producedToKafka()
+                                    .filter((row) => row.metric_name === 'canceled' || row.metric_name === 'triggered')
+                                    .map((row) => [row.app_source, row.app_source_id, row.metric_name, row.count])
+                                    .sort()
+                            ).toEqual(
+                                [
+                                    ['hog_flow', hogFlow.id, 'canceled', 1],
+                                    ['hog_flow', hogFlow.id, 'triggered', 1],
+                                    ...(flowLoads
+                                        ? [
+                                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'canceled', 1],
+                                              [HOG_FLOW_VERSION_APP_SOURCE, versioned, 'triggered', 1],
+                                          ]
+                                        : []),
+                                ].sort()
+                            )
+                        )
+                        const lifecycleRows = producedToKafka().filter(
+                            (row) => row.function_kind && row.invocation_id === messageId
+                        )
+                        const scheduledAt = lifecycleRows[0].scheduled_at
+                        expect(lifecycleRows).toEqual(
+                            ['running', 'canceled', 'canceled'].map((status) =>
+                                expect.objectContaining({
+                                    invocation_id: messageId,
+                                    function_kind: 'hog_flow',
+                                    function_id: hogFlow.id,
+                                    status,
+                                    scheduled_at: scheduledAt,
+                                })
+                            )
+                        )
+                        expect(emailStatusRows()).toEqual([
+                            expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
+                            expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
+                            ...[1, 2].map(() =>
+                                expect.objectContaining({
+                                    message_id: messageId,
+                                    status: 'canceled',
+                                    recipient: body.to,
+                                    function_id: hogFlow.id,
+                                })
+                            ),
+                        ])
+                    } finally {
+                        hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                    }
+                }
+            )
+
+            it.each([
+                ['an unknown message', () => Promise.resolve(new UUIDT().toString()), 404, { error: 'not_found' }],
+                ['a message a worker has claimed', claimedSend, 409, { error: 'already_sending' }],
+            ])('answers a cancel of %s without a status row', async (_desc, messageFor, status, expected) => {
+                const messageId = await messageFor()
+                const rowsBefore = emailStatusRows().length
+
+                const res = await manage('cancel', messageId)
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toEqual(expected)
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
+            })
+
+            it('moves a scheduled send and records it scheduled again with its recipient and new time', async () => {
+                const messageId = await scheduleSend()
+                const scheduledAt = inDays(3)
+
+                const res = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+
+                expect(res.status).toEqual(200)
+                expect(res.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
+                expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                expect(parseJSON((await storedJob(messageId)).state.toString())).toMatchObject({
+                    state: { scheduledAt },
+                })
+                expect(emailStatusRows().at(-1)).toEqual(
+                    expect.objectContaining({
+                        message_id: messageId,
+                        status: 'scheduled',
+                        recipient: body.to,
+                        function_id: hogFlow.id,
+                        scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                    })
+                )
+            })
+
+            it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
+                const messageId = await scheduleSend()
+                const [earlier, later] = [inDays(3), inDays(4)]
+                let releaseEarlier!: () => void
+                const earlierHeld = new Promise<void>((resolve) => (releaseEarlier = resolve))
+                const reschedule = manager.rescheduleUnclaimed.bind(manager)
+                let reachedHold!: () => void
+                const holding = new Promise<void>((resolve) => (reachedHold = resolve))
+                jest.spyOn(manager, 'rescheduleUnclaimed').mockImplementationOnce(async (...args) => {
+                    const result = await reschedule(...args)
+                    reachedHold()
+                    await earlierHeld
+                    return result
+                })
+
+                const earlierRequest = manage('reschedule', messageId, { scheduled_at: earlier }).then((res) => res)
+                await holding
+                expect((await manage('reschedule', messageId, { scheduled_at: later })).status).toEqual(200)
+                releaseEarlier()
+                expect((await earlierRequest).status).toEqual(200)
+
+                expect(await scheduledTime(messageId)).toEqual(later)
+                const rows = emailStatusRows().filter((row) => row.status === 'scheduled')
+                const latest = rows.reduce((a, b) => (BigInt(String(b.version)) > BigInt(String(a.version)) ? b : a))
+                expect(latest.scheduled_at).toEqual(toClickHouseTime(new Date(later)))
+            })
+
+            it.each([
+                ['a time that has passed', 0],
+                ['a time that has passed, for a message older than 30 days', 31 * DAY_MS],
+            ])('moves a keyed send to now for %s', async (_desc, messageAgeMs) => {
+                const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
+                await manager.createJob({
+                    id: messageId,
+                    teamId: team.id,
+                    functionId: hogFlow.id,
+                    queueName: 'email',
+                    scheduled: new Date(Date.now() + DAY_MS),
+                    state: Buffer.from(
+                        JSON.stringify({
+                            state: { idempotencyKey: { hash: `hash-${messageId}`, fingerprint: 'request' } },
+                        })
+                    ),
+                })
+                const before = Date.now()
+
+                const res = await manage('reschedule', messageId, {
+                    scheduled_at: new Date(before - 60_000).toISOString(),
+                })
+
+                expect(res.status).toEqual(200)
+                const movedTo = new Date(res.body.scheduled_at).getTime()
+                expect(movedTo).toBeGreaterThanOrEqual(before)
+                expect(movedTo).toBeLessThanOrEqual(Date.now())
+                expect(await scheduledTime(messageId)).toEqual(res.body.scheduled_at)
+                expect(await idsAnEmailWorkerClaims()).toEqual([messageId])
+            })
+
+            it.each([
+                [
+                    'a time more than 30 days after the message was created',
+                    () => ({ scheduled_at: inDays(30.01) }),
+                    400,
+                    { error: 'invalid_scheduled_at', reason: 'too_far' },
+                ],
+                ['a time that is not a time', () => ({ scheduled_at: 'tomorrow' }), 400, { error: 'invalid_request' }],
+                ['no time', () => ({}), 400, { error: 'invalid_request' }],
+            ])('refuses a reschedule to %s and changes nothing', async (_desc, payload, status, expected) => {
+                const messageId = await scheduleSend()
+                const scheduledBefore = await scheduledTime(messageId)
+                const rowsBefore = emailStatusRows().length
+
+                const res = await manage('reschedule', messageId, payload())
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toMatchObject(expected)
+                expect(await scheduledTime(messageId)).toEqual(scheduledBefore)
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
+            })
+
+            it.each([
+                ['an unknown message', () => Promise.resolve(new UUIDT().toString()), 404, { error: 'not_found' }],
+                ['a message a worker has claimed', claimedSend, 409, { error: 'already_sending' }],
+                [
+                    'a canceled message',
+                    async () => {
+                        const id = await scheduleSend()
+                        expect((await manage('cancel', id)).status).toEqual(200)
+                        return id
+                    },
+                    409,
+                    { error: 'canceled' },
+                ],
+            ])('answers a reschedule of %s without a status row', async (_desc, messageFor, status, expected) => {
+                const messageId = await messageFor()
+                const rowsBefore = emailStatusRows().length
+
+                const res = await manage('reschedule', messageId, { scheduled_at: inDays(2) })
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toEqual(expected)
+                expect(emailStatusRows()).toHaveLength(rowsBefore)
+            })
+
+            describe.each(['cancel', 'reschedule'] as const)('on %s', (action) => {
+                const otherAction: ManageAction = action === 'cancel' ? 'reschedule' : 'cancel'
+                it.each<[string, (messageId: string) => Record<string, string>]>([
+                    ['no token', () => ({})],
+                    [
+                        "another team's token",
+                        (messageId) => ({ Authorization: `Bearer ${mintManageToken(team.id + 1, messageId, action)}` }),
+                    ],
+                    [
+                        'a token signed with another key',
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, action, {
+                                secret: 'not-the-signing-key',
+                            })}`,
+                        }),
+                    ],
+                    [
+                        'a send token',
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, action, {
+                                audience: 'posthog:workflows:send_transactional_email',
+                            })}`,
+                        }),
+                    ],
+                    [
+                        "another message's token",
+                        () => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, new UUIDT().toString(), action)}`,
+                        }),
+                    ],
+                    [
+                        "the other action's token",
+                        (messageId) => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, messageId, otherAction)}`,
+                        }),
+                    ],
+                ])('rejects a request with %s and leaves the send as it was', async (_desc, headers) => {
+                    const messageId = await scheduleSend()
+                    const before = await storedJob(messageId)
+
+                    const res = await manage(action, messageId, { scheduled_at: inDays(3) }, headers(messageId))
+
+                    expect(res.status).toEqual(401)
+                    expect(await storedJob(messageId)).toEqual(before)
+                })
+
+                it('fails closed when the transactional email JWT key is not provisioned', async () => {
+                    const messageId = await scheduleSend()
+                    const before = await storedJob(messageId)
+                    const savedJwt = api['manageTransactionalEmailJwt']
+                    api['manageTransactionalEmailJwt'] = new ScopedServiceJwt(
+                        PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
+                        ''
+                    )
+                    try {
+                        const res = await manage(action, messageId, { scheduled_at: inDays(3) })
+
+                        expect(res.status).toEqual(503)
+                        expect(await storedJob(messageId)).toEqual(before)
+                    } finally {
+                        api['manageTransactionalEmailJwt'] = savedJwt
+                    }
+                })
+            })
+        })
     })
 
     describe('hogflow batch job resume', () => {
@@ -3051,15 +6313,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResume = jest.fn()
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: mockResume,
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedBatchResolver: mockResume })
         })
 
         afterEach(() => {
@@ -3117,15 +6371,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 3, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {
@@ -3254,15 +6500,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 2, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {
@@ -3492,6 +6730,301 @@ describe('CDP API', () => {
             // executeCurrentAction advances past the email step after the inline send — the
             // response's nextActionId proves the workflow continued to the next action.
             expect(res.body.nextActionId).toBe('exit')
+        })
+    })
+    describe('transactional email attachment uploads', () => {
+        const LARGE_DAILY_CAP = 50_000_000_000
+        let store: S3AttachmentStore
+        let redis: RedisV2
+        let teamId: number
+        let otherTeamId: number
+
+        const mintUploadTokenAsTheDjangoRouteDoes = (
+            forTeamId: number,
+            claims: Record<string, string> = { kind: 'attachment_upload' },
+            secret = 'local-dev-workflows-transactional-email-jwt'
+        ) =>
+            jwt.sign({ team_id: forTeamId, ...claims }, secret, {
+                audience: 'posthog:workflows:send_transactional_email',
+                expiresIn: '2m',
+            })
+
+        const requestUploads = (
+            forTeamId: number,
+            body: object,
+            token = mintUploadTokenAsTheDjangoRouteDoes(forTeamId)
+        ) =>
+            supertest(app)
+                .post(`/api/projects/${forTeamId}/transactional_email/attachments/uploads`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send(body)
+
+        type TestFile = { bytes: Buffer; sha256: string }
+        const fileOf = (bytes: Buffer): TestFile => ({
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+        })
+        const pdf = (): TestFile => fileOf(Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`))
+        const asked = (...files: TestFile[]) => ({
+            files: files.map((f) => ({ sha256: f.sha256, size: f.bytes.length, content_type: 'application/pdf' })),
+        })
+        const sized = (...sizes: number[]) => ({
+            files: sizes.map((size) => ({ sha256: randomBytes(32).toString('hex'), size })),
+        })
+
+        const uploadsFor = (
+            teams: string,
+            {
+                maxBytesPerTeamDay = LARGE_DAILY_CAP,
+                attachmentStore = store as S3AttachmentStore | null,
+                counter = redis as RedisV2 | null,
+            } = {}
+        ): AttachmentUploads => new AttachmentUploads(attachmentStore, counter, { teams, maxBytesPerTeamDay })
+
+        const putBytesWithoutSignedContentLength = async (slot: Record<string, any>, body: Buffer): Promise<number> =>
+            (
+                await globalThis.fetch(slot.url, {
+                    method: slot.method,
+                    headers: Object.fromEntries(
+                        Object.entries(slot.headers as Record<string, string>).filter(
+                            ([name]) => name.toLowerCase() !== 'content-length'
+                        )
+                    ),
+                    body: new Uint8Array(body),
+                })
+            ).status
+        const statusesOf = (res: supertest.Response): string[] =>
+            res.body.files.map((f: { status: string }) => f.status)
+
+        beforeAll(() => {
+            store = buildAttachmentStore({
+                ...getDefaultCdpConfig(),
+                CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
+            })!
+            redis = createEmailAttachmentsValkeyPool(hub)!
+        })
+
+        beforeEach(async () => {
+            teamId = await createTeam(hub.postgres, team.organization_id)
+            otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            api['attachmentUploads'] = uploadsFor(`${teamId},${otherTeamId}`)
+        })
+
+        afterAll(() => {
+            store.s3.destroy()
+        })
+
+        it.each([
+            ['stores a file sent as declared, then answers present for it', (f: TestFile) => asked(f), true],
+            [
+                'refuses a file sent under the hash of other bytes of its size, and keeps answering upload',
+                (f: TestFile) => asked(fileOf(Buffer.from(f.bytes).fill(0x41, f.bytes.length - 1))),
+                false,
+            ],
+            [
+                'refuses a file sent under a size it did not declare, and keeps answering upload',
+                (f: TestFile) => ({ files: [{ sha256: f.sha256, size: f.bytes.length + 1 }] }),
+                false,
+            ],
+        ])('%s', async (_name, declare, stored) => {
+            const f = pdf()
+            const declared = declare(f)
+
+            const first = await requestUploads(teamId, declared)
+            expect(first.status).toBe(200)
+            expect(first.body.files).toEqual([
+                expect.objectContaining({ sha256: declared.files[0].sha256, status: 'upload' }),
+            ])
+            expect(Date.parse(first.body.files[0].url_expires_at)).toBeGreaterThan(Date.now())
+
+            const putStatus = await putBytesWithoutSignedContentLength(first.body.files[0], f.bytes)
+            const again = await requestUploads(teamId, declared)
+
+            expect(again.status).toBe(200)
+            if (stored) {
+                expect(putStatus).toBe(200)
+                expect(again.body.files).toEqual([
+                    { sha256: f.sha256, status: 'present', expires_at: expect.any(String) },
+                ])
+                expect(Date.parse(again.body.files[0].expires_at)).toBeGreaterThan(Date.now())
+            } else {
+                expect(putStatus).toBeGreaterThanOrEqual(400)
+                expect(statusesOf(again)).toEqual(['upload'])
+            }
+        })
+
+        it("answers upload to another team for a file only this team stored, and stores that team's own copy", async () => {
+            const f = pdf()
+            const [slot] = (await requestUploads(teamId, asked(f))).body.files
+            expect(await putBytesWithoutSignedContentLength(slot, f.bytes)).toBe(200)
+
+            const other = await requestUploads(otherTeamId, asked(f))
+
+            expect(other.status).toBe(200)
+            expect(statusesOf(other)).toEqual(['upload'])
+            expect(await putBytesWithoutSignedContentLength(other.body.files[0], f.bytes)).toBe(200)
+            expect(statusesOf(await requestUploads(otherTeamId, asked(f)))).toEqual(['present'])
+        })
+
+        it('refuses a team that is not on the allowlist before reading its files', async () => {
+            const offTheList = await createTeam(hub.postgres, team.organization_id)
+
+            const res = await requestUploads(offTheList, { files: [] })
+
+            expect(res.status).toBe(400)
+            expect(res.body).toEqual({ error: 'field_not_accepted' })
+        })
+
+        it.each([
+            ['no files', { files: [] }],
+            ['more than 10 files', sized(...Array(11).fill(1))],
+            ['a hash that is not 64 lowercase hex characters', { files: [{ sha256: 'A'.repeat(64), size: 1 }] }],
+            ['a size of zero', sized(0)],
+            ['a size that is not a whole number', sized(1.5)],
+            [
+                'one hash listed with two sizes',
+                { files: [1_000_000, 1].map((size) => ({ sha256: 'a'.repeat(64), size })) },
+            ],
+        ])('refuses a request with %s', async (_name, body) => {
+            const res = await requestUploads(teamId, body)
+
+            expect(res.status).toBe(400)
+            expect(res.body.error).toBe('invalid_request')
+        })
+
+        const LARGEST_FILE_IN_ONE_MESSAGE = 29_182_875
+        it.each([
+            ['one file at the largest size that fits', [LARGEST_FILE_IN_ONE_MESSAGE], null],
+            ['one file a byte over it', [LARGEST_FILE_IN_ONE_MESSAGE + 1], 0],
+            ['two files that only fit apart', [10_000_000, 20_000_000], 1],
+        ])('answers %s', async (_name, sizes, largestIndex) => {
+            const body = sized(...sizes)
+
+            const res = await requestUploads(teamId, body)
+
+            if (largestIndex === null) {
+                expect(res.status).toBe(200)
+                expect(res.body.files).toEqual([expect.objectContaining({ status: 'upload' })])
+            } else {
+                expect(res.status).toBe(400)
+                expect(res.body).toEqual({
+                    error: 'message_too_large',
+                    sha256: body.files[largestIndex].sha256,
+                    message_bytes: expect.any(Number),
+                    max_message_bytes: 40_000_000,
+                })
+                expect(res.body.message_bytes).toBeGreaterThan(40_000_000)
+            }
+        })
+
+        it.each([
+            ['a code send token', () => mintUploadTokenAsTheDjangoRouteDoes(teamId, { kind: 'code_send' })],
+            ['a template send token', () => mintUploadTokenAsTheDjangoRouteDoes(teamId, {})],
+            ["another team's token", () => mintUploadTokenAsTheDjangoRouteDoes(otherTeamId)],
+            [
+                'a token signed with another key',
+                () => mintUploadTokenAsTheDjangoRouteDoes(teamId, undefined, 'wrong-key'),
+            ],
+        ])('refuses %s', async (_name, token) => {
+            const res = await requestUploads(teamId, asked(pdf()), token())
+
+            expect(res.status).toBe(401)
+        })
+
+        it.each([
+            ['answers upload with the upload budget Valkey as its counter', true, 200],
+            ['answers delivery_unavailable without the upload budget Valkey', false, 503],
+        ])('on a cdp-api built from its settings, %s', async (_name, withValkey, status) => {
+            const builtApi = new CdpApi(
+                { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${teamId}` },
+                { ...cdpDeps, emailAttachmentsValkey: withValkey ? createEmailAttachmentsValkeyPool(hub) : null },
+                { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+            )
+            const builtApp = setupExpressApp()
+            builtApp.use('/', builtApi.router())
+            const builtServer = builtApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(builtApp)
+                    .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
+                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(teamId)}` })
+                    .send(asked(pdf()))
+
+                expect(res.status).toBe(status)
+            } finally {
+                builtServer.close()
+            }
+        })
+
+        it('lets a request that fits through while larger requests at the same time are refused', async () => {
+            const uploads = uploadsFor(`${teamId}`, { maxBytesPerTeamDay: 100 })
+            const request = (size: number) => uploads.prepare(teamId, sized(size))
+            expect((await request(90)).status).toBe(200)
+
+            const answers = await Promise.all([
+                ...Array.from({ length: 25 }, () => request(20)),
+                request(5),
+                ...Array.from({ length: 25 }, () => request(20)),
+            ])
+
+            expect(answers.map((answer) => answer.status)).toEqual([
+                ...Array(25).fill(429),
+                200,
+                ...Array(25).fill(429),
+            ])
+        })
+
+        it('refuses a team past its daily upload bytes, not another team, and counts neither present files nor refused requests', async () => {
+            api['attachmentUploads'] = uploadsFor(`${teamId},${otherTeamId}`, { maxBytesPerTeamDay: 100 })
+            const stored = pdf()
+            const [slot] = (await requestUploads(teamId, asked(stored))).body.files
+            expect(await putBytesWithoutSignedContentLength(slot, stored.bytes)).toBe(200)
+
+            const presentAgain = await requestUploads(teamId, asked(stored, pdf()))
+            const overTheCap = await requestUploads(teamId, asked(pdf(), pdf()))
+            const smallAfterRefusal = await requestUploads(teamId, asked(fileOf(Buffer.from('ten bytes!'))))
+            const otherTeam = await requestUploads(otherTeamId, asked(pdf(), pdf()))
+
+            expect(presentAgain.status).toBe(200)
+            expect(presentAgain.body.files.map((f: { status: string }) => f.status)).toEqual(['present', 'upload'])
+            expect(overTheCap.status).toBe(429)
+            expect(overTheCap.body).toEqual({ error: 'upload_quota_exceeded', max_bytes_per_day: 100 })
+            expect(smallAfterRefusal.status).toBe(200)
+            expect(otherTeam.status).toBe(200)
+        })
+
+        it.each([
+            ['no attachment store is configured', () => uploadsFor(`${teamId}`, { attachmentStore: null })],
+            [
+                'the attachment store does not answer',
+                () =>
+                    uploadsFor(`${teamId}`, {
+                        attachmentStore: buildAttachmentStore({
+                            ...getDefaultCdpConfig(),
+                            CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
+                            CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 1_000,
+                        }),
+                    }),
+            ],
+            ['no upload counter is configured', () => uploadsFor(`${teamId}`, { counter: null })],
+            [
+                'the upload counter does not answer',
+                () =>
+                    uploadsFor(`${teamId}`, {
+                        counter: createEmailAttachmentsValkeyPool({
+                            ...hub,
+                            CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: '127.0.0.1',
+                            CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: 9,
+                        }),
+                    }),
+            ],
+        ])('answers 503 delivery_unavailable when %s', async (_name, uploads) => {
+            api['attachmentUploads'] = uploads()
+
+            const res = await requestUploads(teamId, asked(pdf()))
+
+            expect(res.status).toBe(503)
+            expect(res.body).toEqual({ error: 'delivery_unavailable' })
         })
     })
 })

@@ -11,6 +11,7 @@ from pytest_django import Settings
 from posthog.tasks.utils import FAILURE_PUSH_TIMEOUT_SECONDS, PushGatewayTask
 
 TASK_GAUGE = "sample_task_rows_processed"
+RUN_END_TIMESTAMP = 1_800_000_000.0
 
 
 # Celery keeps the first task registered under a name. A second definition with the same name runs the first body.
@@ -50,6 +51,7 @@ class TestPushGatewayTask:
     def run_duration(self) -> Generator[float]:
         with patch("posthog.tasks.utils.time") as mock_time:
             mock_time.monotonic.side_effect = [100.0, 107.5]
+            mock_time.time.return_value = RUN_END_TIMESTAMP
             yield 7.5
 
     def test_completed_run_puts_its_metrics_and_returns_despite_a_push_error(
@@ -63,6 +65,9 @@ class TestPushGatewayTask:
         registry = _pushed_registry(push_to_gateway)
         assert registry.get_sample_value("posthog_celery_sample_task_success") == 1
         assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
+        assert (
+            registry.get_sample_value("posthog_celery_sample_task_last_success_timestamp_seconds") == RUN_END_TIMESTAMP
+        )
         assert registry.get_sample_value(TASK_GAUGE) == 42
         pushadd_to_gateway.assert_not_called()
 
@@ -84,6 +89,7 @@ class TestPushGatewayTask:
         assert pushadd_to_gateway.call_args.kwargs["timeout"] == FAILURE_PUSH_TIMEOUT_SECONDS
         assert registry.get_sample_value("posthog_celery_sample_task_success") == 0
         assert registry.get_sample_value("posthog_celery_sample_task_duration_seconds") == run_duration
+        assert registry.get_sample_value("posthog_celery_sample_task_last_success_timestamp_seconds") is None
         assert registry.get_sample_value(TASK_GAUGE) is None
         push_to_gateway.assert_not_called()
 

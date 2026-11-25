@@ -33,7 +33,6 @@ from products.signals.backend.trial.reports import (
     prepare_report_pass,
     requires_trial_accounting,
 )
-from products.signals.backend.trial.scouts import trial_scout_limit
 from products.signals.backend.usage import trial_usage
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
@@ -320,7 +319,6 @@ class TestTrialExecution(BaseTest):
         }.get(key, False)
         assert requires_trial_accounting(self.team.id) is enabled
         assert self_driving_free_trial_enabled(self.team) is (not enabled)
-        assert trial_scout_limit(self.team.id) == (3 if enabled else None)
         assert not self_driving_quota_gate(self.team).enforced
         admission = prepare_task_trial(team=self.team, origin="signals_scout")
         if not enabled:
@@ -359,7 +357,10 @@ class TestTrialExecution(BaseTest):
             team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
         )
         research = research_task.create_run(extra_state={"ai_stage": "research"})
-        queued = research_task.create_run(extra_state={"ai_stage": "research"})
+        queued_task = Task.objects.create(
+            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
+        )
+        queued = queued_task.create_run(extra_state={"ai_stage": "research"})
         implementation = self.make_run()
         research.status = TaskRun.Status.IN_PROGRESS
         research.save(update_fields=["status"])
@@ -439,6 +440,7 @@ class TestTrialExecution(BaseTest):
         receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert receipt.trial_grant_id == grant.id and receipt.billing_exempt
         self.flag_mock.return_value = True
+        task.runs.update(status=TaskRun.Status.COMPLETED)
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaisesMessage(TrialRefused, "cost_limit"):
                 task.create_run()

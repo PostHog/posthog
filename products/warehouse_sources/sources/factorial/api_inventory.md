@@ -69,9 +69,11 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | leave_types             | `/resources/timeoff/leave_types`                      | —             |
 | allowances              | `/resources/timeoff/allowances`                       | —             |
 | allowance_stats         | `/resources/timeoff/allowance_stats`                  | —             |
+| time_off_policies       | `/resources/timeoff/policies`                         | —             |
 | attendance_shifts       | `/resources/attendance/shifts`                        | created_at    |
 | worked_times            | `/resources/attendance/worked_times`                  | —             |
 | overtime_requests       | `/resources/attendance/overtime_requests`             | —             |
+| shift_management_shifts | `/resources/shift_management/shifts`                  | —             |
 | expenses                | `/resources/expenses/expenses`                        | created_at    |
 | cost_centers            | `/resources/finance/cost_centers`                     | —             |
 | cost_center_memberships | `/resources/finance/cost_center_memberships`          | —             |
@@ -81,6 +83,7 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | projects                | `/resources/project_management/projects`              | —             |
 | job_catalog_roles       | `/resources/job_catalog/roles`                        | —             |
 | job_catalog_levels      | `/resources/job_catalog/levels`                       | —             |
+| review_evaluations      | `/resources/performance/review_evaluations`           | —             |
 | candidates              | `/resources/ats/candidates`                           | created_at    |
 | job_postings            | `/resources/ats/job_postings`                         | —             |
 | applications            | `/resources/ats/applications`                         | created_at    |
@@ -137,6 +140,16 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
   `created_at`; `start_date` gives the hire date.
 - **`job_catalog/roles`** and **`job_catalog/levels`** are lookups for the role and level ids. Each level
   carries its `role_id`.
+- **`shift_management/shifts`** is the planned rota, as opposed to the worked `attendance/shifts`.
+  The source sends `split_overnight_shifts=false`, because a split overnight shift comes back as one object per calendar day, which would repeat its `id`.
+  It also sends `only_published=false`, so draft and backup shifts stay in the table.
+  Shifts have no `created_at`, so the table is not partitioned.
+- **`timeoff/policies`** is the lookup for the policy behind allowances and leave types.
+  `main` marks the company's default policy.
+- **`performance/review_evaluations`** has one row per participant and review type of a review process (for example a self review and a manager review).
+  It carries no `created_at`, and `published_at` is set only after the evaluation is published.
+- **`contracts/contracts`** (the parent contract record) is not synced.
+  It is new in API version `2026-10-01` and is not on `2026-07-01` or `2026-04-01`, the versions this source supports.
 
 ## Verification status
 
@@ -154,3 +167,7 @@ unauthenticated curl returning `401`.
 `new_hires`, `overtime_requests`, `cost_center_memberships`, `job_catalog_roles` and `job_catalog_levels` were
 checked the same way, against the OpenAPI documents for `2026-04-01` and `2026-07-01` (and the newer `2026-10-01`).
 Each is a GET list route with the same paged envelope. They were also **not** curl-verified against a live account.
+
+`shift_management_shifts`, `time_off_policies` and `review_evaluations` were checked against the OpenAPI documents for `2026-07-01` and `2026-10-01`, and found in the `2026-04-01` route index.
+Each is a GET list route with the same paged envelope.
+They were also **not** curl-verified against a live account.

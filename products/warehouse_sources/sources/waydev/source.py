@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.waydev._config import WaydevSourceConfig
-from products.warehouse_sources.sources.waydev.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.waydev.settings import ENDPOINTS, FANOUT_ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.waydev.waydev import (
     WaydevResumeConfig,
     validate_credentials as validate_waydev_credentials,
@@ -94,11 +94,18 @@ class WaydevSource(ResumableSource[WaydevSourceConfig, WaydevResumeConfig]):
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
+        endpoint_config = FANOUT_ENDPOINTS.get(inputs.schema_name)
+        partition_key = endpoint_config.partition_key if endpoint_config else None
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=endpoint_config.primary_keys if endpoint_config else ["id"],
             column_hints=resource.column_hints,
+            partition_count=1 if partition_key else None,
+            partition_size=1 if partition_key else None,
+            partition_mode="datetime" if partition_key else None,
+            partition_format="month" if partition_key else None,
+            partition_keys=[partition_key] if partition_key else None,
         )
 
     @property

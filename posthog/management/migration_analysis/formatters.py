@@ -27,6 +27,7 @@ class ConsoleTreeFormatter(RiskFormatter):
     # ANSI color codes
     COLOR_RESET = "\033[0m"
     COLOR_RED = "\033[91m"
+    COLOR_YELLOW = "\033[93m"
 
     # Risk level formatting
     LEVEL_STYLES = {
@@ -99,6 +100,9 @@ class ConsoleTreeFormatter(RiskFormatter):
         if risk.policy_violations:
             lines.extend(self._format_policy_violations(risk.policy_violations))
 
+        if risk.review_notes:
+            lines.extend(self._format_review_notes(risk.review_notes))
+
         # Format combination warnings
         if risk.combination_risks:
             lines.extend(self._format_combination_risks(risk.combination_risks))
@@ -112,7 +116,7 @@ class ConsoleTreeFormatter(RiskFormatter):
         lines = []
 
         # Determine prefix based on whether there are warnings after operations
-        has_warnings = risk.combination_risks or risk.policy_violations
+        has_warnings = risk.combination_risks or risk.policy_violations or risk.review_notes
 
         # Nested operations get extra indentation
         if op_risk.parent_index is not None:
@@ -164,6 +168,18 @@ class ConsoleTreeFormatter(RiskFormatter):
 
         for violation in violations:
             wrapped = textwrap.fill(violation, width=72, initial_indent="       ", subsequent_indent="       ")
+            lines.append(wrapped)
+
+        return lines
+
+    def _format_review_notes(self, notes: list[str]) -> list[str]:
+        """Format risks a policy allowed but a person still has to look at."""
+        lines = []
+        lines.append("  │")
+        lines.append(f"  └──> {self.COLOR_YELLOW}⚠️  NEEDS REVIEW:{self.COLOR_RESET}")
+
+        for note in notes:
+            wrapped = textwrap.fill(note, width=72, initial_indent="       ", subsequent_indent="       ")
             lines.append(wrapped)
 
         return lines

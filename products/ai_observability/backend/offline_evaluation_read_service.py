@@ -15,6 +15,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 
+from products.ai_observability.backend.composite_scorers import CompositeScorers
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -45,7 +46,7 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
 )
-from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
+from products.ai_observability.backend.offline_evaluation_types import JSONValue
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
 from products.ai_observability.backend.resource_tags import ResourceTags
 
@@ -137,7 +138,7 @@ class OfflineEvaluationReadService:
 
     def _versions(self) -> QuerySet[ScoreDefinitionVersion]:
         # nosemgrep: idor-lookup-without-user -- Versions inherit the authorized definitions' exact environment.
-        return ScoreDefinitionVersion.objects.filter(definition__in=self._definitions())
+        return CompositeScorers.accessible_versions(self._definitions(), team_id=self.team_id)
 
     def _validate_scorer_selection(self, query: OfflineReadQuery) -> None:
         if (
@@ -155,9 +156,7 @@ class OfflineEvaluationReadService:
     def _results(
         self, query: OfflineReadQuery | None = None, *, model_version: str | None = None
     ) -> QuerySet[OfflineEvaluationResult]:
-        results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(
-            scorer_definition__in=self._definitions()
-        )
+        results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(scorer_version__in=self._versions())
         if query is not None:
             if query.scorer_definition_id is not None:
                 results = results.filter(scorer_definition_id=query.scorer_definition_id)
@@ -346,6 +345,14 @@ class OfflineEvaluationReadService:
                     started_at=experiment.started_at,
                     created_at=experiment.created_at,
                     finished_at=experiment.finished_at,
+                    updated_at=experiment.updated_at,
+                    closed_item_count=(
+                        experiment.closed_item_count
+                        if experiment.closed_item_count is not None
+                        else counts.item_count
+                        if experiment.finished_at
+                        else None
+                    ),
                     expected_item_count=experiment.expected_item_count,
                     expected_result_count=experiment.expected_result_count,
                     accepted_item_count=counts.item_count,
@@ -396,6 +403,8 @@ class OfflineEvaluationReadService:
             definition_id=definition.id,
             version=version.version,
             kind=definition.kind,
+            calculation=definition.calculation,
+            composition=version.composition,
             name=definition.name,
             short_name=definition.short_name,
             description=definition.description,
@@ -404,24 +413,27 @@ class OfflineEvaluationReadService:
         )
 
     def _result_read(
-        self, result: OfflineEvaluationResult, *, scorer: OfflineScorerVersionRead | None = None
+        self,
+        result: OfflineEvaluationResult,
+        *,
+        content_updated_at: datetime | None,
+        scorer: OfflineScorerVersionRead | None = None,
     ) -> OfflineResultRead:
-        value: ResultValue | None = result.numeric_value
-        if result.boolean_value is not None:
-            value = result.boolean_value
-        elif result.categorical_values is not None:
-            value = result.categorical_values
         return OfflineResultRead(
             id=result.id,
             item_id=result.item_id,
             scorer=scorer if scorer is not None else self._version_read(result.scorer_version),
             status=result.status,
-            value=value,
+            input_result_ids=result.input_result_ids,
+            revision=result.revision,
+            score_updated_at=result.score_updated_at,
+            is_stale=content_updated_at is not None and content_updated_at > result.effective_score_time,
+            value=result.value,
             error_code=result.error_code,
             evaluator_trace_id=result.evaluator_trace_id,
             evaluated_at=result.evaluated_at,
             accepted_at=result.accepted_at,
-            payload_state=result.payload_state,
+            payload_state=result.payload_availability,
             payload_expires_at=result.payload_expires_at,
         )
 
@@ -434,6 +446,8 @@ class OfflineEvaluationReadService:
             id=item.id,
             experiment_id=item.experiment_id,
             model_version=item.resolved_model_version,
+            revision=item.revision,
+            content_updated_at=item.content_updated_at,
             case_key=item.case_key,
             trial=item.trial,
             dataset_item_identifier=item.dataset_item_identifier,
@@ -441,7 +455,7 @@ class OfflineEvaluationReadService:
             dataset_item_version_id=item.dataset_item_version_id,
             application_trace_id=item.application_trace_id,
             accepted_at=item.accepted_at,
-            payload_state=item.payload_state,
+            payload_state=item.payload_availability,
             payload_expires_at=item.payload_expires_at,
             results=results or [],
         )
@@ -473,13 +487,20 @@ class OfflineEvaluationReadService:
             }
         cells: dict[UUID, list[OfflineResultRead]] = defaultdict(list)
         if scorers and page.results:
+            item_edit_times = {item.id: item.content_updated_at for item in page.results}
             results = (
                 self._results(query)
-                .filter(item_id__in=[item.id for item in page.results], scorer_version_id__in=scorers)
+                .filter(item_id__in=item_edit_times, scorer_version_id__in=scorers)
                 .order_by("scorer_version_id")
             )
             for result in results:
-                cells[result.item_id].append(self._result_read(result, scorer=scorers[result.scorer_version_id]))
+                cells[result.item_id].append(
+                    self._result_read(
+                        result,
+                        content_updated_at=item_edit_times[result.item_id],
+                        scorer=scorers[result.scorer_version_id],
+                    )
+                )
         return OfflineItemPage(
             count=page.count,
             next_cursor=page.next_cursor,
@@ -493,7 +514,8 @@ class OfflineEvaluationReadService:
     def result_cells(self, experiment_id: UUID, query: OfflineResultCellQuery) -> OfflineResultCells:
         self._require_experiment(experiment_id)
         items = self._items().filter(experiment_id=experiment_id, id__in=query.item_ids)
-        if items.count() != len(query.item_ids):
+        item_edit_times = dict(items.values_list("id", "content_updated_at"))
+        if len(item_edit_times) != len(query.item_ids):
             raise OfflineEvaluationNotFound
         versions = list(
             self._versions().filter(id__in=query.scorer_version_ids).select_related("definition").order_by("id")
@@ -508,7 +530,12 @@ class OfflineEvaluationReadService:
         )
         return OfflineResultCells(
             scorer_versions=list(scorers.values()),
-            results=[self._result_read(result, scorer=scorers[result.scorer_version_id]) for result in results],
+            results=[
+                self._result_read(
+                    result, content_updated_at=item_edit_times[result.item_id], scorer=scorers[result.scorer_version_id]
+                )
+                for result in results
+            ],
         )
 
     def list_item_results(
@@ -516,7 +543,7 @@ class OfflineEvaluationReadService:
     ) -> CursorPage[OfflineResultRead]:
         if not self.can_read_scores:
             raise OfflineEvaluationNotFound
-        self._require_item(experiment_id, item_id)
+        item = self._require_item(experiment_id, item_id)
         self._validate_scorer_selection(query)
         scope = f"results:{experiment_id}:{item_id}"
         results = self._results(query).filter(item_id=item_id)
@@ -534,12 +561,12 @@ class OfflineEvaluationReadService:
         return CursorPage(
             count=page.count,
             next_cursor=page.next_cursor,
-            results=[self._result_read(result) for result in page.results],
+            results=[self._result_read(result, content_updated_at=item.content_updated_at) for result in page.results],
         )
 
     def get_item_payload(self, experiment_id: UUID, item_id: UUID) -> OfflinePayloadRead:
         item = self._require_item(experiment_id, item_id)
-        payload_state = item.payload_state
+        payload_state = item.payload_availability
         payload = (
             OfflineExperimentItemPayload.objects.for_team(self.team_id).filter(item_id=item.id).first()
             if payload_state == PayloadState.AVAILABLE
@@ -547,6 +574,8 @@ class OfflineEvaluationReadService:
         )
         return OfflinePayloadRead(
             id=item.id,
+            revision=item.revision,
+            deleted_at=item.payload_deleted_at,
             payload_state=payload_state,
             payload_expires_at=item.payload_expires_at,
             available=payload is not None,
@@ -557,7 +586,7 @@ class OfflineEvaluationReadService:
         result = self._results().filter(id=result_id, item__experiment_id=experiment_id).first()
         if result is None:
             raise OfflineEvaluationNotFound
-        payload_state = result.payload_state
+        payload_state = result.payload_availability
         payload = (
             OfflineEvaluationResultPayload.objects.for_team(self.team_id).filter(result_id=result.id).first()
             if payload_state == PayloadState.AVAILABLE
@@ -565,6 +594,8 @@ class OfflineEvaluationReadService:
         )
         return OfflinePayloadRead(
             id=result.id,
+            revision=result.revision,
+            deleted_at=result.payload_deleted_at,
             payload_state=payload_state,
             payload_expires_at=result.payload_expires_at,
             available=payload is not None,
@@ -776,7 +807,12 @@ class OfflineEvaluationReadService:
                 observed_item_count=counts.observed_item_count,
                 result_count=aggregate.count,
                 status_counts=aggregate.status_counts,
-                missing_result_count=counts.observed_item_count - aggregate.count,
+                missing_result_count=0
+                if scorer.calculation == "composite"
+                else counts.observed_item_count - aggregate.count,
+                not_requested_count=counts.observed_item_count - aggregate.count
+                if scorer.calculation == "composite"
+                else 0,
                 distinct_case_count=counts.distinct_case_count,
                 items_with_case_key_count=counts.items_with_case_key_count,
                 items_without_case_key_count=counts.items_without_case_key_count,

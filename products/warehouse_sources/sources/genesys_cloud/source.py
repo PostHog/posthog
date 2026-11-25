@@ -92,13 +92,18 @@ class GenesysCloudSource(ResumableSource[GenesysCloudSourceConfig, GenesysCloudR
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             keywords=["genesys", "purecloud", "contact center"],
             label="Genesys Cloud",
-            caption="""Connect your Genesys Cloud organization to import calls, conversations, participants, users, user status history, queues, wrap-up codes, skills, divisions, teams, groups, external contacts, and external organizations.
+            caption="""Connect your Genesys Cloud organization to import calls, conversations, participants, users, user status history, presence definitions, queues, queue members, quality evaluations, evaluation forms, wrap-up codes, skills, divisions, teams, groups, flows, outbound campaigns, external contacts, and external organizations.
 
 In Genesys Cloud, go to **Admin > Integrations > OAuth** and add a client with the **Client Credentials** grant type. Assign it a role with these permissions:
 
 - `analytics:conversationDetail:view` for calls, conversations, and participants
 - `analytics:userDetail:view` for user status history
-- `routing:queue:view` for queues
+- `routing:queue:view` for queues and queue members
+- `quality:evaluation:view` for evaluations
+- `quality:evaluationForm:view` for evaluation forms
+- `presence:presenceDefinition:view` for presence definitions
+- `architect:flow:view` for flows
+- `outbound:campaign:view` for outbound campaigns
 - `routing:wrapupCode:view` for wrap-up codes
 - `routing:skill:view` for skills
 - `groups:team:view` for teams

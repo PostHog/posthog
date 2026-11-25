@@ -1,6 +1,4 @@
-// Pure derivation of a PR's CI verdict from its workflow-run rollup (latest run per workflow on the PR's
-// head_sha, NOT per-check). An incomplete run is "running", never a pass/fail. Shared by the logic's
-// selectors and the CI badge so the two never drift.
+// The rollup counts the latest run per workflow on the PR's head_sha, not checks.
 
 export type CIStatus = 'passing' | 'failing' | 'running' | 'inconclusive' | 'none'
 

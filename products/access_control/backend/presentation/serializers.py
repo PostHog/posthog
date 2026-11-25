@@ -318,12 +318,6 @@ class AccessControlManagementSerializer(serializers.Serializer):
     )
 
 
-class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
-    uses_most_specific_access_resolution = serializers.BooleanField(
-        help_text="Always true: the organization now resolves access with the most specific rule."
-    )
-
-
 class AccessControlRuleRequestSerializer(serializers.Serializer):
     """The scope and level of one rule write. On its own it is the default rule, for everyone in the
     project without a member or role rule of their own. The subclasses add the subject."""

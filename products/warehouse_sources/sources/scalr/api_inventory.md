@@ -12,6 +12,9 @@ The source rejects redirects and reads page numbers from `meta.pagination.next-p
 | runs           | `/runs`                                  | Read runs in the account              | `id` | Full refresh                | `created_at` |
 | users          | `/users`                                 | Read users in the account             | `id` | Full refresh                | `created_at` |
 | plans          | `/runs?include=plan`                     | Read runs in the account              | `id` | Full refresh                | None         |
+| cost_estimates | `/runs?include=cost-estimate`            | Read runs in the account              | `id` | Full refresh                | None         |
+| policy_checks  | `/runs?include=policy-checks`            | Read runs in the account              | `id` | Full refresh                | None         |
+| tags           | `/tags`                                  | Read tags in the account              | `id` | Full refresh                | None         |
 | state_versions | `/state-versions?filter[workspace]=<id>` | Read state versions of each workspace | `id` | Full refresh                | `created_at` |
 
 Workspace requests use `sort=updated-at` and `filter[updated-at]=gte:<timestamp>` after the first sync.
@@ -19,7 +22,9 @@ Full refresh omits the time filter. Environment requests use `sort=created-at`.
 The runs endpoint documents a creation filter but no update filter or sort parameter.
 Runs use full refresh because a creation watermark would miss later status changes.
 Users and state versions use `sort=created-at`. Neither route documents an account filter, so their requests send none.
-Plans have only a by-ID route (`/plans/{plan}`), so the source reads them from the `included` part of the run list.
+Plans, cost estimates, and policy checks have only by-ID or per-run routes, so the source reads them from the `included` part of the run list.
+Each of these rows gets a `run_id` column from the matching run relationship.
+Tags use `sort=name`, because the route has no other sort and no time filter. Tags have no creation time, so the table has no partition.
 State versions require a workspace filter, so the source lists the workspaces and then reads each one.
 A workspace that returns 404 during this fan-out is skipped. A resumed fan-out skips the workspaces it finished.
 State version requests are left out of HTTP sample capture, because the response holds the state file.
@@ -47,6 +52,9 @@ Sources:
 - [Run list](https://docs.scalr.io/reference/get_runs)
 - [User list](https://docs.scalr.io/reference/get_users)
 - [Plan](https://docs.scalr.io/reference/get_plan)
+- [Cost estimate](https://docs.scalr.io/reference/get_cost_estimate)
+- [Policy check list](https://docs.scalr.io/reference/list_policy_checks)
+- [Tag list](https://docs.scalr.io/reference/list_tags)
 - [State version list](https://docs.scalr.io/reference/list_state_versions)
 - [Billing usage report](https://docs.scalr.io/reference/list_billing_usage)
 - [API tokens](https://docs.scalr.io/reference/api-tokens)

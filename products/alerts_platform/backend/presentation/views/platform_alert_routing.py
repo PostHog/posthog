@@ -10,6 +10,7 @@ from django.db import models, transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -21,11 +22,12 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import as_drf_validation_error
 from posthog.models import User
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
+    INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
     ROUTABLE_DESTINATION_TYPES,
     ROUTING_FLAG,
     AlertDestinationValidationError,
@@ -44,18 +46,33 @@ from products.alerts_platform.backend.presentation.views.platform_alert import (
     resource_permitted,
 )
 from products.alerts_platform.backend.presentation.views.platform_alert_destinations import (
+    PagerDutyRegionChoices,
+    PagerDutySeverityChoices,
     PlatformAlertDestinationEventKind,
+    check_pagerduty_routing_key,
     check_slack_workspace,
     destination_data,
 )
 
 # TextChoices supports this functional API at runtime, but its type stubs only describe member
-# construction. The OpenAPI enum is named after this class.
+# construction. The OpenAPI enum is named after this class. It must not list the same types as the
+# destinations' own choices class, or the two collide in the OpenAPI enum names.
 AlertReceiverType = cast(Any, models.TextChoices)(
     "AlertReceiverType",
     [(member.name, (member.value, member.label)) for member in ROUTABLE_DESTINATION_TYPES],
 )
-_DESTINATION_FIELDS = ("type", "slack_workspace_id", "slack_channel_id", "slack_channel_name", "webhook_url")
+_DESTINATION_FIELDS = (
+    "type",
+    "slack_workspace_id",
+    "slack_channel_id",
+    "slack_channel_name",
+    "webhook_url",
+    "pagerduty_routing_key",
+    "pagerduty_severity",
+    "pagerduty_region",
+    "incident_io_alert_source_config_id",
+    "incident_io_secret",
+)
 
 
 class PlatformAlertRoutingFlagPermission(BasePermission):
@@ -77,7 +94,9 @@ class PlatformAlertRoutingSourceAccessPermission(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         assert isinstance(view, TeamAndOrgViewSetMixin)
-        reads = request.method in SAFE_METHODS
+        reads = request.method in SAFE_METHODS or getattr(view, "action", None) in getattr(
+            view, "scope_object_read_actions", ()
+        )
         if not reads and not view.user_access_control.is_organization_admin:
             return False
         return all(
@@ -113,6 +132,25 @@ class AlertReceiverSerializer(serializers.Serializer):
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
     )
+    pagerduty_routing_key = serializers.CharField(
+        required=False, help_text="PagerDuty integration key reduced to its last four characters."
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
+        required=False,
+        help_text="Severity of the PagerDuty incident. Unset means critical.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
+        required=False,
+        help_text="PagerDuty service region the events go to. Unset means us.",
+    )
+    incident_io_alert_source_config_id = serializers.CharField(
+        required=False, help_text="ID of the incident.io HTTP alert source the events go to."
+    )
+    incident_io_secret = serializers.CharField(
+        required=False, help_text="incident.io alert source secret reduced to its last four characters."
+    )
 
 
 class AlertReceiverWriteSerializer(serializers.Serializer):
@@ -133,16 +171,45 @@ class AlertReceiverWriteSerializer(serializers.Serializer):
         help_text="HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every "
         "update that changes the destination, because reads return it redacted.",
     )
+    # No defaults: a default would arrive on a rename too, and replace the stored destination.
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it "
+        "again on every update that changes the destination, because reads return it redacted.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
+        required=False,
+        help_text="Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
+        required=False,
+        help_text="PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.",
+    )
+    incident_io_alert_source_config_id = serializers.RegexField(
+        INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
+        required=False,
+        error_messages={"invalid": "Enter the 26-character ID of an incident.io HTTP alert source."},
+        help_text="ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.",
+    )
+    incident_io_secret = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Secret of the incident.io HTTP alert source, sent as a bearer token. Required when "
+        "type=incident_io. Send it again on every update that changes the destination, because reads return it "
+        "redacted.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         sent = [key for key in _DESTINATION_FIELDS if key in attrs]
         if sent and "type" not in attrs:
             raise ValidationError({"type": "Send the type with the destination fields it goes with."})
-        return {
-            "name": attrs.get("name"),
-            "enabled": attrs.get("enabled"),
-            "data": destination_data(attrs) if sent else None,
-        }
+        data = destination_data(attrs) if sent else None
+        if data is not None:
+            check_pagerduty_routing_key(data)
+        return {"name": attrs.get("name"), "enabled": attrs.get("enabled"), "data": data}
 
 
 class AlertRouteMatcherSerializer(serializers.Serializer):
@@ -154,7 +221,10 @@ class AlertRouteMatcherSerializer(serializers.Serializer):
 _MATCHERS_HELP = (
     "Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project."
 )
-_EVENT_KINDS_HELP = "The alert transitions the receiver hears about through this route."
+_EVENT_KINDS_HELP = (
+    "The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or "
+    "incident.io, hears the trigger and resolve of every firing, whatever this lists."
+)
 
 
 class AlertRouteSerializer(serializers.Serializer):
@@ -177,6 +247,18 @@ class AlertRouteWriteSerializer(serializers.Serializer):
         help_text=f"{_EVENT_KINDS_HELP} Defaults to every kind.",
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether this route sends. Defaults to true.")
+
+
+class AlertRouteMatchingRequestSerializer(serializers.Serializer):
+    labels = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        help_text='The alert\'s labels, by name, such as {"team": "checkout"}. Unsaved labels work too.',
+    )
+
+
+class AlertRouteMatchSerializer(serializers.Serializer):
+    route = AlertRouteSerializer(help_text="A route these labels match.")
+    receiver = AlertReceiverSerializer(help_text="The receiver the route sends to.")
 
 
 def _serialized_receiver(receiver: StoredAlertReceiver) -> dict[str, Any]:
@@ -281,6 +363,8 @@ class PlatformAlertReceiverViewSet(_RoutingViewSet):
 
 class PlatformAlertRouteViewSet(_RoutingViewSet):
     serializer_class = AlertRouteSerializer
+    # `matching` is a POST only because labels are a map, which a query string cannot carry. It changes nothing.
+    scope_object_read_actions = ["list", "retrieve", "matching"]
 
     def _edit(self, request: Request, *, partial: bool) -> AlertRouteEdit:
         serializer = AlertRouteWriteSerializer(data=request.data, partial=partial)
@@ -308,6 +392,32 @@ class PlatformAlertRouteViewSet(_RoutingViewSet):
     def list(self, request: Request, **kwargs: Any) -> Response:
         routes = platform_api.list_alert_routes(team_id=self.team_id)
         return Response(AlertRouteSerializer([_serialized_route(r) for r in routes], many=True).data)
+
+    @extend_schema(
+        request=AlertRouteMatchingRequestSerializer,
+        responses=AlertRouteMatchSerializer(many=True),
+        description="List the routes, and their receivers, that an alert with these labels sends through, in "
+        "the order delivery reads them. Changes nothing.",
+    )
+    @action(detail=False, methods=["post"])
+    def matching(self, request: Request, **kwargs: Any) -> Response:
+        serializer = AlertRouteMatchingRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        routes = platform_api.matching_alert_routes(team_id=self.team_id, labels=serializer.validated_data["labels"])
+        if not routes:
+            return Response([])
+        receivers = {
+            receiver.id: receiver
+            for receiver in platform_api.list_alert_receivers(
+                team_id=self.team_id, ids={route.receiver_id for route in routes}
+            )
+        }
+        matches = [
+            {"route": _serialized_route(route), "receiver": _serialized_receiver(receivers[route.receiver_id])}
+            for route in routes
+            if route.receiver_id in receivers
+        ]
+        return Response(AlertRouteMatchSerializer(matches, many=True).data)
 
     @extend_schema(
         request=AlertRouteWriteSerializer,

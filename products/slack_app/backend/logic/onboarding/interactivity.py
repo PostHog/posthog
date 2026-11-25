@@ -55,6 +55,8 @@ def _apply(ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> Ste
         if action_id == SKIP_ACTION_ID or not step.is_done(ctx):
             update_onboarding(ctx.integration.integration_id, ctx.slack_user_id, skip_step=step.key)
             capture_slack_event(ctx.integration, STEP_SKIPPED_EVENT, slack_user_id=ctx.slack_user_id, step=step.key)
+        elif step.completed_by_continue:
+            step.record_completed(ctx, **step.completed_properties(ctx))
         return StepClick()
     step = _handling_step(action_id)
     return step.apply_action(ctx, action_id, value) if step else StepClick(refresh=False)

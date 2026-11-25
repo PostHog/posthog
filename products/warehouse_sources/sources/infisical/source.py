@@ -127,6 +127,11 @@ In Infisical, create a machine identity under **Organization settings > Access c
             INVALID_CREDENTIALS_ERROR: "Your Infisical machine identity credentials are invalid or have been revoked. Update the client ID and client secret, then try again.",
             "401 Client Error": "Your Infisical machine identity credentials were rejected. Update the client ID and client secret, then try again.",
             "403 Client Error": "Your Infisical machine identity lacks the required permissions. Grant it read access to the data you want to sync, then try again.",
+            # Infisical rejects audit-logs and secret-scanning-findings requests with a 400 (not a
+            # 403) when the organization's plan doesn't include that feature, so no request param
+            # we send can avoid it. base_url is customer-configurable (self-hosted), so the message
+            # can't key on a host like Stripe's patterns do — match the bare status text instead.
+            "400 Client Error": "Infisical rejected the request as invalid. This can happen when your organization's plan doesn't include the table you're syncing (for example, audit logs or secret scanning findings are plan-gated on Infisical Cloud). Check your Infisical plan and try again.",
             HOST_NOT_ALLOWED_ERROR: "The Infisical base URL is not allowed. Use your Infisical Cloud or self-hosted instance URL.",
         }
 

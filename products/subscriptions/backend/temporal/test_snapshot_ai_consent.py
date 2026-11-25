@@ -115,9 +115,8 @@ async def test_skips_summary_when_org_has_not_approved_ai(team, user):
     assert result.summary_skipped_over_budget is False
 
 
-@pytest.mark.parametrize("target_type", [Subscription.SubscriptionTarget.EMAIL, Subscription.SubscriptionTarget.SLACK])
-async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, target_type):
-    subscription = await _create_subscription(team, user, target_type=target_type)
+async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
     await _set_ai_consent(subscription, approved=True)
     delivery = await _create_delivery(
         subscription,
@@ -148,7 +147,6 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, ta
         summary_running.set()
         assert heartbeat_received.wait(timeout=5), "No heartbeat while summary generation was active"
         called["ran"] = True
-        called["slack_formatting"] = kwargs["slack_formatting"]
         return "- Pageviews is trending up"
 
     monkeypatch.setattr(
@@ -166,7 +164,6 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, ta
     )
 
     assert called.get("ran") is True
-    assert called["slack_formatting"] is (target_type == Subscription.SubscriptionTarget.SLACK)
     assert result.summary_text == "- Pageviews is trending up"
 
 

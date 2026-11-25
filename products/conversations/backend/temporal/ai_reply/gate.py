@@ -30,6 +30,8 @@ def decide_reply_action(
     attempt: int,
     max_attempts: int,
     allow_clarify: bool = True,
+    grounding_aware: bool = False,
+    has_clarifying_questions: bool = True,
 ) -> ReplyAction:
     # Either judge alone can be overconfident, so a public reply needs both plus coverage.
     if (
@@ -41,19 +43,29 @@ def decide_reply_action(
         and verdict == "answerable"
     ):
         return "auto_send"
+    suggestable = verdict == "answerable" and grounded and validator_confidence >= SUGGEST_THRESHOLD
     if blocker == "customer_info" or verdict == "blocked_on_customer":
+        # No question can be asked, so the grounded draft is the only useful output left.
+        # Findings notes never carry the reply text.
+        can_ask = allow_clarify and has_clarifying_questions
+        if grounding_aware and not can_ask and suggestable:
+            return "suggest"
         return "clarify" if allow_clarify else "findings"
     if blocker == "contradiction" or verdict == "out_of_scope":
         return "findings"
-    # Retry only on a validator knowledge gap. The draft verdict is not a retry signal.
+    # Retry only on a validator knowledge gap.
     if blocker == "knowledge":
-        if attempt < max_attempts - 1:
+        # A retry reruns the whole sandbox draft. It pays off when the validator found a gap in
+        # an answerable draft. A draft agent that searched with its own tools and gave up has
+        # nothing new to find on a second run.
+        worth_retrying = not grounding_aware or verdict == "answerable"
+        if worth_retrying and attempt < max_attempts - 1:
             return "retry"
         return "findings"
     # The agent said it could not answer. Do not present that draft as a proposed reply.
     if verdict == "blocked_on_knowledge":
         return "findings"
-    if blocker == "none" and verdict == "answerable" and grounded and validator_confidence >= SUGGEST_THRESHOLD:
+    if blocker == "none" and suggestable:
         return "suggest"
     return "findings"
 

@@ -163,8 +163,8 @@ def membrain_source(
         params: dict[str, Any] = dict(config.extra_params)
         if config.supports_sort_by:
             # An explicit stable sort keeps offset pages from drifting as rows are written
-            # mid-sync (activities otherwise default to Date DESC, companies and contacts to
-            # Name ASC).
+            # mid-sync (activities otherwise default to Date DESC, companies, contacts and orders
+            # to Name ASC).
             params["SortBy"] = "CreatedDate ASC"
         endpoint_config = {
             "path": config.path,

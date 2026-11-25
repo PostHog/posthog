@@ -212,7 +212,7 @@ class TestSummaryMetrics(SimpleTestCase):
             self.assertIn("properties.$ai_target_type = 'trace_id'", call.args[1])
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
-    def test_boolean_current_period_preserves_zero_pass_rate_when_no_results_are_applicable(self, mock_execute_hogql):
+    def test_boolean_current_period_has_no_pass_rate_when_no_results_are_applicable(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
             [[0, 0, 4, 4]],
             [[0, 0, 3, 3]],
@@ -229,7 +229,7 @@ class TestSummaryMetrics(SimpleTestCase):
 
         result = json.loads(_get_summary_metrics_fn(state=state))
 
-        self.assertEqual(result["current_period"]["pass_rate"], 0.0)
+        self.assertIsNone(result["current_period"]["pass_rate"])
         self.assertIsNone(result["previous_period"]["pass_rate"])
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")

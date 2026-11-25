@@ -72,7 +72,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import human_list, pluralize
 
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
-from ..facade.enums import RunType
+from ..facade.enums import ActorType, RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import app_urls, quarantine, run_queries, story_index, team_channels, toleration
 from .team_channels import SlackMessage
@@ -82,7 +82,7 @@ logger = structlog.get_logger(__name__)
 # Whose digest carries the items no team owns. The people who built the product can read a story
 # name and find who to ask; nobody else can. Routed like any other team, so there is no second
 # delivery path to keep working.
-_PRODUCT_PATH = "products/visual_review/"
+PRODUCT_PATH = "products/visual_review/"
 
 
 _MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
@@ -312,7 +312,12 @@ def _expiry_word(expires_at: datetime | None, now: datetime) -> str:
     return _month_day(expires_at.date())
 
 
+AUTOMATIC_AUTHOR = "visual review automatically"
+
+
 def _author_name(entry: QuarantinedIdentifier, authors: dict[int, str]) -> str:
+    if entry.source == ActorType.AUTO and entry.created_by_id is None:
+        return AUTOMATIC_AUTHOR
     return escape_slack_mrkdwn(authors.get(entry.created_by_id or 0, "someone"))
 
 
@@ -431,7 +436,7 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
 def paths_to_resolve(debt: RepoDebt) -> list[str]:
     """Every path the run needs an owner for, including the product's own directory."""
     placed = {item.attribution.source_path for item in debt.items if item.attribution.kind == AttributionKind.PLACED}
-    return [_PRODUCT_PATH, *sorted(placed)]
+    return [PRODUCT_PATH, *sorted(placed)]
 
 
 def _owning_team(item: DebtItem, ownership: PathOwnership) -> str:
@@ -448,7 +453,7 @@ def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> RepoDigests:
     their own digest, grouped by why it has no owner. When nobody owns the product directory either,
     the item is dropped with a log line rather than posted somewhere arbitrary.
     """
-    fallback = ownership.team_by_path.get(_PRODUCT_PATH, UNOWNED_TEAM)
+    fallback = ownership.team_by_path.get(PRODUCT_PATH, UNOWNED_TEAM)
     expiring_by_team: dict[str, list[DebtItem]] = {}
     pileups_by_team: dict[str, list[DebtItem]] = {}
     triage_by_kind: dict[AttributionKind, list[DebtItem]] = {}

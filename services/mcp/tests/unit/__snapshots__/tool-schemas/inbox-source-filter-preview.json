@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expression": {
+            "description": "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.",
+            "maxLength": 16384,
+            "type": "string"
+        },
+        "scope_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "maxLength": 255,
+                        "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
+        },
+        "source_product": {
+            "description": "Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "source_type": {
+            "description": "Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["source_product", "source_type", "expression"],
+    "type": "object"
+}
