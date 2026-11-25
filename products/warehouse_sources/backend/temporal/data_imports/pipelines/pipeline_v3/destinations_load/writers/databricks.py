@@ -381,7 +381,7 @@ class DatabricksDestinationWriter:
         target = _assert_safe_identifier(staging_table_name(run) if full_refresh else run.table_name, "table name")
 
         client = await self._make_client()
-        rows_written = 0
+        outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         async with client.connect():
             # The volume is named by the destination's own config, so it may well be one the
@@ -395,7 +395,7 @@ class DatabricksDestinationWriter:
                 # This run's staging table is gone and the live table carries this run's publish
                 # stamp, so the run finished. Re-creating a staging table from this one batch and
                 # swapping it in would replace the whole table with it.
-                return BatchWriteOutcome(rows_written=0)
+                return outcome
 
             first = True
             chunk = 0
@@ -428,15 +428,17 @@ class DatabricksDestinationWriter:
                     first = False
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
-                    rows_written += await self._merge_chunk(
+                    outcome += await self._merge_chunk(
                         client, target, stamped, fields, list(run.primary_keys), run.run_uuid, ctx.batch_index, chunk
                     )
                 else:
-                    await self._copy_chunk(client, target, stamped, fields, run.run_uuid, ctx.batch_index, chunk)
-                    rows_written += batch.num_rows
+                    bytes_written = await self._copy_chunk(
+                        client, target, stamped, fields, run.run_uuid, ctx.batch_index, chunk
+                    )
+                    outcome += BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
                 chunk += 1
 
-        return BatchWriteOutcome(rows_written=rows_written)
+        return outcome
 
     async def _copy_chunk(
         self,
@@ -447,11 +449,15 @@ class DatabricksDestinationWriter:
         run_uuid: str,
         batch_index: int,
         chunk: int,
-    ) -> None:
-        """PUT one record batch into the volume as parquet, then COPY INTO the table."""
+    ) -> int:
+        """PUT one record batch into the volume as parquet, then COPY INTO the table.
+
+        Returns the size of the parquet file PUT.
+        """
         buffer = io.BytesIO()
         pq.write_table(pa.Table.from_batches([json_encode_nested(batch)]), buffer)
         buffer.seek(0)
+        file_size = buffer.getbuffer().nbytes
 
         # This writer does not hold the sync lock (`holds_sync_lock` is False), so two runs of
         # the same table's incremental sync_type can be in flight together. Both write into the
@@ -469,6 +475,7 @@ class DatabricksDestinationWriter:
             with_schema_evolution=True,
         )
         await self._remove_staged_file(client, f"{volume_path}/{file_name}")
+        return file_size
 
     async def _remove_staged_file(self, client: DatabricksClient, path: str) -> None:
         """Drop a file whose rows have landed.
@@ -492,7 +499,7 @@ class DatabricksDestinationWriter:
         run_uuid: str,
         batch_index: int,
         chunk: int,
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert on the primary keys, staging the chunk in a scratch table first."""
         # Delta rejects a `MERGE` whose source matches one target row more than once
         # (`DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE`), and it rejects it again on
@@ -504,7 +511,7 @@ class DatabricksDestinationWriter:
         stage_table = f"{target}__ph_merge_{run_scope(run_uuid)}_{batch_index}_{chunk}"
 
         async with client.managed_table(stage_table, fields, delete=True):
-            await self._copy_chunk(client, stage_table, batch, fields, run_uuid, batch_index, chunk)
+            bytes_written = await self._copy_chunk(client, stage_table, batch, fields, run_uuid, batch_index, chunk)
 
             on_clause = " AND ".join(f"target.{backtick(k)} = source.{backtick(k)}" for k in primary_keys)
             updates = [c for c in columns if c not in primary_keys]
@@ -523,7 +530,7 @@ class DatabricksDestinationWriter:
                     timeout=ONE_HOUR,
                 )
 
-        return batch.num_rows
+        return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         with self._configuration_errors():

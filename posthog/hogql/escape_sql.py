@@ -328,7 +328,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 def quote_clickhouse_identifier(identifier: str) -> str:
     """Quote an identifier without validating whether it is safe to interpolate into SQL."""
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
         return identifier
     return backquote_clickhouse_identifier(identifier)
 

@@ -8325,6 +8325,23 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         experiment.refresh_from_db()
         assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
 
+    def test_a_save_turns_the_matured_users_setting_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self.service.create_experiment(
+            name="Warehouse experiment",
+            feature_flag_key="warehouse-experiment",
+            exposure_criteria=_warehouse_exposure(connection_id),
+            metrics=[_warehouse_metric(connection_id)],
+            only_count_matured_users=True,
+            allow_unknown_events=True,
+        )
+        assert experiment.only_count_matured_users is False
+
+        self.service.update_experiment(experiment, {"only_count_matured_users": True})
+
+        experiment.refresh_from_db()
+        assert experiment.only_count_matured_users is False
+
     @parameterized.expand(
         [
             (

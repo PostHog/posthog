@@ -207,7 +207,7 @@ class TestProviderImportsAPI(APIBaseTest):
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
 class TestProviderImportFlag(APIBaseTest):
-    @parameterized.expand([("resend",), ("postmark",)])
+    @parameterized.expand([("resend",), ("postmark",), ("mailchimp",)])
     def test_a_flagged_provider_stays_hidden_and_refused_while_its_flag_is_off(
         self, _flag: MagicMock, provider: str
     ) -> None:

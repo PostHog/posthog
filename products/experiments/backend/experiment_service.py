@@ -19,7 +19,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -170,9 +170,24 @@ from products.notifications.backend.facade.api import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-
 logger = structlog.get_logger(__name__)
+
+
+class _SavedMetricLinkWriteSerializer(serializers.ModelSerializer):
+    # Checks that both ids exist and that the metadata is not null, and answers a 400 when they fail.
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = ["experiment", "saved_metric", "metadata"]
+
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    serializer = _SavedMetricLinkWriteSerializer(
+        data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
+        context=context,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -1354,6 +1369,10 @@ class ExperimentService:
 
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
+        # Warehouse rows have no conversion window the statement can wait out, and a team default of "on" would
+        # make every warehouse-native metric refuse to run. The save stores the setting off, as for test accounts.
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            only_count_matured_users = False
 
         # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
         if (
@@ -2046,16 +2065,12 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data["id"],
-                    "metadata": saved_metric_data.get("metadata"),
-                },
+            _create_saved_metric_link(
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric_data["id"],
+                metadata=saved_metric_data.get("metadata"),
                 context=context,
             )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
 
     # ------------------------------------------------------------------
     # Launch
@@ -2066,9 +2081,9 @@ class ExperimentService:
     # out of an atomic block would roll back the just-created ChangeRequest). The flag
     # is flipped through the gate first, so an ApprovalRequired aborts before any
     # experiment mutation.
-    def _validate_warehouse_native_sources_for_launch(self, experiment: Experiment) -> None:
-        """A launched experiment sends its sources to the customer's warehouse on every recalculation, with no
-        user to check. So the launching user needs the access a save needs, even when the sources are unchanged."""
+    def assert_user_may_run_warehouse_native_sources(self, experiment: Experiment) -> None:
+        """A launch and a manual recalculation send the experiment's sources to the customer's warehouse with no
+        user to check. So the acting user needs the access a save needs, even when the sources are unchanged."""
         validate_experiment_warehouse_native_sources(
             exposure_criteria=experiment.exposure_criteria,
             metrics=[
@@ -2088,7 +2103,7 @@ class ExperimentService:
         """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
-        self._validate_warehouse_native_sources_for_launch(experiment)
+        self.assert_user_may_run_warehouse_native_sources(experiment)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -3822,6 +3837,10 @@ class ExperimentService:
                 **update_data,
                 "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
             }
+        if warehouse_native_exposure_config(
+            update_data.get("exposure_criteria", experiment.exposure_criteria)
+        ) is not None and update_data.get("only_count_matured_users", experiment.only_count_matured_users):
+            update_data = {**update_data, "only_count_matured_users": False}
         if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
             # The rule spans the exposure and every metric, so the fields left out of the update are read
             # from the experiment. An update that touches none of them skips the check, so a connection
@@ -3841,7 +3860,7 @@ class ExperimentService:
                 user=self.user,
             )
         elif update_data.get("start_date") is not None and experiment.start_date is None:
-            self._validate_warehouse_native_sources_for_launch(experiment)
+            self.assert_user_may_run_warehouse_native_sources(experiment)
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -4040,16 +4059,12 @@ class ExperimentService:
                             existing_link.metadata = new_metadata
                             existing_link.save(update_fields=["metadata", "updated_at"])
                     else:
-                        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                            data={
-                                "experiment": experiment.id,
-                                "saved_metric": saved_metric_id,
-                                "metadata": new_metadata,
-                            },
+                        _create_saved_metric_link(
+                            experiment_id=experiment.id,
+                            saved_metric_id=saved_metric_id,
+                            metadata=new_metadata,
                             context=context,
                         )
-                        saved_metric_serializer.is_valid(raise_exception=True)
-                        saved_metric_serializer.save()
 
             # (stats_config / excluded_variants / duplicate-metric-uuid validation
             # runs before the flag write above so a 400 can't leave a committed flag

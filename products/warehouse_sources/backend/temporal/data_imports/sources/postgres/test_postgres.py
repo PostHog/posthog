@@ -3120,6 +3120,13 @@ class TestIsConnectionLimitError:
                 "server login has been failing, cached error: remaining connection slots are "
                 "reserved for roles with the SUPERUSER attribute (server_login_retry)"
             ),
+            # PgBouncer's own instance-wide max_client_conn refusal — the exact message seen in
+            # production against a Supabase pooler. Distinct literal from Supavisor's EMAXCONN
+            # variant above, so it needs its own substring match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  no more connections allowed (max_client_conn)"
+            ),
         ],
     )
     def test_connection_limit_errors_are_detected(self, error):

@@ -15,7 +15,7 @@ so ``TIMESERIES_WORKFLOWS`` and ``TIMESERIES_ACTIVITIES`` stay separate from ``W
 
 from posthog.temporal.common.registration import HistogramSpec, QueueBinding, TemporalRegistration
 
-from products.experiments.backend.temporal.recalculation_metrics import (
+from products.experiments.backend.temporal.recalculation.metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,

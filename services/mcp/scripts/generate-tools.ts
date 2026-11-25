@@ -750,18 +750,26 @@ function composeToolSchema(
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 
+            const overrideSuffix = override.required ? '' : optionalSuffix
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
             } else if (override.schema_ref) {
                 const excludeProps = override.exclude_properties ?? []
-                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                // A write stores this value, so its objects keep undeclared keys (see SchemaRefOptions).
+                const schemaRefOptions = { keepUnknownKeys: isWriteOp }
+                const zodCode = generateZodFromSchemaRef(
+                    getQuerySchema(),
+                    override.schema_ref,
+                    excludeProps,
+                    schemaRefOptions
+                )
                 schemaRefBlocks.push(zodCode)
-                const varName = getEntryVarName(override.schema_ref)
-                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                const varName = getEntryVarName(override.schema_ref, schemaRefOptions)
+                schemaOverrides.push(`${paramName}: ${varName}${overrideSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
