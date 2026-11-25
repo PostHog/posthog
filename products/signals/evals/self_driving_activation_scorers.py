@@ -67,8 +67,13 @@ def _sentences(message: str) -> list[str]:
     return [sentence.strip() for sentence in SENTENCE_BREAK.split(message) if sentence.strip()]
 
 
+def _mentions_self_driving(sentence: str) -> bool:
+    # Replies sometimes describe the feature without naming it and link its activation page instead.
+    return bool(SELF_DRIVING.search(sentence)) or ACTIVATION_LINK in sentence
+
+
 def self_driving_sentences(message: str) -> list[str]:
-    return [sentence for sentence in _sentences(message) if SELF_DRIVING.search(sentence)]
+    return [sentence for sentence in _sentences(message) if _mentions_self_driving(sentence)]
 
 
 def suggestion_sentences(message: str) -> list[str]:
@@ -76,15 +81,15 @@ def suggestion_sentences(message: str) -> list[str]:
 
     The way is the activation link anywhere in the reply, or an offer next to the mention to set it up or check
     its status. An offer to do something else, such as fixing the code or setting up an alert, does not count.
-    Each mention is read with the two sentences after it.
+    Each mention is read with the sentence before it and the two after it.
     """
     sentences = _sentences(message)
     has_link = ACTIVATION_LINK in message
     found: list[str] = []
     for index, sentence in enumerate(sentences):
-        if not SELF_DRIVING.search(sentence):
+        if not _mentions_self_driving(sentence):
             continue
-        window = sentences[index : index + 3]
+        window = sentences[max(index - 1, 0) : index + 3]
         says_it_can_be_turned_on = [c for c in window if ACTIVATION_WORDS.search(c) or ACTIVATION_LINK in c]
         offers = [
             c for c in window if OFFER_WORDS.search(c) and (OFFER_TARGET_WORDS.search(c) or SELF_DRIVING.search(c))
