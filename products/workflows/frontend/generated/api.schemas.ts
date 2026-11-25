@@ -1623,6 +1623,19 @@ export interface SuggestionsSampleApi {
     readonly version_live_since: string
 }
 
+export interface SuggestionsScheduleApi {
+    /**
+     * Roughly when the project's suggestions scout last checked its workflows. Null before its first check.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /**
+     * Roughly when the scout checks next. Null before its first check, or when a custom schedule or a backoff decides it.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+}
+
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
@@ -1636,6 +1649,8 @@ export interface HogFlowOptimizationApi {
     readonly scout_status: SuggestionsScoutStatusEnumApi
     /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
     readonly sample: SuggestionsSampleApi | null
+    /** When the project's suggestions scout last checked and checks next. Null unless the scout is running. */
+    readonly schedule: SuggestionsScheduleApi | null
 }
 
 /**
@@ -2441,6 +2456,57 @@ export interface IspSendingHealthApi {
 }
 
 /**
+ * What the project needs to do for the daily tier check to raise its allowance one step.
+ */
+export interface EmailSendingNextTierApi {
+    /** How many emails the next tier allows per day. */
+    readonly emails_per_day: number
+    /** Emails the project must send in a day for that day to count toward the next tier. */
+    readonly daily_target: number
+    /** Separate days the project must reach daily_target on. */
+    readonly days_required: number
+    /** Days since the last tier change the project reached daily_target on, up to days_required. */
+    readonly days_reached: number
+    /** The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation. */
+    readonly not_before: string
+}
+
+/**
+ * Rates over the short window the daily tier check demotes on, with the limits it applies.
+ */
+export interface EmailSendingRecentRatesApi {
+    /** Days the rates cover. */
+    readonly window_days: number
+    /** Workflow emails sent in the window. */
+    readonly emails_sent: number
+    /** Hard bounces divided by emails sent, from 0 to 1. */
+    readonly bounce_rate: number
+    /** Spam complaints divided by emails sent, from 0 to 1. */
+    readonly complaint_rate: number
+    /** Spam complaints received in the window, including complaints about emails sent before it. */
+    readonly complaints: number
+    /** Bounce rate above which the allowance drops. */
+    readonly max_bounce_rate: number
+    /** Spam complaint rate above which the allowance drops. */
+    readonly max_complaint_rate: number
+    /** False when the daily check would lower the allowance because of bounces. A window with too few emails to judge counts as within limits. */
+    readonly bounces_within_limits: boolean
+    /** False when the daily check would lower the allowance because of spam complaints. A window with too few emails and complaints to judge counts as within limits. */
+    readonly complaints_within_limits: boolean
+}
+
+export interface EmailSendingAllowanceChangeApi {
+    /** When the allowance changed. */
+    readonly changed_at: string
+    /** Emails allowed per day before the change. */
+    readonly previous_emails_per_day: number
+    /** Emails allowed per day after the change. */
+    readonly emails_per_day: number
+    /** Why the allowance changed. One of: clean_and_used, trusted_account, inactive, rates_above_threshold, workflow_auto_paused, ses_reputation_high, ses_tenant_paused, staff_suspension, staff_set. */
+    readonly reason: string
+}
+
+/**
  * How much workflow email this project may send, and how much of that it has used.
  */
 export interface EmailSendingAllowanceApi {
@@ -2461,6 +2527,12 @@ export interface EmailSendingAllowanceApi {
      * @nullable
      */
     readonly rate_limited_max_batch_audience: number | null
+    /** How to reach the next tier. Null at the top tier or when PostHog set the tier by hand. */
+    readonly next_tier: EmailSendingNextTierApi | null
+    /** The rates the daily tier check demotes on. Null when PostHog set the tier by hand. */
+    readonly recent_rates: EmailSendingRecentRatesApi | null
+    /** Allowance changes from the last 90 days, newest first, at most 5. */
+    readonly recent_changes: readonly EmailSendingAllowanceChangeApi[]
 }
 
 /**
@@ -2469,8 +2541,6 @@ export interface EmailSendingAllowanceApi {
 export interface EmailInfrastructureHealthApi {
     /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
     readonly emails_sent_at_least: number
-    /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-    readonly delivery_rate: number
     /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
     readonly bounce_rate: number
     /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -2676,6 +2746,8 @@ export interface BlastRadiusApi {
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
     /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
     rate_limited?: RateLimitedAudienceApi | null
+    /** Keys of the project's test account filters this audience leaves out because they only apply to events, such as event properties. Empty unless the audience filters out test accounts. */
+    skipped_test_account_filters?: string[]
 }
 
 export interface PushTokenImportCreateApi {

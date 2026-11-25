@@ -81,7 +81,11 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
+from products.data_modeling.backend.facade.api import (
+    MaterializationRunTrigger,
+    materialize_saved_query,
+    saved_query_materialized_at,
+)
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
@@ -950,7 +954,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 try:
                     # Nobody asked for this run, so it must not clear the suspension or reset the
                     # failure window that stopped a repeatedly failing model.
-                    materialize_saved_query(saved_query, resume=False)
+                    materialize_saved_query(saved_query, trigger=MaterializationRunTrigger.ENDPOINT, resume=False)
                 except Exception:
                     # The caller still has to see the mismatch to fall back to inline, so a refresh
                     # we could not start must not replace it on the way out.

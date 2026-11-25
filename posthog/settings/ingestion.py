@@ -195,7 +195,7 @@ AI_RESEARCH_V4_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_V4_DYNAMODB_ENDPOINT",
 AI_EVENTS_DEFAULT_RETENTION_DAYS = 30
 # `ai_events` partitions by the month a row expires in, so events that arrive together spread over one partition
 # per distinct retention. A few tiers keep the partitions each insert touches few, however many teams are listed.
-_AI_EVENTS_RETENTION_DAYS_TIERS = (AI_EVENTS_DEFAULT_RETENTION_DAYS, 90, 180, 365)
+_AI_EVENTS_RETENTION_DAYS_TIERS = (AI_EVENTS_DEFAULT_RETENTION_DAYS, 60, 90, 180, 365)
 
 
 def parse_ai_events_retention_days_by_team(raw: str) -> dict[int, int]:

@@ -66,6 +66,8 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
+# Far in the future because only reactivation lifts the limit, and not every deployment has a quota run to renew it.
+DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 3650
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
@@ -356,7 +358,7 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
 def team_quota_snapshot(team: Team) -> dict[str, Any]:
     """Reads Redis fresh because the legacy gateway re-caches this for minutes, and the 30s memo would
     re-poison a just-invalidated entry. A deactivated org is limited only on the gateway credit buckets,
-    which blocks AI spend without dropping events."""
+    which blocks AI spend without dropping events. Its flag limit lives in the Redis limiter, not here."""
     organization = team.organization
     org_usage = organization.usage or {}
     org_deactivated = organization.is_active is False
@@ -537,6 +539,29 @@ def _daily_usage(
     return {day: count for day, count in ((yesterday, yesterdays_count), (today.isoformat(), todays_count)) if count}
 
 
+def _deactivated_org_flags_limited_until() -> int:
+    return int((get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)).timestamp())
+
+
+def sync_deactivated_org_flags_limit(organization: Organization) -> None:
+    """Stops or resumes flag requests as soon as is_active changes, ahead of the next quota run.
+
+    Reactivation removes the entry instead of recalculating: a leftover deactivation entry would read
+    as an earlier billing limit and end a flag grace period. The next quota run restores a billing limit.
+    """
+    tokens = [token for token in organization.teams.values_list("api_token", flat=True) if token]
+    if organization.is_active is False:
+        add_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS,
+            dict.fromkeys(tokens, _deactivated_org_flags_limited_until()),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+    else:
+        remove_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -546,6 +571,9 @@ def org_quota_limited_until(
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
+    # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
+        return {"quota_limited_until": _deactivated_org_flags_limited_until(), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
 
@@ -1515,7 +1543,7 @@ def _iter_quota_organizations(
         yield org_teams[0].organization, org_teams
     organizations = (
         Organization.objects.filter(id__in=offline_usage.keys() - seen)
-        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id", "is_active")
         .order_by("id")
     )
     # Buffer each page because quota updates close database connections between batches.
@@ -1709,7 +1737,15 @@ def update_all_orgs_billing_quotas(
 
     teams_iterator = iter_billable_teams(
         team_fields=("id", "api_token"),
-        organization_fields=("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id"),
+        organization_fields=(
+            "id",
+            "usage",
+            "created_at",
+            "never_drop_data",
+            "customer_trust_scores",
+            "customer_id",
+            "is_active",
+        ),
         buffer_teams=True,
     )
     total_orgs = (
@@ -1803,7 +1839,7 @@ def update_all_orgs_billing_quotas(
             str(org.id): org
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
-                .only("id", "usage", "customer_trust_scores", "never_drop_data")
+                .only("id", "usage", "customer_trust_scores", "never_drop_data", "is_active")
                 .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk
             ).values()
@@ -1833,7 +1869,7 @@ def update_all_orgs_billing_quotas(
             try:
                 if org_id in failed_org_ids:
                     continue
-                if org.usage and org.usage.get("period"):
+                if (org.usage and org.usage.get("period")) or org.is_active is False:
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
                         if fresh is None:
@@ -1842,6 +1878,7 @@ def update_all_orgs_billing_quotas(
                         org.usage = fresh.usage
                         org.customer_trust_scores = fresh.customer_trust_scores
                         org.never_drop_data = fresh.never_drop_data
+                        org.is_active = fresh.is_active
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
@@ -2015,6 +2052,11 @@ def update_all_orgs_billing_quotas(
                 for token in previously_quota_limiting_suspended_team_tokens[field]
                 if token not in failed_team_tokens
             ]
+
+    # Covers every team of a deactivated org, including demo projects and internal-metrics orgs that the run above skips.
+    flag_limited_teams = quota_limited_teams[QuotaResource.FEATURE_FLAG_REQUESTS.value]
+    for token in Team.objects.filter(organization__is_active=False).values_list("api_token", flat=True):
+        flag_limited_teams.setdefault(token, _deactivated_org_flags_limited_until())
 
     if not dry_run:
         redis_start = time()

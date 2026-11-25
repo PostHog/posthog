@@ -33,6 +33,7 @@ from products.cdp.backend.services.invocation_replay import (
     can_release_replay,
     claim_replay,
     execute_replay,
+    get_replay_outcome,
     get_replay_state,
     mark_replay_failed,
     plan_replay,
@@ -438,6 +439,44 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         assert sorted(r.status_code for r in results) == [0, 200]
         assert (get_replay_state(plan.fingerprint) or {})["failed_requests"] == 1
 
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_outcome_reads_the_latest_attempt_of_each_queued_run(self, rerun: MagicMock) -> None:
+        rerun.side_effect = [MagicMock(status_code=200, text="{}"), REFUSED]
+        queued = _function(self.team, "template-google-ads")
+        _insert(queued, [_row("a1", "failed"), _row("a2", "failed", 1), _row("a3", "failed", 2), _recovered()])
+        never_sent = _function(self.team, "template-snapchat-ads")
+        _insert(never_sent, [_row("b1", "failed"), _recovered("person-other")])
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+
+        after_send = int(datetime.now(UTC).timestamp() * 1_000_000) + 1_000_000
+        _insert(
+            queued,
+            [
+                _row("a1", "succeeded", RECOVERED + 5, first_minutes=0, is_retry=1, version=after_send),
+                _row(
+                    "a2",
+                    "failed",
+                    RECOVERED + 5,
+                    first_minutes=1,
+                    error="429: rate limited",
+                    is_retry=1,
+                    version=after_send,
+                ),
+            ],
+        )
+
+        outcome = get_replay_outcome(plan.fingerprint)
+
+        assert outcome is not None
+        assert outcome.counts == {"succeeded": 1, "failed": 1, "waiting": 1}
+        assert outcome.errors == (("429: rate limited", 1),)
+        assert not outcome.settled
+        with time_machine.travel(datetime.now(UTC) + timedelta(minutes=31)):
+            assert outcome.settled
+
     @parameterized.expand(
         [
             ("connection_refused", "send", REFUSED, True),
@@ -702,6 +741,46 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         self.staff_client.post(self._allow_resend_url(fingerprint), {"reason": "Checked the destinations"})
         self._send(fingerprint)
         assert task.delay.call_count == 2
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_status_page_stays_usable_when_the_delivery_cannot_be_read(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+
+        with patch(
+            "products.cdp.backend.services.invocation_replay.sync_execute", side_effect=RuntimeError("clickhouse down")
+        ):
+            response = self.staff_client.get(f"{self.url}?plan={plan.fingerprint}")
+
+        assert response.status_code == 200
+        assert b"could not be loaded" in response.content
+        assert b"Requests sent" in response.content
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+        state = get_replay_state(plan.fingerprint)
+        assert state
+        for result in state["results"]:
+            for field in ("offset", "sent_at", "may_have_queued"):
+                del result[field]
+        with (
+            patch("products.cdp.backend.console.get_replay_state", return_value=state),
+            patch("products.cdp.backend.services.invocation_replay.get_replay_state", return_value=state),
+        ):
+            response = self.staff_client.get(f"{self.url}?plan={plan.fingerprint}")
+
+        assert response.status_code == 200
+        assert b"Requests sent" in response.content
+        assert b"no delivery results for this replay" in response.content
+        assert b"Delivery of the replayed runs" not in response.content
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_staff_can_allow_a_resend_after_an_uncertain_send(self, rerun: MagicMock) -> None:

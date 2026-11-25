@@ -56,7 +56,7 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         )
         self.signal = _signal()
 
-    def _post(self, signals, *, issue=None, connected=True):
+    def _post(self, signals, *, issue=None, connected=True, report=None):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
             github = integration.first_for_team_repository.return_value
             if not connected:
@@ -66,7 +66,7 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             )
             comment = github.comment_on_issue
             comment.return_value = {"success": True}
-            posted = post_report_link_to_github_issues(self.team, str(self.report.id), signals)
+            posted = post_report_link_to_github_issues(self.team, str((report or self.report).id), signals)
         return posted, comment
 
     @parameterized.expand(
@@ -291,14 +291,21 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert posted == expected
         assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
-    def test_posts_no_second_comment_when_the_issue_signal_joins_later(self):
+    @parameterized.expand(
+        [
+            ("the source issue before the issue signal", False),
+            ("the issue signal before the source issue", True),
+        ]
+    )
+    def test_posts_no_second_comment_for_an_issue_that_is_both_a_signal_and_a_source_issue(self, _name, signal_first):
         self._sync_issues("acme/widgets.issues")
         self._name_source_issue()
+        calls = [[self.signal], []] if signal_first else [[], [self.signal]]
 
-        first, _ = self._post([])
-        joined, comment = self._post([self.signal])
+        first, _ = self._post(calls[0])
+        second, comment = self._post(calls[1])
 
-        assert (first, joined) == (1, 0)
+        assert (first, second) == (1, 0)
         comment.assert_not_called()
 
     def _name_source_issue(self):
@@ -314,6 +321,39 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert posted == 1
         assert comment.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("the owner commented", True, SignalReport.Status.READY, 0),
+            ("the owner holds the claim while it posts", False, SignalReport.Status.PENDING_INPUT, 0),
+            ("the owner closed after it commented", True, SignalReport.Status.RESOLVED, 1),
+        ]
+    )
+    def test_posts_one_comment_on_an_issue_that_two_open_reports_name(
+        self, _name, owner_commented, owner_status, expected
+    ):
+        if owner_commented:
+            self._post([self.signal])
+        else:
+            SignalReportGithubComment.objects.for_team(self.team.pk).create(
+                team=self.team, report=self.report, repository="acme/widgets", number=42
+            )
+        SignalReport.objects.filter(pk=self.report.pk).update(status=owner_status)
+        other = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        with patch(f"{WRITEBACK_MODULE_PATH}.logger") as logger:
+            posted, comment = self._post([self.signal], report=other)
+
+        assert posted == expected
+        assert comment.call_count == expected
+        skips = [
+            call.kwargs
+            for call in logger.info.call_args_list
+            if call.args[0] == "signals.github_writeback_skipped_owned_issue"
+        ]
+        assert [(skip["report_id"], skip["owner_report_id"]) for skip in skips] == (
+            [] if expected else [(str(other.id), str(self.report.id))]
+        )
 
     @parameterized.expand(
         [

@@ -1751,6 +1751,7 @@ export class ApiClient {
                 warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
+                hasMore?: boolean | null
             }> => {
                 return this.request<{
                     results: unknown
@@ -1760,6 +1761,7 @@ export class ApiClient {
                     warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
+                    hasMore?: boolean | null
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,

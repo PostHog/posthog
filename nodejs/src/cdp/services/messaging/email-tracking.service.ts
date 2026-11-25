@@ -20,6 +20,7 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
+import { isClickTrackingEnabled } from '../hogflows/hogflow-sensitivity'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
@@ -60,7 +61,7 @@ const addAttributeToOpeningTag = (openingTag: string, attribute: string): string
         return openingTag
     }
     const attributes = openingTag.slice(0, -1)
-    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    const withoutSelfClose = /[\t\n\f\r "']\/$/.test(attributes) ? attributes.slice(0, -1) : attributes
     return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
@@ -234,9 +235,7 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // PostHog keeps only the link's origin from a sensitive email's click events (see helpers/ses.ts),
-    // but SES still sees the full link, so a send whose links carry tokens opts out with clicks: false.
-    const allLinksOptedOut = invocation.state?.send?.tracking.clicks === false
+    const allLinksOptedOut = !isClickTrackingEnabled(invocation)
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++

@@ -147,9 +147,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             // Read on each launch, so a team-list change in the settings reaches the next webhook.
             intake: {
                 modeOf: (teamId) => intakeModeOf(this.config)(teamId),
-                producer: new IntakeProducer(this.outputs, undefined, undefined, (teamId) =>
-                    intakeClusterOf(this.config)(teamId)
-                ),
+                producer: new IntakeProducer(this.outputs, undefined, undefined, intakeClusterOf(this.config)),
             },
         })
     }
@@ -304,7 +302,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        const addMetric = (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => {
+        const addMetric = (
+            metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count' | 'app_source_version'>
+        ) => {
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: hogFlow.team_id,
@@ -421,7 +421,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return answerQuotaLimited()
                 }
 
-                const committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
+                const committed = (await this.runIntake.launch([run]))[0]
                 if (committed.outcome !== 'created') {
                     return answerDuplicate()
                 }
@@ -429,6 +429,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     metric_kind: 'other',
                     metric_name: 'triggered',
                     count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
                 })
                 queuedInvocationId = committed.runId
             } else {

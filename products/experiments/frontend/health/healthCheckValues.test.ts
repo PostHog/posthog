@@ -106,6 +106,22 @@ describe('healthCheckValues', () => {
             expected: [{ label: 'Require completed conversion or retention window', text: 'Off' }],
         },
         {
+            name: 'the primary metric count shows on its own line without the metrics that wait',
+            values: { primary_metric_count: 1, secondary_metric_count: 0 },
+            expected: [
+                { label: 'Primary metrics', text: '1' },
+                { label: 'Secondary metrics', text: '0' },
+            ],
+        },
+        {
+            name: 'the primary metric count goes with the metrics that wait',
+            values: { only_count_matured_users: true, primary_metric_count: 2, waiting_metric_count: 1 },
+            expected: [
+                { label: 'Require completed conversion or retention window', text: 'On' },
+                { label: "Primary metrics that can't count users yet", text: '1 of 2' },
+            ],
+        },
+        {
             name: 'the sample so far reads against the planned sample',
             values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
             expected: [

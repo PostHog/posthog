@@ -599,7 +599,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
     listeners(({ actions, values }) => {
         const pendingSettingsUpdates = new WeakMap<
             Partial<TeamType>,
-            { field: keyof MarketingAnalyticsConfig; entry_point: string }
+            { field: keyof MarketingAnalyticsConfig; entry_point: string; recommendation_goal_count?: number }
         >()
 
         const updateCurrentTeam = (field: keyof MarketingAnalyticsConfig): void => {
@@ -612,6 +612,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     pendingSettingsUpdates.set(payload, {
                         field,
                         entry_point: inMarketingApp ? values.setupEntryPointLabel : 'project_settings',
+                        // pinned: analytics property name — renaming breaks the adoption insight
+                        ...(field === 'conversion_goals' && {
+                            recommendation_goal_count: (values.marketingAnalyticsConfig.conversion_goals ?? []).filter(
+                                (goal) => goal.use_in_recommendations
+                            ).length,
+                        }),
                     })
                 }
                 actions.updateCurrentTeam(payload)

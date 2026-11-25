@@ -22,6 +22,9 @@ from posthog.models.tag import Tag, tagify
 from posthog.models.tagged_item import TaggedItem
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 from .facade.contracts import NotebookContentEditNotAllowed
 from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
@@ -41,7 +44,11 @@ def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: di
 
     if not notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
-    if UserAccessControl(user=user, team=notebook.team).is_organization_admin:
+    if authorization.check(
+        resource=Resource.organization(notebook.team.organization_id),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    ):
         return
     if not is_publicly_shared(notebook):
         return
@@ -82,7 +89,20 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
         return False
 
     def check() -> bool:
-        return bool(user_access_control.check_access_level_for_object(notebook, "editor"))
+        # The facade takes a UserAccessControl, so the check reads its user and its team's rules.
+        team = user_access_control.team
+        with authorization.authorization_session():
+            authorization.reuse_current_rules(user_access_control)
+            return authorization.check(
+                resource=Resource(
+                    type=ResourceType.NOTEBOOK,
+                    id=str(notebook.id),
+                    project_id=team.pk if team is not None else notebook.team_id,
+                    created_by_id=notebook.created_by_id,
+                ),
+                action=Action.EDIT,
+                subject=Subject(user_id=user_access_control.user.pk),
+            )
 
     return await sync_to_async(check)()
 

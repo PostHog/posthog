@@ -25,6 +25,7 @@ INTERNAL_SOURCE_SERVICE_NAMES: dict[str, str] = {
     "temporal_workflow": "posthog-internal-temporal",
     "endpoints": "posthog-internal-endpoints",
     "alert_destination": "posthog-internal-alerts",
+    "warehouse_property_run": "posthog-internal-warehouse-properties",
 }
 
 

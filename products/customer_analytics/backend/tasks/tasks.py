@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import structlog
 import posthoganalytics
-from celery import Task, shared_task
+from celery import Task, current_task, shared_task
 from structlog.contextvars import bound_contextvars
 
 from posthog.exceptions_capture import capture_exception
@@ -216,4 +216,4 @@ def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids:
 )
 @with_team_scope()
 def send_announcement(announcement_id: str, team_id: int) -> None:
-    send_pending_deliveries(announcement_id, team_id)
+    send_pending_deliveries(announcement_id, team_id, attempt=(current_task.request.retries or 0) + 1)

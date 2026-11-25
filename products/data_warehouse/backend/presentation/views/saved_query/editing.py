@@ -254,6 +254,7 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
+    plan_clamp = serializers.SerializerMethodField(read_only=True, help_text=view_state.PLAN_CLAMP_HELP_TEXT)
     latest_history_id = serializers.UUIDField(
         source="query_revision",
         read_only=True,
@@ -338,6 +339,7 @@ class DataWarehouseSavedQuerySerializer(
             "description",
             "sync_frequency",
             "sync_frequency_bounds",
+            "plan_clamp",
             "columns",
             "status",
             "last_run_at",
@@ -371,6 +373,7 @@ class DataWarehouseSavedQuerySerializer(
             "last_run_at",
             "managed_viewset_kind",
             "sync_frequency_bounds",
+            "plan_clamp",
             "folder_name",
             "latest_error",
             "latest_history_id",
@@ -637,7 +640,11 @@ class DataWarehouseSavedQuerySerializer(
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     view.set_columns(
-                        view.get_columns(user=self.context["request"].user, database=self.context["database"])
+                        view.get_columns(
+                            user=self.context["request"].user,
+                            database=self.context["database"],
+                            jev_plan=getattr(self, "_jev_plan", None),
+                        )
                     )
                 else:
                     view.set_columns(_columns_from_client_types(client_types))
@@ -770,7 +777,9 @@ class DataWarehouseSavedQuerySerializer(
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     inferred_columns = probe.get_columns(
-                        user=self.context["request"].user, database=self.context["database"]
+                        user=self.context["request"].user,
+                        database=self.context["database"],
+                        jev_plan=getattr(self, "_jev_plan", None),
                     )
                 else:
                     inferred_columns = _columns_from_client_types(client_types)
@@ -963,8 +972,9 @@ class DataWarehouseSavedQuerySerializer(
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
+            self._jev_plan = modeling_api.plan_prompt_jev_on_zero_rows(select_ast, context, self.context["get_team"]())
             prepare_and_print_ast(
-                node=select_ast,
+                node=self._jev_plan.query if self._jev_plan is not None else select_ast,
                 context=context,
                 dialect="clickhouse",
                 stack=None,

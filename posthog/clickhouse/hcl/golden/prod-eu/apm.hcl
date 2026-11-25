@@ -1260,10 +1260,6 @@ named_collection "msk_cluster" {
   external = true
 }
 
-named_collection "warpstream_calculated_events" {
-  external = true
-}
-
 named_collection "warpstream_cyclotron" {
   external = true
 }

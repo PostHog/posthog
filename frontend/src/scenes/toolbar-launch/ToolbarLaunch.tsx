@@ -24,8 +24,6 @@ import {
     TooltipProvider,
 } from '@posthog/quill'
 
-import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { inStorybook } from 'lib/utils/dom'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +31,6 @@ import { ProductIconWrapper } from '~/layout/panel-layout/ProjectTree/defaultTre
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ToolbarAuthorizedUrls } from './ToolbarAuthorizedUrls'
 import { ToolbarExtensionCard } from './ToolbarExtensionCard'
@@ -44,13 +41,6 @@ export const scene: SceneExport = {
 }
 
 export function ToolbarLaunch(): JSX.Element {
-    // Authorized URLs are a single shared team field; the backend gates edits on web analytics
-    // editor access, so only offer the add/edit/delete controls to users who can actually save.
-    // In Storybook there's no app context, so allow editing there.
-    const canEdit = inStorybook()
-        ? true
-        : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
-
     const features: Array<{ title: string; caption: string; icon: JSX.Element; type: FileSystemIconType }> = [
         {
             title: 'Heatmaps',
@@ -108,7 +98,7 @@ export function ToolbarLaunch(): JSX.Element {
                                 <CardDescription>Add a URL, then launch the toolbar on that website.</CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <ToolbarAuthorizedUrls canEdit={canEdit} />
+                                <ToolbarAuthorizedUrls />
                             </CardContent>
                         </Card>
 

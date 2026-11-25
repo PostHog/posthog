@@ -11,7 +11,7 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { AnyPropertyFilter, UserType } from '../../../../frontend/src/types'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 
 export interface AIObservabilityTracesTabLogicProps {
