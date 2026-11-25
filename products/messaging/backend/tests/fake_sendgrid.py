@@ -448,8 +448,12 @@ def _export_columns(
     ]
     for number, name in enumerate(custom, start=1):
         header = f"e{number}_T" if shape.get("header") == "field_ids" else name
-        columns.append((header, lambda contact, name=name: contact.get("custom_fields", {}).get(name, "")))
+        columns.append((header, partial(_custom_value, name)))
     return columns[::-1] if shape.get("reversed") else columns
+
+
+def _custom_value(name: str, contact: dict[str, Any]) -> str:
+    return contact.get("custom_fields", {}).get(name, "")
 
 
 def _exported_value(field: str, contact: dict[str, Any]) -> str:
