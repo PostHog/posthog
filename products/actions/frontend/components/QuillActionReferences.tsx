@@ -46,15 +46,7 @@ export function QuillActionReferences({ logicProps }: { logicProps: ActionEditLo
                 id: 'created_by',
                 header: 'Created by',
                 enableSorting: false,
-                cell: ({ row }) => {
-                    const createdBy = row.original.created_by
-                    return (
-                        <AnalyticsOwner
-                            owner={createdBy ? { ...createdBy, first_name: createdBy.first_name ?? '' } : null}
-                            className="max-w-40"
-                        />
-                    )
-                },
+                cell: ({ row }) => <AnalyticsOwner owner={row.original.created_by} className="max-w-40" />,
             },
             {
                 id: 'created_at',

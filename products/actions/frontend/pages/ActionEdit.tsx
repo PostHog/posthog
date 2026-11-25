@@ -5,7 +5,6 @@ import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -56,6 +55,7 @@ import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLo
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
+import { QuillActionEditActions } from '../components/QuillActionEditActions'
 import { QuillActionMatchGroups } from '../components/QuillActionMatchGroups'
 import { QuillActionReferences } from '../components/QuillActionReferences'
 import { QuillActionSection } from '../components/QuillActionSection'
@@ -88,7 +88,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
     // useAttachedLogic keeps actionEditLogic alive for as long as actionLogic is mounted, even
     // when this component unmounts.
     useAttachedLogic(logic, attachTo)
-    const { action, actionChanged, isActionSubmitting, referencedDeleteCount } = useValues(logic)
+    const { action, actionChanged, isActionSubmitting, referencedDeleteCount, saveDisabledReason } = useValues(logic)
     const {
         submitAction,
         deleteAction,
@@ -149,6 +149,13 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
             Cancel
         </LemonButton>
     )
+
+    const saveAction = (): void => {
+        if (!id) {
+            setActionValue('_create_in_folder', 'Unfiled/Insights')
+        }
+        submitAction()
+    }
 
     return (
         <QuillSurfaceContext.Provider value={todayRailNav}>
@@ -297,44 +304,13 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                         forceEdit={!id}
                         actions={
                             todayRailNav ? (
-                                <>
-                                    {!id && (
-                                        <Button
-                                            data-attr="cancel-action-bottom"
-                                            variant="destructive-outline"
-                                            onClick={() => {
-                                                router.actions.push(urls.actions())
-                                            }}
-                                            tooltip="Cancel and return to the list of actions"
-                                        >
-                                            Cancel
-                                        </Button>
-                                    )}
-                                    <Button
-                                        data-attr="save-action-button"
-                                        variant="primary"
-                                        type="submit"
-                                        loading={isActionSubmitting}
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            if (id) {
-                                                submitAction()
-                                            } else {
-                                                setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                                submitAction()
-                                            }
-                                        }}
-                                        disabledReason={
-                                            isActionSubmitting
-                                                ? 'Saving…'
-                                                : !actionChanged
-                                                  ? 'No changes to save'
-                                                  : undefined
-                                        }
-                                    >
-                                        {actionChanged ? 'Save' : 'No changes'}
-                                    </Button>
-                                </>
+                                <QuillActionEditActions
+                                    isNew={!id}
+                                    saving={isActionSubmitting}
+                                    actionChanged={actionChanged}
+                                    saveDisabledReason={saveDisabledReason}
+                                    onSave={saveAction}
+                                />
                             ) : (
                                 <>
                                     {!id && cancelButton()}
@@ -345,21 +321,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                         loading={isActionSubmitting}
                                         onClick={(e) => {
                                             e.preventDefault()
-                                            if (id) {
-                                                submitAction()
-                                            } else {
-                                                setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                                submitAction()
-                                            }
+                                            saveAction()
                                         }}
                                         size="small"
-                                        disabledReason={
-                                            isActionSubmitting
-                                                ? 'Saving…'
-                                                : !actionChanged
-                                                  ? 'No changes to save'
-                                                  : undefined
-                                        }
+                                        disabledReason={saveDisabledReason}
                                     >
                                         {actionChanged ? 'Save' : 'No changes'}
                                     </LemonButton>
