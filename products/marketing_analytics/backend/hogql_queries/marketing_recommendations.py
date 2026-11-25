@@ -1463,7 +1463,6 @@ class _Recommender:
         )
 
     def _campaign_for_searches(self, searches: Sequence[_ConvertingSearch], channel: str) -> CampaignStats | None:
-        # The campaign with the most conversions on the query's variants already serves the topic.
         conversions: dict[str, float] = defaultdict(float)
         for search in searches:
             conversions[search.campaign_id] += search.conversions
@@ -1654,8 +1653,6 @@ class _Recommender:
     def _converting_searches(
         self, terms: list[_Term], benchmarks: dict[str, _Benchmark]
     ) -> tuple[_ConvertingSearch, ...]:
-        # Non-brand terms that convert at or below their CPA benchmark: the account's own definition of a
-        # relevant search.
         return tuple(
             _ConvertingSearch(
                 term=term.term, stems=stems, campaign_id=term.top_campaign_id, conversions=term.conversions
