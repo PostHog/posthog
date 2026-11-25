@@ -38,6 +38,8 @@ class EntryFreshness:
 _prefetched_values: ContextVar[dict[str, list[Optional[bytes]]] | None] = ContextVar(
     "query_cache_prefetched_values", default=None
 )
+# The decoded size of each entry a lookup inside the block read, prefetched or read on its own after a failed batch.
+_decoded_sizes: ContextVar[dict[str, int] | None] = ContextVar("query_cache_decoded_sizes", default=None)
 
 # Blob fetches run in parallel, so a board of S3-backed entries waits about as long as its slowest blob. The pool is
 # shared by every request in the process, so concurrent board loads queue for these threads instead of each starting
@@ -70,9 +72,11 @@ def prefetched_entries(cache_keys: Sequence[str], *, team_id: int) -> Iterator[N
     the batched read fails.
     """
     token = _prefetched_values.set(_read_values(cache_keys, team_id=team_id))
+    sizes_token = _decoded_sizes.set({})
     try:
         yield
     finally:
+        _decoded_sizes.reset(sizes_token)
         _prefetched_values.reset(token)
 
 
@@ -141,6 +145,19 @@ def prefetched_size(cache_key: str) -> int:
     return len(value)
 
 
+def decoded_size(cache_key: str) -> int:
+    """The decoded size in bytes of the entry the last lookup of `cache_key` in a `prefetched_entries` block read, or
+    0 when it read none."""
+    sizes = _decoded_sizes.get()
+    return sizes.get(cache_key, 0) if sizes is not None else 0
+
+
+def _record_decoded_size(cache_key: str, payload: bytes) -> None:
+    sizes = _decoded_sizes.get()
+    if sizes is not None:
+        sizes[cache_key] = len(payload)
+
+
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
     prefetched = _prefetched_values.get()
     if prefetched is not None and cache_key in prefetched:
@@ -165,6 +182,7 @@ def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
     payload = decode_stored_value(stored_value, team_id=team_id, cache_key=cache_key)
     if payload is None:
         return None
+    _record_decoded_size(cache_key, payload)
 
     try:
         return split_cached_response_bytes(payload, cache_key=cache_key, team_id=team_id)
@@ -183,6 +201,7 @@ def _entry_from_prefetched_value(
     payload = decode_stored_value(stored_value, team_id=team_id, cache_key=cache_key)
     if payload is None:
         return None
+    _record_decoded_size(cache_key, payload)
 
     try:
         return split_cached_response_bytes(payload, cache_key=cache_key, team_id=team_id)

@@ -52,7 +52,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.query_cache.results import prefetched_size
+from posthog.query_cache.results import decoded_size, prefetched_size
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -887,6 +887,8 @@ class QueryBatch:
                 except Exception as e:
                     self._add_ready(_error_line(index, e, team=self._team))
                     continue
+                # Read on its own when the batched read failed, so only the lookup itself knows what it decoded.
+                stored_bytes = max(stored_bytes, decoded_size(planned.cache_key))
                 if isinstance(response, CacheMissResponse):
                     if item.cache_only:
                         self._add_ready(_miss_line(index, planned.cache_key, self._shapes[index]))
