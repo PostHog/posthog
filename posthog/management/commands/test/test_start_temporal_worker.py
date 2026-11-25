@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import InterfaceError
 from django.test import override_settings
 
 from posthog.hogql import parser as hogql_parser
@@ -128,7 +128,7 @@ def test_only_data_import_queues_warm_sources(workflows: list[type], expected: b
     [
         (True, None, ["all"]),
         (False, None, ["in_use"]),
-        (False, DatabaseError("no table"), ["in_use", "all"]),
+        (False, InterfaceError("connection already closed"), ["in_use", "all"]),
     ],
 )
 def test_preload_data_import_sources_dispatches_on_the_setting(
