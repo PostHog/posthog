@@ -294,6 +294,7 @@ class TestSendPartnerReviewEmail(APIBaseTest):
         assert sent[0].template_name == template_name
         assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
         assert "Add a homepage to your metadata document." in sent[0].html_body
+        assert f"/settings/organization-oauth-apps/{review.application_id}" in sent[0].html_body
 
     @patch("posthog.api.oauth.provisioning_review.EmailMessage")
     def test_leaves_out_a_message_written_for_the_previous_organization(self, MockEmailMessage) -> None:

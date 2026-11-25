@@ -2,7 +2,7 @@ import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardSte
 
 import { PartnerReviewApi } from '~/generated/core/api.schemas'
 
-import { reviewProgress } from './oauthAppProvisioningStatus'
+import { reviewProgress } from '../oauthAppProvisioningStatus'
 
 export function OAuthAppReviewProgress({ review }: { review: PartnerReviewApi }): JSX.Element {
     const { steps, currentStep } = reviewProgress(review)

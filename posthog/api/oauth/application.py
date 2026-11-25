@@ -13,12 +13,15 @@ from posthog.api.oauth.provisioning_review import (
     partner_message_for_current_organization,
     partner_provisioning_status,
     partner_timeline,
+    registered_partner_details,
     send_partner_note,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    OrganizationLinkState,
+    PartnerAuthentication,
     PartnerProvisioningStatus,
     PartnerReviewEventKind,
     ProvisioningReviewStatus,
@@ -156,6 +159,75 @@ class PartnerReviewNoteSerializer(serializers.Serializer):
     )
 
 
+class RegisteredPartnerDetailsSerializer(serializers.Serializer):
+    client_name = serializers.CharField(read_only=True, help_text="The app's name, as of its last metadata refresh.")
+    client_uri = serializers.CharField(
+        read_only=True, help_text="The homepage in the document saved when the review opened. Empty when it had none."
+    )
+    logo_uri = serializers.CharField(read_only=True, help_text="The app's logo, as of its last metadata refresh.")
+    tos_uri = serializers.CharField(
+        read_only=True,
+        help_text="The terms of service in the document saved when the review opened. Empty when it had none.",
+    )
+    policy_uri = serializers.CharField(
+        read_only=True,
+        help_text="The privacy policy in the document saved when the review opened. Empty when it had none.",
+    )
+    contacts = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Contact emails in the document saved when the review opened.",
+    )
+    redirect_uris = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Where PostHog sends people after they sign in, as of the last metadata refresh.",
+    )
+    jwks_uri = serializers.CharField(
+        read_only=True, help_text="Where the app publishes the public keys it signs with. Empty for a public client."
+    )
+    authentication = serializers.ChoiceField(
+        choices=PartnerAuthentication.choices,
+        read_only=True,
+        help_text="How the app authenticates: none (public client), client_secret_post, or private_key_jwt.",
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(), read_only=True, help_text="Every scope the app can ask people to grant."
+    )
+    uses_default_scopes = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default.",
+    )
+    can_create_accounts = serializers.BooleanField(
+        read_only=True, help_text="Whether the app can create PostHog accounts once provisioning is on."
+    )
+    can_provision_resources = serializers.BooleanField(
+        read_only=True, help_text="Whether the app can create projects and resources once provisioning is on."
+    )
+    organization_link = serializers.ChoiceField(
+        choices=OrganizationLinkState.choices,
+        read_only=True,
+        help_text="Whether a verification token links the app to this organization, to one in another region, or to none.",
+    )
+    metadata_document = serializers.CharField(
+        read_only=True,
+        help_text="The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none.",
+    )
+
+
+class OrganizationOAuthApplicationDetailSerializer(OrganizationOAuthApplicationSerializer):
+    """One application, with what PostHog read from its metadata document."""
+
+    registration = serializers.SerializerMethodField()
+
+    class Meta(OrganizationOAuthApplicationSerializer.Meta):
+        fields = [*OrganizationOAuthApplicationSerializer.Meta.fields, "registration"]
+
+    @extend_schema_field(RegisteredPartnerDetailsSerializer)
+    def get_registration(self, instance: OAuthApplication) -> dict:
+        return RegisteredPartnerDetailsSerializer(registered_partner_details(instance, _review(instance))).data
+
+
 def _review(app: OAuthApplication) -> CIMDProvisioningReview | None:
     return getattr(app, "provisioning_review", None)
 
@@ -191,7 +263,7 @@ class OrganizationOAuthApplicationViewSet(
         request_serializer=PartnerReviewNoteSerializer,
         responses={
             200: OpenApiResponse(
-                response=OrganizationOAuthApplicationSerializer,
+                response=OrganizationOAuthApplicationDetailSerializer,
                 description="The application with its review, which is back with PostHog staff.",
             ),
         },
@@ -210,6 +282,11 @@ class OrganizationOAuthApplicationViewSet(
             raise exceptions.ValidationError({"note": str(refused)})
         app = self.get_queryset().get(pk=app.pk)
         return Response(self.get_serializer(app).data)
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return OrganizationOAuthApplicationSerializer
+        return OrganizationOAuthApplicationDetailSerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(organization=self.organization)

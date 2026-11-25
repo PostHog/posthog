@@ -65,7 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
-    OrganizationOAuthApplicationApi,
+    OrganizationOAuthApplicationDetailApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -931,8 +931,8 @@ export const oauthApplicationsRetrieve = async (
     organizationId: string,
     id: string,
     options?: RequestInit
-): Promise<OrganizationOAuthApplicationApi> => {
-    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
     })
@@ -951,13 +951,16 @@ export const oauthApplicationsReviewNoteCreate = async (
     id: string,
     partnerReviewNoteApi: PartnerReviewNoteApi,
     options?: RequestInit
-): Promise<OrganizationOAuthApplicationApi> => {
-    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsReviewNoteCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(partnerReviewNoteApi),
-    })
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(
+        getOauthApplicationsReviewNoteCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(partnerReviewNoteApi),
+        }
+    )
 }
 
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {

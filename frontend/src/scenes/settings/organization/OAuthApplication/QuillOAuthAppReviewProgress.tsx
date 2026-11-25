@@ -5,7 +5,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { PartnerReviewApi } from '~/generated/core/api.schemas'
 
-import { REVIEW_COMPLETE, reviewProgress } from './oauthAppProvisioningStatus'
+import { REVIEW_COMPLETE, reviewProgress } from '../oauthAppProvisioningStatus'
 
 export function QuillOAuthAppReviewProgress({ review }: { review: PartnerReviewApi }): JSX.Element {
     const { steps, currentStep } = reviewProgress(review)

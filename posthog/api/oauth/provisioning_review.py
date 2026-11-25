@@ -10,6 +10,7 @@ can reverse any verdict later, and the review keeps each change in its run log. 
 reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
 """
 
+import json
 import asyncio
 from collections.abc import Mapping
 from typing import Any
@@ -33,6 +34,8 @@ from posthog.llm.system_one_client import system_one_configured
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    OrganizationLinkState,
+    PartnerAuthentication,
     PartnerProvisioningStatus,
     PartnerReviewEventKind,
     ProvisioningReviewStage,
@@ -40,6 +43,7 @@ from posthog.models.oauth_provisioning_review import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.scopes.ceilings import DEFAULT_CEILING_SENTINEL, effective_ceiling
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.utils import get_instance_region
 
@@ -313,9 +317,9 @@ REVIEW_EMAIL_SUBJECTS = {
 }
 
 
-def partner_review_url() -> str:
-    """The settings page where the app's organization admins read its review."""
-    return f"{settings.SITE_URL}/settings/organization-oauth-apps"
+def partner_review_url(app: OAuthApplication) -> str:
+    """The settings page where the app's organization admins read its review and answer it."""
+    return f"{settings.SITE_URL}/settings/organization-oauth-apps/{app.pk}"
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -365,7 +369,7 @@ def send_partner_review_email(review_id: str, status: str) -> None:
             "app_name": app_name,
             "client_id": app.client_id,
             "partner_message": partner_message_for_current_organization(review),
-            "review_url": partner_review_url(),
+            "review_url": partner_review_url(app),
             **get_email_team_and_org_context(organization=organization),
         },
     )
@@ -704,3 +708,70 @@ def _partner_event(entry: Mapping[str, Any], organization_id: str | None) -> Par
             message=str(entry.get("partner_message", "")),
         )
     return None
+
+
+@frozen
+class RegisteredPartnerDetails:
+    """How PostHog treats the app now, from the app's own record, which every metadata refresh updates. The homepage,
+    policy links and contacts are kept only in the document saved when the review opened. The document is the app's own
+    public file, so its owners can see all of it."""
+
+    client_name: str
+    client_uri: str
+    logo_uri: str
+    tos_uri: str
+    policy_uri: str
+    contacts: list[str]
+    redirect_uris: list[str]
+    jwks_uri: str
+    authentication: PartnerAuthentication
+    scopes: list[str]
+    uses_default_scopes: bool
+    can_create_accounts: bool
+    can_provision_resources: bool
+    organization_link: OrganizationLinkState
+    metadata_document: str
+
+
+def _document_text(document: Mapping[str, Any], key: str) -> str:
+    value = document.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _document_list(document: Mapping[str, Any], key: str) -> list[str]:
+    value = document.get(key)
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _uses_default_scopes(app_scopes: list[str]) -> bool:
+    stripped = {scope.strip() for scope in app_scopes} - {""}
+    return not stripped or DEFAULT_CEILING_SENTINEL in stripped
+
+
+def registered_partner_details(
+    app: OAuthApplication, review: CIMDProvisioningReview | None
+) -> RegisteredPartnerDetails:
+    document: Mapping[str, Any] = (review.metadata_document if review is not None else None) or {}
+    if app.organization_id is not None:
+        link = OrganizationLinkState.THIS_ORGANIZATION
+    elif app.organization_link_issuer:
+        link = OrganizationLinkState.OTHER_REGION
+    else:
+        link = OrganizationLinkState.NOT_LINKED
+    return RegisteredPartnerDetails(
+        client_name=app.name,
+        client_uri=_document_text(document, "client_uri"),
+        logo_uri=app.logo_uri or "",
+        tos_uri=_document_text(document, "tos_uri"),
+        policy_uri=_document_text(document, "policy_uri"),
+        contacts=_document_list(document, "contacts"),
+        redirect_uris=app.redirect_uris.split(),
+        jwks_uri=app.jwks_uri or "",
+        authentication=PartnerAuthentication(app.token_endpoint_auth_method.value),
+        scopes=sorted(effective_ceiling(app.ceiling_scopes)),
+        uses_default_scopes=_uses_default_scopes(app.ceiling_scopes),
+        can_create_accounts=app.provisioning.can_create_accounts,
+        can_provision_resources=app.provisioning.can_provision_resources,
+        organization_link=link,
+        metadata_document=json.dumps(document, indent=2, sort_keys=True) if document else "",
+    )

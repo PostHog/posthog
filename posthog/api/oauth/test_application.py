@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
@@ -24,6 +26,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 
 
 class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
@@ -236,6 +239,60 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             self.assertEqual(review.run_log, [])
         app.refresh_from_db()
         self.assertEqual((app.provisioning.active, app.provisioning.disabled), (False, disabled))
+
+    def test_detail_shows_enforced_redirect_uris_next_to_the_saved_document(self):
+        app = self._create_app(
+            self.organization, is_provisioning_partner=True, redirect_uris="https://builder.example.com/new-callback"
+        )
+        document = {
+            "client_name": "Example Builder",
+            "client_uri": "https://builder.example.com",
+            "contacts": ["security@builder.example.com"],
+            "redirect_uris": ["https://builder.example.com/callback"],
+            "com.posthog": {"provisioning": True},
+        }
+        CIMDProvisioningReview.objects.create(application=app, domain="example.com", metadata_document=document)
+
+        detail = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/").json()
+        listed = self.client.get("/api/organizations/@current/oauth_applications/").json()["results"][0]
+
+        registration = detail["registration"]
+        self.assertEqual(
+            {key: registration[key] for key in ("client_uri", "contacts", "redirect_uris", "organization_link")},
+            {
+                "client_uri": "https://builder.example.com",
+                "contacts": ["security@builder.example.com"],
+                "redirect_uris": ["https://builder.example.com/new-callback"],
+                "organization_link": "this_organization",
+            },
+        )
+        self.assertEqual(json.loads(registration["metadata_document"]), document)
+        self.assertNotIn("registration", listed)
+
+    @parameterized.expand(
+        [
+            ("no_scopes", [], True, None),
+            ("default_sentinel_with_extras", ["@default", "llm_gateway:read"], True, "llm_gateway:read"),
+            ("explicit_allow_list", ["insight:read"], False, None),
+        ]
+    )
+    def test_detail_resolves_the_scopes_the_app_can_ask_for(self, _name, scopes, uses_default, extra):
+        app = self._create_app(self.organization, is_provisioning_partner=True)
+        app.scopes = scopes
+        app.save(update_fields=["scopes"])
+
+        registration = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/").json()[
+            "registration"
+        ]
+
+        self.assertEqual(registration["uses_default_scopes"], uses_default)
+        if uses_default:
+            self.assertTrue(UNPRIVILEGED_SCOPES <= set(registration["scopes"]))
+            self.assertNotIn("@default", registration["scopes"])
+        else:
+            self.assertEqual(registration["scopes"], scopes)
+        if extra:
+            self.assertIn(extra, registration["scopes"])
 
     def test_timeline_shows_decisions_messages_and_notes_without_internal_reasons(self):
         app = self._create_app(self.organization, is_provisioning_partner=True)

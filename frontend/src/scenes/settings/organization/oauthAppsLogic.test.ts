@@ -7,7 +7,8 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { oauthAppReviewNoteLogic } from './oauthAppReviewNoteLogic'
+import { oauthApplicationLogic } from './OAuthApplication/oauthApplicationLogic'
+import { oauthAppReviewNoteLogic } from './OAuthApplication/oauthAppReviewNoteLogic'
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 const MOCK_APPS = [
@@ -42,6 +43,24 @@ const MOCK_APPS = [
         updated: '2026-01-10T10:00:00Z',
     },
 ]
+
+const REGISTRATION = {
+    client_name: 'PostHog Toolbar',
+    client_uri: '',
+    logo_uri: '',
+    tos_uri: '',
+    policy_uri: '',
+    contacts: [],
+    redirect_uris: [],
+    jwks_uri: '',
+    authentication: 'none' as const,
+    scopes: [],
+    uses_default_scopes: false,
+    can_create_accounts: true,
+    can_provision_resources: true,
+    organization_link: 'this_organization' as const,
+    metadata_document: '',
+}
 
 describe('oauthAppsLogic', () => {
     let logic: ReturnType<typeof oauthAppsLogic.build>
@@ -109,6 +128,10 @@ describe('oauthAppsLogic', () => {
                 '/api/organizations/:organization_id/oauth_applications/': {
                     results: [MOCK_APPS[0], { ...answered, provisioning_status: 'blocked' }],
                 },
+                '/api/organizations/:organization_id/oauth_applications/:id/': {
+                    ...answered,
+                    provisioning_status: 'blocked',
+                },
             },
             post: {
                 '/api/organizations/:organization_id/oauth_applications/:id/review_note/': async ({ request }) => {
@@ -119,17 +142,36 @@ describe('oauthAppsLogic', () => {
                 },
             },
         })
+        const pageLogic = oauthApplicationLogic({ id: answered.id })
+        pageLogic.mount()
+        await expectLogic(pageLogic).toDispatchActions(['loadApplicationSuccess'])
+        pageLogic.actions.replaceApplication({ ...answered, registration: REGISTRATION })
         const noteLogic = oauthAppReviewNoteLogic({ appId: answered.id })
         noteLogic.mount()
 
         noteLogic.actions.setReviewNoteValue('note', 'We moved the document to our own domain.')
+        noteLogic.actions.openNotePreview()
+        expect(noteLogic.values.isNotePreviewOpen).toBe(true)
         await expectLogic(noteLogic, () => noteLogic.actions.submitReviewNote()).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(pageLogic).toFinishAllListeners()
 
         expect(sentNotes).toEqual([{ note: 'We moved the document to our own domain.' }])
+        expect(noteLogic.values.isNotePreviewOpen).toBe(false)
         expect(logic.values.oauthApps?.[1].provisioning_status).toEqual(status)
+        expect(pageLogic.values.application?.provisioning_status).toEqual(status)
         expect(noteLogic.values.reviewNoteManualErrors.note).toEqual(formError || undefined)
         expect(noteLogic.values.reviewNote.note).toEqual(formError ? 'We moved the document to our own domain.' : '')
+    })
+
+    it('does not preview an empty note', () => {
+        const noteLogic = oauthAppReviewNoteLogic({ appId: MOCK_APPS[1].id })
+        noteLogic.mount()
+
+        noteLogic.actions.openNotePreview()
+
+        expect(noteLogic.values.isNotePreviewOpen).toBe(false)
+        expect(noteLogic.values.reviewNoteErrors.note).toEqual('Write a note for PostHog staff')
     })
 
     it.each([
@@ -137,8 +179,11 @@ describe('oauthAppsLogic', () => {
         ['verification', 'verify our OAuth application', "Our product's website:"],
     ] as const)('opens a %s request that any plan can send', async (request, opening, prompt) => {
         supportLogic.mount()
+        const pageLogic = oauthApplicationLogic({ id: MOCK_APPS[1].id })
+        pageLogic.mount()
+        pageLogic.actions.replaceApplication({ ...MOCK_APPS[1], registration: REGISTRATION })
 
-        logic.actions.contactSupport(MOCK_APPS[1], request)
+        pageLogic.actions.contactSupport(request)
 
         const form = supportLogic.values.sendSupportRequest
         expect(form.oauth_app_request).toBe(true)

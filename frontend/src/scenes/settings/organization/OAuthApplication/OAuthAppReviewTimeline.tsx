@@ -2,7 +2,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { PartnerReviewEventApi } from '~/generated/core/api.schemas'
 
-import { reviewEventTitle } from './oauthAppProvisioningStatus'
+import { reviewEventTitle } from '../oauthAppProvisioningStatus'
 
 export function OAuthAppReviewTimeline({ events }: { events: readonly PartnerReviewEventApi[] }): JSX.Element {
     return (
