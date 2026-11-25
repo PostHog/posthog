@@ -392,14 +392,18 @@ function resentPathOf(sends: readonly Effect[], janitorResets: number): string |
     if (requests.length < 2 || byJob.has(undefined)) {
         return undefined
     }
-    const repeated = [...byJob.values()].some(({ length }) => length > 1)
-    if (!repeated) {
+    const repeated = [...byJob.values()].filter(({ length }) => length > 1).length
+    if (repeated === 0) {
         return `${byJob.size} jobs sent it: a replay before the queue`
     }
-    return byJob.size === 1
-        ? `one job sent it each time, and ${repeatOf(janitorResets)}`
-        : `${byJob.size} jobs sent it, one of them more than once: a replay before the queue, and ${repeatOf(janitorResets)}`
+    if (byJob.size === 1) {
+        return `one job sent it each time, and ${repeatOf(janitorResets)}`
+    }
+    const repeaters = repeated === 1 ? 'one of them' : `${repeated} of them`
+    return `${byJob.size} jobs sent it, ${repeaters} more than once: a replay before the queue, and ${repeatOf(janitorResets)}`
 }
+
+const requestsOf = (sends: readonly Effect[]): number => new Set(sends.map(({ request }) => request)).size
 
 type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
 
@@ -466,7 +470,8 @@ export const noLoss: InvariantDefinition = {
                     const byFlow = [...Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)]
                     const repeats = byFlow.reduce((sum, [, { length }]) => sum + length - 1, 0)
                     const excess = repeats + Math.max(0, byFlow.length - max)
-                    const resent = byFlow.find(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    const repeating = byFlow.filter(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    const resent = repeating.find(([, flowSends]) => requestsOf(flowSends) > 1) ?? repeating[0]
                     if (excess > 0) {
                         extra.push({
                             unitId,

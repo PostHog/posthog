@@ -705,6 +705,28 @@ describe('judge', () => {
             `${UNIT} email to ${ADDRESS} from flow-1: accepted 3 times, expected 1 (2 jobs sent it, one of them more than once: a replay before the queue, and the janitor reset no job: a retry inside the job)`,
         ],
         [
+            'by two jobs, both twice',
+            offered(),
+            sendsFrom(
+                ['flow-1', 'invocation-a'],
+                ['flow-1', 'invocation-a'],
+                ['flow-1', 'invocation-b'],
+                ['flow-1', 'invocation-b']
+            ),
+            0,
+            `${UNIT} email to ${ADDRESS} from flow-1: accepted 4 times, expected 1 (2 jobs sent it, 2 of them more than once: a replay before the queue, and the janitor reset no job: a retry inside the job)`,
+        ],
+        [
+            'from the flow that resent, not the flow whose one request copies the recipient',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            async () => {
+                await deliver(UNIT, 'email', 'flow-1', [ADDRESS], 'invocation-a')
+                await sendsFrom(['flow-2', 'invocation-b'], ['flow-2', 'invocation-c'])()
+            },
+            0,
+            `${UNIT} email to ${ADDRESS} from flow-2: accepted 2 times, expected 1 (2 jobs sent it: a replay before the queue)`,
+        ],
+        [
             'never, when one request copies the recipient',
             offered(),
             () => deliver(UNIT, 'email', 'flow-1', [ADDRESS]),
