@@ -49,6 +49,7 @@ export function QuillActionStepEventName({
                 placeholder="All events"
                 allEventsOption="explicit"
                 disabled={!!disabledReason}
+                fullWidth
             />
             {showMoveNotice && (
                 <Callout tone="warning">
@@ -69,14 +70,15 @@ export function QuillActionStepEventName({
                     )}
                 </Callout>
             )}
-            <Button
-                variant="link"
-                size="inline"
-                className="self-start"
-                render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
-            >
-                See documentation
-            </Button>
+            <div>
+                <Button
+                    variant="link"
+                    size="inline"
+                    render={<LinkPrimitive to="https://posthog.com/docs/libraries" target="_blank" />}
+                >
+                    See documentation
+                </Button>
+            </div>
         </Field>
     )
 }

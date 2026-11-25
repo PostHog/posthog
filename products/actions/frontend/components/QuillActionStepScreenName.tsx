@@ -63,7 +63,7 @@ export function QuillActionStepScreenName({
     }
 
     return (
-        <Field>
+        <Field className="gap-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <FieldLabel>Screen name</FieldLabel>
                 {operatorToggle}

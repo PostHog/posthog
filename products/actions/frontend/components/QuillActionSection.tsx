@@ -11,10 +11,10 @@ export function QuillActionSection({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <Collapsible defaultOpen className="rounded-md border border-border p-2">
+        <Collapsible defaultOpen className="rounded-md border border-border p-4">
             <CollapsibleHeader>
                 <CollapsibleTrigger iconOnly>{`Toggle ${title.toLowerCase()}`}</CollapsibleTrigger>
-                <div className="flex min-w-0 flex-col gap-0.5 py-1">
+                <div className="flex min-w-0 flex-col gap-0.5">
                     <Text size="sm" weight="semibold" render={<span className="m-0" />}>
                         {title}
                     </Text>
@@ -23,7 +23,7 @@ export function QuillActionSection({
                     </Text>
                 </div>
             </CollapsibleHeader>
-            <CollapsibleContent className="flex flex-col gap-2 p-2">{children}</CollapsibleContent>
+            <CollapsibleContent className="flex flex-col gap-2 pt-4">{children}</CollapsibleContent>
         </Collapsible>
     )
 }

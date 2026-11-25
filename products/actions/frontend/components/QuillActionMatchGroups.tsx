@@ -62,7 +62,7 @@ export function QuillActionMatchGroups({
                                 ))}
                                 <Button
                                     variant="outline"
-                                    className="h-full min-h-16 w-full"
+                                    className="h-full w-full"
                                     onClick={() => onChange([...(action.steps || []), DEFAULT_ACTION_STEP])}
                                     disabledReason={disabledReason}
                                 >
