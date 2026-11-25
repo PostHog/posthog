@@ -20,7 +20,14 @@ from products.warehouse_sources.sources.render.render import (
 )
 from products.warehouse_sources.sources.render.settings import RENDER_ENDPOINTS, RenderEndpointConfig
 from products.warehouse_sources.sources.render.source import RenderSource
-from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+)
 
 _FROZEN_NOW = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
 
@@ -490,6 +497,9 @@ class TestFetchPage:
         result = _run("owners", always(ScriptedResponse(status=status_code, json={"message": "unavailable"})))
 
         assert isinstance(result.raised, RenderRetryableError)
+        # `RenderSource.get_retryable_errors()` must keep matching the exception `_fetch_page` actually
+        # raises, so an exhausted 429/5xx stays a warning instead of reporting to error tracking.
+        assert error_message_matches(str(result.raised), RenderSource().get_retryable_errors())
 
     @parameterized.expand(
         [
