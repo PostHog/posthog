@@ -70,9 +70,11 @@ from products.experiments.backend.health.checks.srm import (
 )
 from products.experiments.backend.health.checks.zero_exposures import reads_exposed_without_test_account_filter
 from products.experiments.backend.health.context import (
+    BillingLimits,
     ExposureSegment,
     ExposureTotals,
     flag_calls_readable,
+    load_billing_limits,
     load_health_context,
 )
 from products.experiments.backend.health.exposure_gate import load_split_history
@@ -454,6 +456,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             restricted_properties=frozenset(restrictions),
         )
 
+    @cached_property
+    def _billing_limits(self) -> BillingLimits | None:
+        # A limit in force now says nothing about the run of an ended experiment, and no check reads a rule yet.
+        if not self.experiment.is_running or self._rule is not None:
+            return None
+        return load_billing_limits(self.team)
+
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
         if self._rule is not None:
             # The checks read the release conditions and the variants of a v1 flag, and none reads a rule yet.
@@ -466,6 +475,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             exposures,
             can_read_flag_history=self._can_read_flag_history(),
             can_read_flag_calls=reader_access is not None and flag_calls_readable(reader_access),
+            billing_limits=self._billing_limits,
         )
         if reads_flag_history(context) and reader_access is not None:
             context = replace(context, flag_history=load_split_history(self.experiment, reader_access=reader_access))
@@ -840,6 +850,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The test account filter finding asks the user to edit these filters, so an edit must not serve the old answer.
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
+        # The billing limit checks read the limits when the answer is computed, so a limit that starts, moves or lifts
+        # must not serve the answer computed before it.
+        limits = self._billing_limits
+        if limits is not None and limits.events_ends_at is not None:
+            payload["events_billing_limit_ends_at"] = limits.events_ends_at.isoformat()
+        if limits is not None and limits.feature_flags_ends_at is not None:
+            payload["feature_flags_billing_limit_ends_at"] = limits.feature_flags_ends_at.isoformat()
         return payload
 
 
