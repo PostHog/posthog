@@ -207,6 +207,7 @@ def _fork_description(**overrides):
         "source_task_id": None,
         "source_task_url": None,
         "replying_in_dm": True,
+        "requester": "<@U_MIRA|mira>",
     }
     return _build_fork_task_description(**{**kwargs, **overrides})
 
@@ -214,15 +215,22 @@ def _fork_description(**overrides):
 def test_fork_description_links_the_thread_and_the_fork_point_instead_of_copying_them():
     out = _fork_description()
     # Same tag as a mention's thread copy, so the task views fold it like one instead of showing raw markup.
-    assert out.startswith("<slack_thread_context>\n")
+    assert out.startswith("<slack_thread_context>\n<@U_MIRA|mira> forked a Slack thread")
     assert "\n</slack_thread_context>\n\nFork: the retry logic looks wrong\n" in out
-    # The Slack MCP reads a thread by channel and ts, so both must be there even next to the permalink.
     assert "Thread: https://slack.test/archives/C1/p1 (channel `C1`, thread ts `1.000`)." in out
     assert "Fork point: https://slack.test/archives/C1/p2 (message ts `2.000`). Continue from that message." in out
-    assert "Read the thread up to and including the fork point with the Slack MCP" in out
-    assert "a private DM with the requester" in out
-    assert "Never ping the people from the forked thread" in out
+    # The exact MCP call, with the fork point as the upper bound, so the agent reads up to there and no further.
+    assert '`slack_read_thread(channel_id="C1", message_ts="1.000", latest="2.000")`' in out
+    assert "Replies from the PostHog app in that thread are an earlier run's answers" in out
+    assert "a private DM with the requester, not in the forked thread. Only they read your reply" in out
+    assert "Never ping them" in out
     assert out.rstrip().endswith("ask the requester what to do next.")
+
+
+def test_fork_description_without_a_fork_point_reads_the_whole_thread():
+    out = _fork_description(source_message_ts=None, message_permalink=None)
+    assert "Fork point:" not in out
+    assert '`slack_read_thread(channel_id="C1", message_ts="1.000")`' in out
 
 
 @pytest.mark.parametrize(
