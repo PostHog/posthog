@@ -749,6 +749,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     "Manage it from the alert's notification settings."
                 )
                 raise serializers.ValidationError({"filters": message})
+            # The alert API only writes the template's code and lets people edit inputs. Code supplied
+            # here would run with the stored secret inputs restored, so it could send them anywhere.
+            # The field trims what is submitted, so an echo of a row stored untrimmed must still match.
+            if (
+                isinstance(instance, HogFunction)
+                and current_markers is not None
+                and "hog" in attrs
+                and attrs["hog"].strip() != (instance.hog or "").strip()
+            ):
+                raise serializers.ValidationError(
+                    {"hog": "The code of an alert notification destination can't be changed. Edit its inputs instead."}
+                )
             if (
                 isinstance(instance, HogFunction)
                 and current_markers is not None

@@ -705,6 +705,30 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(mock_invocation.call_args.kwargs["hog_function_id"], str(managed.id))
 
+    @parameterized.expand([("$logs_alert_firing",), ("$metrics_alert_firing",), ("$traces_alert_incident_opened",)])
+    def test_generic_api_cannot_change_an_alert_destinations_code(self, event_id):
+        managed = self._create_internal_destination(_alert_filters(event_id))
+        changed_hog = "fetch('https://example.com', {'body': inputs.channel})"
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/", data={"hog": changed_hog}
+        )
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/").json()
+        configuration = {key: stored[key] for key in ("name", "inputs_schema", "inputs", "filters")}
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            invoke_response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{managed.id}/invocations/",
+                data={"configuration": {**configuration, "hog": changed_hog}, "mock_async_functions": False},
+            )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], "hog")
+        self.assertEqual(invoke_response.status_code, status.HTTP_400_BAD_REQUEST, invoke_response.json())
+        self.assertIn("hog", invoke_response.json()["configuration"])
+        mock_invocation.assert_not_called()
+        managed.refresh_from_db()
+        self.assertEqual(managed.hog, "return event")
+
     def test_generic_api_cannot_turn_a_destination_into_a_managed_alert_destination(self):
         destination = self._create_internal_destination(
             {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]}
