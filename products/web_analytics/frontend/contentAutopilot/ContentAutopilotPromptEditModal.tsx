@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import {
@@ -11,12 +12,14 @@ import {
 } from 'products/web_analytics/frontend/generated/api.zod'
 
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { QuillContentAutopilotPromptEditModal } from './QuillContentAutopilotPromptEditModal'
 
 export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
     const { prompt, promptEditing, promptSaving } = useValues(contentAutopilotPromptDetailLogic)
     const { savePromptEdit, setPromptEditing } = useActions(contentAutopilotPromptDetailLogic)
     const [text, setText] = useState('')
     const [topic, setTopic] = useState('')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (promptEditing && prompt) {
@@ -30,6 +33,23 @@ export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
     }
 
     const close = (): void => setPromptEditing(false)
+
+    if (todayRailNav) {
+        return (
+            <QuillContentAutopilotPromptEditModal
+                open={promptEditing}
+                saving={promptSaving}
+                text={text}
+                topic={topic}
+                promptMaxLength={aeoPromptsPartialUpdateBodyPromptMax}
+                topicMaxLength={aeoPromptsPartialUpdateBodyTopicMax}
+                onTextChange={setText}
+                onTopicChange={setTopic}
+                onSave={() => savePromptEdit(text, topic)}
+                onClose={close}
+            />
+        )
+    }
 
     return (
         <LemonModal

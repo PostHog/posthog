@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { pluralize } from 'lib/utils/strings'
 
@@ -12,6 +13,7 @@ import {
 } from 'products/web_analytics/frontend/generated/api.zod'
 
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { QuillContentAutopilotPromptAddModal } from './QuillContentAutopilotPromptAddModal'
 import { promptLines } from './utils'
 
 export const ContentAutopilotPromptAddModal = (): JSX.Element => {
@@ -19,6 +21,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
     const { addPrompts, closeAddPrompts } = useActions(contentAutopilotPromptsLogic)
     const [text, setText] = useState('')
     const [topic, setTopic] = useState('')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (!addPromptsOpen) {
@@ -34,6 +37,25 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
             : count > aeoPromptsBulkImportBodyPromptsMax
               ? `Add up to ${aeoPromptsBulkImportBodyPromptsMax} prompts at a time`
               : undefined
+    const submitLabel = count > 0 ? `Add ${pluralize(count, 'prompt')}` : 'Add prompts'
+
+    if (todayRailNav) {
+        return (
+            <QuillContentAutopilotPromptAddModal
+                open={addPromptsOpen}
+                submitting={addPromptsSubmitting}
+                text={text}
+                topic={topic}
+                topicMaxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
+                submitLabel={submitLabel}
+                disabledReason={disabledReason}
+                onTextChange={setText}
+                onTopicChange={setTopic}
+                onSubmit={() => addPrompts(text, topic)}
+                onClose={closeAddPrompts}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -58,7 +80,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
                         disabledReason={disabledReason}
                         data-attr="content-autopilot-prompts-add-submit"
                     >
-                        {count > 0 ? `Add ${pluralize(count, 'prompt')}` : 'Add prompts'}
+                        {submitLabel}
                     </LemonButton>
                 </>
             }

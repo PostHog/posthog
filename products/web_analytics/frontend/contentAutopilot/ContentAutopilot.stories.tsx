@@ -10,6 +10,7 @@ import type { AEOKeywordApi, ContentAutopilotSiteProfileApi } from '../generated
 import { ContentAutopilot } from './ContentAutopilot'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
@@ -318,3 +319,27 @@ export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
 )
 CitationsOfASearch.decorators = OverviewTab.decorators
 CitationsOfASearch.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const CitationsOfYourPageQuill: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="rankings" lookup={OWN_PAGE} />
+)
+CitationsOfYourPageQuill.decorators = OverviewTab.decorators
+CitationsOfYourPageQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS, testOptions: { snapshotBrowsers: [] } }
+
+const KeywordsEditorStory = (): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
+    useEffect(() => {
+        setWorkspaceTab('keywords')
+        openKeywordsModal()
+    }, [setWorkspaceTab, openKeywordsModal])
+    return (
+        <div className="p-6" data-quill>
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const KeywordsEditorQuill: StoryFn<typeof ContentAutopilot> = () => <KeywordsEditorStory />
+KeywordsEditorQuill.decorators = KeywordsTab.decorators
+KeywordsEditorQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
