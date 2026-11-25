@@ -162,3 +162,34 @@ export function refreshModeChange(
         incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
     return { structuralChange, refreshModeChanged: structuralChange || lookbackChanged }
 }
+
+export const MATERIALIZATION_RUNNING_REASON = 'Materialization is currently running'
+
+export const CADENCE_CHANGE_DURING_RUN_NOTE =
+    "If this run hasn't finished when the new cadence next runs, it's canceled and starts again."
+
+export interface MaterializedSettingsReasons {
+    frequencyReason: string | undefined
+    refreshModeReason: string | undefined
+    cadenceNote: string | undefined
+}
+
+export function materializedSettingsReasons({
+    running,
+    startingMaterialization,
+    blockedReason,
+    hasCadenceDraft,
+}: {
+    running: boolean
+    startingMaterialization: boolean
+    blockedReason: string | undefined
+    hasCadenceDraft: boolean
+}): MaterializedSettingsReasons {
+    // A refresh mode change can rebuild the table, so it waits for the run to end. A cadence change only edits the schedule.
+    const frequencyReason = (startingMaterialization ? 'Materialization is starting' : undefined) || blockedReason
+    return {
+        frequencyReason,
+        refreshModeReason: running ? MATERIALIZATION_RUNNING_REASON : frequencyReason,
+        cadenceNote: running && hasCadenceDraft ? CADENCE_CHANGE_DURING_RUN_NOTE : undefined,
+    }
+}

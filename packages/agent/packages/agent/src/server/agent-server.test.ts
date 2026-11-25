@@ -466,7 +466,7 @@ it("links gateway requests to the run span exported after session shutdown", asy
     });
   const mswServer = setupServer(
     ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
-    http.get("https://gateway.us.posthog.com/*", () =>
+    http.get("http://llm-gateway.internal:8080/*", () =>
       HttpResponse.json({ data: [] }),
     ),
   );
@@ -490,7 +490,6 @@ it("links gateway requests to the run span exported after session shutdown", asy
   try {
     vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
     for (const key of [
-      "LLM_GATEWAY_URL",
       "AI_GATEWAY_URL",
       "POSTHOG_API_KEY",
       "POSTHOG_API_URL",
@@ -4444,6 +4443,7 @@ describe("AgentServer HTTP Mode", () => {
     it.each(["token", "no_token", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
+        vi.stubEnv("LLM_GATEWAY_URL", undefined);
         const s = createServer({ claudeModelAccess: "own-subscription" });
         const { app } = s as unknown as {
           app: { fetch(request: Request): Promise<Response> | Response };

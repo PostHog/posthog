@@ -34,9 +34,10 @@ function openRows(value: unknown, depth: number, budget: number, groupsArrays: b
 export interface JsonTreeProps {
     src: JsonContainer
     highlightQuery?: string | null
+    collapseStringsAfterLength?: number
 }
 
-export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Element {
+export function JsonTree({ src, highlightQuery = null, collapseStringsAfterLength }: JsonTreeProps): JSX.Element {
     const showsQuery = useMemo(() => containsQuery(src, highlightQuery), [src, highlightQuery])
     const isTooBig = useMemo(
         () =>
@@ -57,6 +58,7 @@ export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Ele
                 src={src}
                 collapsed={showsQuery ? SEARCH_OPEN_DEPTH : OPEN_DEPTH}
                 escapeStrings={false}
+                collapseStringsAfterLength={collapseStringsAfterLength}
                 {...searchProps}
             />
         </div>

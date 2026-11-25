@@ -107,6 +107,48 @@ describe('http surface', () => {
             expect(res.status).toBe(503)
         })
 
+        // A reload can land while the signature is checked. The request must answer from the
+        // secrets held when the verifier read the keys, not from the secrets that reload brought.
+        it('answers from the secrets held when verification started', async () => {
+            let current: MountedSecrets = MOUNTED
+            let entered!: () => void
+            let release!: () => void
+            const verifying = new Promise<void>((resolve) => {
+                entered = resolve
+            })
+            const gate = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            const app = createApp({
+                verifier: {
+                    verify: async () => {
+                        entered()
+                        await gate
+                        return {
+                            deployment: DEPLOYMENT,
+                            caller: 'warehouse-sources',
+                            requestedKeys: [KEY],
+                            allowedKeys: null,
+                        }
+                    },
+                } as unknown as JwtVerifier,
+                lifecycle: { shuttingDown: false, ready: true },
+                secrets: () => current,
+            })
+
+            const pending = app.request(await authed('a-token'))
+            await verifying
+            current = {
+                ...MOUNTED,
+                secrets: { [KEY]: { state: 'steady', value: 'rotated-value', versionId: 'v2', fetchedAt: 'now' } },
+            }
+            release()
+
+            await expect((await pending).json()).resolves.toMatchObject({
+                secrets: { [KEY]: { value: 'hunter2-zx9q' } },
+            })
+        })
+
         it('never returns a secret value on a rejected request', async () => {
             const res = await build().app.request(await authed('not-a-jwt'))
             expect(await res.text()).not.toContain('hunter2-zx9q')

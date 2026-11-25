@@ -19,15 +19,15 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.feature_flags.backend.facade.request_blocklist import (
-    MAX_BLOCKED_HOSTS,
-    MAX_BLOCKED_IPS,
-    MAX_BLOCKLIST_INPUT_ENTRIES,
-    MIN_BLOCKED_IPV4_PREFIX,
-    MIN_BLOCKED_IPV6_PREFIX,
-    BlocklistEntryError,
-    normalize_blocked_hosts,
-    normalize_blocked_ips,
+from products.feature_flags.backend.facade.request_lists import (
+    MAX_LISTED_HOSTS,
+    MAX_LISTED_IPS,
+    MAX_REQUEST_LIST_INPUT_ENTRIES,
+    MIN_LISTED_IPV4_PREFIX,
+    MIN_LISTED_IPV6_PREFIX,
+    RequestListEntryError,
+    normalize_listed_hosts,
+    normalize_listed_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.replay_vision.backend.facade.workflow_scan_limits import (
@@ -485,13 +485,13 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
     )
 
     # allow_blank lets a client send a list split from pasted lines, because the normalizers drop blank entries.
-    # The normalizers own the MAX_BLOCKED_* caps, because they count entries after dropping blanks and duplicates.
+    # The normalizers own the MAX_LISTED_* caps, because they count entries after dropping blanks and duplicates.
     blocked_hosts = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_BLOCKED_HOSTS}. "
+            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
             "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
             "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
             "reduced to its domain, and an internationalized domain is stored as punycode."
@@ -499,12 +499,12 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
     )
     blocked_ips = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
             f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
-            f"up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for IPv4 and "
-            f"/{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
+            f"up to {MAX_LISTED_IPS}. Ranges can be /{MIN_LISTED_IPV4_PREFIX} or narrower for IPv4 and "
+            f"/{MIN_LISTED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
             "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
         ),
     )
@@ -515,14 +515,14 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
     def validate_blocked_hosts(self, value: list[str]) -> list[str]:
         try:
-            return normalize_blocked_hosts(value)
-        except BlocklistEntryError as error:
+            return normalize_listed_hosts(value)
+        except RequestListEntryError as error:
             raise serializers.ValidationError(str(error))
 
     def validate_blocked_ips(self, value: list[str]) -> list[str]:
         try:
-            return normalize_blocked_ips(value)
-        except BlocklistEntryError as error:
+            return normalize_listed_ips(value)
+        except RequestListEntryError as error:
             raise serializers.ValidationError(str(error))
 
 

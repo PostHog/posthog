@@ -37,7 +37,10 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonitorPRRequestApi,
+    MonitorPRResponseApi,
     MonthlyUsageApi,
+    PRBrowserPageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -465,6 +468,26 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     })
 }
 
+export const getSignalsMonitorPrCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/monitor_pr/`
+}
+
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreate = async (
+    projectId: string,
+    monitorPRRequestApi: MonitorPRRequestApi,
+    options?: RequestInit
+): Promise<MonitorPRResponseApi> => {
+    return apiMutator<MonitorPRResponseApi>(getSignalsMonitorPrCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(monitorPRRequestApi),
+    })
+}
+
 export const getSignalsOnboardingListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/onboarding/`
 }
@@ -594,6 +617,20 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsPullRequestsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/pull_requests/`
+}
+
+/**
+ * @summary List recent authored pull requests
+ */
+export const signalsPullRequestsList = async (projectId: string, options?: RequestInit): Promise<PRBrowserPageApi> => {
+    return apiMutator<PRBrowserPageApi>(getSignalsPullRequestsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
