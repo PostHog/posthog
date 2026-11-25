@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -513,6 +514,34 @@ describe('messageTemplateLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(patches).toEqual([{ tags: ['old', 'a', 'b'] }])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+        })
+
+        it('sends the next tags only after the save before them answers', async () => {
+            const mocks = tagMocks(200)
+            const answers: (() => void)[] = []
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        await new Promise<void>((resolve) => answers.push(resolve))
+                        return [200, { id: 'existing-id', name: 'A', ...body }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(answers).toHaveLength(1))
+            logic.actions.saveTags(['old', 'a', 'b'])
+            await expectLogic(logic).delay(400)
+            expect(patches).toEqual([{ tags: ['old', 'a'] }])
+
+            answers[0]()
+            await waitFor(() => expect(answers).toHaveLength(2))
+            answers[1]()
+            await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
         })
 

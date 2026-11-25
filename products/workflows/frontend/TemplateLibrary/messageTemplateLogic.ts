@@ -846,11 +846,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // several writes in flight at once, and the one that lands last wins rather than the latest
             // selection. The wait collapses the burst into a single write.
             await breakpoint(300)
+            // One write at a time, so an older one can't land last.
+            await cache.tagsWrite?.catch(() => {})
+            breakpoint()
             // Tags are metadata: they apply live and must not publish a transactional template's draft,
             // which a full form save would.
             let updated: MessageTemplate
             try {
-                updated = await api.messaging.updateTemplate(props.id, { tags })
+                cache.tagsWrite = api.messaging.updateTemplate(props.id, { tags })
+                updated = await cache.tagsWrite
             } catch (error: any) {
                 // A newer save replaced this one, so its tags stay on screen.
                 breakpoint()

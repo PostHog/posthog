@@ -100,6 +100,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isDiscardingDraft,
         isSavingSensitive,
         isTransactional,
+        section,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -140,8 +141,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
-    // False until the saved template loads, because its type is unknown and its tags look empty until then.
-    const isLibraryTemplate = props.id === 'new' || (originalTemplate.id === props.id && !isTransactional)
+    const isLoaded = props.id === 'new' || originalTemplate.id === props.id
+    // Only the saved template tells its type, so until it loads the page takes the one its section mostly holds.
+    const isLibraryTemplate = isLoaded ? !isTransactional : section !== 'transactional'
+    // Tags look empty until the saved ones load, so editing them earlier would replace those.
+    const canEditTags = !editDisabledReason && isLoaded
     const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
@@ -320,6 +324,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         editDisabledReason={editDisabledReason}
                         saveDisabledReason={saveDisabledReason}
                         sendTestDisabledReason={sendTestDisabledReason}
+                        canEditTags={canEditTags}
                     />
                 )}
                 <SceneTitleSection
@@ -498,7 +503,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     <SceneTags
                         tags={[...(template.tags ?? [])]}
                         onSave={saveTags}
-                        canEdit={!editDisabledReason}
+                        canEdit={canEditTags}
                         loading={isTemplateSubmitting}
                         dataAttrKey="message-template"
                     />

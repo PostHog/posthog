@@ -21,12 +21,14 @@ type MessageTemplateSceneMenuBarProps = MessageTemplateSceneLogicProps & {
     editDisabledReason?: string
     saveDisabledReason?: string
     sendTestDisabledReason?: string
+    canEditTags: boolean
 }
 
 export function MessageTemplateSceneMenuBar({
     editDisabledReason,
     saveDisabledReason,
     sendTestDisabledReason,
+    canEditTags,
     ...props
 }: MessageTemplateSceneMenuBarProps): JSX.Element {
     const { template, originalTemplate, templateChanged, isTemplateSubmitting, templateLoading } = useValues(
@@ -119,7 +121,7 @@ export function MessageTemplateSceneMenuBar({
                 <SceneTagsCombobox
                     tags={[...(template.tags ?? [])]}
                     onSave={saveTags}
-                    canEdit={!editDisabledReason}
+                    canEdit={canEditTags}
                     loading={isTemplateSubmitting}
                     dataAttrKey="message-template"
                 />

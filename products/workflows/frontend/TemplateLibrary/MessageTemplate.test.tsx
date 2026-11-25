@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -265,9 +265,16 @@ describe('MessageTemplate', () => {
     })
 
     it.each([
-        ['a library template', true, ORDER_RECEIPT],
-        ['a transactional template', false, PASSWORD_RESET_WITH_DRAFT],
-    ])('gives %s a scene menu bar once it loads: %s', async (_, shown, template) => {
+        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, 'menu', 'menu'],
+        ['a transactional email', urls.transactionalTemplate(TEMPLATE_ID), PASSWORD_RESET_WITH_DRAFT, 'row', 'row'],
+        [
+            'a transactional email under workflows',
+            urls.workflowsLibraryTemplate(TEMPLATE_ID),
+            PASSWORD_RESET_WITH_DRAFT,
+            'menu',
+            'row',
+        ],
+    ])('places the tags of %s while it loads and after', async (_, url, template, whileLoading, loadedPlace) => {
         let answer: () => void = () => {}
         const loaded = new Promise<void>((resolve) => (answer = resolve))
         useMocks({
@@ -278,13 +285,31 @@ describe('MessageTemplate', () => {
                 },
             },
         })
-        const rendered = renderAs(AccessControlLevel.Editor, template.name, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true })
-        expect(await screen.findByText('Send test')).toBeInTheDocument()
+        const tagsPlace = (): string =>
+            [
+                document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
+                document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
+            ]
+                .filter(Boolean)
+                .join()
+        const rendered = renderAs(AccessControlLevel.Editor, template.name, {
+            [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+        })
+        act(() => router.actions.push(url))
+        await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
         // Tags edited before the saved ones arrive would replace them.
-        expect(screen.queryByText('Metadata')).not.toBeInTheDocument()
+        if (whileLoading === 'row') {
+            expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
+        } else {
+            fireEvent.click(screen.getByText('Metadata'))
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
+            )
+            expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
+        }
 
         answer()
         await rendered
-        await waitFor(() => expect(screen.queryAllByText('Metadata')).toHaveLength(shown ? 1 : 0))
+        await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
     })
 })
