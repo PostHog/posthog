@@ -15,11 +15,12 @@ A cymbal version that does not know the header answers with the array described 
 | `ok` | The event was processed. `value` is the same `AnyEvent` shape with updated `properties`. |
 | `drop` | The normal cymbal pipeline dropped the event. `reason` is `suppressed`, `suppressed_by_rule`, `rate_limited_per_issue`, or `rate_limited_project`. |
 | `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The resolution service can also report an item as poison, but does not yet. The code is `invalid_input`. |
+| `retry` | The resolution pool did not resolve the event, but resolved another event of the request. The code is `deadline_exceeded` when the resolution deadline passed, and `resolution_unavailable` when every attempt on a resolution pod failed. |
 
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
-Cymbal does not answer `retry`.
-A failure that can come from a dependency, such as a database, Kafka, or resolution-pool error, fails the whole request with a 500, as the contract requires.
+When the resolution pool resolves no event of the request, the request fails with a 500 and no event answers `retry`.
+Any other failure that can come from a dependency, such as a database or Kafka error, also fails the whole request with a 500, as the contract requires.
 
 ## `/process` request and response
 
@@ -29,7 +30,7 @@ Without the header, `/process` answers with the contract the Node.js error-track
 - Cymbal returns an array with the same length and ordering as the request.
 - Each non-null response entry is the same `AnyEvent` shape with updated `properties`.
 - `null` entries mean the event was suppressed by the normal cymbal pipeline.
-- A slot has no way to report a failed event, so one failed event fails the whole request with a 500, and one malformed event rejects the whole body with a 422.
+- A slot has no way to report a failed event, so one failed or unresolved event fails the whole request with a 500, and one malformed event rejects the whole body with a 422.
 - Remote resolution only changes how cymbal fills the exception list before properties, grouping, linking, suppression, and alerting continue.
 
 ## Node-side chunking

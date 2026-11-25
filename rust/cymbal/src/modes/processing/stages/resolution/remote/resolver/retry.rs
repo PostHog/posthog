@@ -13,6 +13,7 @@ use tokio::sync::OwnedSemaphorePermit;
 // state changes (stream broke, endpoint ejected) stay at warn in the pool/mux.
 use tracing::{debug, warn};
 
+use common_ingestion_response::codes;
 use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOutcome};
 use tonic::Status;
 
@@ -28,6 +29,9 @@ use uuid::Uuid;
 use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
+
+/// A `retry` code of the response contract, for an item that no resolution pod completed.
+const RESOLUTION_UNAVAILABLE: &str = "resolution_unavailable";
 
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
@@ -212,12 +216,15 @@ pub(super) async fn resolve_work_item(
 
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
     record_reroute_depth("exhausted", attempts_used);
-    Err(UnhandledError::Other(format!(
-        "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
-        work_item.token,
-        max_attempts,
-        last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    Err(UnhandledError::ResolutionIncomplete {
+        code: RESOLUTION_UNAVAILABLE,
+        message: format!(
+            "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
+            work_item.token,
+            max_attempts,
+            last_error.unwrap_or_else(|| "no recorded cause".to_string()),
+        ),
+    })
 }
 
 async fn wait_for_terminal_or_acceptance(
@@ -395,10 +402,9 @@ async fn acquire_routing_permit(
 fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {
     deadline
         .checked_duration_since(Instant::now())
-        .ok_or_else(|| {
-            UnhandledError::Other(
-                "remote resolution item deadline elapsed before completion".to_string(),
-            )
+        .ok_or_else(|| UnhandledError::ResolutionIncomplete {
+            code: codes::DEADLINE_EXCEEDED,
+            message: "remote resolution item deadline elapsed before completion".to_string(),
         })
 }
 

@@ -102,7 +102,9 @@ fn first_failure(batch: &Batch<ProcessOutcome>) -> Option<(usize, String)> {
         .inner_ref()
         .iter()
         .filter_map(|outcome| match outcome {
-            ProcessOutcome::Failed { message, .. } => Some(message),
+            ProcessOutcome::Failed { message, .. } | ProcessOutcome::Retry { message, .. } => {
+                Some(message)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -127,7 +129,9 @@ pub async fn process_events(
             .map(
                 |outcome, ()| match outcome {
                     ProcessOutcome::Ok(event) => Some(event),
-                    ProcessOutcome::Dropped(_) | ProcessOutcome::Failed { .. } => None,
+                    ProcessOutcome::Dropped(_)
+                    | ProcessOutcome::Failed { .. }
+                    | ProcessOutcome::Retry { .. } => None,
                 },
                 &mut (),
             )
@@ -179,6 +183,7 @@ fn to_item_result(outcome: ProcessOutcome) -> ItemResult<AnyEvent> {
         },
         ProcessOutcome::Dropped(reason) => ItemResult::drop(reason),
         ProcessOutcome::Failed { code, message } => ItemResult::fail(code, message),
+        ProcessOutcome::Retry { code, message } => ItemResult::retry(code, message),
     }
 }
 

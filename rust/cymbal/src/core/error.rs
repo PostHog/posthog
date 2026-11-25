@@ -57,14 +57,19 @@ pub enum UnhandledError {
     RedisError(#[from] CustomRedisError),
     #[error("Poison item: {0}")]
     Poison(String),
+    #[error("Resolution incomplete ({code}): {message}")]
+    ResolutionIncomplete { code: &'static str, message: String },
     #[error("Unhandled error: {0}")]
     Other(String),
 }
 
 impl UnhandledError {
-    /// True when the event's own data caused the failure, and not a dependency.
+    /// True when the failure stays with its event and does not fail the batch.
     pub fn is_item_failure(&self) -> bool {
-        matches!(self, Self::Poison(_) | Self::SerdeError(_))
+        matches!(
+            self,
+            Self::Poison(_) | Self::SerdeError(_) | Self::ResolutionIncomplete { .. }
+        )
     }
 }
 
@@ -249,7 +254,12 @@ pub enum EventError {
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
     #[error("Processing failed ({code}): {message}")]
-    ProcessingFailed { code: &'static str, message: String },
+    ProcessingFailed {
+        code: &'static str,
+        message: String,
+        /// True when the same event can succeed later, so the caller may send it again.
+        retriable: bool,
+    },
 }
 
 /// A failure that can come from a dependency still fails the batch, as the response contract requires.
@@ -262,9 +272,14 @@ pub fn contain_failure<T>(
         Err(err) if err.is_item_failure() => {
             metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => operator).increment(1);
             tracing::warn!(operator, error = %err, "event processing failed");
+            let (code, retriable) = match &err {
+                UnhandledError::ResolutionIncomplete { code, .. } => (*code, true),
+                _ => (codes::INVALID_INPUT, false),
+            };
             Ok(Err(EventError::ProcessingFailed {
-                code: codes::INVALID_INPUT,
+                code,
                 message: err.to_string(),
+                retriable,
             }))
         }
         Err(err) => Err(err),

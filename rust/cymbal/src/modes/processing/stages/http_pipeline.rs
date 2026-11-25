@@ -87,16 +87,20 @@ fn handle_result(
         Err(EventError::RateLimitedProject(_)) => {
             return Ok(ProcessOutcome::Dropped("rate_limited_project"))
         }
-        Err(EventError::ProcessingFailed { code, message }) => {
-            return Ok(ProcessOutcome::Failed { code, message })
-        }
+        Err(EventError::ProcessingFailed {
+            code,
+            message,
+            retriable,
+        }) => return Ok(ProcessOutcome::unprocessed(code, message, retriable)),
         Err(err) => original.attach_error(err.to_string()),
     };
     Ok(match contain_failure(POST_PROCESSING_STAGE, attached)? {
         Ok(()) => ProcessOutcome::Ok(original),
-        Err(EventError::ProcessingFailed { code, message }) => {
-            ProcessOutcome::Failed { code, message }
-        }
+        Err(EventError::ProcessingFailed {
+            code,
+            message,
+            retriable,
+        }) => ProcessOutcome::unprocessed(code, message, retriable),
         Err(err) => ProcessOutcome::Failed {
             code: codes::INVALID_INPUT,
             message: err.to_string(),

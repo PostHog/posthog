@@ -934,18 +934,25 @@ fn use_resolution_stub(addr: std::net::SocketAddr) -> impl FnOnce(&mut Processin
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Poison, "fail", "invalid_input").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn unresolved_event_asks_for_a_retry_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    assert_one_event_ends_alone(db, ErrorKind::Overloaded, "retry", "resolution_unavailable").await;
+}
+
+async fn assert_one_event_ends_alone(db: PgPool, kind: ErrorKind, result: &str, code: &str) {
     let harness = TestHarness::new(db);
     let events = vec![
         load_static_event("javascript_chunk_id"),
         load_static_event("javascript_chunk_id_2"),
     ];
     let uuids = events.iter().map(|event| event.uuid).collect::<Vec<_>>();
-    let poison_after_first = || common::ServerBehavior::ErrorAfterFirst {
-        kind: ErrorKind::Poison,
-    };
+    let error_after_first = || common::ServerBehavior::ErrorAfterFirst { kind };
 
     // A caller without item results retries the whole batch, so no issue may exist after the 500.
-    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
     let (status, _) = harness
         .post_body(false, json!(events), use_resolution_stub(addr))
         .await;
@@ -956,7 +963,7 @@ async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: 
         .unwrap();
     assert_eq!(issues, 0);
 
-    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
+    let (addr, _) = common::spawn_stub_server(error_after_first()).await;
     let (status, body) = harness
         .post_body(true, json!(events), use_resolution_stub(addr))
         .await;
@@ -967,13 +974,15 @@ async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: 
     for (slot, uuid) in body["results"].as_array().unwrap().iter().zip(&uuids) {
         match slot["result"].as_str() {
             Some("ok") => assert_eq!(slot["value"]["uuid"], json!(uuid)),
-            Some("fail") => assert_eq!(slot["error"]["code"], json!("invalid_input")),
+            Some(other) if other == result => assert_eq!(slot["error"]["code"], json!(code)),
             other => panic!("unexpected result {other:?}: {slot}"),
         }
         results.push(slot["result"].as_str().unwrap().to_string());
     }
     results.sort();
-    assert_eq!(results, ["fail", "ok"]);
+    let mut expected = vec!["ok", result];
+    expected.sort();
+    assert_eq!(results, expected);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

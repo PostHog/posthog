@@ -210,7 +210,13 @@ async fn resolve_remote_events(
                 let Some(event_slot) = event_slots.get_mut(failed_event_slot) else {
                     return Err(err);
                 };
-                event_slot.failure.get_or_insert(err);
+                // A failure that a retry cannot clear decides the event's result.
+                match &event_slot.failure {
+                    Some(UnhandledError::ResolutionIncomplete { .. }) | None => {
+                        event_slot.failure = Some(err)
+                    }
+                    Some(_) => {}
+                }
                 continue;
             }
             Err(err) => return Err(err),
@@ -247,6 +253,20 @@ async fn resolve_remote_events(
                 item.event_slot, item.exception_slot
             )));
         }
+    }
+
+    // When no event resolved, the pool is the cause, so the request fails and the caller
+    // retries the batch instead of each event answering `retry`.
+    if event_slots.iter().all(|event| {
+        matches!(
+            event.failure,
+            Some(UnhandledError::ResolutionIncomplete { .. })
+        )
+    }) {
+        if let Some(failure) = event_slots.into_iter().find_map(|event| event.failure) {
+            return Err(failure);
+        }
+        return Ok(Vec::new());
     }
 
     event_slots
