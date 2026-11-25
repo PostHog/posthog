@@ -1137,29 +1137,44 @@ class _FeaturePropertyFinder(SyntaxVisitor):
         self.scan = scan
         self.root = root
         self.found: str | None = None
+        self.aliases = dict(select_aliases(root, in_scope_only=True))
+        # The parameter names of the lambdas around the node being visited.
+        self.parameters: list[str] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:
             super().visit_select_query(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
-        # A parameter named `properties` hides the column inside the lambda body.
-        if "properties" not in node.args:
-            super().visit_lambda(node)
+        self.parameters.extend(node.args)
+        super().visit_lambda(node)
+        del self.parameters[len(self.parameters) - len(node.args) :]
+
+    def _column(self, expr: ast.Expr, followed: frozenset[str] = frozenset()) -> list[str | int] | None:
+        """The chain below the scan that `expr` reads, following select aliases to the column they name. A lambda
+        parameter hides the name it shares, such as `properties`, but not a qualified read like `e.properties`."""
+        if isinstance(expr, ast.Field) and expr.chain and expr.chain[0] in self.parameters:
+            return None
+        column = self.scan.column(expr)
+        if column and column[0] in self.aliases and column[0] not in followed:
+            source = self._column(self.aliases[str(column[0])], followed | {str(column[0])})
+            if source is not None:
+                return [*source, *column[1:]]
+        return column
 
     def visit_field(self, node: ast.Field) -> None:
-        column = self.scan.column(node)
+        column = self._column(node)
         if column is not None and len(column) > 1 and column[0] == "properties":
             self._note(column[1])
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
-        if self.scan.column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
+        if self._column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
             self._note(node.property.value)
         super().visit_array_access(node)
 
     def visit_call(self, node: ast.Call) -> None:
         if node.name.startswith("JSONExtract") and len(node.args) >= 2:
-            if self.scan.column(node.args[0]) == ["properties"] and isinstance(node.args[1], ast.Constant):
+            if self._column(node.args[0]) == ["properties"] and isinstance(node.args[1], ast.Constant):
                 self._note(node.args[1].value)
         super().visit_call(node)
 

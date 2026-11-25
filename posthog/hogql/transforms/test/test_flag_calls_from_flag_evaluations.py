@@ -730,9 +730,36 @@ class TestFlagCallMemoryCap(BaseTest):
                 False,
             ),
             ("lambda_parameter_with_another_name", "arrayExists(p -> p['$feature/new-checkout'] = 1, [map()])", False),
+            (
+                "qualified_read_inside_a_lambda_that_names_properties",
+                "arrayExists(properties -> e.properties.`$feature/new-checkout` = 'true', [1])",
+                True,
+            ),
+            ("read_through_a_select_alias", "p.`$feature/new-checkout` = 'true'", True, "properties AS p"),
+            ("subscript_through_a_select_alias", "p['$feature/new-checkout'] = 'true'", True, "properties AS p"),
+            (
+                "json_extract_through_a_select_alias",
+                "JSONExtractString(p, '$feature/new-checkout') = 'true'",
+                True,
+                "properties AS p",
+            ),
+            (
+                "read_through_an_alias_of_an_alias",
+                "q.`$feature/new-checkout` = 'true'",
+                True,
+                "properties AS p, p AS q",
+            ),
+            (
+                "alias_of_another_expression",
+                "JSONExtractString(p, '$feature/new-checkout') = 'true'",
+                False,
+                "toString(properties) AS p",
+            ),
         ]
     )
-    def test_caps_memory_only_when_the_scan_reads_a_feature_property(self, _name: str, predicate: str, expected: bool):
+    def test_caps_memory_only_when_the_scan_reads_a_feature_property(
+        self, _name: str, predicate: str, expected: bool, select: str = ""
+    ):
         database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
         database._read_flag_calls_from_flag_evaluations = True
         database._flag_calls_only_in_flag_evaluations = True
@@ -741,7 +768,10 @@ class TestFlagCallMemoryCap(BaseTest):
         )
 
         swap_flag_calls(
-            parse_select(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {predicate}"),
+            parse_select(
+                f"SELECT count(){', ' + select if select else ''} FROM events AS e "
+                f"WHERE e.event = '$feature_flag_called' AND {predicate}"
+            ),
             context,
             lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
         )
