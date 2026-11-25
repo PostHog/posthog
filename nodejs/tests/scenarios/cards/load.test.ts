@@ -245,7 +245,7 @@ describe('load', () => {
         [
             'edge_accepted on a valve that does not stop the email worker',
             { ...card, valves: [{ ...emailWorkerKill, target: 'cdp-api', when: edgeAccepted }] },
-            undefined,
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
             "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.freeze on cdp-cyclotron-worker-email",
         ],
         [
