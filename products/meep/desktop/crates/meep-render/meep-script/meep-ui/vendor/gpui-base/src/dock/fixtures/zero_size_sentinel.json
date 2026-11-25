@@ -1,0 +1,10 @@
+{
+  "center": {
+    "panel_name": "StackPanel",
+    "children": [
+      { "panel_name": "TabPanel", "children": [{ "panel_name": "Alpha", "children": [], "info": { "panel": null } }], "info": { "tabs": { "active_index": 0 } } },
+      { "panel_name": "TabPanel", "children": [{ "panel_name": "Beta", "children": [], "info": { "panel": null } }], "info": { "tabs": { "active_index": 0 } } }
+    ],
+    "info": { "stack": { "sizes": [0.0, 200.0], "axis": 0 } }
+  }
+}

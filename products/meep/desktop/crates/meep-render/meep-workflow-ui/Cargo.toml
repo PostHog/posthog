@@ -1,0 +1,19 @@
+[package]
+name = "meep-workflow-ui"
+version = "0.1.0"
+edition = "2024"
+description = "Native workflow inspection for GPUI"
+
+[features]
+default = ["editor"]
+editor = ["dep:meep-workflows"]
+
+[dependencies]
+meep-ui = { path = "../meep-script/meep-ui" }
+serde_json = "1"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+web-time = "1"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+meep-workflows = { path = "../meep-workflows", optional = true }

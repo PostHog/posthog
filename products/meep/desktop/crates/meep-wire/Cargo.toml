@@ -1,0 +1,16 @@
+[package]
+name = "meep-wire"
+version = "0.1.0"
+edition = "2024"
+description = "Request and response types shared by the topic server and the offline-first client"
+
+[dependencies]
+meep-protocol = {path="../meep-protocol"}
+csv = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["serde"] }
+meep-posthog = { path = "../meep-posthog", features = ["mcp"] }
+chrono = { version = "0.4", features = ["serde"] }
+meep-topic = { path = "../meep-topic" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

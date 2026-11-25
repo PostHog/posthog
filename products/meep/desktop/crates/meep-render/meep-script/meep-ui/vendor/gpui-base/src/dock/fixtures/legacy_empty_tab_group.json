@@ -1,0 +1,9 @@
+{
+  "center": {
+    "panel_name": "StackPanel",
+    "children": [
+      { "panel_name": "TabPanel", "children": [], "info": { "panel": null } }
+    ],
+    "info": { "stack": { "sizes": [0.0], "axis": 0 } }
+  }
+}

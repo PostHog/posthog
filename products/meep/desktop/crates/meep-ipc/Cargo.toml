@@ -1,0 +1,18 @@
+[package]
+name = "meep-ipc"
+version = "0.1.0"
+edition = "2024"
+description = "User-owned local Unix sockets and bounded request admission"
+
+[target.'cfg(unix)'.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+libc = "0.2"
+subtle = "2"
+meep-protocol = { path = "../meep-protocol" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "net", "io-util", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+tempfile = "3"

@@ -1,0 +1,36 @@
+[package]
+name = "gpui-kit-assets"
+description = "Default bundled assets for GPUI Kit."
+keywords = ["desktop", "gpui", "shadcn", "ui", "uikit"]
+license = "Apache-2.0"
+documentation = "https://docs.rs/gpui-kit-assets"
+homepage = "https://gpui-kit.com"
+repository = "https://github.com/longbridge/gpui-kit"
+readme = "README.md"
+edition.workspace = true
+publish = true
+version = "0.9.0"
+
+# Retain Cargo icon-directory metadata for existing build-script consumers.
+links = "gpui-kit-default-icons"
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui-fast = { workspace = true, optional = true }
+log.workspace = true
+
+[dev-dependencies]
+gpui_platform.workspace = true
+gpui-fast-platform.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+rust-embed = { version = "8.7.2", features = ["interpolate-folder-path", "include-exclude"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+reqwest = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+[features]
+gpui-fast = ["dep:gpui-fast"]

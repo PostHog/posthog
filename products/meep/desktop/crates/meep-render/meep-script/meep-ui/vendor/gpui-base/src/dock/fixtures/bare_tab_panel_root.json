@@ -1,0 +1,19 @@
+{
+  "panel_name": "TabPanel",
+  "children": [
+    {
+      "panel_name": "StoryContainer",
+      "children": [],
+      "info": {
+        "panel": {
+          "story_klass": "ListStory"
+        }
+      }
+    }
+  ],
+  "info": {
+    "tabs": {
+      "active_index": 0
+    }
+  }
+}

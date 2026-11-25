@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="only light">
+<meta name="description" content="Architecture of Meep: a Mac app with an offline replica, a server whose per-topic kernel applies every change, and PostHog Workflows and Tasks that run routines and agents and call back into the server.">
+<title>Meep architecture</title>
+<style>
+/* Paper layout: one reading column, figures wider than the text. Ink on white; teal marks what a person composes. */
+:root {
+  color-scheme: only light;
+  --ink: #14161a;
+  --soft: #4b515c;
+  --rule: #b9bec7;
+  --paper: #ffffff;
+  --wash: #f4f5f7;
+  --teal: #0a6b58;
+  --teal-wash: #e2f2ec;
+  --serif: "STIX Two Text", "Iowan Old Style", "Times New Roman", Times, serif;
+  --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); scroll-padding-top: 1.2rem; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 1.08rem/1.55 var(--serif); }
+h1, h2, h3, p, figure, ul, ol { margin: 0; }
+a, a:visited { color: inherit; text-decoration-thickness: 1px; text-underline-offset: .16em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.skip { position: fixed; top: -5rem; left: 1rem; z-index: 3; background: var(--paper); padding: .6rem 1rem; }
+.skip:focus { top: .4rem; }
+
+.mast, .wide, .column { margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.mast { max-width: 78rem; display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-block: .8rem .5rem; border-bottom: 1px solid var(--ink); font: .8rem/1.4 var(--sans); }
+.mast a { text-decoration: none; }
+.mast a:hover { text-decoration: underline; }
+.mast .brand { font: 600 1rem var(--serif); }
+.mast nav { display: flex; gap: 1.3rem; flex-wrap: wrap; }
+.wide { max-width: 78rem; }
+.column { max-width: 46rem; }
+
+.title { text-align: center; padding-block: 2.4rem 1.4rem; }
+h1 { font: 400 clamp(2.1rem, 4.4vw, 3.3rem)/1.08 var(--serif); letter-spacing: -.03em; text-wrap: balance; }
+.abstract { max-width: 62ch; margin: 1rem auto 0; text-align: left; font-size: 1.04rem; line-height: 1.45; }
+.abstract b { margin-right: .3em; }
+
+h2 { font: 600 clamp(1.35rem, 2.3vw, 1.7rem)/1.2 var(--serif); letter-spacing: -.015em; text-wrap: balance; }
+.secno { margin-right: .35em; font-variant-numeric: lining-nums; }
+.state { font: 600 .68rem/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; padding: .22rem .45rem; border: 1px solid var(--teal); color: var(--teal); vertical-align: .25em; margin-left: .5rem; white-space: nowrap; }
+section.area { padding-top: 2.6rem; display: flex; flex-direction: column; gap: .9rem; }
+section.area > * { width: 100%; }
+#overview > .product-flow { width: 100%; max-width: 66rem; }
+section.area > figure.wide { max-width: 66rem; }
+section.area > .column { display: flex; flex-direction: column; gap: .75rem; }
+.lead { font-size: 1.08rem; }
+.points { padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+.points li::marker { color: var(--soft); }
+code { font: .84em ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+.impl { font: .8rem/1.4 var(--sans); color: var(--soft); display: flex; flex-wrap: wrap; gap: .2rem .9rem; }
+.impl b { color: var(--ink); }
+
+figure { display: flex; flex-direction: column; gap: .55rem; min-width: 0; }
+.plate, section, .wide, .column { min-width: 0; }
+.plate { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); padding-block: .9rem; overflow-x: auto; }
+.plate svg { display: block; width: 100%; height: auto; min-width: 40rem; margin-inline: auto; }
+.plate.big svg { min-width: 56rem; }
+figcaption { font: .95rem/1.4 var(--serif); color: var(--ink); max-width: 72ch; }
+figcaption b { margin-right: .3em; }
+
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; list-style: none; padding: 0; font: .8rem/1.4 var(--sans); color: var(--soft); }
+.legend li { display: flex; align-items: center; gap: .45rem; }
+.sw { display: inline-block; width: 1.3rem; height: .85rem; border: 1.2px solid var(--ink); background: var(--paper); }
+.sw.blk { border: 1.6px solid var(--teal); background: var(--teal-wash); }
+.sw.ker { border-width: 2.6px; }
+.sw.wait { border-style: dashed; }
+.sw.dot { width: .6rem; height: .6rem; border-radius: 50%; border: 0; background: var(--teal); }
+
+.contents { border-block: 1px solid var(--ink); padding-block: .6rem; }
+.system-reference > summary { cursor: pointer; font-weight: 600; padding-block: .5rem; }
+.system-reference[open] > * + * { margin-top: .8rem; }
+.contents summary { cursor: pointer; font-weight: 600; }
+.contents ol { list-style: none; padding: .6rem 0 .2rem; columns: 2 16rem; column-gap: 2rem; }
+.contents li { break-inside: avoid; padding-block: .12rem; }
+.contents a { text-decoration: none; display: grid; grid-template-columns: 1.8rem 1fr; }
+.contents a:hover { text-decoration: underline; }
+
+table { width: 100%; border-collapse: collapse; font: .95rem/1.4 var(--serif); border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); }
+th, td { text-align: left; vertical-align: top; padding: .45rem .5rem .45rem 0; }
+thead th { font: 600 .74rem/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--soft); border-bottom: 1px solid var(--ink); }
+tbody tr + tr { border-top: 1px solid #d9dce1; }
+tbody th { font-weight: 600; width: 36%; }
+td { font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+footer { padding-block: 3rem 4rem; font: .8rem/1.5 var(--sans); color: var(--soft); }
+
+/* Drawing vocabulary, shared by every figure. */
+svg text { font-family: var(--sans); fill: var(--ink); font-size: 13px; }
+svg .n { font-size: 14.5px; font-weight: 700; }
+svg .s { font-size: 12.5px; fill: var(--soft); }
+svg .t { font: italic 13px var(--serif); fill: var(--ink); }
+svg .z { font: italic 16px var(--serif); fill: var(--ink); }
+svg .h { font-size: 11px; font-weight: 700; letter-spacing: .12em; fill: var(--soft); }
+svg .tt { fill: var(--teal); }
+svg .tb { fill: var(--teal); font-weight: 700; }
+.bx { fill: var(--paper); stroke: var(--ink); stroke-width: 1.2; }
+.blk { fill: var(--teal-wash); stroke: var(--teal); stroke-width: 1.7; }
+.slot { fill: var(--paper); stroke: var(--teal); stroke-width: 1.3; }
+.slot.open { stroke-dasharray: 5 3; }
+.ker { fill: var(--paper); stroke: var(--ink); stroke-width: 2.6; }
+.chip { fill: var(--wash); stroke: var(--ink); stroke-width: .9; }
+.wait { fill: var(--paper); stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 5 3; }
+.zone { fill: none; stroke: var(--ink); stroke-width: 1; }
+.part { fill: none; stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; }
+.ln { fill: none; stroke: var(--ink); stroke-width: 1.3; stroke-linejoin: round; }
+.ln.back { stroke-dasharray: 4 3; }
+.ln.tl { stroke: var(--teal); stroke-width: 1.6; }
+.halo { fill: none; stroke: var(--paper); stroke-width: 8; }
+.life { stroke: var(--rule); stroke-width: 1.2; stroke-dasharray: 3 4; }
+.dot { fill: var(--teal); }
+.dot.ink { fill: var(--ink); }
+.key { fill: var(--teal); }
+.flash { fill: none; stroke: var(--teal); stroke-width: 3; opacity: 0; }
+.flash.k { stroke: var(--ink); }
+.glow { fill: var(--teal); opacity: .16; }
+.glow.ink { fill: var(--ink); }
+.still { display: none; }
+@media (prefers-reduced-motion: reduce) { .moving { display: none; } .still { display: inline; } }
+
+@media (max-width: 40rem) {
+  .title { text-align: left; padding-top: 1.6rem; }
+  .abstract { margin-inline: 0; }
+}
+@page { size: A4; margin: 15mm; }
+@media print {
+  body { font-size: 10.5pt; }
+  .mast, .skip, .contents, .moving { display: none !important; }
+  .still { display: inline !important; }
+  .plate { overflow: visible; }
+  .plate svg { min-width: 0 !important; }
+  section.area { break-inside: auto; }
+  figure, tr { break-inside: avoid; }
+  h2 { break-after: avoid; }
+}
+
+/* The workspace figure draws the app itself, in miniature. */
+.app { fill: var(--wash); stroke: var(--ink); stroke-width: 1.2; }
+.pane { fill: var(--paper); stroke: var(--rule); stroke-width: 1; }
+.bar { fill: #d5d9df; }
+.bar.lt { fill: #e6e8ec; }
+.pill { fill: var(--wash); }
+.av { fill: #e6e8ec; }
+.btn { fill: var(--ink); }
+.btn-t { fill: #fff; font-size: 9px; font-weight: 600; }
+.ol { fill: var(--paper); stroke: var(--rule); stroke-width: 1; }
+.ring { fill: none; stroke: #2f7cf6; stroke-width: 1.6; }
+.core { fill: #2f7cf6; }
+.cursor { fill: var(--ink); stroke: #fff; stroke-width: 1.2; stroke-linejoin: round; }
+.ripple { fill: none; stroke: var(--teal); stroke-width: 2; opacity: 0; }
+.step { font: 600 12px var(--sans); fill: var(--soft); }
+.step.on { fill: var(--teal); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" markerWidth="7" markerHeight="7" refX="9" refY="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#14161a"/></marker>
+    <marker id="aht" viewBox="0 0 10 10" markerWidth="7" markerHeight="7" refX="9" refY="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#0a6b58"/></marker>
+  </defs>
+</svg>
+<a class="skip" href="#main">Skip to the paper</a>
+<header class="mast"><a href="#main" class="brand">Meep</a>
+<nav aria-label="Paper"><a href="#contents">Contents</a><a href="../../topics.md">Current reference</a></nav></header>
+
+<main id="main">
+<div class="wide">
+  <header class="title">
+    <h1>Architecture of Meep</h1>
+    <p class="abstract">A topic gives one responsibility a home: its mission, goals, evidence and an ongoing conversation with one agent. Consider a topic responsible for checkout reliability.</p>
+  </header>
+
+  <section id="overview" aria-labelledby="overview-title" style="display:flex;flex-direction:column;gap:.7rem">
+    <h2 id="overview-title"><span class="secno">1</span>How a topic works</h2>
+<figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 325" role="img" aria-labelledby="product-map-t product-map-d">
+      <title id="product-map-t">How a topic works</title><desc id="product-map-d">A scheduled routine finds evidence and delivers a report. The person queues work in the same topic conversation. The agent replies or proposes an action for review.</desc>
+      <text class="h" x="16" y="24">OBSERVE</text>
+      <text class="h" x="338" y="24">REPORT</text>
+      <text class="h" x="660" y="24">DECIDE</text>
+      <g><rect class="bx" x="16" y="48" width="250" height="66" rx="4"/><text class="n" x="30" y="76">Daily brief runs</text><text class="s" x="30" y="98">Review checkout failures each morning.</text></g>
+      <path class="ln" d="M266 81 H336" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="338" y="48" width="250" height="66" rx="4"/><text class="n" x="352" y="76">Timeouts rose overnight</text><text class="s" x="352" y="98">The report cites the checkout log.</text></g>
+      <path class="ln" d="M588 81 H658" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="660" y="48" width="260" height="66" rx="4"/><text class="n" x="674" y="76">The person chooses</text><text class="s" x="674" y="98">Investigate, implement or close.</text></g>
+      <path class="ln" d="M790 114 V176 H465 V207" marker-end="url(#ah)"/>
+      <text class="h" x="484" y="166">INVESTIGATE OR IMPLEMENT</text>
+      <g><rect class="bx" x="16" y="210" width="250" height="66" rx="4"/><text class="n" x="30" y="238">The person asks</text><text class="s" x="30" y="260">“Why are more checkouts failing?”</text></g>
+      <path class="ln" d="M266 243 H336" marker-end="url(#ah)"/>
+      <g><rect class="blk" x="338" y="210" width="250" height="66" rx="4"/><text class="n" x="352" y="238">Topic conversation</text><text class="s" x="352" y="260">Investigate with the report attached.</text></g>
+      <path class="ln" d="M588 243 H658" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="660" y="210" width="260" height="66" rx="4"/><text class="n" x="674" y="238">Reply or propose an action</text><text class="s" x="674" y="260">Rules allow, hold for review or deny.</text></g>
+      <text class="h" x="16" y="309">TOPIC CONTEXT</text>
+      <text class="s" x="155" y="309">Goals guide the investigation. A saved fact keeps its source for the next decision.</text>
+    </svg></div>
+  </figure>
+<details class="system-reference"><summary>The system behind a topic</summary>
+    <p class="column lead" style="padding:0">Three processes, three trust domains. The Mac reads and writes only its replica. The server is the single writer for every topic. PostHog does the remote work and reaches Meep only through authenticated endpoints.</p>
+    <figure>
+      <div class="plate big">
+<svg viewBox="0 0 1106 836" role="img" aria-labelledby="f0t f0d">
+<title id="f0t">Meep's components and the paths between them</title>
+<desc id="f0d">The Mac app holds the workspace UI with a sandbox for view scripts, a SQLite replica with an outbox, and a sync loop that pushes commands to the server's device API and pulls changes and the live stream back. The Meep server keeps, per owner, an engine with one worker per topic built from meep-topic, meep-policy, meep-ingest, meep-connectors, meep-connections, meep-ai and meep-posthog, a store, and a view service. PostHog-facing endpoints receive routine callbacks, workflow deliveries, and topic and view tool calls. The server calls the PostHog AI gateway, the MCP server and gateway, Workflows and Tasks. The Mac signs in to PostHog with OAuth.</desc>
+
+<text class="h" x="20" y="30">MAC APP · apps/meep · GPUI</text>
+<rect class="zone" x="20" y="40" width="1066" height="156" rx="10"/>
+<rect class="bx" x="40" y="62" width="220" height="112" rx="6"/>
+<text class="n" x="56" y="88">Sync loop</text>
+<text class="s" x="56" y="108">meep-client</text>
+<text class="s" x="56" y="128">pushes the outbox in order</text>
+<text class="s" x="56" y="148">pulls changes, follows the stream</text>
+<path class="ln" d="M262 118 H294" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<rect class="bx" x="296" y="62" width="220" height="112" rx="6"/>
+<text class="n" x="312" y="88">Replica</text>
+<text class="s" x="312" y="108">meep-client · SQLite</text>
+<text class="s" x="312" y="128">every topic, file and view</text>
+<text class="s" x="312" y="148">outbox of optimistic commands</text>
+<path class="ln" d="M518 118 H550" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<rect class="bx" x="552" y="54" width="514" height="128" rx="6"/>
+<text class="n" x="568" y="80">Workspace UI</text>
+<text class="s" x="832" y="108">topics · inbox · tasks · chat</text>
+<text class="s" x="832" y="128">Needs you · search · settings</text>
+<text class="s" x="832" y="148">PostHog sign-in, browser OAuth</text>
+<rect class="blk" x="568" y="94" width="240" height="76" rx="6"/>
+<text class="n" x="584" y="116">View sandbox</text>
+<text class="s" x="584" y="136">meep-render · meep-script</text>
+<text class="s" x="584" y="154">a view’s script, no network or files</text>
+
+<path class="ln" d="M100 176 V264" marker-end="url(#ah)"/>
+<text class="t" x="108" y="224">commands</text>
+<circle class="key" cx="82" cy="220" r="9"/><text x="82" y="224.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">1</text>
+<path class="ln back" d="M216 264 V176" marker-end="url(#ah)"/>
+<text class="t" x="224" y="224">changes · stream</text>
+<path class="ln" d="M688 172 V264" marker-end="url(#ah)"/>
+<text class="t" x="696" y="224">view sources</text>
+<path class="ln" d="M960 184 V264" marker-end="url(#ah)"/>
+<text class="t" x="968" y="224">sign-in</text>
+
+<text class="h" x="380" y="238">MEEP SERVER · crates/meep-server</text>
+<rect class="zone" x="20" y="246" width="730" height="574" rx="10"/>
+<rect class="bx" x="36" y="266" width="706" height="52" rx="6"/>
+<text class="n" x="52" y="287">Device API</text>
+<text class="s" x="148" y="287">HTTP · the device token picks the owner</text>
+<text class="s" x="52" y="307">/v1/commands · /v1/changes · /v1/topics/{id} · /v1/stream (SSE) · files · views · search</text>
+<path class="ln" d="M420 318 V356" marker-end="url(#ah)"/>
+<text class="t" x="428" y="350">envelopes</text>
+
+<rect class="part" x="36" y="334" width="512" height="472" rx="8"/>
+<text class="h" x="48" y="351">ONE PER OWNER</text>
+<rect class="ker" x="52" y="358" width="480" height="328" rx="8"/>
+<text class="n" x="68" y="384">Engine</text>
+<text class="s" x="128" y="384">meep-engine · the kernel</text>
+<rect class="chip" x="68" y="398" width="216" height="42" rx="4"/><text x="80" y="415" font-weight="700">meep-topic</text><text class="s" x="80" y="432">every state transition, pure</text>
+<rect class="chip" x="300" y="398" width="216" height="42" rx="4"/><text x="312" y="415" font-weight="700">meep-policy</text><text class="s" x="312" y="432">approval gate · run cap</text>
+<circle class="key" cx="498" cy="419" r="9"/><text x="498" y="423.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">4</text>
+<rect class="chip" x="68" y="450" width="216" height="42" rx="4"/><text x="80" y="467" font-weight="700">meep-ingest</text><text class="s" x="80" y="484">dedupe · thread keys · routing</text>
+<rect class="chip" x="300" y="450" width="216" height="42" rx="4"/><text x="312" y="467" font-weight="700">meep-connectors</text><text class="s" x="312" y="484">MCP polling · webhook mapping</text>
+<rect class="chip" x="68" y="502" width="216" height="42" rx="4"/><text x="80" y="519" font-weight="700">meep-connections</text><text class="s" x="80" y="536">grants · health · secrets</text>
+<rect class="chip" x="300" y="502" width="216" height="42" rx="4"/><text x="312" y="519" font-weight="700">meep-ai</text><text class="s" x="312" y="536">System One decisions</text>
+<rect class="chip" x="68" y="554" width="448" height="42" rx="4"/><text x="80" y="571" font-weight="700">meep-posthog</text><text class="s" x="80" y="588">client for Tasks, Workflows, MCP and OAuth</text>
+<text class="s" x="68" y="624">one worker per topic is its only writer</text>
+<text class="s" x="68" y="644">command receipts make retries harmless</text>
+<text class="s" x="68" y="664">delivery queue · change feed to every device</text>
+
+<path class="ln" d="M168 688 V704" marker-end="url(#ah)"/>
+<rect class="bx" x="52" y="706" width="232" height="86" rx="6"/>
+<text class="n" x="68" y="730">Store</text>
+<text class="s" x="68" y="750">meep-store · SQLite, search</text>
+<text class="s" x="68" y="770">command log · file revisions</text>
+<rect class="bx" x="300" y="706" width="232" height="86" rx="6"/>
+<text class="n" x="316" y="730">View service</text>
+<text class="s" x="316" y="750">authoring runs · generations</text>
+<text class="s" x="316" y="770">meep-script validates each script</text>
+
+<text class="h" x="566" y="476">FOR POSTHOG</text>
+<rect class="bx" x="566" y="484" width="176" height="44" rx="6"/>
+<text x="580" y="501" font-weight="700">Routine callback</text>
+<text class="s" x="580" y="519">/v1/routines/…/callback</text>
+<rect class="bx" x="566" y="556" width="176" height="44" rx="6"/>
+<text x="580" y="573" font-weight="700">Workflow intake</text>
+<text class="s" x="580" y="591">/v1/ingest/{connection}</text>
+<rect class="bx" x="566" y="614" width="176" height="44" rx="6"/>
+<text x="580" y="631" font-weight="700">Topic tools · MCP</text>
+<text class="s" x="580" y="649">/v1/topics/{id}/mcp</text>
+<rect class="bx" x="566" y="710" width="176" height="44" rx="6"/>
+<text x="580" y="727" font-weight="700">View tools · MCP</text>
+<text class="s" x="580" y="745">/v1/views/{id}/mcp</text>
+<path class="ln" d="M566 506 H534" marker-end="url(#ah)"/>
+<path class="ln" d="M566 578 H534" marker-end="url(#ah)"/>
+<path class="ln" d="M566 636 H534" marker-end="url(#ah)"/>
+<path class="ln" d="M566 732 H534" marker-end="url(#ah)"/>
+
+<text class="h" x="862" y="238">POSTHOG</text>
+<rect class="zone" x="848" y="246" width="238" height="574" rx="10"/>
+<rect class="bx" x="862" y="266" width="208" height="52" rx="6"/>
+<text class="n" x="878" y="287">OAuth</text>
+<text class="s" x="878" y="307">sign-in · token refresh</text>
+<rect class="bx" x="862" y="346" width="208" height="52" rx="6"/>
+<text class="n" x="878" y="367">AI gateway</text>
+<text class="s" x="878" y="387">System One · writing models</text>
+<rect class="bx" x="862" y="410" width="208" height="62" rx="6"/>
+<text class="n" x="878" y="430">MCP server · gateway</text>
+<text class="s" x="878" y="448">insights · flags · events</text>
+<text class="s" x="878" y="465">Slack · GitHub · Linear</text>
+<rect class="blk" x="862" y="484" width="208" height="116" rx="6"/>
+<text class="tb" x="878" y="520" font-size="14.5">Workflows</text>
+<text class="s" x="878" y="540">trigger · schedule or event</text>
+<text class="s" x="878" y="558">run agent · await findings</text>
+<text class="s" x="878" y="576">deliver reports by webhook</text>
+<rect class="bx" x="862" y="614" width="208" height="178" rx="6"/>
+<text class="n" x="878" y="694">Tasks</text>
+<text class="s" x="878" y="714">agent runs on Claude or Codex</text>
+<text class="s" x="878" y="732">a sandbox per run</text>
+<text class="s" x="878" y="750">tools reach Meep over HTTPS</text>
+
+<path class="ln" d="M532 372 H860" marker-end="url(#ah)"/>
+<text class="t" x="772" y="368">System One</text>
+<path class="ln" d="M532 440 H860" marker-end="url(#ah)"/>
+<text class="t" x="772" y="436">polls · reads</text>
+<path class="ln back" d="M862 506 H744" marker-end="url(#ah)"/>
+<text class="t" x="790" y="501">callback</text>
+<path class="ln tl" d="M532 542 H860" marker-end="url(#aht)"/>
+<circle class="key" cx="774" cy="542" r="9"/><text x="774" y="546.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">2</text>
+<text class="t" x="790" y="537">dispatch</text>
+<path class="ln back" d="M862 578 H744" marker-end="url(#ah)"/>
+<text class="t" x="790" y="573">deliveries</text>
+<path class="ln back tl" d="M862 636 H744" marker-end="url(#aht)"/>
+<circle class="key" cx="774" cy="636" r="9"/><text x="774" y="640.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">3</text>
+<text class="t" x="790" y="631">tool calls</text>
+<path class="ln" d="M532 674 H860" marker-end="url(#ah)"/>
+<text class="t" x="772" y="669">start · stop</text>
+<path class="ln back" d="M862 732 H744" marker-end="url(#ah)"/>
+<circle class="key" cx="774" cy="732" r="9"/><text x="774" y="736.5" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">5</text>
+<text class="t" x="790" y="727">tool calls</text>
+<path class="ln" d="M532 774 H860" marker-end="url(#ah)"/>
+<text class="t" x="772" y="769">authoring run</text>
+</svg>
+      </div>
+      <ul class="legend">
+        <li><span class="sw ker"></span>Kernel, fixed</li>
+        <li><span class="sw"></span>Component</li>
+        <li><span class="sw" style="background:var(--wash);border-width:.9px"></span>Library crate inside the engine</li>
+        <li><span class="sw blk"></span>Runs what the person composes</li>
+        <li><span class="sw" style="border:1px dashed var(--rule)"></span>Owner boundary</li>
+        <li><span class="sw dot"></span>Runtime path, below</li>
+      </ul>
+      <figcaption id="cap-1" class="column" style="padding:0">Solid arrows are calls, dashed arrows are callbacks and replies. Every arrow into the server carries its own credential: a device token, a routine or webhook secret, or a run or turn capability (§13). The device API also reaches the Store for files and the View service for view commands. The routine callback, workflow intake and both MCP endpoints need a public HTTPS address for the server.</figcaption>
+    </figure>
+
+    <div class="column" style="padding:0;display:flex;flex-direction:column;gap:.75rem">
+      <details class="contents"><summary>Components and product concepts</summary>
+      <h3 style="font:600 1.15rem var(--serif);margin-top:.6rem">Components</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th scope="col">Component</th><th scope="col">Crate</th><th scope="col">Responsibility</th><th scope="col">Talks to</th></tr></thead>
+        <tbody>
+          <tr><th scope="row" style="width:auto">Workspace UI</th><td><code>apps/meep</code></td><td>Renders topics, views and Needs you from the replica; signs in to PostHog</td><td>Replica, PostHog OAuth</td></tr>
+          <tr><th scope="row" style="width:auto">View sandbox</th><td><code>meep-render</code>, <code>meep-script</code></td><td>Runs a view’s script with no network or file access</td><td>Replica, device API</td></tr>
+          <tr><th scope="row" style="width:auto">Replica and sync</th><td><code>meep-client</code></td><td>SQLite copy of every topic, outbox, optimistic apply, sync from a durable cursor</td><td>Device API</td></tr>
+          <tr><th scope="row" style="width:auto">Server</th><td><code>meep-server</code></td><td>HTTP API, live stream, device auth, owner routing, MCP and callback endpoints</td><td>Mac, PostHog, engine</td></tr>
+          <tr><th scope="row" style="width:auto">Engine</th><td><code>meep-engine</code></td><td>One worker per topic: applies commands, dispatches workflows, starts topic agent runs, delivers approved actions, publishes changes</td><td>Store, PostHog</td></tr>
+          <tr><th scope="row" style="width:auto">Domain model</th><td><code>meep-topic</code></td><td>Every state transition, without I/O</td><td>Engine, replica</td></tr>
+          <tr><th scope="row" style="width:auto">Policy</th><td><code>meep-policy</code></td><td>Allow, Ask or Deny for an action; standing rules from approvals; run and hop limits</td><td>Engine</td></tr>
+          <tr><th scope="row" style="width:auto">Intake</th><td><code>meep-ingest</code></td><td>Deduplication, thread keys, routing to watches</td><td>Engine</td></tr>
+          <tr><th scope="row" style="width:auto">Sources</th><td><code>meep-connectors</code>, <code>meep-connections</code></td><td>MCP polling, webhook mapping, connection health, grants and secrets</td><td>PostHog MCP, engine</td></tr>
+          <tr><th scope="row" style="width:auto">System One</th><td><code>meep-ai</code></td><td>Model decisions: which thread, fact checks, skip rules</td><td>PostHog AI gateway</td></tr>
+          <tr><th scope="row" style="width:auto">PostHog client</th><td><code>meep-posthog</code></td><td>OAuth, Tasks runs, workflow dispatch, MCP calls</td><td>PostHog</td></tr>
+          <tr><th scope="row" style="width:auto">Store</th><td><code>meep-store</code></td><td>SQLite records, transactions and full-text search; files in a revisioned blob directory</td><td>Engine</td></tr>
+          <tr><th scope="row" style="width:auto">Wire types</th><td><code>meep-wire</code></td><td>Requests, responses and change-stream events shared by server and client</td><td>Server, client</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3 style="font:600 1.15rem var(--serif);margin-top:.6rem">Concepts</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th scope="col">Concept</th><th scope="col">What it is in the system</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Topic</th><td>One responsibility, with a mission and goals. One engine worker and one replicated state per topic.</td></tr>
+          <tr><th scope="row">Inbox report</th><td>An evidence-backed finding from a topic agent, a bound workflow or the PostHog Scout feed (§3).</td></tr>
+          <tr><th scope="row">Task</th><td>Side work assigned to a person, the topic agent or a separate agent (§6).</td></tr>
+          <tr><th scope="row">Routine</th><td>A PostHog workflow bound to the topic, started by a source, schedule, click or engine event (§2).</td></tr>
+          <tr><th scope="row">Context</th><td>Mission, goals, facts with provenance, rules and passive PostHog references, read into every agent brief.</td></tr>
+          <tr><th scope="row">View</th><td>A script page composed by asking, stored as numbered generations and run in the sandbox (§12).</td></tr>
+          <tr><th scope="row">Needs you</th><td>The engine’s cross-topic list of what waits on the person: approvals, questions, failed runs, conflicts, broken connections.</td></tr>
+        </tbody>
+      </table></div>
+      </details>
+    </div>
+    </details>
+  </section>
+</div>
+
+<div class="column" style="padding-top:2rem">
+  <details class="contents" id="contents"><summary>Contents</summary>
+  <ol>
+    <li><a href="#overview"><span>1</span>How a topic works</a></li>
+    <li><a href="#blocks"><span>2</span>Routines</a></li>
+    <li><a href="#origin"><span>3</span>Inbox reports</a></li>
+    <li><a href="#sort"><span>4</span>Acting on a report</a></li>
+    <li><a href="#gate"><span>5</span>The approval gate</a></li>
+    <li><a href="#tasks"><span>6</span>Tasks</a></li>
+    <li><a href="#agents"><span>7</span>Agents and follow-up work</a></li>
+    <li><a href="#workspace"><span>8</span>The topic conversation</a></li>
+    <li><a href="#facts"><span>9</span>Facts and evidence</a></li>
+    <li><a href="#sync"><span>10</span>Offline sync</a></li>
+    <li><a href="#files"><span>11</span>Files</a></li>
+    <li><a href="#views"><span>12</span>Views</a></li>
+    <li><a href="#trust"><span>13</span>Trust boundaries</a></li>
+    <li><a href="#limits"><span>14</span>Deployment and limits</a></li>
+  </ol></details>
+</div>
+
+<!-- 2 -->
+<section class="area" id="blocks" aria-labelledby="blocks-title">
+  <div class="column">
+    <h2 id="blocks-title"><span class="secno">2</span>Routines</h2>
+    <p class="lead">Scout, Daily brief and Weekly goals run inside PostHog Workflows. Meep supplies the mission, goals, linked sources and instructions when it creates the routine.</p>
+  </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 242" role="img" aria-labelledby="routine-flow-t routine-flow-d">
+      <title id="routine-flow-t">From trigger to findings</title><desc id="routine-flow-d">A trigger starts a workflow agent. A webhook delivers its completed findings to the bound topic. An empty batch still records the run.</desc>
+      <text class="h" x="16" y="28">POSTHOG WORKFLOW</text>
+      <text class="h" x="610" y="28">BOUND TOPIC</text>
+      <g><rect class="bx" x="16" y="95" width="178" height="66" rx="4"/><text class="n" x="30" y="123">Trigger</text><text class="s" x="30" y="145">Schedule, event or Run now</text></g>
+      <path class="ln" d="M194 128 H234" marker-end="url(#ah)"/>
+      <g><rect class="blk" x="236" y="95" width="213" height="66" rx="4"/><text class="n" x="250" y="123">Agent step</text><text class="s" x="250" y="145">Read sources and return findings.</text></g>
+      <path class="ln" d="M449 128 H503 V76 H608" marker-end="url(#ah)"/>
+      <path class="ln" d="M503 128 V184 H608" marker-end="url(#ah)"/>
+      <text class="h" x="522" y="130">WEBHOOK</text>
+      <g><rect class="slot" x="610" y="43" width="310" height="66" rx="4"/><text class="n" x="624" y="71">One or more findings</text><text class="s" x="624" y="93">File one inbox report per finding.</text></g>
+      <g><rect class="bx" x="610" y="151" width="310" height="66" rx="4"/><text class="n" x="624" y="179">No findings</text><text class="s" x="624" y="201">Record the run with zero reports.</text></g>
+      <text class="t" x="16" y="231">Chat shows one line per trigger event, with the report count or “nothing new”.</text>
+    </svg></div>
+  </figure>
+  <div class="column"><p class="impl"><b>Implementation</b><a href="../../../crates/meep-server/src/topic_workflows/graph.rs">Workflow steps</a><a href="../../../crates/meep-engine/src/routines/callback.rs">Report callback</a><a href="../../../crates/meep-topic/src/state.rs">Run records</a><a href="../../../crates/meep-server/src/routine_templates.json">Templates</a></p></div>
+</section>
+
+<!-- 3 -->
+<section class="area" id="origin" aria-labelledby="origin-title">
+  <div class="column">
+    <h2 id="origin-title"><span class="secno">3</span>Inbox reports</h2>
+    <p class="lead">An inbox report brings the evidence and a proposed next step together. The person can judge urgency before deciding whether to act.</p>
+  </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 278" role="img" aria-labelledby="report-flow-t report-flow-d">
+      <title id="report-flow-t">Three sources of an inbox report</title><desc id="report-flow-d">Topic agents publish reports, workflows deliver findings by callback and the optional Scout feed imports reports. Each inbox report carries a headline and lead with evidence.</desc>
+      <g><rect class="bx" x="16" y="12" width="212" height="66" rx="4"/><text class="n" x="30" y="40">Topic agent</text><text class="s" x="30" y="62">Publish a sourced finding.</text></g>
+      <g><rect class="bx" x="16" y="105" width="212" height="66" rx="4"/><text class="n" x="30" y="133">Bound routine</text><text class="s" x="30" y="155">Deliver workflow findings.</text></g>
+      <g><rect class="bx" x="16" y="198" width="212" height="66" rx="4"/><text class="n" x="30" y="226">PostHog Scout feed</text><text class="s" x="30" y="248">Import when enabled.</text></g>
+      <path class="ln" d="M228 45 H260 V138 H312" marker-end="url(#ah)"/>
+      <path class="ln" d="M228 138 H312" marker-end="url(#ah)"/>
+      <path class="ln" d="M228 231 H260 V138 H312" marker-end="url(#ah)"/>
+      <g><rect class="blk" x="314" y="105" width="204" height="66" rx="4"/><text class="n" x="328" y="133">Inbox report</text><text class="s" x="328" y="155">Headline and lead</text></g>
+      <path class="ln" d="M518 138 H557 V74 H600" marker-end="url(#ah)"/>
+      <path class="ln" d="M557 138 V202 H600" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="602" y="41" width="318" height="66" rx="4"/><text class="n" x="616" y="69">Why it matters</text><text class="s" x="616" y="91">Priority (P0–P4) and measured impact.</text></g>
+      <g><rect class="slot" x="602" y="169" width="318" height="66" rx="4"/><text class="n" x="616" y="197">What supports it</text><text class="s" x="616" y="219">Proposal, evidence, source and time.</text></g>
+    </svg></div>
+  </figure>
+  <div class="column"><p class="impl"><b>Implementation</b><a href="../../../crates/meep-topic/src/model/inbox.rs">Report and evidence</a><a href="../../../crates/meep-engine/src/delivery.rs">Publication</a></p></div>
+</section>
+
+<!-- 4 -->
+<section class="area" id="sort" aria-labelledby="sort-title">
+  <div class="column">
+    <h2 id="sort-title"><span class="secno">4</span>Acting on a report</h2>
+    <p class="lead">Ask about a report in chat, queue work with its evidence attached, or record a verdict. The report stays in the inbox while the agent works.</p>
+  </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 298" role="img" aria-labelledby="report-choices-t report-choices-d">
+      <title id="report-choices-t">What the person can do with a report</title><desc id="report-choices-d">Investigate and Implement queue work behind the current turn. Resolve and Dismiss save the verdict and reason.</desc>
+      <g><rect class="blk" x="15" y="116" width="210" height="66" rx="4"/><text class="n" x="29" y="144">Inbox report</text><text class="s" x="29" y="166">The person decides.</text></g>
+      <path class="ln" d="M225 149 H255 V53 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="20" width="270" height="66" rx="4"/><text class="n" x="306" y="48">Investigate</text><text class="s" x="306" y="70">Queue a request in the topic chat.</text></g>
+      <path class="ln" d="M562 53 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="20" width="310" height="66" rx="4"/><text class="n" x="628" y="48">Explain the cause</text><text class="s" x="628" y="70">Publish a follow-up report with evidence.</text></g>
+      <path class="ln" d="M225 149 H255 V149 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="116" width="270" height="66" rx="4"/><text class="n" x="306" y="144">Implement</text><text class="s" x="306" y="166">Queue the proposed change.</text></g>
+      <path class="ln" d="M562 149 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="116" width="310" height="66" rx="4"/><text class="n" x="628" y="144">Make and check the change</text><text class="s" x="628" y="166">Reply in the same conversation.</text></g>
+      <path class="ln" d="M225 149 H255 V245 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="212" width="270" height="66" rx="4"/><text class="n" x="306" y="240">Resolve or dismiss</text><text class="s" x="306" y="262">Record the reason.</text></g>
+      <path class="ln" d="M562 245 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="212" width="310" height="66" rx="4"/><text class="n" x="628" y="240">Keep the verdict</text><text class="s" x="628" y="262">Reopen to clear the verdict.</text></g>
+    </svg></div>
+  </figure>
+  <div class="column"><p class="impl"><b>Implementation</b><a href="../../../apps/meep/src/details.rs">Report actions</a><a href="../../../crates/meep-engine/src/session.rs">Queued turns</a></p></div>
+</section>
+
+<!-- 5 -->
+<section class="area" id="gate" aria-labelledby="gate-title">
+  <div class="column">
+    <h2 id="gate-title"><span class="secno">5</span>The approval gate</h2>
+    <p class="lead">Any external action, from an agent or a routine, passes one gate. Rules are building blocks too: Allow, Ask, Deny. Starting follow-up work is an action like any other: <code>start-follow-up</code>.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-4">
+    <div class="plate">
+    <svg viewBox="0 0 960 306" role="img" aria-labelledby="f4t">
+      <title id="f4t">A proposed action meets the newest matching rule. Allow queues delivery. Ask, or no rule, waits for the person, who can edit, approve or send it back. Deny stops it. Delivery rechecks Deny rules and cited evidence. Always allow adds an Allow rule.</title>
+      <rect class="bx" x="20" y="110" width="170" height="80"/>
+      <text class="n" x="105" y="138" text-anchor="middle">Proposed action</text>
+      <text class="s" x="105" y="160" text-anchor="middle">kind · draft</text>
+      <text class="s" x="105" y="178" text-anchor="middle">cited facts</text>
+      <path class="ln" d="M190 150 H240" marker-end="url(#ah)"/>
+
+      <path class="ker" d="M242 150 L300 100 L358 150 L300 200 Z"/>
+      <text x="300" y="147" text-anchor="middle" font-weight="700">newest</text>
+      <text x="300" y="163" text-anchor="middle" font-weight="700">rule</text>
+
+      <path class="ln" d="M358 150 H392 V66 H428 M392 150 H428 M392 150 V234 H428" />
+      <path class="ln" d="M420 66 H428 M420 150 H428 M420 234 H428" marker-end="url(#ah)"/>
+
+      <rect class="bx" x="430" y="40" width="180" height="52"/>
+      <text class="n" x="520" y="62" text-anchor="middle">Allow</text>
+      <text class="s" x="520" y="80" text-anchor="middle">queue delivery</text>
+      <rect class="wait" x="430" y="124" width="180" height="52"/>
+      <text class="n" x="520" y="146" text-anchor="middle">Ask, or no rule</text>
+      <text class="s" x="520" y="164" text-anchor="middle">you edit · approve · send back</text>
+      <rect class="bx" x="430" y="208" width="180" height="52"/>
+      <text class="n" x="520" y="230" text-anchor="middle">Deny</text>
+      <text class="s" x="520" y="248" text-anchor="middle">stop · record the rule</text>
+
+      <path class="ln" d="M610 66 H678" marker-end="url(#ah)"/>
+      <path class="ln" d="M610 150 H644 V72 H678" marker-end="url(#ah)"/>
+      <text class="t" x="650" y="118">approve</text>
+      <rect class="ker" x="680" y="40" width="140" height="52"/>
+      <text class="n" x="750" y="62" text-anchor="middle">Recheck</text>
+      <text class="s" x="750" y="80" text-anchor="middle">Deny? evidence?</text>
+      <path class="ln" d="M820 66 H848" marker-end="url(#ah)"/>
+      <rect class="bx" x="850" y="40" width="94" height="52"/>
+      <text class="n" x="897" y="71" text-anchor="middle">Deliver</text>
+
+      <path class="ln back tl" d="M610 168 H668 V284 H300 V204" marker-end="url(#aht)"/>
+      <text class="t tt" x="484" y="300" text-anchor="middle">“Always allow” adds an Allow rule</text>
+
+      <g class="moving">
+<rect class="flash" x="430" y="124" width="180" height="52" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="g40.end"/></rect>
+<rect class="flash" x="680" y="40" width="140" height="52" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="g41.end"/></rect>
+<rect class="flash" x="850" y="40" width="94" height="52" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="g42.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="g40.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="g42.end+0.7s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="g40" path="M190 150 L242 150 L358 150 L392 150 L430 150" begin="0.5s;g42.end+1.6s" dur="1.04s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="g41" path="M430 150 L610 150 L644 150 L644 72 L680 66" begin="g40.end+1.3s" dur="1.43s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="g42" path="M680 66 L820 66 L850 66" begin="g41.end+0.45s" dur="0.74s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-4" class="column" style="padding:0">Every answer is bound to the version the person saw. Once approved, delivery survives board moves and restarts. A failed delivery is recorded on the original task and moves it to Needs you when the attempt is still current.</figcaption>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-policy/src/lib.rs">Policy</a><a href="../../../crates/meep-topic/src/state/tasks.rs">Task transitions</a><a href="../../../crates/meep-engine/src/effects.rs">Delivery</a></p>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="area" id="tasks" aria-labelledby="tasks-title">
+  <div class="column">
+    <h2 id="tasks-title"><span class="secno">6</span>Tasks</h2>
+    <p class="lead">A task records side work. The topic agent can assign it to the person, keep it for a later turn, or start a separate agent for independent work.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-6">
+    <div class="plate">
+    <svg viewBox="0 0 960 300" role="img" aria-labelledby="f6t">
+      <title id="f6t">A new task either starts now and goes to In progress, or is queued in To do until Start. In progress goes to Needs you for a question, a proposal, a failure or Stop, and straight to Done with a result. Approve finishes work in Needs you; a reply resumes a task waiting for input. The conversation runs on the task page throughout.</title>
+      <rect class="bx" x="20" y="124" width="150" height="52"/>
+      <text class="n" x="95" y="146" text-anchor="middle">New task</text>
+      <text class="s" x="95" y="165" text-anchor="middle">title · brief · model</text>
+
+      <rect class="bx" x="230" y="40" width="140" height="52" rx="26"/><text class="n" x="300" y="64" text-anchor="middle">To do</text><text class="s" x="300" y="81" text-anchor="middle">queued</text>
+      <rect class="bx" x="420" y="124" width="150" height="52" rx="26"/><text class="n" x="495" y="155" text-anchor="middle">In progress</text>
+      <rect class="wait" x="650" y="124" width="140" height="52" rx="26"/><text class="n" x="720" y="155" text-anchor="middle">Needs you</text>
+      <rect class="bx" x="850" y="124" width="90" height="52" rx="26"/><text class="n" x="895" y="155" text-anchor="middle">Done</text>
+
+      <path class="ln" d="M170 150 H418" marker-end="url(#ah)"/><text class="t" x="300" y="142" text-anchor="middle">Start now</text>
+      <path class="ln" d="M120 124 V66 H228" marker-end="url(#ah)"/><text class="t" x="176" y="58" text-anchor="middle">Queue</text>
+      <path class="ln" d="M370 66 H470 V122" marker-end="url(#ah)"/><text class="t" x="420" y="58" text-anchor="middle">Start</text>
+      <path class="ln" d="M570 150 H648" marker-end="url(#ah)"/><text class="t" x="609" y="116" text-anchor="middle">ask · propose · stop</text>
+      <path class="ln" d="M790 150 H848" marker-end="url(#ah)"/><text class="t" x="819" y="116" text-anchor="middle">approve</text>
+      <path class="ln" d="M545 124 C545 18 895 18 895 122" marker-end="url(#ah)"/><text class="t" x="720" y="34" text-anchor="middle">result</text>
+      <path class="ln back" d="M720 176 C720 236 520 236 520 178" marker-end="url(#ah)"/><text class="t" x="620" y="244" text-anchor="middle">reply · send back · try again</text>
+
+      <path class="ln tl" d="M420 270 H790" stroke-dasharray="2 4"/>
+      <path class="ln tl" d="M420 262 V278 M790 262 V278"/>
+      <text class="t tt" x="605" y="292" text-anchor="middle">the conversation, on the task page: message · steer · stop</text>
+<g class="moving">
+<rect class="flash" x="230" y="40" width="140" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6a0.end"/></rect>
+<rect class="flash" x="420" y="124" width="150" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6a1.end"/></rect>
+<rect class="flash" x="650" y="124" width="140" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6a2.end"/></rect>
+<rect class="flash" x="850" y="124" width="90" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6a3.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="t6a0.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="t6a3.end+0.6s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="t6a0" path="M120 124 L120 66 L230 66" begin="0.5s;t6b1.end+1.4s" dur="0.73s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="t6a1" path="M230 66 L370 66 L470 66 L470 124" begin="t6a0.end+1.2s" dur="1.30s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="t6a2" path="M470 124 L500 150 L570 150 L650 150" begin="t6a1.end+0.9s" dur="0.82s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="t6a3" path="M650 150 L790 150 L850 150" begin="t6a2.end+1.1s" dur="0.87s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="420" y="124" width="150" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6b0.end"/></rect>
+<rect class="flash" x="850" y="124" width="90" height="52" rx="26"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="t6b1.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="t6b0.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="t6b1.end+0.6s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="t6b0" path="M170 150 L420 150" begin="t6a3.end+1.4s" dur="1.09s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="t6b1" path="M420 150 L545 132 L545 124 C545 18 895 18 895 122" begin="t6b0.end+1s" dur="2.10s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-6" class="column" style="padding:0">Start now and Queue differ only in when the agent begins. A question, proposal, failure or stop moves the task to Needs you. A reply to a question resumes the same task. Moving a card withdraws its proposal.</figcaption>
+  </figure>
+  <div class="column">
+    <p>A sub-agent works in its own PostHog Task. Its result returns as a note to the topic conversation, where the agent can summarize it.</p>
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-topic/src/state/tasks.rs">Task transitions</a><a href="../../../crates/meep-engine/src/worker.rs">Worker</a><a href="../../../crates/meep-posthog/src/tasks/mod.rs">Runs and models</a></p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="area" id="agents" aria-labelledby="agents-title">
+  <div class="column">
+    <h2 id="agents-title"><span class="secno">7</span>Agents and follow-up work</h2>
+    <p class="lead">Most work stays in the conversation. When a task needs a separate owner, the topic agent chooses who should take it.</p>
+  </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 298" role="img" aria-labelledby="side-work-t side-work-d">
+      <title id="side-work-t">Who takes a planned task</title><desc id="side-work-d">The agent can plan work for the person, pick it up later in the same conversation, or delegate to a separate agent whose result returns to chat.</desc>
+      <g><rect class="blk" x="15" y="116" width="210" height="66" rx="4"/><text class="n" x="29" y="144">Plan a task</text><text class="s" x="29" y="166">Choose an owner and a brief.</text></g>
+      <path class="ln" d="M225 149 H255 V53 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="20" width="270" height="66" rx="4"/><text class="n" x="306" y="48">For you</text><text class="s" x="306" y="70">Assign the task to the person.</text></g>
+      <path class="ln" d="M562 53 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="20" width="310" height="66" rx="4"/><text class="n" x="628" y="48">Person takes the next step</text><text class="s" x="628" y="70">Track the work on the topic board.</text></g>
+      <path class="ln" d="M225 149 H255 V149 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="116" width="270" height="66" rx="4"/><text class="n" x="306" y="144">For later</text><text class="s" x="306" y="166">Leave a to-do for the topic agent.</text></g>
+      <path class="ln" d="M562 149 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="116" width="310" height="66" rx="4"/><text class="n" x="628" y="144">Resume in this conversation</text><text class="s" x="628" y="166">The agent picks it up when free.</text></g>
+      <path class="ln" d="M225 149 H255 V245 H290" marker-end="url(#ah)"/>
+      <g><rect class="bx" x="292" y="212" width="270" height="66" rx="4"/><text class="n" x="306" y="240">For a sub-agent</text><text class="s" x="306" y="262">Start an independent PostHog Task.</text></g>
+      <path class="ln" d="M562 245 H612" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="614" y="212" width="310" height="66" rx="4"/><text class="n" x="628" y="240">Return the result to chat</text><text class="s" x="628" y="262">A completion note wakes the topic agent.</text></g>
+    </svg></div>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-engine/src/worker.rs">Agent worker</a><a href="../../../crates/meep-engine/src/posthog.rs">PostHog Tasks adapter</a><a href="../../../crates/meep-server/src/topic_mcp.rs">Topic tools</a></p>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="area" id="workspace" aria-labelledby="workspace-title">
+  <div class="column">
+    <h2 id="workspace-title"><span class="secno">8</span>The topic conversation</h2>
+    <p class="lead">A topic keeps one conversation across turns. The agent can carry a question from investigation to a decision, even when someone else does part of the work.</p>
+  </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 235" role="img" aria-labelledby="session-inputs-t session-inputs-d">
+      <title id="session-inputs-t">One topic conversation across several turns</title>
+      <desc id="session-inputs-d">The checkout agent investigates timeouts. It delegates an independent check to a sub-agent and continues reviewing evidence. The sub-agent’s result returns to the original conversation for a summary.</desc>
+      <rect class="blk" x="12" y="12" width="916" height="108" rx="5"/>
+      <text class="h" x="30" y="36">CHECKOUT RELIABILITY · ONE TOPIC CONVERSATION</text>
+      <text class="n" x="30" y="75">Investigate the timeouts</text>
+      <path class="ln" d="M225 71 H285" marker-end="url(#ah)"/>
+      <text class="n" x="306" y="75">Review the evidence</text>
+      <path class="ln" d="M478 71 H622" marker-end="url(#ah)"/>
+      <text class="n" x="644" y="75">Explain the findings in chat</text>
+      <text class="s" x="30" y="101">Each turn resumes the same PostHog Task.</text>
+      <path class="ln" d="M210 120 V179 H291" marker-end="url(#ah)"/>
+      <text class="t" x="219" y="158">delegate</text>
+      <rect class="bx" x="294" y="149" width="270" height="62" rx="4"/>
+      <text class="n" x="308" y="174">Sub-agent checks the counts</text>
+      <text class="s" x="308" y="196">Independent work in a separate task.</text>
+      <path class="ln back" d="M564 179 H721 V122" marker-end="url(#ah)"/>
+      <text class="t" x="584" y="168">return the result</text>
+    </svg></div>
+    <figcaption class="column">While the agent works, a new message can steer it immediately. Choosing Investigate or Implement on a report lets the current turn finish first.</figcaption>
+  </figure>
+  <div class="column"><p class="impl"><b>Implementation</b><a href="../../../crates/meep-engine/src/session.rs">Conversation turns</a><a href="../../../crates/meep-engine/src/worker.rs">Sub-agent results</a></p></div>
+</section>
+
+<!-- 9 -->
+<section class="area" id="facts" aria-labelledby="facts-title">
+  <div class="column">
+    <h2 id="facts-title"><span class="secno">9</span>Facts and evidence</h2>
+    <p class="lead">With fact checking enabled, changes to related facts can prompt the topic agent to review them. An unclear relationship holds the actions that cite it.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-9">
+    <div class="plate">
+    <svg viewBox="0 0 960 236" role="img" aria-labelledby="f9t">
+      <title id="f9t">A fact added or withdrawn is compared with current facts. Still supported: keep. Replaced: link the old fact to the new one. Unclear: mark both disputed, and actions citing them wait.</title>
+      <rect class="bx" x="20" y="86" width="170" height="64"/>
+      <text class="n" x="105" y="114" text-anchor="middle">Fact changed</text>
+      <text class="s" x="105" y="135" text-anchor="middle">added · withdrawn</text>
+      <path class="ln" d="M190 118 H248" marker-end="url(#ah)"/>
+      <rect class="bx" x="250" y="86" width="160" height="64"/>
+      <text class="n" x="330" y="114" text-anchor="middle">Compare</text>
+      <text class="s" x="330" y="135" text-anchor="middle">Topic agent</text>
+      <path class="ln" d="M410 118 H440 V42 H468 M440 118 H468 M440 118 V194 H468"/>
+      <path class="ln" d="M460 42 H468 M460 118 H468 M460 194 H468" marker-end="url(#ah)"/>
+      <rect class="bx" x="470" y="20" width="230" height="44"/><text x="486" y="47">Still supported → keep</text>
+      <rect class="bx" x="470" y="96" width="230" height="44"/><text x="486" y="123">Replaced → link old to new</text>
+      <rect class="wait" x="470" y="172" width="230" height="44"/><text x="486" y="199">Unclear → disputed</text>
+      <path class="ln" d="M700 194 H738" marker-end="url(#ah)"/>
+      <rect class="ker" x="740" y="172" width="200" height="44"/><text x="756" y="199">Citing actions wait</text>
+    </svg>
+    </div>
+    <figcaption id="cap-9" class="column" style="padding:0">An action lists the facts it relies on. An empty list is independent. No list waits for every open dispute.</figcaption>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-engine/src/memory.rs">Reconciliation</a><a href="../../../crates/meep-topic/src/state/context.rs">Fact model</a></p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="area" id="sync" aria-labelledby="sync-title">
+  <div class="column">
+    <h2 id="sync-title"><span class="secno">10</span>Offline sync</h2>
+    <p class="lead">The Mac can record topic commands offline. When the connection returns, the server applies them and the devices catch up.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-10">
+    <div class="plate">
+    <svg viewBox="0 0 960 318" role="img" aria-labelledby="f10t">
+      <title id="f10t">The Mac applies a command locally to state, search and outbox in one transaction, then pushes it. The server commits the receipt and a new revision, and streams the revision back. The Mac installs the snapshot and replays what is still in its outbox.</title>
+      <rect class="bx" x="70" y="16" width="160" height="40"/><text class="n" x="150" y="41" text-anchor="middle">Mac replica</text>
+      <rect class="ker" x="730" y="16" width="160" height="40"/><text class="n" x="810" y="41" text-anchor="middle">Topic server</text>
+      <path class="life" d="M150 56 V306 M810 56 V306"/>
+
+      <rect class="chip" x="40" y="74" width="220" height="44"/>
+      <text x="150" y="93" text-anchor="middle" font-weight="700">Apply locally</text>
+      <text class="s" x="150" y="110" text-anchor="middle">state · search · outbox</text>
+
+      <path class="ln" d="M150 146 H808" marker-end="url(#ah)"/>
+      <text class="t" x="480" y="138" text-anchor="middle">command · id · review version</text>
+      <text class="s" x="480" y="162" text-anchor="middle">waits in the outbox while offline</text>
+
+      <rect class="chip" x="700" y="178" width="220" height="44"/>
+      <text x="810" y="197" text-anchor="middle" font-weight="700">Receipt + revision</text>
+      <text class="s" x="810" y="214" text-anchor="middle">one transaction</text>
+
+      <path class="ln back" d="M810 244 H152" marker-end="url(#ah)"/>
+      <text class="t" x="480" y="236" text-anchor="middle">revision on the stream</text>
+
+      <rect class="chip" x="40" y="258" width="220" height="44"/>
+      <text x="150" y="277" text-anchor="middle" font-weight="700">Install · replay</text>
+      <text class="s" x="150" y="294" text-anchor="middle">snapshot, then outbox</text>
+
+      <g class="moving">
+<rect class="flash" x="40" y="74" width="220" height="44" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="y100.end"/></rect>
+<rect class="flash" x="700" y="178" width="220" height="44" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="y101.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="y100.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="y101.end+0.6s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="y100" path="M150 118 L150 146" begin="0.5s;y10b1.end+1.4s" dur="0.35s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="y101" path="M150 146 L810 146 L810 178" begin="y100.end+0.5s" dur="3.01s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash k" x="40" y="258" width="220" height="44" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="y10b0.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="y10b0.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="y10b1.end+0.2s" fill="freeze"/>
+<circle class="glow ink" r="11.5"/><circle class="dot ink" r="5"/>
+<animateMotion id="y10b0" path="M810 222 L810 244 L150 244 L150 258" begin="y101.end+.4s" dur="3.03s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="y10b1" path="M150 258 L150 258" begin="y10b0.end+0.7s" dur="0.35s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-10" class="column" style="padding:0">A repeated command id returns the current revision. A stale review version is refused, and the Mac shows why.</figcaption>
+  </figure>
+  <div class="column">
+    <div class="tablewrap"><table>
+      <thead><tr><th scope="col">Identifier</th><th scope="col">Answers</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Command id</th><td>Was this already applied?</td></tr>
+        <tr><th scope="row">Review version</th><td>Is this the question the person saw?</td></tr>
+        <tr><th scope="row">Topic revision</th><td>Which version of one topic is this?</td></tr>
+        <tr><th scope="row">Change cursor</th><td>Where does this device resume, across topics?</td></tr>
+      </tbody>
+    </table></div>
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-client/src/replica.rs">Replica</a><a href="../../../crates/meep-client/src/sync.rs">Sync loop</a><a href="../../../crates/meep-engine/src/store.rs">Receipts and revisions</a><a href="../../../crates/meep-topic/src/state/command.rs">Commands</a></p>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="area" id="files" aria-labelledby="files-title">
+  <div class="column">
+    <h2 id="files-title"><span class="secno">11</span>Files</h2>
+    <p class="lead">Each upload names the revision it started from. Two edits of one revision both survive.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-11">
+    <div class="plate">
+    <svg viewBox="0 0 960 236" role="img" aria-labelledby="f11t">
+      <title id="f11t">Two Macs edit revision 4. The first upload becomes revision 5. The second, with different bytes, becomes an alternative. Needs you offers to keep revision 5 or use the alternative, which publishes revision 6.</title>
+      <rect class="bx" x="20" y="96" width="90" height="48"/><text class="n" x="65" y="126" text-anchor="middle">rev 4</text>
+      <path class="ln" d="M110 110 L180 60 M110 130 L180 180" marker-end="url(#ah)"/>
+      <rect class="chip" x="182" y="38" width="140" height="44"/><text x="252" y="65" text-anchor="middle">Mac A edits</text>
+      <rect class="chip" x="182" y="158" width="140" height="44"/><text x="252" y="185" text-anchor="middle">Mac B edits</text>
+      <path class="ln" d="M322 60 H418" marker-end="url(#ah)"/><text class="t" x="370" y="52" text-anchor="middle">first</text>
+      <path class="ln" d="M322 180 H418" marker-end="url(#ah)"/><text class="t" x="370" y="172" text-anchor="middle">second</text>
+      <rect class="bx" x="420" y="36" width="130" height="48"/><text class="n" x="485" y="66" text-anchor="middle">rev 5 · head</text>
+      <rect class="wait" x="420" y="156" width="130" height="48"/><text class="n" x="485" y="186" text-anchor="middle">alternative</text>
+      <path class="ln" d="M550 60 L618 110 M550 180 L618 130" marker-end="url(#ah)"/>
+      <rect class="wait" x="620" y="96" width="130" height="48"/><text class="n" x="685" y="126" text-anchor="middle">Needs you</text>
+      <path class="ln" d="M750 110 L818 60 M750 130 L818 180" marker-end="url(#ah)"/>
+      <rect class="bx" x="820" y="36" width="120" height="48"/><text x="880" y="65" text-anchor="middle">keep rev 5</text>
+      <rect class="bx" x="820" y="156" width="120" height="48"/><text x="880" y="185" text-anchor="middle">rev 6 = B</text>
+    <g class="moving">
+<rect class="flash" x="182" y="38" width="140" height="44" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11a0.end"/></rect>
+<rect class="flash" x="420" y="36" width="130" height="48" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11a1.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="f11a0.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="f11a1.end+0.6s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="f11a0" path="M110 110 L180 60" begin="0.5s;f11b3.end+1.6s" dur="0.37s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="f11a1" path="M180 60 L322 60 L420 60" begin="f11a0.end+0.3s" dur="1.04s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="182" y="158" width="140" height="44" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11b0.end"/></rect>
+<rect class="flash" x="420" y="156" width="130" height="48" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11b1.end"/></rect>
+<rect class="flash" x="620" y="96" width="130" height="48" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11b2.end"/></rect>
+<rect class="flash" x="820" y="156" width="120" height="48" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="f11b3.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="f11b0.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="f11b3.end+0.7s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="f11b0" path="M110 130 L180 180" begin="f11a1.end+.2s" dur="0.37s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="f11b1" path="M180 180 L322 180 L420 180" begin="f11b0.end+0.3s" dur="1.04s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="f11b2" path="M420 180 L550 180 L620 130" begin="f11b1.end+0.6s" dur="0.94s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="f11b3" path="M620 130 L750 130 L820 180" begin="f11b2.end+1s" dur="0.94s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-11" class="column" style="padding:0">Both originals stay readable by revision. A refused upload keeps its bytes on the Mac until the person saves or discards them.</figcaption>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-engine/src/blobs.rs">Versioned files</a><a href="../../../crates/meep-engine/src/files.rs">File reviews</a><a href="../../../crates/meep-client/src/lib.rs">Upload queue</a></p>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="area" id="views" aria-labelledby="views-title">
+  <div class="column">
+    <h2 id="views-title"><span class="secno">12</span>Views</h2>
+    <p class="lead">A view is a page you compose by asking. Each edit is a new generation.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-12">
+    <div class="plate">
+    <svg viewBox="0 0 960 214" role="img" aria-labelledby="f12t">
+      <title id="f12t">A request in view chat starts a PostHog Task. Its view tools write or patch the script, validate it and check the generation. Publishing adds a generation; the Mac mounts it and reads topic data. Restore copies an old generation forward.</title>
+      <rect class="bx" x="20" y="70" width="140" height="60"/><text class="n" x="90" y="96" text-anchor="middle">Ask</text><text class="s" x="90" y="116" text-anchor="middle">view chat</text>
+      <path class="ln" d="M160 100 H198" marker-end="url(#ah)"/>
+      <rect class="bx" x="200" y="70" width="160" height="60"/><text class="n" x="280" y="96" text-anchor="middle">PostHog Task</text><text class="s" x="280" y="116" text-anchor="middle">one turn</text>
+      <path class="ln" d="M360 100 H398" marker-end="url(#ah)"/>
+      <rect class="ker" x="400" y="70" width="170" height="60"/><text class="n" x="485" y="96" text-anchor="middle">View tools</text><text class="s" x="485" y="116" text-anchor="middle">validate · generation</text>
+      <path class="ln" d="M570 100 H618" marker-end="url(#ah)"/>
+      <rect class="blk" x="628" y="62" width="130" height="60"/>
+      <rect class="blk" x="624" y="66" width="130" height="60"/>
+      <rect class="blk" x="620" y="70" width="130" height="60"/>
+      <text class="tb" x="685" y="96" text-anchor="middle">Generation n</text><text class="s" x="685" y="116" text-anchor="middle">source checkpoint</text>
+      <path class="ln" d="M750 100 H798" marker-end="url(#ah)"/>
+      <rect class="bx" x="800" y="70" width="140" height="60"/><text class="n" x="870" y="96" text-anchor="middle">Mac mounts</text><text class="s" x="870" y="116" text-anchor="middle">reads topic data</text>
+      <path class="ln back" d="M650 130 C650 190 720 190 720 132" marker-end="url(#ah)"/>
+      <text class="t" x="685" y="200" text-anchor="middle">restore = copy forward</text>
+    <g class="moving">
+<rect class="flash" x="200" y="70" width="160" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="v120.end"/></rect>
+<rect class="flash" x="400" y="70" width="170" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="v121.end"/></rect>
+<rect class="flash" x="620" y="70" width="130" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="v122.end"/></rect>
+<rect class="flash" x="800" y="70" width="140" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="v123.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="v120.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="v123.end+0.7s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="v120" path="M160 100 L200 100" begin="0.5s;v123.end+1.6s" dur="0.35s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="v121" path="M200 100 L360 100 L400 100" begin="v120.end+0.5s" dur="0.87s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="v122" path="M400 100 L570 100 L620 100" begin="v121.end+0.6s" dur="0.96s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+<animateMotion id="v123" path="M620 100 L750 100 L800 100" begin="v122.end+0.5s" dur="0.78s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-12" class="column" style="padding:0">The task reaches the view tools over HTTPS, so the server needs a public address. The script runs in a sandbox with no network or files.</figcaption>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-server/src/views.rs">Authoring runs</a><a href="../../../crates/meep-server/src/view_mcp.rs">View tools</a><a href="../../../crates/meep-wire/src/views.rs">Generations</a><a href="../../../crates/meep-client/src/views.rs">Replica</a></p>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="area" id="trust" aria-labelledby="trust-title">
+  <div class="column">
+    <h2 id="trust-title"><span class="secno">13</span>Trust boundaries</h2>
+    <p class="lead">Each caller presents its own credential. None of them is a person's approval. Every credential belongs to one owner, and an owner sees only their own topics.</p>
+  </div>
+  <figure class="wide" aria-labelledby="cap-13">
+    <div class="plate">
+    <svg viewBox="0 0 960 330" role="img" aria-labelledby="f13t">
+      <title id="f13t">The topic server in the middle. The Mac presents a device token. A webhook presents a shared secret or HMAC signature. A workflow callback presents its routine secret. An agent run presents a run capability; a view author a turn capability. The server calls PostHog with the account’s OAuth token. PostHog runs the classifier and agent tasks.</title>
+      <rect class="ker" x="380" y="135" width="200" height="60"/><text class="n" x="480" y="170" text-anchor="middle">Topic server</text>
+
+      <rect class="bx" x="20" y="26" width="170" height="48"/><text class="n" x="105" y="55" text-anchor="middle">Mac app</text>
+      <rect class="bx" x="20" y="141" width="170" height="48"/><text class="n" x="105" y="170" text-anchor="middle">Webhook</text>
+      <rect class="bx" x="20" y="256" width="170" height="48"/><text class="n" x="105" y="285" text-anchor="middle">View author</text>
+      <rect class="blk" x="770" y="26" width="170" height="48"/><text class="tb" x="855" y="55" text-anchor="middle">Workflow</text>
+      <rect class="bx" x="770" y="141" width="170" height="48"/><text class="n" x="855" y="170" text-anchor="middle">Agent run</text>
+      <rect class="bx" x="770" y="256" width="170" height="48"/><text class="n" x="855" y="285" text-anchor="middle">PostHog API</text>
+
+      <path class="ln" d="M190 50 L380 148" marker-end="url(#ah)"/>
+      <path class="ln" d="M190 165 H378" marker-end="url(#ah)"/>
+      <path class="ln" d="M190 280 L380 182" marker-end="url(#ah)"/>
+      <path class="ln" d="M770 50 L580 148" marker-end="url(#ah)"/>
+      <path class="ln" d="M770 165 H582" marker-end="url(#ah)"/>
+      <path class="ln" d="M580 182 L770 280" marker-end="url(#ah)"/>
+
+      <g>
+        <rect fill="#fff" x="214" y="76" width="112" height="22"/><text class="t" x="270" y="92" text-anchor="middle">device token</text>
+        <rect fill="#fff" x="204" y="154" width="160" height="22"/><text class="t" x="284" y="170" text-anchor="middle">secret · HMAC</text>
+        <rect fill="#fff" x="204" y="230" width="132" height="22"/><text class="t" x="270" y="246" text-anchor="middle">turn capability</text>
+        <rect fill="#fff" x="626" y="76" width="122" height="22"/><text class="t" x="687" y="92" text-anchor="middle">routine secret</text>
+        <rect fill="#fff" x="602" y="154" width="150" height="22"/><text class="t" x="677" y="170" text-anchor="middle">run capability</text>
+        <rect fill="#fff" x="626" y="230" width="128" height="22"/><text class="t" x="690" y="246" text-anchor="middle">Bearer token</text>
+      </g>
+    <g class="moving">
+<rect class="flash" x="214" y="76" width="112" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr10.end"/></rect>
+<rect class="flash" x="380" y="135" width="200" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr10.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr10.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr10.end+0.25s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="tr10" path="M190 50 L380 148" begin="0.5s;tr60.end+1.4s" dur="1.07s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="204" y="154" width="160" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr20.end"/></rect>
+<rect class="flash" x="380" y="135" width="200" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr20.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr20.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr20.end+0.25s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="tr20" path="M190 165 L378 165" begin="tr10.end+.35s" dur="0.94s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="204" y="230" width="132" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr30.end"/></rect>
+<rect class="flash" x="380" y="135" width="200" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr30.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr30.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr30.end+0.25s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="tr30" path="M190 280 L380 182" begin="tr20.end+.35s" dur="1.07s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="626" y="76" width="122" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr40.end"/></rect>
+<rect class="flash" x="380" y="135" width="200" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr40.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr40.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr40.end+0.25s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="tr40" path="M770 50 L580 148" begin="tr30.end+.35s" dur="1.07s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash" x="602" y="154" width="150" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr50.end"/></rect>
+<rect class="flash" x="380" y="135" width="200" height="60" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr50.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr50.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr50.end+0.25s" fill="freeze"/>
+<circle class="glow" r="11.5"/><circle class="dot" r="5"/>
+<animateMotion id="tr50" path="M770 165 L582 165" begin="tr40.end+.35s" dur="0.94s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+<rect class="flash k" x="626" y="230" width="128" height="22" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr60.end"/></rect>
+<rect class="flash k" x="770" y="256" width="170" height="48" rx="0"><animate attributeName="opacity" values="0;1;0" keyTimes="0;.25;1" dur="1.1s" begin="tr60.end"/></rect>
+<g opacity="0">
+<animate attributeName="opacity" values="0;1" dur=".25s" begin="tr60.begin" fill="freeze"/>
+<animate attributeName="opacity" values="1;0" dur=".4s" begin="tr60.end+0.3s" fill="freeze"/>
+<circle class="glow ink" r="11.5"/><circle class="dot ink" r="5"/>
+<animateMotion id="tr60" path="M580 182 L770 280" begin="tr50.end+.35s" dur="1.07s" fill="freeze" calcMode="spline" keyPoints="0;1" keyTimes="0;1" keySplines=".45 0 .25 1"/>
+</g>
+</g>
+    </svg>
+    </div>
+    <figcaption id="cap-13" class="column" style="padding:0">The server keeps a separate engine and store per owner, so an owner's routes, stream, search and tools cannot reach another owner's data; a foreign object answers as missing. Run and turn capabilities are stored as fingerprints and end with the run. Topic tools check access to the destination. Approvals come from the person.</figcaption>
+  </figure>
+  <div class="column">
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-server/src/auth.rs">Device auth</a><a href="../../../crates/meep-connectors/src/webhook.rs">Webhooks</a><a href="../../../crates/meep-server/src/topic_mcp.rs">Topic tools</a><a href="../../../crates/meep-server/src/accounts.rs">Accounts</a></p>
+  </div>
+</section>
+
+<!-- 14 -->
+<section class="area" id="limits" aria-labelledby="limits-title">
+  <div class="column">
+    <h2 id="limits-title"><span class="secno">14</span>Deployment and limits</h2>
+    <p class="lead">The Mac app starts the server beside it. A hosted server works the same way.</p>
+    </div>
+  <figure class="wide product-flow">
+    <div class="plate"><svg viewBox="0 0 940 142" role="img" aria-labelledby="access-flow-t access-flow-d">
+      <title id="access-flow-t">What makes remote work possible</title><desc id="access-flow-d">Granting the topic a connected PostHog account lets the server start work. PostHog needs a reachable server address to deliver findings and call topic tools.</desc>
+      <g><rect class="bx" x="15" y="36" width="218" height="66" rx="4"/><text class="n" x="29" y="64">Connect an account</text><text class="s" x="29" y="86">Grant it to the topic.</text></g>
+      <path class="ln" d="M233 69 H294" marker-end="url(#ah)"/>
+      <g><rect class="blk" x="296" y="36" width="251" height="66" rx="4"/><text class="n" x="310" y="64">Start remote work</text><text class="s" x="310" y="86">PostHog runs the task or workflow.</text></g>
+      <path class="ln" d="M547 69 H615" marker-end="url(#ah)"/>
+      <g><rect class="slot" x="617" y="36" width="308" height="66" rx="4"/><text class="n" x="631" y="64">Reach the bound topic</text><text class="s" x="631" y="86">Tools and callbacks use a public address.</text></g>
+    </svg></div>
+  </figure>
+  <div class="column"><details class="contents"><summary>Deployment settings and limits</summary><div class="tablewrap"><table>
+      <thead><tr><th scope="col">Setting</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Local server</th><td><code>127.0.0.1:47950</code>, started by the app</td></tr>
+        <tr><th scope="row">Owners</th><td>One per person; <code>meep-server owner add</code>, <code>device add --owner</code></td></tr>
+        <tr><th scope="row">Public address</th><td>Settings → Advanced, or <code>MEEP_PUBLIC_BASE_URL</code>. Without it: no agent tools, no view authoring, no workflow callbacks, so remote source routines cannot publish reports</td></tr>
+        <tr><th scope="row">Topic access</th><td>Signing out removes the stored PostHog credentials. Signing back in restores prior topic grants when the user, region and project match. If a grant is missing, the agent picker can connect that topic to the signed-in account.</td></tr>
+        <tr><th scope="row">Agents</th><td>PostHog Tasks runs every agent task, on Claude or Codex, with the model and effort the person picks. Topic tools reach Meep over MCP, so agent tools and workflow callbacks need a reachable HTTPS address for the Meep server.</td></tr>
+        <tr><th scope="row">Agent models</th><td>Claude and Codex, from the account's catalogue; topic tools require a supported runtime and a reachable Meep server</td></tr>
+        <tr><th scope="row">Codex billing</th><td>PostHog, or your ChatGPT subscription</td></tr>
+        <tr><th scope="row">Workflow health</th><td>Read from the workflow itself; sign-in also asks for <code>person:read</code></td></tr>
+        <tr><th scope="row">Agent starts</th><td>60 per topic per hour; a run with no progress for 60 minutes fails; Stop cancels it in PostHog</td></tr>
+        <tr><th scope="row">Sort confidence</th><td>0.75</td></tr>
+        <tr><th scope="row">Thread candidates</th><td>32 most recent</td></tr>
+        <tr><th scope="row">Topic-to-topic hops</th><td>4</td></tr>
+        <tr><th scope="row">Source polling</th><td>every 30 s, backing off to 15 min on failure</td></tr>
+        <tr><th scope="row">File size</th><td>64 MiB</td></tr>
+        <tr><th scope="row">Workflow dispatch</th><td>Retry eligible failures up to five times. If PostHog may have accepted a manual run, Meep flags the dispatch for review. Check the workflow history before acknowledging it or starting another run.</td></tr>
+        <tr><th scope="row">Event records kept</th><td>Pending observations and the newest 500 finished per routine</td></tr>
+        <tr><th scope="row">Change feed and receipts</th><td>Feed keeps the latest revision per topic after 7 days; receipts and seen keys 30 days</td></tr>
+        <tr><th scope="row">Undo</th><td>Forgotten facts any time; removed rules for 30 days</td></tr>
+      </tbody>
+    </table></div></details>
+    <p class="impl"><b>Implementation</b><a href="../../../crates/meep-server/src/lib.rs">Server setup</a><a href="../../../crates/meep-server/src/accounts.rs">Account credentials</a><a href="../../../crates/meep-server/src/workers.rs">Workers</a></p>
+  </div>
+</section>
+
+<footer class="column">Describes the code on <code>main</code>.</footer>
+</main>
+</body></html>

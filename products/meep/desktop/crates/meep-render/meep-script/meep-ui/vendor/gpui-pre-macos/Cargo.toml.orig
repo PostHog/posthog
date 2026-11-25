@@ -1,0 +1,68 @@
+[package]
+name = "gpui-pre-macos"
+version = "0.3.11"
+edition = { workspace = true }
+publish = true
+license = "Apache-2.0"
+description = "Zed's `gpui_macos` crate (gpui-pre snapshot of zed@f816e1f)"
+repository = "https://github.com/zed-industries/zed"
+
+[package.metadata.gpui-pre]
+zed-crate = "gpui_macos"
+zed-version = "0.1.0"
+zed-rev = "f816e1f9263e3a8ef63c4baaa02e1441ce1c6038"
+
+[lib]
+path = "src/gpui_macos.rs"
+doctest = false
+name = "gpui_macos"
+
+[features]
+default = ["gpui/default"]
+bench-support = ["gpui/bench-support", "gpui_apple/bench-support"]
+test-support = ["gpui/test-support", "gpui_apple/test-support"]
+runtime_shaders = ["gpui_apple/runtime_shaders"]
+font-kit = ["gpui_apple/font-kit"]
+screen-capture = ["gpui/screen-capture", "dep:objc2-core-media", "dep:objc2-screen-capture-kit"]
+
+[dependencies]
+gpui = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit = { workspace = true }
+accesskit_macos = { workspace = true }
+anyhow = { workspace = true }
+block2 = { workspace = true }
+collections = { workspace = true }
+core-foundation = { workspace = true }
+core-foundation-sys = { workspace = true }
+core-graphics = { workspace = true }
+ctor = { workspace = true }
+dispatch2 = { workspace = true, features = ["block2", "objc2"] }
+foreign-types = { workspace = true }
+futures = { workspace = true }
+gpui_apple = { workspace = true }
+gpui_util = { workspace = true }
+image = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["objc2-uniform-type-identifiers"] }
+objc2-core-graphics = { workspace = true, features = ["CGColor", "objc2"] }
+objc2-core-media = { workspace = true, optional = true }
+objc2-core-video = { workspace = true, features = ["CVHostTime"] }
+objc2-foundation = { workspace = true }
+objc2-quartz-core = { workspace = true }
+objc2-screen-capture-kit = { workspace = true, optional = true }
+objc2-uniform-type-identifiers = { workspace = true }
+objc2-user-notifications = { workspace = true }
+parking_lot = { workspace = true }
+raw-window-handle = { workspace = true }
+scheduler = { workspace = true }
+semver = { workspace = true }
+smallvec = { workspace = true }
+strum = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

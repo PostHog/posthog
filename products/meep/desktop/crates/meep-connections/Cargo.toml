@@ -1,0 +1,17 @@
+[package]
+name = "meep-connections"
+version = "0.1.0"
+edition = "2024"
+description = "Connected services, topic grants, health checks, and secret storage"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+meep-store = { path = "../meep-store" }
+meep-topic = { path = "../meep-topic" }
+percent-encoding = "2"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"

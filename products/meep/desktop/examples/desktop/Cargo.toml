@@ -1,0 +1,26 @@
+[package]
+name = "meep-examples"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+meep-workflows = { path = "../../crates/meep-render/meep-workflows" }
+meep-posthog = { path = "../../crates/meep-posthog", features = ["mcp", "tasks", "workflows"] }
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+meep-render = { path = "../../crates/meep-render" }
+meep-shell = { path = "../../crates/meep-shell" }
+meep-ui = { path = "../../crates/meep-render/meep-script/meep-ui" }
+meep-store = { path = "../../crates/meep-store" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "macros"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
+[dev-dependencies]
+meep-notifications = { path = "../../crates/meep-notifications" }

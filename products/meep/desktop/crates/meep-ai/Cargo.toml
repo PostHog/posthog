@@ -1,0 +1,19 @@
+[package]
+name = "meep-ai"
+version = "0.1.0"
+edition = "2024"
+description = "PostHog System One decisions and text generation"
+
+[dependencies]
+async-trait = "0.1"
+httpdate = "1"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+tiny_http = "0.12"

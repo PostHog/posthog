@@ -1,0 +1,44 @@
+# Cargo build output, including standalone crates and macOS bundles
+target/
+*.app/
+
+# Local consumer apps, live-service launchers and visual review harnesses
+/.local/
+/tools/
+/scripts/open-chat.sh
+/scripts/review.sh
+/examples/ui-review/
+/docs/design-review/
+
+# Disposable workspace output from scripts and agents
+/.scratch/
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+*.orig
+!Cargo.toml.orig
+*.rej
+
+# Local configuration and databases, including SQLite journals
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+
+# Python tooling and Finder
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store

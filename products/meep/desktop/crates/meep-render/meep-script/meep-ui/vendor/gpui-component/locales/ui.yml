@@ -1,0 +1,884 @@
+_version: 2
+Attachment:
+  Remove:
+    en: Remove
+    pt-BR: "Remover"
+    ru: "Удалить"
+    zh-CN: 移除
+    zh-HK: 移除
+    zh-TW: 移除
+  Retry:
+    en: Retry
+    pt-BR: "Tentar de novo"
+    ru: "Повторить"
+    zh-CN: 重试
+    zh-HK: 重試
+    zh-TW: 重試
+Calendar:
+  week.0:
+    en: Su
+    pt-BR: "Do"
+    ru: "Вс"
+    zh-CN: 日
+    zh-HK: 日
+    zh-TW: 日
+    it: Do
+  week.1:
+    en: Mo
+    pt-BR: "Se"
+    ru: "Пн"
+    zh-CN: 一
+    zh-HK: 一
+    zh-TW: 一
+    it: Lu
+  week.2:
+    en: Tu
+    pt-BR: "Te"
+    ru: "Вт"
+    zh-CN: 二
+    zh-HK: 二
+    zh-TW: 二
+    it: Ma
+  week.3:
+    en: We
+    pt-BR: "Qa"
+    ru: "Ср"
+    zh-CN: 三
+    zh-HK: 三
+    zh-TW: 三
+    it: Me
+  week.4:
+    en: Th
+    pt-BR: "Qi"
+    ru: "Чт"
+    zh-CN: 四
+    zh-HK: 四
+    zh-TW: 四
+    it: Gi
+  week.5:
+    en: Fr
+    pt-BR: "Sx"
+    ru: "Пт"
+    zh-CN: 五
+    zh-HK: 五
+    zh-TW: 五
+    it: Ve
+  week.6:
+    en: Sa
+    pt-BR: "Sá"
+    ru: "Сб"
+    zh-CN: 六
+    zh-HK: 六
+    zh-TW: 六
+    it: Sa
+  month.January:
+    en: January
+    pt-BR: "Janeiro"
+    ru: "Январь"
+    zh-CN: 一月
+    zh-HK: 一月
+    zh-TW: 一月
+    it: Gennaio
+  month.February:
+    en: February
+    pt-BR: "Fevereiro"
+    ru: "Февраль"
+    zh-CN: 二月
+    zh-HK: 二月
+    zh-TW: 二月
+    it: Febbraio
+  month.March:
+    en: March
+    pt-BR: "Março"
+    ru: "Март"
+    zh-CN: 三月
+    zh-HK: 三月
+    zh-TW: 三月
+    it: Marzo
+  month.April:
+    en: April
+    pt-BR: "Abril"
+    ru: "Апрель"
+    zh-CN: 四月
+    zh-HK: 四月
+    zh-TW: 四月
+    it: Aprile
+  month.May:
+    en: May
+    pt-BR: "Maio"
+    ru: "Май"
+    zh-CN: 五月
+    zh-HK: 五月
+    zh-TW: 五月
+    it: Maggio
+  month.June:
+    en: June
+    pt-BR: "Junho"
+    ru: "Июнь"
+    zh-CN: 六月
+    zh-HK: 六月
+    zh-TW: 六月
+    it: Giugno
+  month.July:
+    en: July
+    pt-BR: "Julho"
+    ru: "Июль"
+    zh-CN: 七月
+    zh-HK: 七月
+    zh-TW: 七月
+    it: Luglio
+  month.August:
+    en: August
+    pt-BR: "Agosto"
+    ru: "Август"
+    zh-CN: 八月
+    zh-HK: 八月
+    zh-TW: 八月
+    it: Agosto
+  month.September:
+    en: September
+    pt-BR: "Setembro"
+    ru: "Сентябрь"
+    zh-CN: 九月
+    zh-HK: 九月
+    zh-TW: 九月
+    it: Settembre
+  month.October:
+    en: October
+    pt-BR: "Outubro"
+    ru: "Октябрь"
+    zh-CN: 十月
+    zh-HK: 十月
+    zh-TW: 十月
+    it: Ottobre
+  month.November:
+    en: November
+    pt-BR: "Novembro"
+    ru: "Ноябрь"
+    zh-CN: 十一月
+    zh-HK: 十一月
+    zh-TW: 十一月
+    it: Novembre
+  month.December:
+    en: December
+    pt-BR: "Dezembro"
+    ru: "Декабрь"
+    zh-CN: 十二月
+    zh-HK: 十二月
+    zh-TW: 十二月
+    it: Dicembre
+DatePicker:
+  placeholder:
+    en: "Select date"
+    pt-BR: "Escolha uma data"
+    ru: "Выберите дату"
+    zh-CN: 选择日期
+    zh-HK: 選擇日期
+    zh-TW: 選取日期
+    it: "Seleziona data"
+  time:
+    en: Time
+    pt-BR: "Hora"
+    ru: "Время"
+    zh-CN: 时间
+    zh-HK: 時間
+Select:
+  placeholder:
+    en: "Please select"
+    pt-BR: "Escolha"
+    ru: "Выберите"
+    zh-CN: "请选择"
+    zh-HK: "請選擇"
+    zh-TW: "請選擇"
+    it: Seleziona
+ComboBox:
+  placeholder:
+    en: "Please select"
+    pt-BR: "Escolha"
+    ru: "Выберите"
+    zh-CN: "请选择"
+    zh-HK: "請選擇"
+    zh-TW: "請選擇"
+    it: Seleziona
+  search_placeholder:
+    en: "Search..."
+    pt-BR: "Buscar…"
+    ru: "Поиск…"
+    zh-CN: "搜索..."
+    zh-HK: "搜索..."
+    zh-TW: "搜尋..."
+    it: "Cerca..."
+  empty:
+    en: "No results"
+    pt-BR: "Nada encontrado"
+    ru: "Ничего не найдено"
+    zh-CN: "暂无数据"
+    zh-HK: "暫無數據"
+    zh-TW: "沒有結果"
+    it: "Nessun risultato"
+DropdownButton:
+  more_options:
+    en: More options
+    pt-BR: "Mais opções"
+    ru: "Другие действия"
+    zh-CN: 更多选项
+    zh-HK: 更多選項
+    zh-TW: 更多選項
+Dock:
+  Unnamed:
+    en: Unnamed
+    pt-BR: "Sem nome"
+    ru: "Без названия"
+    zh-CN: 未命名
+    zh-HK: 未命名
+    zh-TW: 未命名
+    it: "Senza nome"
+  Close:
+    en: Close
+    pt-BR: "Fechar"
+    ru: "Закрыть"
+    zh-CN: 关闭
+    zh-HK: 關閉
+    zh-TW: 關閉
+    it: Chiudi
+  Zoom In:
+    en: Zoom In
+    pt-BR: "Ampliar"
+    ru: "Увеличить"
+    zh-CN: 放大
+    zh-HK: 放大
+    zh-TW: 放大
+    it: Zoom In
+  Zoom Out:
+    en: Zoom Out
+    pt-BR: "Reduzir"
+    ru: "Уменьшить"
+    zh-CN: 缩小
+    zh-HK: 縮小
+    zh-TW: 縮小
+    it: Zoom Out
+  Collapse:
+    en: Collapse
+    pt-BR: "Recolher"
+    ru: "Свернуть"
+    zh-CN: 隐藏
+    zh-HK: 隱藏
+    zh-TW: 收合
+    it: Nascondi
+  Expand:
+    en: Expand
+    pt-BR: "Expandir"
+    ru: "Развернуть"
+    zh-CN: 展开
+    zh-HK: 展開
+    zh-TW: 展開
+    it: Espandi
+  Unavailable Panel:
+    en: This panel isn’t available in this version.
+    pt-BR: "Este painel não está disponível nesta versão."
+    ru: "Эта панель недоступна в текущей версии."
+    zh-CN: 当前版本无法显示该面板。
+    zh-HK: 目前版本無法顯示此面板。
+    zh-TW: 目前版本無法顯示此面板。
+    it: Questo pannello non è disponibile in questa versione.
+ColorPicker:
+  Palette:
+    en: Palette
+    pt-BR: "Paleta"
+    ru: "Палитра"
+    zh-CN: 调色板
+    zh-HK: 調色板
+    zh-TW: 調色盤
+    it: Tavolozza
+  HSLA:
+    en: HSLA
+    pt-BR: "HSLA"
+    ru: "HSLA"
+    zh-CN: HSLA
+    zh-HK: HSLA
+    zh-TW: HSLA
+    it: HSLA
+  Hue:
+    en: Hue
+    pt-BR: "Matiz"
+    ru: "Оттенок"
+    zh-CN: 色相
+    zh-HK: 色相
+    zh-TW: 色相
+    it: Tonalità
+  Saturation:
+    en: Saturation
+    pt-BR: "Saturação"
+    ru: "Насыщенность"
+    zh-CN: 饱和度
+    zh-HK: 飽和度
+    zh-TW: 飽和度
+    it: Saturazione
+  Lightness:
+    en: Lightness
+    pt-BR: "Luminosidade"
+    ru: "Светлота"
+    zh-CN: 亮度
+    zh-HK: 亮度
+    zh-TW: 亮度
+    it: Luminosità
+  Alpha:
+    en: Alpha
+    pt-BR: "Opacidade"
+    ru: "Непрозрачность"
+    zh-CN: 透明度
+    zh-HK: 透明度
+    zh-TW: 透明度
+    it: Alfa
+Dialog:
+  ok:
+    en: OK
+    pt-BR: "OK"
+    ru: "ОК"
+    zh-CN: 确定
+    zh-HK: 確定
+    zh-TW: 確定
+    it: OK
+  cancel:
+    en: Cancel
+    pt-BR: "Cancelar"
+    ru: "Отмена"
+    zh-CN: 取消
+    zh-HK: 取消
+    zh-TW: 取消
+    it: Annulla
+Command:
+  placeholder:
+    en: Type a command or search...
+    pt-BR: "Digite um comando ou busque…"
+    ru: "Введите команду или запрос…"
+    zh-CN: 输入命令或搜索...
+    zh-HK: 輸入命令或搜尋...
+    zh-TW: 輸入命令或搜尋...
+    it: Digita un comando o cerca...
+  empty:
+    en: No results found.
+    pt-BR: "Nada encontrado."
+    ru: "Ничего не найдено."
+    zh-CN: 未找到结果。
+    zh-HK: 未找到結果。
+    zh-TW: 未找到結果。
+    it: Nessun risultato trovato.
+List:
+  search_placeholder:
+    en: Search...
+    pt-BR: "Buscar…"
+    ru: "Поиск…"
+    zh-CN: 搜索...
+    zh-HK: 搜索...
+    zh-TW: 搜尋...
+    it: Ricerca...
+Input:
+  Decrement:
+    en: Decrement
+    pt-BR: "Diminuir"
+    ru: "Уменьшить"
+    zh-CN: 减少
+    zh-HK: 減少
+    zh-TW: 減少
+  Increment:
+    en: Increment
+    pt-BR: "Aumentar"
+    ru: "Увеличить"
+    zh-CN: 增加
+    zh-HK: 增加
+    zh-TW: 增加
+  Replace:
+    en: Replace
+    pt-BR: "Substituir"
+    ru: "Заменить"
+    zh-CN: 替换
+    zh-HK: 替換
+    zh-TW: 取代
+  Replace All:
+    en: Replace All
+    pt-BR: "Substituir tudo"
+    ru: "Заменить все"
+    zh-CN: 全部替换
+    zh-HK: 全部替換
+    zh-TW: 全部取代
+  Clear:
+    en: Clear
+    pt-BR: "Limpar"
+    ru: "Очистить"
+    zh-CN: 清除
+    zh-HK: 清除
+    zh-TW: 清除
+  Cut:
+    en: Cut
+    pt-BR: "Recortar"
+    ru: "Вырезать"
+    zh-CN: 剪切
+    zh-HK: 剪切
+    zh-TW: 剪下
+  Copy:
+    en: Copy
+    pt-BR: "Copiar"
+    ru: "Скопировать"
+    zh-CN: 复制
+    zh-HK: 複製
+    zh-TW: 複製
+  Paste:
+    en: Paste
+    pt-BR: "Colar"
+    ru: "Вставить"
+    zh-CN: 粘贴
+    zh-HK: 貼上
+    zh-TW: 貼上
+  Select All:
+    en: Select All
+    pt-BR: "Selecionar tudo"
+    ru: "Выбрать все"
+    zh-CN: 全选
+    zh-HK: 全選
+    zh-TW: 全選
+  Go to Definition:
+    en: Go to Definition
+    pt-BR: "Ir para a definição"
+    ru: "Перейти к определению"
+    zh-CN: 跳转到定义
+    zh-HK: 跳轉到定義
+    zh-TW: 前往定義
+  Show Code Actions:
+    en: Show Code Actions
+    pt-BR: "Mostrar ações de código"
+    ru: "Показать действия с кодом"
+    zh-CN: 显示代码操作
+    zh-HK: 顯示代碼操作
+    zh-TW: 顯示程式碼動作
+  Show Password:
+    en: Show password
+    pt-BR: "Mostrar senha"
+    ru: "Показать пароль"
+    zh-CN: 显示密码
+    zh-HK: 顯示密碼
+    zh-TW: 顯示密碼
+  Hide Password:
+    en: Hide password
+    pt-BR: "Esconder senha"
+    ru: "Скрыть пароль"
+    zh-CN: 隐藏密码
+    zh-HK: 隱藏密碼
+    zh-TW: 隱藏密碼
+Settings:
+  search_placeholder:
+    en: Search...
+    pt-BR: "Buscar…"
+    ru: "Поиск…"
+    zh-CN: 搜索...
+    zh-HK: 搜索...
+    zh-TW: 搜尋...
+    it: Ricerca...
+  no_results:
+    en: No matching settings
+    pt-BR: "Nenhuma configuração encontrada"
+    ru: "Подходящих настроек нет"
+    zh-CN: 没有匹配的设置
+    zh-HK: 沒有相符的設定
+    zh-TW: 沒有相符的設定
+    it: Nessuna impostazione corrispondente
+  no_results_description:
+    en: Try a different keyword.
+    pt-BR: "Tente outra palavra-chave."
+    ru: "Попробуйте другое ключевое слово."
+    zh-CN: 请尝试其他关键词。
+    zh-HK: 請嘗試其他關鍵字。
+    zh-TW: 請嘗試其他關鍵字。
+    it: Prova con un'altra parola chiave.
+  Reset All:
+    en: Reset All
+    pt-BR: "Restaurar tudo"
+    ru: "Сбросить все"
+    zh-CN: 重置全部
+    zh-HK: 重置全部
+    zh-TW: 全部重設
+    it: Resetta Tutto
+Pagination:
+  previous:
+    en: Previous
+    pt-BR: "Anterior"
+    ru: "Назад"
+    zh-CN: 上一页
+    zh-HK: 上一頁
+    zh-TW: 上一頁
+  next:
+    en: Next
+    pt-BR: "Próxima"
+    ru: "Вперёд"
+    zh-CN: 下一页
+    zh-HK: 下一頁
+    zh-TW: 下一頁
+Carousel:
+  label:
+    en: Carousel
+    pt-BR: "Carrossel"
+    ru: "Карусель"
+    zh-CN: 轮播
+    zh-HK: 輪播
+    zh-TW: 輪播
+  previous:
+    en: Previous slide
+    pt-BR: "Slide anterior"
+    ru: "Предыдущий слайд"
+    zh-CN: 上一张
+    zh-HK: 上一張
+    zh-TW: 上一張
+  next:
+    en: Next slide
+    pt-BR: "Próximo slide"
+    ru: "Следующий слайд"
+    zh-CN: 下一张
+    zh-HK: 下一張
+    zh-TW: 下一張
+  slide:
+    en: Slide %{current} of %{total}
+    pt-BR: "Slide %{current} de %{total}"
+    ru: "Слайд %{current} из %{total}"
+    zh-CN: 第 %{current} 张，共 %{total} 张
+    zh-HK: 第 %{current} 張，共 %{total} 張
+    zh-TW: 第 %{current} 張，共 %{total} 張
+  pagination:
+    en: Carousel pagination
+    pt-BR: "Páginas do carrossel"
+    ru: "Страницы карусели"
+    zh-CN: 轮播分页
+    zh-HK: 輪播分頁
+    zh-TW: 輪播分頁
+  go_to_slide:
+    en: Go to slide %{current}
+    pt-BR: "Ir para o slide %{current}"
+    ru: "Перейти к слайду %{current}"
+    zh-CN: 前往第 %{current} 张
+    zh-HK: 前往第 %{current} 張
+    zh-TW: 前往第 %{current} 張
+Table:
+  SortBy:
+    en: Sort by %{column}
+    pt-BR: "Ordenar por %{column}"
+    ru: "Сортировать по: %{column}"
+    zh-CN: 按 %{column} 排序
+    zh-HK: 按 %{column} 排序
+    zh-TW: 依 %{column} 排序
+Chart:
+  open:
+    en: Open
+    pt-BR: "Abertura"
+    ru: "Открытие"
+    zh-CN: 开盘
+    zh-HK: 開市
+    zh-TW: 開盤
+  high:
+    en: High
+    pt-BR: "Máxima"
+    ru: "Максимум"
+    zh-CN: 最高
+    zh-HK: 最高
+    zh-TW: 最高
+  low:
+    en: Low
+    pt-BR: "Mínima"
+    ru: "Минимум"
+    zh-CN: 最低
+    zh-HK: 最低
+    zh-TW: 最低
+  close:
+    en: Close
+    pt-BR: "Fechamento"
+    ru: "Закрытие"
+    zh-CN: 收盘
+    zh-HK: 收市
+    zh-TW: 收盤
+Questionnaire:
+  progress:
+    en: Question %{current} of %{total}
+    pt-BR: "Pergunta %{current} de %{total}"
+    ru: "Вопрос %{current} из %{total}"
+    zh-CN: 第 %{current} 题，共 %{total} 题
+    zh-HK: 第 %{current} 題，共 %{total} 題
+    zh-TW: 第 %{current} 題，共 %{total} 題
+  previous:
+    en: Previous
+    pt-BR: "Anterior"
+    ru: "Назад"
+    zh-CN: 上一题
+    zh-HK: 上一題
+    zh-TW: 上一題
+  next:
+    en: Next
+    pt-BR: "Próxima"
+    ru: "Далее"
+    zh-CN: 下一题
+    zh-HK: 下一題
+    zh-TW: 下一題
+  skip:
+    en: Skip
+    pt-BR: "Pular"
+    ru: "Пропустить"
+    zh-CN: 跳过
+    zh-HK: 跳過
+    zh-TW: 跳過
+  submit:
+    en: Submit
+    pt-BR: "Enviar"
+    ru: "Отправить"
+    zh-CN: 提交
+    zh-HK: 提交
+    zh-TW: 提交
+  error.required:
+    en: Choose an answer to continue.
+    pt-BR: "Escolha uma resposta para continuar."
+    ru: "Выберите ответ, чтобы продолжить."
+    zh-CN: 请选择一个答案后继续。
+    zh-HK: 請選擇一個答案後繼續。
+    zh-TW: 請選擇一個答案後繼續。
+  error.optional:
+    en: Choose an answer or skip this question.
+    pt-BR: "Escolha uma resposta ou pule esta pergunta."
+    ru: "Выберите ответ или пропустите этот вопрос."
+    zh-CN: 请选择一个答案，或跳过此题。
+    zh-HK: 請選擇一個答案，或跳過此題。
+    zh-TW: 請選擇一個答案，或跳過此題。
+Speech:
+  Start:
+    en: Dictate
+    pt-BR: "Ditar"
+    ru: "Диктовать"
+    zh-CN: 语音输入
+    zh-HK: 語音輸入
+    zh-TW: 語音輸入
+  Stop:
+    en: Stop dictation
+    pt-BR: "Parar o ditado"
+    ru: "Остановить диктовку"
+    zh-CN: 停止语音输入
+    zh-HK: 停止語音輸入
+    zh-TW: 停止語音輸入
+  Unavailable:
+    en: Dictation unavailable
+    pt-BR: "Ditado indisponível"
+    ru: "Диктовка недоступна"
+    zh-CN: 语音输入不可用
+    zh-HK: 語音輸入不可用
+    zh-TW: 語音輸入不可用
+Diff:
+  BinaryChanges:
+    en: Binary file changed
+    pt-BR: "Arquivo binário alterado"
+    ru: "Двоичный файл изменён"
+    zh-CN: 二进制文件已变更
+    zh-HK: 二進位檔案已變更
+  NoTextChanges:
+    en: No text changes in this patch
+    pt-BR: "Nenhuma mudança de texto neste patch"
+    ru: "В этом патче нет изменений текста"
+    zh-CN: 此 patch 没有文本变更
+    zh-HK: 此 patch 沒有文字變更
+  NoChanges:
+    en: No changes
+    pt-BR: "Sem alterações"
+    ru: "Изменений нет"
+    zh-CN: 没有变更
+    zh-HK: 沒有變更
+  EmptyFile:
+    en: Empty file
+    pt-BR: "Arquivo vazio"
+    ru: "Пустой файл"
+    zh-CN: 空文件
+    zh-HK: 空檔案
+  AddedFile:
+    en: Added file
+    pt-BR: "Arquivo novo"
+    ru: "Файл добавлен"
+    zh-CN: 新增文件
+    zh-HK: 新增檔案
+  DeletedFile:
+    en: Deleted file
+    pt-BR: "Arquivo apagado"
+    ru: "Файл удалён"
+    zh-CN: 已删除文件
+    zh-HK: 已刪除檔案
+  RenamedFile:
+    en: Renamed
+    pt-BR: "Renomeado"
+    ru: "Переименован"
+    zh-CN: 已重命名
+    zh-HK: 已重新命名
+  CopiedFile:
+    en: Copied
+    pt-BR: "Copiado"
+    ru: "Скопирован"
+    zh-CN: 已复制
+    zh-HK: 已複製
+  HiddenLines:
+    en: "%{count} lines not in patch"
+    pt-BR: "%{count} linhas fora do patch"
+    ru: "Строк вне патча: %{count}"
+    zh-CN: "patch 中未包含 %{count} 行"
+    zh-HK: "patch 中未包含 %{count} 行"
+  ExpandAbove:
+    en: Show %{count} lines above
+    pt-BR: "Mostrar %{count} linhas acima"
+    ru: "Показать строки выше: %{count}"
+    zh-CN: 显示上方 %{count} 行
+    zh-HK: 顯示上方 %{count} 行
+  ExpandBelow:
+    en: Show %{count} lines below
+    pt-BR: "Mostrar %{count} linhas abaixo"
+    ru: "Показать строки ниже: %{count}"
+    zh-CN: 显示下方 %{count} 行
+    zh-HK: 顯示下方 %{count} 行
+  CollapseFile:
+    en: Collapse %{name}
+    pt-BR: "Recolher %{name}"
+    ru: "Свернуть %{name}"
+    zh-CN: 收起 %{name}
+    zh-HK: 收起 %{name}
+  ExpandFile:
+    en: Expand %{name}
+    pt-BR: "Expandir %{name}"
+    ru: "Развернуть %{name}"
+    zh-CN: 展开 %{name}
+    zh-HK: 展開 %{name}
+  AddAnnotation:
+    en: Add annotation to line %{line}
+    pt-BR: "Anotar a linha %{line}"
+    ru: "Добавить примечание к строке %{line}"
+    zh-CN: 为第 %{line} 行添加批注
+    zh-HK: 為第 %{line} 行新增批註
+  ConflictedFile:
+    en: Conflicts
+    pt-BR: "Conflitos"
+    ru: "Конфликты"
+    zh-CN: 有冲突
+    zh-HK: 有衝突
+  CurrentChange:
+    en: Current change
+    pt-BR: "Alteração atual"
+    ru: "Текущее изменение"
+    zh-CN: 当前更改
+    zh-HK: 目前變更
+  IncomingChange:
+    en: Incoming change
+    pt-BR: "Alteração que chega"
+    ru: "Входящее изменение"
+    zh-CN: 传入的更改
+    zh-HK: 傳入的變更
+  BaseChange:
+    en: Common ancestor
+    pt-BR: "Ancestral comum"
+    ru: "Общий предок"
+    zh-CN: 共同祖先
+    zh-HK: 共同祖先
+  AcceptCurrent:
+    en: Accept Current
+    pt-BR: "Aceitar a atual"
+    ru: "Принять текущее"
+    zh-CN: 采用当前更改
+    zh-HK: 採用目前變更
+  AcceptIncoming:
+    en: Accept Incoming
+    pt-BR: "Aceitar a que chega"
+    ru: "Принять входящее"
+    zh-CN: 采用传入的更改
+    zh-HK: 採用傳入的變更
+  AcceptBoth:
+    en: Accept Both
+    pt-BR: "Aceitar as duas"
+    ru: "Принять оба"
+    zh-CN: 保留双方更改
+    zh-HK: 保留雙方變更
+  AcceptedCurrent:
+    en: Accepted current change
+    pt-BR: "Atual aceita"
+    ru: "Принято текущее изменение"
+    zh-CN: 已采用当前更改
+    zh-HK: 已採用目前變更
+  AcceptedIncoming:
+    en: Accepted incoming change
+    pt-BR: "A que chega foi aceita"
+    ru: "Принято входящее изменение"
+    zh-CN: 已采用传入的更改
+    zh-HK: 已採用傳入的變更
+  AcceptedBoth:
+    en: Accepted both changes
+    pt-BR: "As duas aceitas"
+    ru: "Приняты оба изменения"
+    zh-CN: 已保留双方更改
+    zh-HK: 已保留雙方變更
+  UndoResolution:
+    en: Undo
+    pt-BR: "Desfazer"
+    ru: "Отменить"
+    zh-CN: 撤销
+    zh-HK: 復原
+  Original:
+    en: Original
+    pt-BR: "Original"
+    ru: "Исходная"
+    zh-CN: 原版
+    zh-HK: 原版
+  Modified:
+    en: Modified
+    pt-BR: "Alterado"
+    ru: "Изменённая"
+    zh-CN: 新版
+    zh-HK: 新版
+  ExpandLines:
+    en: Expand %{count} unchanged lines
+    pt-BR: "Expandir %{count} linhas sem mudança"
+    ru: "Развернуть неизменённые строки: %{count}"
+    zh-CN: 展开 %{count} 行未变更内容
+    zh-HK: 展開 %{count} 行未變更內容
+  SourceLine:
+    en: "%{side} line %{line}"
+    pt-BR: "%{side} linha %{line}"
+    ru: "%{side} строка %{line}"
+    zh-CN: "%{side}第 %{line} 行"
+    zh-HK: "%{side}第 %{line} 行"
+  AddedLine:
+    en: "%{side} line %{line}, added"
+    pt-BR: "%{side} linha %{line}, adicionada"
+    ru: "%{side} строка %{line}, добавлена"
+    zh-CN: "%{side}第 %{line} 行，新增"
+    zh-HK: "%{side}第 %{line} 行，新增"
+  RemovedLine:
+    en: "%{side} line %{line}, removed"
+    pt-BR: "%{side} linha %{line}, removida"
+    ru: "%{side} строка %{line}, удалена"
+    zh-CN: "%{side}第 %{line} 行，删除"
+    zh-HK: "%{side}第 %{line} 行，刪除"
+  UnchangedLines:
+    en: "%{count} unchanged lines"
+    pt-BR: "%{count} linhas sem mudança"
+    ru: "Неизменённых строк: %{count}"
+    zh-CN: "%{count} 行未变更内容"
+    zh-HK: "%{count} 行未變更內容"
+  SelectLine:
+    en: Select %{side} line %{line}
+    pt-BR: "Selecionar %{side} linha %{line}"
+    ru: "Выбрать: %{side} строка %{line}"
+    zh-CN: 选择%{side}第 %{line} 行
+    zh-HK: 選擇%{side}第 %{line} 行
+  NoNewline:
+    en: No newline at end of file
+    pt-BR: "Sem quebra de linha no fim do arquivo"
+    ru: "Нет перевода строки в конце файла"
+    zh-CN: 文件末尾没有换行
+    zh-HK: 檔案末尾沒有換行
+  Viewer:
+    en: Diff for %{name}
+    pt-BR: "Diff de %{name}"
+    ru: "Изменения в %{name}"
+    zh-CN: "%{name} 的差异"
+    zh-HK: "%{name} 的差異"
+  ViewerFiles:
+    en: Diff for %{count} files
+    pt-BR: "Diff de %{count} arquivos"
+    ru: "Изменения в файлах: %{count}"
+    zh-CN: "%{count} 个文件的差异"
+    zh-HK: "%{count} 個檔案的差異"

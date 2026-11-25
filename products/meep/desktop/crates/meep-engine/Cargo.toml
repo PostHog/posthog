@@ -1,0 +1,39 @@
+[package]
+name = "meep-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Persistent topic inboxes, agent workers and routines"
+
+[features]
+fixtures = ["meep-topic/fixtures", "meep-ingest/fixtures"]
+posthog = ["dep:meep-posthog"]
+
+[dependencies]
+meep-ai = { path = "../meep-ai" }
+anyhow = "1"
+futures-util = "0.3"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+meep-wire = { path = "../meep-wire" }
+meep-topic = { path = "../meep-topic" }
+meep-policy = { path = "../meep-policy" }
+meep-store = { path = "../meep-store" }
+meep-connections = { path = "../meep-connections" }
+meep-ingest = { path = "../meep-ingest" }
+meep-workflows = { path = "../meep-render/meep-workflows" }
+meep-posthog = { path = "../meep-posthog", features = ["tasks", "chat", "workflows"], optional = true }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tempfile = "3"
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+meep-ingest = { path = "../meep-ingest", features = ["fixtures"] }
+tiny_http = "0.12"

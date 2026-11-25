@@ -1,0 +1,14 @@
+[package]
+name = "meep-policy"
+version = "0.1.0"
+edition = "2024"
+description = "Action approval, inbox skip rules and run limits for topics"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+meep-topic = { path = "../meep-topic" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+meep-topic = { path = "../meep-topic", features = ["fixtures"] }
+serde_json = "1"

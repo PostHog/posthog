@@ -1,0 +1,2581 @@
+use super::*;
+use meep_ui::gpui_kit::component::input::Enter;
+use meep_ui::gpui_kit::component::{
+    Disableable, Icon, Sizable,
+    input::Textarea,
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
+};
+
+impl Desktop {
+    /// New routine, in the New view pattern: describe it, or start from a template.
+    pub(super) fn routine_page(&self, w: &Window, cx: &Context<Self>) -> Div {
+        let send = |s: &mut Self, w: &mut Window, cx: &mut Context<Self>| {
+            let prompt = s.routine_prompt.read(cx).value().trim().to_owned();
+            if prompt.is_empty() || s.creating_template.is_some() {
+                return;
+            }
+            // An untouched template builds its own workflow; anything else goes to the agent.
+            let template = s.routine_template.clone().filter(|t| {
+                matches!(&s.templates, Some(Ok(list))
+                    if list.iter().any(|x| &x.id == t && x.description.trim() == prompt))
+            });
+            if let Some(t) = template {
+                s.add_template(t, w, cx);
+                return;
+            }
+            s.new_routine = false;
+            s.routine_template = None;
+            s.ask_in_chat(
+                &format!("Create a PostHog workflow for this topic: {prompt}"),
+                w,
+                cx,
+            );
+            s.send_chat(w, cx);
+            s.routine_prompt.update(cx, |e, cx| e.set_value("", w, cx));
+        };
+        let busy = self.creating_template.is_some();
+        let empty = self.routine_prompt.read(cx).value().trim().is_empty();
+        let field = meep_shell::composer::surface(
+            self.routine_prompt.focus_handle(cx).contains_focused(w, cx),
+        )
+        .id("routine-composer")
+        .on_action(cx.listener(move |s, action: &Enter, w, cx| {
+            if !action.shift {
+                send(s, w, cx)
+            }
+        }))
+        .child(
+            meep_shell::composer::input(
+                &self.routine_prompt,
+                "Describe the routine, and when it should run…",
+            )
+            .min_h(px(80.)),
+        )
+        .child(
+            ui::row().justify_end().child(
+                control(
+                    "create-routine",
+                    if busy { "Creating…" } else { "Create" },
+                    true,
+                    cx,
+                    send,
+                )
+                .disabled(empty || busy),
+            ),
+        );
+        let mut ideas = vec![];
+        match &self.templates {
+            Some(Ok(items)) => {
+                for t in items {
+                    let glyph = match t.id.as_str() {
+                        "sort-inbox" => Glyph::Inbox,
+                        "urgent-only" => Glyph::Zap,
+                        "scout" => Glyph::Search,
+                        "daily-brief" => Glyph::FileText,
+                        "weekly-goals" => Glyph::Flag,
+                        "digest-then-drop" => Glyph::Archive,
+                        _ => Glyph::Workflow,
+                    };
+                    let (tid, prompt) = (t.id.clone(), t.description.clone());
+                    ideas.push(
+                        div()
+                            .id(SharedString::from(format!("template-{}", t.id)))
+                            .role(Role::Button)
+                            .aria_label(t.name.clone())
+                            .flex()
+                            .items_start()
+                            .gap(px(10.))
+                            .px(px(10.))
+                            .py(px(6.))
+                            .rounded(px(8.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(ui::ink(0x0a)))
+                            // The name sits on the glyph's line; what it does reads under it.
+                            .child(div().pt(px(3.)).child(ui::nav::glyph(glyph, false)))
+                            .child(
+                                ui::column()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_0()
+                                    .child(
+                                        div()
+                                            .text_size(px(ui::BODY))
+                                            .text_color(rgb(ui::theme::color(ui::INK)))
+                                            .child(t.name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                            .child(t.description.clone()),
+                                    ),
+                            )
+                            .on_click(cx.listener(move |s, _, w, cx| {
+                                s.routine_template = Some(tid.clone());
+                                s.routine_prompt.update(cx, |e, cx| {
+                                    e.set_value(prompt.clone(), w, cx);
+                                    e.focus(w, cx)
+                                });
+                                cx.notify()
+                            }))
+                            .into_any_element(),
+                    );
+                }
+            }
+            Some(Err(e)) => ideas.push(ui::caption(e.clone()).px(px(10.)).into_any_element()),
+            None => ideas.push(
+                ui::caption("Loading templates…")
+                    .px(px(10.))
+                    .into_any_element(),
+            ),
+        }
+        let link = div()
+            .id("routine-bind")
+            .role(Role::Button)
+            .cursor_pointer()
+            .text_size(px(12.))
+            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+            .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
+            .child("Use an existing PostHog workflow →")
+            .on_click(cx.listener(|s, _, w, cx| s.open_sheet(Sheet::Bind, w, cx)));
+        creation_page(
+            Creation {
+                glyph: Glyph::Workflow,
+                id: "routine-heading",
+                title: "New routine",
+                intro: "A PostHog workflow that runs on a schedule or when something arrives.",
+                hint: Some(
+                    div()
+                        .child("The agent builds it and asks before it runs.")
+                        .into_any_element(),
+                ),
+                cancel: true,
+                ideas_label: "Or start from a template",
+                ideas,
+                footer: Some(link.into_any_element()),
+            },
+            field,
+        )
+    }
+
+    pub(super) fn save_file_revision(
+        &self,
+        topic: TopicId,
+        original: &str,
+        revision: u64,
+        w: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = std::path::Path::new(original)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let directory = dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(std::env::temp_dir);
+        let selection =
+            cx.prompt_for_new_path(&directory, Some(&format!("revision-{revision}-{name}")));
+        let original = original.to_owned();
+        let client = self.client().clone();
+        self.job(
+            async move {
+                let Some(path) = selection.await?? else {
+                    return Ok(());
+                };
+                let file = client.get_file_at(topic, &original, revision).await?;
+                tokio::task::spawn_blocking(move || -> Result<()> {
+                    use std::io::Write;
+                    let directory = path
+                        .parent()
+                        .ok_or_else(|| anyhow::anyhow!("Missing destination folder"))?;
+                    let mut tmp = tempfile::NamedTempFile::new_in(directory)?;
+                    tmp.write_all(&file.bytes)?;
+                    tmp.as_file().sync_all()?;
+                    tmp.persist(path)?;
+                    Ok(())
+                })
+                .await?
+            },
+            w,
+            cx,
+            |s, result, _, _| {
+                if let Err(error) = result {
+                    s.fail(error);
+                }
+            },
+        );
+    }
+
+    fn save_rejected_file(
+        &self,
+        id: meep_topic::CommandId,
+        original: &str,
+        w: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let filename = std::path::Path::new(original)
+            .file_name()
+            .and_then(|n| n.to_str());
+        let directory = dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(std::env::temp_dir);
+        let selection = cx.prompt_for_new_path(&directory, filename);
+        let client = self.client().clone();
+        self.job(
+            async move {
+                let Some(path) = selection.await?? else {
+                    return Ok(());
+                };
+                tokio::task::spawn_blocking(move || -> Result<()> {
+                    use std::io::Write;
+                    let directory = path
+                        .parent()
+                        .ok_or_else(|| anyhow::anyhow!("Missing destination folder"))?;
+                    let mut file = tempfile::NamedTempFile::new_in(directory)?;
+                    file.write_all(&client.rejected_file_bytes(id)?)?;
+                    file.as_file().sync_all()?;
+                    file.persist(path)?;
+                    client.dismiss_rejection(id)
+                })
+                .await?
+            },
+            w,
+            cx,
+            |s, result, _, _| {
+                if let Err(error) = result {
+                    s.fail(error);
+                }
+            },
+        );
+    }
+}
+
+#[derive(Clone)]
+enum Drag {
+    /// A sidebar section, by its header.
+    Section(Uuid),
+    /// A topic or view row, by its layout key.
+    Item(String),
+    Task(TopicId, TaskId),
+}
+pub(super) struct DragLabel(String);
+impl Render for DragLabel {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        ui::column()
+            .p(px(8.))
+            .rounded(px(6.))
+            .bg(rgb(ui::theme::color(ui::CANVAS)))
+            .child(self.0.clone())
+    }
+}
+
+impl Desktop {
+    /// A page header with a back control when navigation history is available.
+    pub(super) fn header_row(&self, cx: &Context<Self>) -> Div {
+        ui::row().when(!self.back.is_empty(), |row| {
+            row.child(
+                ui::icon_button("back", Glyph::ArrowLeft, "Back").on_click(cx.listener(
+                    |s, _, w, cx| {
+                        if let Some(p) = s.back.pop() {
+                            s.navigate(p, w, cx);
+                        }
+                    },
+                )),
+            )
+        })
+    }
+    fn key(&mut self, e: &KeyDownEvent, w: &mut Window, cx: &mut Context<Self>) {
+        let k = &e.keystroke;
+        let key = k.key.as_str();
+        let cmd = k.modifiers.platform;
+        let typing = self.views.prompt.focus_handle(cx).contains_focused(w, cx)
+            || self
+                .views
+                .emoji_query
+                .focus_handle(cx)
+                .contains_focused(w, cx)
+            || self.name.focus_handle(cx).contains_focused(w, cx)
+            || self.search.focus_handle(cx).contains_focused(w, cx)
+            || self.mission_edit.focus_handle(cx).contains_focused(w, cx)
+            || self.mission.focus_handle(cx).contains_focused(w, cx)
+            || self.note.focus_handle(cx).contains_focused(w, cx)
+            || self.run_input.focus_handle(cx).contains_focused(w, cx)
+            || self.routine_prompt.focus_handle(cx).contains_focused(w, cx)
+            || self
+                .task_description
+                .focus_handle(cx)
+                .contains_focused(w, cx)
+            || self.draft.focus_handle(cx).contains_focused(w, cx)
+            || self.composer.focus_handle(cx).contains_focused(w, cx);
+        match (cmd, key) {
+            (true, "k") if self.identity.is_some() => self.open_sheet(Sheet::Search, w, cx),
+            (true, "enter") if self.adding && self.sheet.is_none() => {
+                self.task_for_agent = true;
+                self.submit(w, cx)
+            }
+            (true, "b") => {
+                if let Page::Topic(id, Tab::Tasks, _) = self.page {
+                    self.toggle_task_board(id, cx)
+                }
+            }
+            (false, "c")
+                if !typing
+                    && self.sheet.is_none()
+                    && !self.adding
+                    && matches!(self.page, Page::Topic(_, Tab::Tasks, _)) =>
+            {
+                if let Page::Topic(id, ..) = self.page {
+                    self.begin_task(id, w, cx)
+                }
+            }
+            (true, "n") => self.open_sheet(Sheet::New, w, cx),
+            (true, ",") => self.go(Page::Settings, w, cx),
+            (true, "\\") if matches!(self.page, Page::Topic(..)) => {
+                self.overview_hidden = !self.overview_hidden;
+            }
+            (true, "[") => {
+                if let Some(p) = self.back.pop() {
+                    self.navigate(p, w, cx)
+                }
+            }
+            (false, "escape") => {
+                if matches!(self.page, Page::View(_))
+                    && (self.views.settings || self.views.panel)
+                    && self.sheet.is_none()
+                {
+                    if self.views.settings {
+                        self.views.settings = false;
+                    } else {
+                        self.views.panel = false;
+                    }
+                    self.focus.focus(w, cx);
+                } else if matches!(self.page, Page::NewView | Page::Settings)
+                    && self.sheet.is_none()
+                {
+                    let page = self.back.pop().unwrap_or(Page::Needs);
+                    self.navigate(page, w, cx);
+                } else if self.menu {
+                    self.menu = false;
+                } else if self.sheet.is_some() {
+                    self.dismiss_sheet(w, cx);
+                } else if self.send_back {
+                    self.send_back = false;
+                    self.focus.focus(w, cx);
+                } else if self.adding {
+                    self.adding = false;
+                    self.focus.focus(w, cx);
+                } else if self.new_routine {
+                    self.new_routine = false;
+                    self.focus.focus(w, cx);
+                } else if self.editing {
+                    self.editing = false;
+                    self.focus.focus(w, cx);
+                } else if self.draft.focus_handle(cx).contains_focused(w, cx) {
+                    self.focus.focus(w, cx);
+                } else if matches!(self.page, Page::Topic(..)) {
+                    self.up(w, cx);
+                }
+            }
+            (false, "up" | "down") if self.sheet == Some(Sheet::Search) => {
+                self.search_index = if key == "up" {
+                    self.search_index.saturating_sub(1)
+                } else {
+                    (self.search_index + 1).min(self.hits(cx).len().saturating_sub(1))
+                };
+                self.search_scroll.scroll_to_item(self.search_index);
+            }
+            (false, "enter")
+                if (self.sheet.is_some() || self.adding)
+                    && !self.mission.focus_handle(cx).contains_focused(w, cx) =>
+            {
+                self.submit(w, cx)
+            }
+            (false, "j" | "k" | "up" | "down")
+                if self.page != Page::Settings
+                    && self.identity.is_some()
+                    && !typing
+                    && self.sheet.is_none()
+                    && !self.menu =>
+            {
+                self.step(matches!(key, "j" | "down"), w, cx)
+            }
+            _ => return,
+        }
+        cx.stop_propagation();
+        w.prevent_default();
+        cx.notify()
+    }
+    fn dismiss_sheet(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        self.sheet = None;
+        self.sheet_return_focus
+            .take()
+            .unwrap_or_else(|| self.focus.clone())
+            .focus(w, cx);
+    }
+    fn step(&mut self, forward: bool, w: &mut Window, cx: &mut Context<Self>) {
+        let pages = self.list_pages();
+        let next = pages
+            .iter()
+            .position(|p| p == &self.page)
+            .map(|i| {
+                if forward {
+                    (i + 1).min(pages.len() - 1)
+                } else {
+                    i.saturating_sub(1)
+                }
+            })
+            .unwrap_or(0);
+        if let Some(p) = pages.get(next)
+            && *p != self.page
+        {
+            if matches!(self.page, Page::Topic(_, _, Some(_))) {
+                self.navigate(p.clone(), w, cx);
+            } else {
+                self.go(p.clone(), w, cx);
+            }
+            self.reveal_selection = matches!(
+                p,
+                Page::Topic(_, Tab::Inbox | Tab::Tasks | Tab::Routines, _)
+            );
+        }
+    }
+    fn list_pages(&self) -> Vec<Page> {
+        match &self.page {
+            Page::Topic(id, tab, _) => self
+                .states
+                .iter()
+                .find(|s| s.topic.id == *id)
+                .map(|s| {
+                    let details: Vec<_> = match tab {
+                        Tab::Inbox => super::pages::ordered_threads(s, self.skipped)
+                            .into_iter()
+                            .map(|t| Detail::Thread(t.id))
+                            .collect(),
+                        Tab::Tasks => self
+                            .visible_tasks(s)
+                            .into_iter()
+                            .map(Detail::Task)
+                            .collect(),
+                        Tab::Routines => s
+                            .topic
+                            .routines
+                            .iter()
+                            .filter(|r| r.binding.backend == "posthog")
+                            .map(|r| Detail::Routine(r.binding.id.clone()))
+                            .collect(),
+                        Tab::Facts | Tab::Files => {
+                            let prefix = if *tab != Tab::Files {
+                                "fact-review/"
+                            } else {
+                                "file-review/"
+                            };
+                            let mut reviews: Vec<_> = s
+                                .threads
+                                .iter()
+                                .filter(|thread| {
+                                    thread.key.starts_with(prefix)
+                                        && !s.archived_threads.contains(&thread.id)
+                                        && matches!(thread.state, ThreadState::NeedsYou { .. })
+                                })
+                                .map(|thread| Detail::Thread(thread.id))
+                                .collect();
+                            if *tab != Tab::Files {
+                                reviews.extend(
+                                    s.topic
+                                        .facts
+                                        .iter()
+                                        .filter(|f| f.is_current())
+                                        .map(|f| Detail::Fact(f.id)),
+                                );
+                            } else {
+                                reviews.extend(self.file_order(s).into_iter().map(Detail::File));
+                            }
+                            reviews
+                        }
+                        Tab::Goals => s.topic.goals.iter().map(|g| Detail::Goal(g.id)).collect(),
+                        Tab::Linked => s
+                            .topic
+                            .context_sources
+                            .iter()
+                            .map(|w| Detail::Linked(w.key.clone()))
+                            .collect(),
+                        Tab::Chat | Tab::Needs | Tab::Mission | Tab::Rules => vec![],
+                    };
+                    details
+                        .into_iter()
+                        .map(|d| Page::Topic(*id, *tab, Some(d)))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Page::Needs => self
+                .states
+                .iter()
+                .flat_map(|s| {
+                    self.needs
+                        .iter()
+                        .filter_map(move |n| super::pages::attention(n, s).map(|a| a.page))
+                })
+                .collect(),
+            _ => vec![],
+        }
+    }
+    /// A topic's sidebar row: open it, drag it, or act on it from its menu.
+    fn topic_row(&self, s: &TopicState, cx: &mut Context<Self>) -> AnyElement {
+        let owner = cx.entity().downgrade();
+        let tid = s.topic.id;
+        let name = s.topic.name.clone();
+        let needs = s.needs_you();
+        let cnt = needs.threads.len() + needs.tasks.len();
+        let problem = self
+            .needs
+            .iter()
+            .any(|n| matches!(n, NeedsYouItem::Problem {topics,..} if topics.contains(&tid)));
+        let gname: SharedString = format!("row-topic-{tid}").into();
+        let key = super::sidebar::topic_key(tid);
+        let menu = move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
+            topic_menu(m, owner.clone(), tid, w, cx)
+        };
+        let lifted = cx.has_active_drag() && self.drag_source.as_deref() == Some(key.as_str());
+        let (hover_key, title) = (key.clone(), name.clone());
+        nav_line(
+            format!("topic-{tid}"),
+            self.topic_id() == Some(tid) && self.sheet != Some(Sheet::New),
+        )
+        .relative()
+        .group(gname.clone())
+        .when(lifted, |r| r.opacity(0.35))
+        .child(row_at(self.topic_id() == Some(tid)))
+        .child(ui::nav::title(name.clone()))
+        .when(problem, |row| {
+            // Steps aside for the row's actions on hover, like the decision dot.
+            row.child(
+                div()
+                    .flex_none()
+                    .group_hover(gname.clone(), |s| s.opacity(0.))
+                    .child(
+                        Icon::new(Glyph::TriangleAlert)
+                            .size(px(12.))
+                            .text_color(rgb(ui::theme::color(0xc2610c))),
+                    ),
+            )
+        })
+        .when(cnt > 0 && !problem, |el| {
+            // One marker per row: a broken connection outranks the dot.
+            el.child(ui::nav::decision().group_hover(gname.clone(), |s| s.opacity(0.)))
+        })
+        .when(
+            cnt == 0 && !problem && super::desktop::topic_working(s),
+            |el| {
+                // Then that its agent is working, as View's sidebar shows it.
+                el.child(
+                    ui::nav::activity(self.sidebar_activity.clone().into_any_element())
+                        .group_hover(gname.clone(), |s| s.opacity(0.)),
+                )
+            },
+        )
+        .child(
+            // The popover lays its trigger out in its own slot, so the slot is
+            // positioned, not the button: an absolute button inside it would
+            // leave the slot empty and miss clicks.
+            div()
+                .id(SharedString::from(format!("topic-slot-{tid}")))
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right(px(ui::nav::TRAIL))
+                .flex()
+                .items_center()
+                .child(
+                    row_actions(format!("topic-actions-{tid}"), &name, gname.clone())
+                        .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                ),
+        )
+        .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
+            cx.new(|_| super::sidebar::Lifted {
+                glyph: Glyph::AtSign,
+                title: title.clone(),
+                trailing: None,
+            })
+        })
+        .on_drag_move(cx.listener(move |s, e: &DragMoveEvent<Drag>, _, cx| {
+            if let Drag::Item(source) = e.drag(cx).clone() {
+                s.hover_item_row(&hover_key, &source, e.bounds, e.event.position, cx)
+            }
+        }))
+        .on_hover(
+            cx.listener(move |s, hovered: &bool, _, cx| s.hover_topic_card(tid, *hovered, cx)),
+        )
+        .children(self.topic_card(s, cx))
+        .on_click(cx.listener(move |s, _, w, cx| {
+            s.dismiss_topic_card(cx);
+            s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
+        }))
+        .context_menu(menu)
+        .into_any_element()
+    }
+    /// A view's sidebar row.
+    fn view_row(&self, v: &meep_wire::views::View, cx: &mut Context<Self>) -> AnyElement {
+        let owner = cx.entity().downgrade();
+        let vid = v.id;
+        let title = v.title.clone();
+        let gname: SharedString = format!("row-view-{vid}").into();
+        let key = super::sidebar::view_key(vid);
+        let menu = move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
+            view_menu(m, owner.clone(), vid, w, cx)
+        };
+        let lifted = cx.has_active_drag() && self.drag_source.as_deref() == Some(key.as_str());
+        let (hover_key, label) = (key.clone(), title.clone());
+        nav_line(format!("view-{vid}"), self.page == Page::View(vid))
+            .relative()
+            .group(gname.clone())
+            .when(lifted, |r| r.opacity(0.35))
+            .child(
+                // The tile sits in the same slot as every row glyph, so icons
+                // share one axis and titles one edge.
+                div()
+                    .flex_none()
+                    .size(px(ui::nav::ICON_BOX))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(meep_shell::icons::icon(&v.icon, &v.color, ui::nav::ICON)),
+            )
+            .child(ui::nav::title(title.clone()))
+            .when(super::desktop::view_working(v), |el| {
+                el.child(
+                    ui::nav::activity(self.sidebar_activity.clone().into_any_element())
+                        .group_hover(gname.clone(), |s| s.opacity(0.)),
+                )
+            })
+            .child(
+                div()
+                    .id(SharedString::from(format!("view-slot-{vid}")))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(ui::nav::TRAIL))
+                    .flex()
+                    .items_center()
+                    .child(
+                        row_actions(format!("view-actions-{vid}"), &title, gname)
+                            .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                    ),
+            )
+            .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
+                cx.new(|_| super::sidebar::Lifted {
+                    glyph: Glyph::LayoutDashboard,
+                    title: label.clone(),
+                    trailing: None,
+                })
+            })
+            .on_drag_move(cx.listener(move |s, e: &DragMoveEvent<Drag>, _, cx| {
+                if let Drag::Item(source) = e.drag(cx).clone() {
+                    s.hover_item_row(&hover_key, &source, e.bounds, e.event.position, cx)
+                }
+            }))
+            .on_click(cx.listener(move |s, _, w, cx| s.go(Page::View(vid), w, cx)))
+            .context_menu(menu)
+            .into_any_element()
+    }
+    fn sidebar_row(&self, key: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if let Some(rest) = key.strip_prefix("topic:") {
+            let id = TopicId(Uuid::parse_str(rest).ok()?);
+            let state = self.states.iter().find(|s| s.topic.id == id)?;
+            return Some(self.topic_row(state, cx));
+        }
+        let id = Uuid::parse_str(key.strip_prefix("view:")?).ok()?;
+        let v = self.views.rows.iter().find(|v| v.id == id)?.clone();
+        Some(self.view_row(&v, cx))
+    }
+    /// Loose topics and views, then each section under its header, as in View.
+    fn sidebar_list(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
+        use meep_ui::gpui_kit::component::ActiveTheme;
+        const PITCH: f32 = ui::nav::PITCH;
+        let space_above = ui::nav::SECTION_SPACE;
+        let arrangement = self.arrangement();
+        let hint = cx
+            .has_active_drag()
+            .then(|| self.drop_hint.clone())
+            .flatten();
+        // An item dropped into a folded or empty section lights its header.
+        let lit = match &hint {
+            Some(super::sidebar::Drop::Item {
+                section: Some(id), ..
+            }) => arrangement
+                .sections
+                .iter()
+                .find(|s| &s.id == id)
+                .filter(|s| s.collapsed || s.items.is_empty())
+                .map(|s| s.id),
+            _ => None,
+        };
+        let mut list = ui::column().gap_0().relative();
+        let mut y = 0.;
+        let mut loose_tops = vec![];
+        for key in &arrangement.loose {
+            loose_tops.push(y);
+            if let Some(row) = self.sidebar_row(key, cx) {
+                list = list.child(div().pb(px(ui::nav::GAP)).child(row));
+                y += PITCH;
+            }
+        }
+        let drawn_loose = loose_tops.len();
+        let mut header_tops = vec![];
+        let mut section_tops: Vec<Vec<f32>> = vec![];
+        for (k, section) in arrangement.sections.iter().enumerate() {
+            let space = if k == 0 && drawn_loose == 0 {
+                0.
+            } else {
+                space_above
+            };
+            header_tops.push(y + space);
+            list = list.child(
+                div()
+                    .pt(px(space))
+                    .pb(px(ui::nav::GAP))
+                    .child(self.section_header(section, lit == Some(section.id), w, cx)),
+            );
+            y += space + PITCH;
+            let rows = section.items.len().max(1);
+            let open = rows as f32 * PITCH;
+            let height = meep_ui::gpui_kit::base::spring(
+                ElementId::from(SharedString::from(format!("section-height-{}", section.id))),
+                if section.collapsed { 0. } else { open },
+                cx.theme().motion_tokens().spring_control,
+                w,
+                cx,
+            );
+            let mut tops = vec![];
+            let mut body = ui::column().gap_0();
+            if section.items.is_empty() {
+                body = body.child(
+                    div().pb(px(ui::nav::GAP)).child(
+                        div()
+                            .h(px(ui::nav::ROW))
+                            .flex()
+                            .items_center()
+                            .pl(px(ui::nav::PAD + ui::nav::ICON_BOX + 8.))
+                            .text_size(px(12.))
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                            .child("Drag topics or views here"),
+                    ),
+                );
+            }
+            for (i, key) in section.items.iter().enumerate() {
+                tops.push(y + i as f32 * PITCH);
+                if let Some(row) = self.sidebar_row(key, cx) {
+                    body = body.child(div().pb(px(ui::nav::GAP)).child(row));
+                }
+            }
+            section_tops.push(tops);
+            if height > 0.5 {
+                list = list.child(
+                    div()
+                        .h(px(height))
+                        .overflow_hidden()
+                        .child(body.opacity((height / open).clamp(0., 1.))),
+                );
+            }
+            y += height;
+        }
+        let line = |tops: &[f32], index: usize, fallback: f32| -> f32 {
+            match tops.get(index) {
+                Some(top) => top - ui::nav::GAP / 2.,
+                None => tops
+                    .last()
+                    .map_or(fallback, |top| top + ui::nav::ROW + ui::nav::GAP / 2.),
+            }
+        };
+        let line_y = match &hint {
+            Some(super::sidebar::Drop::Item {
+                section: None,
+                index,
+            }) => Some(line(
+                &loose_tops,
+                *index,
+                header_tops
+                    .first()
+                    .map_or(1., |top| (top - space_above / 2.).max(1.)),
+            )),
+            Some(super::sidebar::Drop::Item {
+                section: Some(id),
+                index,
+            }) if lit.is_none() => arrangement
+                .sections
+                .iter()
+                .position(|s| &s.id == id)
+                .map(|k| line(&section_tops[k], *index, header_tops[k] + PITCH)),
+            Some(super::sidebar::Drop::Section { index }) => Some(match header_tops.get(*index) {
+                Some(top) if *index > 0 || drawn_loose > 0 => top - space_above / 2.,
+                Some(_) => 1.,
+                None => y + space_above / 2.,
+            }),
+            _ => None,
+        };
+        if let Some(target) = line_y {
+            let at = meep_ui::gpui_kit::base::spring(
+                ElementId::from(SharedString::from("sidebar-drop-line")),
+                target,
+                cx.theme().motion_tokens().spring_control,
+                w,
+                cx,
+            );
+            list = list.child(super::sidebar::drop_line(at));
+        }
+        // Leaving the list drops nothing; letting go anywhere on it lands where
+        // the line is.
+        list.on_drag_move(cx.listener(|s, e: &DragMoveEvent<Drag>, _, cx| {
+            if !matches!(e.drag(cx), Drag::Task(..)) {
+                s.leave_list(e.bounds, e.event.position, cx)
+            }
+        }))
+        .on_drop(cx.listener(|s, d: &Drag, _, cx| match d {
+            Drag::Item(key) => s.finish_drop(key, cx),
+            Drag::Section(id) => s.finish_drop(&id.to_string(), cx),
+            Drag::Task(..) => {}
+        }))
+    }
+    fn section_header(
+        &self,
+        section: &Section,
+        lit: bool,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use meep_ui::gpui_kit::component::ActiveTheme;
+        let id = section.id;
+        if self.renaming_section == Some(id) {
+            return ui::row()
+                .h(px(ui::nav::ROW))
+                .pl(px(ui::nav::PAD))
+                .pr(px(ui::nav::TRAIL))
+                .gap(px(8.))
+                .child(ui::nav::glyph(Glyph::Folder, true))
+                .child(
+                    Input::new(&self.section_name)
+                        .small()
+                        .aria_label("Section name")
+                        .flex_1(),
+                )
+                .into_any_element();
+        }
+        let group: SharedString = format!("section-group-{id}").into();
+        let lifted =
+            cx.has_active_drag() && self.drag_source.as_deref() == Some(id.to_string().as_str());
+        let turn = meep_ui::gpui_kit::base::spring(
+            ElementId::from(SharedString::from(format!("section-turn-{id}"))),
+            if section.collapsed { 0. } else { 1. },
+            cx.theme().motion_tokens().spring_control,
+            w,
+            cx,
+        );
+        // A folded section still says when something in it needs you.
+        let waiting = section.collapsed
+            && section.items.iter().any(|k| {
+                k.strip_prefix("topic:")
+                    .and_then(|t| Uuid::parse_str(t).ok())
+                    .and_then(|t| self.states.iter().find(|s| s.topic.id.0 == t))
+                    .is_some_and(|s| {
+                        let n = s.needs_you();
+                        n.threads.len() + n.tasks.len() > 0
+                    })
+            });
+        let owner = cx.entity().downgrade();
+        let menu = move |m: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
+            super::sidebar::section_menu(m, owner.clone(), id)
+        };
+        let (title, count) = (section.name.clone(), section.items.len());
+        div()
+            .id(SharedString::from(format!("section-{id}")))
+            .group(group.clone())
+            .relative()
+            .w_full()
+            .h(px(ui::nav::ROW))
+            .rounded(px(ui::nav::RADIUS))
+            .when(lit, |h| h.bg(ui::ink(ui::nav::PRESSED & 0xff)))
+            .when(lifted, |h| h.opacity(0.35))
+            .on_drag(Drag::Section(id), move |_, _, _, cx| {
+                cx.new(|_| super::sidebar::Lifted {
+                    glyph: Glyph::Folder,
+                    title: title.clone(),
+                    trailing: Some(count.to_string()),
+                })
+            })
+            .on_drag_move(cx.listener(move |s, e: &DragMoveEvent<Drag>, _, cx| {
+                match e.drag(cx).clone() {
+                    Drag::Item(source) => {
+                        s.hover_header_with_item(id, &source, e.bounds, e.event.position, cx)
+                    }
+                    Drag::Section(source) => s.hover_header_with_section(
+                        id,
+                        &source.to_string(),
+                        e.bounds,
+                        e.event.position,
+                        cx,
+                    ),
+                    Drag::Task(..) => {}
+                }
+            }))
+            .child(
+                div()
+                    .id(SharedString::from(format!("section-toggle-{id}")))
+                    .role(Role::Button)
+                    .aria_label(format!(
+                        "{} section, {}",
+                        section.name,
+                        if section.collapsed {
+                            "collapsed"
+                        } else {
+                            "expanded"
+                        }
+                    ))
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .pl(px(ui::nav::PAD))
+                    .pr(px(ui::nav::TRAIL + ui::nav::ACCESSORY))
+                    .rounded(px(ui::nav::RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(ui::ink(ui::nav::HOVER & 0xff)))
+                    .active(|s| s.bg(ui::ink(ui::nav::PRESSED & 0xff)))
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(ui::nav::ICON_BOX))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                Icon::new(Glyph::ChevronRight)
+                                    .size(px(12.))
+                                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                    .rotate(meep_ui::gpui_kit::radians(
+                                        std::f32::consts::FRAC_PI_2 * turn,
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .child(section.name.clone()),
+                    )
+                    // Only a toggle: renaming is in the section's menu.
+                    .on_click(cx.listener(move |s, _, _, cx| s.toggle_section(id, cx))),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("section-slot-{id}")))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(ui::nav::TRAIL))
+                    .flex()
+                    .items_center()
+                    .when(waiting, |slot| {
+                        slot.child(
+                            div()
+                                .absolute()
+                                .right_0()
+                                .group_hover(group.clone(), |s| s.opacity(0.))
+                                .child(ui::nav::decision()),
+                        )
+                    })
+                    .child(
+                        row_actions(format!("section-actions-{id}"), &section.name, group)
+                            .tooltip("Section actions")
+                            .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                    ),
+            )
+            .context_menu(menu)
+            .into_any_element()
+    }
+    fn sidebar(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
+        let n = self.needs.len();
+        // Arc's command bar: one quiet field at the top of the glass.
+        let top = ui::column()
+            .gap(px(ui::nav::GAP))
+            .pb(px(ui::nav::SECTION_SPACE))
+            .child(
+                ui::row()
+                    .id("search")
+                    .role(Role::Button)
+                    .aria_label("Search")
+                    .h(px(30.))
+                    .mb(px(8.))
+                    .px(px(ui::nav::PAD))
+                    .gap(px(8.))
+                    .rounded(px(8.))
+                    .bg(ui::ink(0x0b))
+                    .hover(|s| s.bg(ui::ink(0x12)))
+                    .cursor_pointer()
+                    .child(ui::nav::glyph(Glyph::Search, false))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .child("Search"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                            .child("⌘K"),
+                    )
+                    .on_click(cx.listener(|s, _, w, cx| s.open_sheet(Sheet::Search, w, cx))),
+            )
+            .child(
+                nav_line(
+                    "needs-you",
+                    self.page == Page::Needs && self.sheet != Some(Sheet::New),
+                )
+                .child(ui::nav::glyph(Glyph::Inbox, self.page == Page::Needs))
+                .child(ui::nav::title("Needs you"))
+                .when(n > 0, |e| e.child(badge(n)))
+                .on_click(cx.listener(|s, _, w, cx| s.go(Page::Needs, w, cx))),
+            );
+        let owner = cx.entity().downgrade();
+        let mut tree = ui::column().gap_0().child(self.sidebar_list(w, cx));
+        // Archived topics leave their sections; they stay reachable here.
+        let archived: Vec<_> = self.states.iter().filter(|s| s.archived).collect();
+        if !archived.is_empty() {
+            use meep_ui::gpui_kit::component::ActiveTheme;
+            let open = self.archived_open;
+            // Folds like a section: a turning chevron, the name, and its count.
+            let turn = meep_ui::gpui_kit::base::spring(
+                "archived-turn",
+                if open { 1. } else { 0. },
+                cx.theme().motion_tokens().spring_control,
+                w,
+                cx,
+            );
+            let mut group = ui::column()
+                .pt(px(ui::nav::SECTION_SPACE))
+                .gap(px(ui::nav::GAP))
+                .child(
+                    div()
+                        .id("archived-toggle")
+                        .role(Role::Button)
+                        .aria_label(format!(
+                            "Archived, {} topics, {}",
+                            archived.len(),
+                            if open { "expanded" } else { "collapsed" }
+                        ))
+                        .w_full()
+                        .h(px(ui::nav::ROW))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .pl(px(ui::nav::PAD))
+                        .pr(px(ui::nav::TRAIL + ui::nav::COUNT_INSET - 4.))
+                        .rounded(px(ui::nav::RADIUS))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(ui::ink(ui::nav::HOVER & 0xff)))
+                        .active(|s| s.bg(ui::ink(ui::nav::PRESSED & 0xff)))
+                        .child(
+                            div()
+                                .flex_none()
+                                .size(px(ui::nav::ICON_BOX))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    Icon::new(Glyph::ChevronRight)
+                                        .size(px(12.))
+                                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                        .rotate(meep_ui::gpui_kit::radians(
+                                            std::f32::consts::FRAC_PI_2 * turn,
+                                        )),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                .child("Archived"),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(12.))
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                .child(archived.len().to_string()),
+                        )
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.archived_open = !s.archived_open;
+                            if let Err(e) = s
+                                .client()
+                                .set_preference("sidebar-archived-open", &s.archived_open)
+                            {
+                                s.fail(e)
+                            }
+                            cx.notify()
+                        })),
+                );
+            // The open archived topic stays in view even while the group is folded.
+            let current = self.topic_id();
+            for s in archived
+                .into_iter()
+                .filter(|s| open || current == Some(s.topic.id))
+            {
+                let tid = s.topic.id;
+                let name = s.topic.name.clone();
+                let gname: SharedString = format!("row-archived-{tid}").into();
+                let menu = {
+                    let owner = owner.clone();
+                    move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
+                        topic_menu(m, owner.clone(), tid, w, cx)
+                    }
+                };
+                group = group.child(
+                    nav_line(format!("archived-{tid}"), self.topic_id() == Some(tid))
+                        .group(gname.clone())
+                        .child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(8.))
+                                .items_center()
+                                .opacity(0.7)
+                                .child(row_at(self.topic_id() == Some(tid)))
+                                .child(ui::nav::title(name.clone())),
+                        )
+                        .child(
+                            row_actions(format!("topic-actions-{tid}"), &name, gname)
+                                .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                        )
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
+                        }))
+                        .context_menu(menu),
+                );
+            }
+            tree = tree.child(group);
+        }
+        let status = match self.client().status() {
+            Status::Offline { pending, .. } if pending > 0 => Some(
+                ui::column()
+                    .gap(px(2.))
+                    .mx(px(2.))
+                    .mb(px(6.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .bg(ui::ink(0x0b))
+                    .child(
+                        ui::row()
+                            .gap(px(6.))
+                            .child(ui::nav::glyph(Glyph::CloudOff, false))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(format!("Offline · {pending} pending")),
+                            ),
+                    )
+                    .child(ui::caption("Saved on this Mac. Syncs when you reconnect.")),
+            ),
+            // A routine sync is not news: the row only appears when something is
+            // wrong, so the sidebar does not shift on every pass.
+            Status::Online | Status::Syncing => None,
+            status => Some(
+                ui::row()
+                    .h(px(ui::nav::ROW))
+                    .pl(px(ui::nav::PAD))
+                    .gap(px(8.))
+                    .child(ui::nav::glyph(Glyph::CloudOff, false))
+                    .child(ui::caption(match status {
+                        Status::Unauthorized => "Device token needs renewal",
+                        _ => "Offline",
+                    })),
+            ),
+        };
+        let footer = ui::column().gap(px(ui::nav::GAP)).children(status).child(
+            nav_line("settings", self.page == Page::Settings)
+                .aria_label("Settings")
+                .child(ui::nav::glyph(
+                    Glyph::Settings2,
+                    self.page == Page::Settings,
+                ))
+                .child(ui::nav::title("Settings"))
+                .on_click(cx.listener(|s, _, w, cx| s.go(Page::Settings, w, cx))),
+        );
+        let mut side = meep_shell::sidebar(
+            tree,
+            top.into_any_element(),
+            None,
+            footer.into_any_element(),
+        )
+        .child(
+            meep_shell::titlebar::button("plus", Glyph::Plus, "New topic, view or section")
+                .absolute()
+                .top(px(
+                    meep_shell::TRAFFIC_LIGHT_CENTER - meep_shell::titlebar::BUTTON / 2.
+                ))
+                .right(px(ui::nav::INSET + 2.))
+                .tooltip("New topic · ⌘N")
+                .on_click(cx.listener(|s, _, _, cx| {
+                    s.menu = !s.menu;
+                    cx.notify()
+                })),
+        );
+        if self.menu {
+            side = side.child(
+                ui::column()
+                    .absolute()
+                    .top(px(meep_shell::TRAFFIC_LIGHT_CENTER + 16.))
+                    .right(px(ui::nav::INSET))
+                    .w(px(168.))
+                    .p(px(4.))
+                    .gap(px(1.))
+                    .rounded(px(8.))
+                    .bg(rgb(ui::theme::color(ui::CANVAS)))
+                    .border_1()
+                    .border_color(ui::ink(0x14))
+                    .shadow_lg()
+                    .occlude()
+                    .child(
+                        nav_line("new-topic", false)
+                            .child(ui::nav::glyph(Glyph::AtSign, false))
+                            .child(ui::nav::title("New topic"))
+                            .child(ui::caption("⌘N").pr(px(6.)))
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.menu = false;
+                                s.open_sheet(Sheet::New, w, cx)
+                            })),
+                    )
+                    .child(
+                        nav_line("new-view", false)
+                            .child(ui::nav::glyph(Glyph::LayoutDashboard, false))
+                            .child(ui::nav::title("New view"))
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.section = match s.page {
+                                    Page::Topic(id, ..) => {
+                                        s.layout.home(&super::sidebar::topic_key(id))
+                                    }
+                                    Page::View(id) => s.layout.home(&super::sidebar::view_key(id)),
+                                    _ => None,
+                                }
+                                .unwrap_or_default();
+                                s.go(Page::NewView, w, cx);
+                                s.views.prompt.focus_handle(cx).focus(w, cx)
+                            })),
+                    )
+                    .child(
+                        nav_line("new-section", false)
+                            .child(ui::nav::glyph(Glyph::FolderPlus, false))
+                            .child(ui::nav::title("New section"))
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.menu = false;
+                                s.new_section_with(None, w, cx)
+                            })),
+                    ),
+            )
+        }
+        side
+    }
+    /// New topic, shaped like New view: say what you want done, name it, create.
+    /// It lands in the current section; the sidebar is where it gets moved.
+    fn new_topic_page(&self, w: &Window, cx: &Context<Self>) -> Div {
+        let ready = !self.name.read(cx).value().trim().is_empty()
+            && !self.mission.read(cx).value().trim().is_empty();
+        let section = self
+            .layout
+            .sections
+            .iter()
+            .find(|s| s.id == self.section)
+            .map_or("Lands in the sidebar".to_owned(), |s| {
+                format!("Lands in {}", s.name)
+            });
+        let focused = self.mission.focus_handle(cx).contains_focused(w, cx)
+            || self.name.focus_handle(cx).contains_focused(w, cx);
+        let card = meep_shell::composer::surface(focused)
+            .id("new-topic-composer")
+            .child(
+                meep_shell::composer::input(&self.mission, "What do you want to get done?")
+                    .min_h(px(84.)),
+            )
+            .child(
+                ui::row()
+                    .w_full()
+                    .gap(px(4.))
+                    .pl(px(10.))
+                    .pt(px(6.))
+                    .border_t_1()
+                    .border_color(ui::ink(0x0d))
+                    .child(
+                        Icon::new(Glyph::AtSign)
+                            .size(px(14.))
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+                    )
+                    .child(
+                        Input::new(&self.name)
+                            .aria_label("Name")
+                            .appearance(false)
+                            .bordered(false)
+                            .px_0()
+                            .flex_1(),
+                    )
+                    .child(
+                        control("submit-sheet", "Create", true, cx, |s, w, cx| {
+                            s.submit(w, cx)
+                        })
+                        .disabled(!ready),
+                    ),
+            );
+        const IDEAS: [(Glyph, &str, &str); 3] = [
+            (
+                Glyph::Rocket,
+                "Onboarding launch",
+                "Ship the new onboarding and get activation above 40%",
+            ),
+            (
+                Glyph::GitPullRequest,
+                "PR reviews",
+                "Keep every pull request review under a day",
+            ),
+            (
+                Glyph::ChartColumn,
+                "Retention",
+                "Find out why weekly retention dropped and fix it",
+            ),
+        ];
+        let mut ideas = ui::column().gap(px(2.)).mx(px(-10.));
+        for (i, (glyph, name, goal)) in IDEAS.into_iter().enumerate() {
+            ideas = ideas.child(starter(format!("topic-idea-{i}"), glyph, goal).on_click(
+                cx.listener(move |s, _, w, cx| {
+                    s.mission.update(cx, |e, cx| e.set_value(goal, w, cx));
+                    s.name.update(cx, |e, cx| {
+                        e.set_value(name, w, cx);
+                        e.focus(w, cx)
+                    });
+                }),
+            ));
+        }
+        ui::column()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .p(px(24.))
+            .child(
+                ui::column()
+                    .w_full()
+                    .max_w(px(480.))
+                    .gap_0()
+                    .mb(px(48.))
+                    .child(at_mark(36.))
+                    .child(
+                        div()
+                            .mt(px(16.))
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("New topic"),
+                    )
+                    .child(
+                        div()
+                            .mt(px(6.))
+                            .text_size(px(13.))
+                            .line_height(relative(1.5))
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .child(
+                                "Say what you want done. It works toward it with your PostHog \
+                                 data and tools, and asks you when it needs a decision.",
+                            ),
+                    )
+                    .child(div().mt(px(20.)).child(card))
+                    .child(
+                        ui::row()
+                            .pt(px(8.))
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(ui::SMALL))
+                                    .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                    .child(format!(
+                                        "{section}. Drag it anywhere in the sidebar later."
+                                    )),
+                            )
+                            .child(
+                                ui::row()
+                                    .flex_none()
+                                    .gap(px(5.))
+                                    .child(
+                                        ui::caption("Esc")
+                                            .px(px(4.))
+                                            .rounded(px(3.))
+                                            .bg(ui::ink(16)),
+                                    )
+                                    .child(ui::caption("Cancel")),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(24.))
+                            .text_size(px(12.))
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .pb(px(4.))
+                            .child("Or start from one of these"),
+                    )
+                    .child(ideas),
+            )
+    }
+    fn sheet_view(&self, sheet: &Sheet, w: &Window, cx: &Context<Self>) -> Div {
+        let title = match sheet {
+            Sheet::New => "New topic",
+            Sheet::Bind => "Bind a PostHog workflow",
+            Sheet::RenameTopic(_) => "Rename topic",
+            Sheet::DeleteTopic(_) => "Delete topic?",
+            Sheet::DeleteRoutine(..) => "Delete routine?",
+            Sheet::Search => "Search",
+        };
+        let search = *sheet == Sheet::Search;
+        let mut body = ui::column()
+            .w(px(560.))
+            .max_w(relative(0.94))
+            .max_h(relative(if search { 0.94 } else { 0.78 }))
+            .gap(px(if search { 4. } else { 14. }))
+            .p(px(if search { 8. } else { 20. }))
+            .rounded(px(12.))
+            .bg(rgb(ui::theme::color(ui::CANVAS)))
+            .border_1()
+            .border_color(ui::ink(28))
+            .shadow_lg()
+            .occlude();
+        body = if search {
+            body.child(
+                ui::row()
+                    .px(px(8.))
+                    .gap(px(7.))
+                    .flex_none()
+                    .border_b_1()
+                    .border_color(ui::ink(18))
+                    .child(ui::nav::glyph(Glyph::Search, false))
+                    .child(
+                        Input::new(&self.search)
+                            .aria_label("Search")
+                            .appearance(false)
+                            .bordered(false)
+                            .min_h(px(40.))
+                            .text_size(px(15.)),
+                    ),
+            )
+        } else if matches!(sheet, Sheet::DeleteTopic(_) | Sheet::DeleteRoutine(..)) {
+            body.child(ui::heading("sheet-title", title))
+        } else {
+            body.child(ui::heading("sheet-title", title)).child(
+                ui::field("Name", "", Input::new(&self.name).aria_label("Name"))
+                    .max_w_full()
+                    .pb_0(),
+            )
+        };
+        match sheet {
+            Sheet::New => {
+                body = body
+                    .child(
+                        ui::field(
+                            "Mission",
+                            "",
+                            Textarea::new(&self.mission).aria_label("Mission"),
+                        )
+                        .max_w_full()
+                        .pb_0(),
+                    )
+                    .child(ui::section_label("Section"));
+                let mut options = ui::row().flex_wrap();
+                for section in &self.layout.sections {
+                    let id = section.id;
+                    options = options.child(control(
+                        format!("pick-{id}"),
+                        section.name.clone(),
+                        self.section == id,
+                        cx,
+                        move |s, _, _| s.section = id,
+                    ))
+                }
+                body=body.child(options).child(ui::caption("Give it a goal. It works toward it with your PostHog data and tools, and asks before it acts."));
+            }
+            Sheet::Bind => {
+                body = body.child(
+                    ui::field(
+                        "Flow ID",
+                        "From the workflow in PostHog.",
+                        Textarea::new(&self.mission).aria_label("Flow ID"),
+                    )
+                    .max_w_full()
+                    .pb_0(),
+                )
+            }
+            Sheet::Search => {
+                let mut rows = scroll("search-hits")
+                    .track_scroll(&self.search_scroll)
+                    .gap_0()
+                    .max_h(px(420.))
+                    .flex_initial();
+                let hits = self.hits(cx);
+                let has_hits = !hits.is_empty();
+                if !has_hits {
+                    rows = rows.child(
+                        ui::caption("No matching topics, tasks, messages or facts.")
+                            .px(px(9.))
+                            .py(px(12.)),
+                    )
+                }
+                let mut previous = String::new();
+                for (i, (label, group, page)) in hits.into_iter().enumerate() {
+                    let (icon, _) = match &page {
+                        Page::Topic(_, _, None) => (Glyph::AtSign, "Topic"),
+                        Page::Topic(_, Tab::Tasks, _) => (Glyph::Circle, "Task"),
+                        Page::Topic(_, Tab::Inbox, _) => (Glyph::MessageSquare, "Message"),
+                        _ => (Glyph::FileText, "Fact"),
+                    };
+                    let context = match &page {
+                        Page::Topic(id, _, Some(_)) => self
+                            .states
+                            .iter()
+                            .find(|s| s.topic.id == *id)
+                            .map(|s| format!("@{}", s.topic.name)),
+                        _ => None,
+                    }
+                    // The group heading already names the kind.
+                    .unwrap_or_default();
+                    // Each scroll child corresponds to one keyboard destination.
+                    rows = rows.child(
+                        ui::column()
+                            .gap_0()
+                            .flex_none()
+                            .when(previous != group, |el| {
+                                el.child(
+                                    ui::section_label(group.clone())
+                                        .px(px(9.))
+                                        .pt(px(if i == 0 { 6. } else { 14. }))
+                                        .pb(px(5.)),
+                                )
+                            })
+                            .child(
+                                line(format!("hit-{i}"), i == self.search_index)
+                                    .gap(px(8.))
+                                    .child(ui::nav::glyph(icon, false))
+                                    .child(ui::nav::title(label))
+                                    .child(ui::caption(context).max_w(relative(0.45)).truncate())
+                                    .on_click(
+                                        cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx)),
+                                    ),
+                            ),
+                    );
+                    previous = group;
+                }
+                let hint = |key, label| {
+                    ui::row()
+                        .gap(px(5.))
+                        .child(ui::caption(key).px(px(4.)).rounded(px(3.)).bg(ui::ink(16)))
+                        .child(ui::caption(label))
+                };
+                body = body.child(rows).child(
+                    ui::row()
+                        .flex_none()
+                        .border_t_1()
+                        .border_color(ui::ink(24))
+                        .gap(px(14.))
+                        .px(px(9.))
+                        .pt(px(9.))
+                        .pb(px(2.))
+                        .when(has_hits, |r| {
+                            r.child(hint("↑ ↓", "Navigate")).child(hint("↵", "Open"))
+                        })
+                        .child(hint("Esc", "Close")),
+                );
+            }
+            _ => {}
+        }
+        if let Sheet::DeleteRoutine(id, key, flow) = sheet.clone() {
+            let name = self
+                .states
+                .iter()
+                .find(|s| s.topic.id == id)
+                .and_then(|s| s.topic.routines.iter().find(|r| r.binding.id == key))
+                .map(|r| r.binding.name.as_str())
+                .unwrap_or(&key);
+            let message = format!(
+                "Deleting “{name}” stops its source subscriptions. Meep also deletes the linked PostHog workflow once no other routine in this workspace uses it."
+            );
+            let delete = control(
+                "confirm-delete-routine",
+                "Delete routine",
+                true,
+                cx,
+                move |s, w, cx| {
+                    s.dismiss_sheet(w, cx);
+                    let client = s.client().clone();
+                    let routine = key.clone();
+                    let page = Page::Topic(id, Tab::Routines, Some(Detail::Routine(key.clone())));
+                    s.job(
+                        async move { client.delete_workflow(id, &routine, flow).await },
+                        w,
+                        cx,
+                        move |s, result, w, cx| match result {
+                            Ok(()) => {
+                                s.reload();
+                                s.back.retain(|entry| entry != &page);
+                                if s.page == page {
+                                    s.navigate(Page::Topic(id, Tab::Routines, None), w, cx);
+                                }
+                            }
+                            Err(e) => {
+                                s.error =
+                                    Some(format!("Routine deletion could not be confirmed. {e}"))
+                            }
+                        },
+                    );
+                },
+            );
+            body = body.child(ui::caption(message)).child(
+                ui::row()
+                    .justify_end()
+                    .gap(px(6.))
+                    .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                        s.dismiss_sheet(w, cx)
+                    }))
+                    .child(meep_shell::settings::danger(delete, cx)),
+            );
+        } else if let Sheet::DeleteTopic(id) = *sheet {
+            let name = self
+                .states
+                .iter()
+                .find(|s| s.topic.id == id)
+                .map(|s| s.topic.name.clone())
+                .unwrap_or_default();
+            body = body
+                .child(ui::caption(format!(
+                    "“{name}” and its inbox, tasks, facts, files and routines will be deleted on every device. This can’t be undone. Archive it instead to keep everything."
+                )))
+                .child(
+                    ui::row()
+                        .justify_end()
+                        .gap(px(6.))
+                        .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                            s.dismiss_sheet(w, cx)
+                        }))
+                        .child(meep_shell::settings::danger(
+                            control("confirm-delete-topic", "Delete topic", true, cx, move |s, w, cx| {
+                                if s.issue(id, Command::DeleteTopic) {
+                                    s.sheet = None;
+                                    s.navigate(Page::Needs, w, cx)
+                                }
+                            }),
+                            cx,
+                        )),
+                );
+        } else if !search {
+            body = body.child(
+                ui::row()
+                    .justify_end()
+                    .child(control("cancel-sheet", "Cancel", false, cx, |s, w, cx| {
+                        s.dismiss_sheet(w, cx)
+                    }))
+                    .child(
+                        control(
+                            "submit-sheet",
+                            if *sheet == Sheet::New {
+                                "Create topic"
+                            } else if *sheet == Sheet::Bind {
+                                "Bind workflow"
+                            } else {
+                                "Save"
+                            },
+                            true,
+                            cx,
+                            |s, w, cx| s.submit(w, cx),
+                        )
+                        .disabled(self.name.read(cx).value().trim().is_empty()),
+                    ),
+            );
+        }
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .flex_col()
+            .pt(px((f32::from(w.viewport_size().height) * 0.12).min(96.)))
+            .bg(rgba(if ui::theme::is_dark() {
+                0x00000080
+            } else {
+                0x00000030
+            }))
+            .occlude()
+            .child(body)
+    }
+    pub(super) fn task_drag(
+        &self,
+        card: Stateful<Div>,
+        id: TopicId,
+        t: &meep_topic::Task,
+    ) -> Stateful<Div> {
+        let label = t.title.clone();
+        card.on_drag(Drag::Task(id, t.id), move |_, _, _, cx| {
+            cx.new(|_| DragLabel(label.clone()))
+        })
+    }
+    pub(super) fn task_drop(
+        &self,
+        col: Stateful<Div>,
+        id: TopicId,
+        column: Column,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        col.drag_over::<Drag>(move |el, drag, _, _| {
+            if matches!(drag, Drag::Task(from, _) if *from == id) {
+                el.bg(ui::ink(24))
+            } else {
+                el
+            }
+        })
+        .on_drop(cx.listener(move |s, d: &Drag, _, cx| {
+            if let Drag::Task(from, task) = d
+                && *from == id
+            {
+                s.issue(
+                    id,
+                    Command::MoveTask {
+                        task: *task,
+                        column,
+                    },
+                );
+                cx.notify()
+            }
+        }))
+    }
+    /// The window before there is a topic: View's welcome, one column that
+    /// says what a topic is and starts one.
+    fn welcome(&self, cx: &Context<Self>) -> Div {
+        let signed = self.identity.is_some();
+        let muted = rgb(ui::theme::color(ui::SECONDARY));
+        let column = ui::column()
+            .w_full()
+            .max_w(px(440.))
+            .gap_0()
+            .mb(px(48.))
+            .child(
+                div()
+                    .text_size(px(20.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(if signed {
+                        "Start your first topic"
+                    } else {
+                        "Welcome to Meep"
+                    }),
+            )
+            .child(
+                div()
+                    .mt(px(6.))
+                    .text_size(px(13.))
+                    .line_height(relative(1.5))
+                    .text_color(muted)
+                    .child(if signed {
+                        "A topic is something you want to get done. Give it a goal and it works \
+                         on it with your PostHog data and tools, asking you only when it needs \
+                         a decision."
+                    } else {
+                        "Each topic works toward something you want done, using your PostHog \
+                         data and tools, and asks you only when it needs a decision."
+                    }),
+            );
+        let column = if signed {
+            let field = div()
+                .id("welcome-field")
+                .role(Role::Button)
+                .aria_label("Start a topic")
+                .mt(px(20.))
+                .w_full()
+                .h(px(44.))
+                .px(px(14.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .rounded(px(12.))
+                .bg(rgb(ui::theme::color(ui::CANVAS)))
+                .border_1()
+                .border_color(ui::ink(0x17))
+                .shadow(vec![BoxShadow {
+                    color: rgba(0x0000000a).into(),
+                    offset: point(px(0.), px(1.)),
+                    blur_radius: px(2.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .cursor_text()
+                .hover(|s| s.border_color(ui::ink(0x26)))
+                .on_click(cx.listener(|s, _, w, cx| s.open_sheet(Sheet::New, w, cx)))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(14.))
+                        .text_color(muted)
+                        .child("What do you want to get done?"),
+                )
+                .child(div().text_size(px(12.)).text_color(muted).child("⌘N"));
+            const IDEAS: [(Glyph, &str, &str); 3] = [
+                (
+                    Glyph::Rocket,
+                    "Onboarding launch",
+                    "Ship the new onboarding and get activation above 40%",
+                ),
+                (
+                    Glyph::GitPullRequest,
+                    "PR reviews",
+                    "Keep every pull request review under a day",
+                ),
+                (
+                    Glyph::ChartColumn,
+                    "Retention",
+                    "Find out why weekly retention dropped and fix it",
+                ),
+            ];
+            let mut ideas = ui::column().w_full().gap(px(2.)).child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(muted)
+                    .px(px(10.))
+                    .pb(px(4.))
+                    .child("Or start from one of these"),
+            );
+            for (i, (glyph, name, goal)) in IDEAS.into_iter().enumerate() {
+                ideas = ideas.child(starter(format!("welcome-idea-{i}"), glyph, goal).on_click(
+                    cx.listener(move |s, _, w, cx| {
+                        s.open_sheet(Sheet::New, w, cx);
+                        s.name.update(cx, |e, cx| e.set_value(name, w, cx));
+                        s.mission.update(cx, |e, cx| e.set_value(goal, w, cx));
+                    }),
+                ));
+            }
+            column
+                .child(field)
+                .child(div().mt(px(20.)).mx(px(-10.)).child(ideas))
+                .child(
+                    ui::row()
+                        .mt(px(20.))
+                        .gap(px(4.))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(muted)
+                                .child("Topics work from what you connect to PostHog."),
+                        )
+                        .child(
+                            div()
+                                .id("welcome-connect")
+                                .role(Role::Button)
+                                .px(px(6.))
+                                .py(px(2.))
+                                .rounded(px(5.))
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgb(ui::theme::get(10)))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(ui::ink(0x0a)))
+                                .child("See connections →")
+                                .on_click(cx.listener(|s, _, w, cx| {
+                                    s.settings_page = SettingsPage::Connections;
+                                    s.go(Page::Settings, w, cx)
+                                })),
+                        ),
+                )
+        } else {
+            column
+                .child(
+                    ui::row()
+                        .mt(px(20.))
+                        .gap(px(10.))
+                        .child(
+                            ui::row()
+                                .gap(px(6.))
+                                .child(div().text_size(px(12.)).text_color(muted).child("Region"))
+                                .child(self.region_picker(cx)),
+                        )
+                        .child(
+                            control(
+                                "welcome-action",
+                                if self.login_busy {
+                                    "Waiting for PostHog…"
+                                } else {
+                                    "Sign in to PostHog"
+                                },
+                                true,
+                                cx,
+                                |s, w, cx| s.login(w, cx),
+                            )
+                            .disabled(self.login_busy),
+                        ),
+                )
+                .child(
+                    div()
+                        .mt(px(14.))
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child("Sign-in opens PostHog in your browser."),
+                )
+        };
+        ui::column()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .p(px(24.))
+            .child(column)
+    }
+    fn region_picker(&self, cx: &Context<Self>) -> Div {
+        ui::row()
+            .self_start()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(7.))
+            .bg(ui::ink(12))
+            .children(
+                [
+                    (Region::Us, "US"),
+                    (Region::Eu, "EU"),
+                    (Region::Local, "Local"),
+                ]
+                .into_iter()
+                .filter(|(r, _)| {
+                    *r != Region::Local || std::env::var("MEEP_POSTHOG_LOCAL").as_deref() == Ok("1")
+                })
+                .map(|(r, label)| {
+                    control(label, label, false, cx, move |s, _, _| {
+                        s.region = r;
+                        if let Err(e) = s.client().set_preference("region", &r) {
+                            s.fail(e)
+                        }
+                    })
+                    .border_0()
+                    // Sized so the switch matches a 28pt button beside it.
+                    .h(px(24.))
+                    .when(self.region == r, |btn| {
+                        btn.bg(rgb(ui::theme::color(ui::CANVAS)))
+                            .border_1()
+                            .border_color(ui::ink(42))
+                    })
+                }),
+            )
+    }
+    /// The settings sidebar: View swaps the source list for settings destinations.
+    fn settings_rail(&self, cx: &Context<Self>) -> Div {
+        let list = ui::column()
+            .gap(px(ui::nav::GAP))
+            .children(SettingsPage::ALL.into_iter().map(|page| {
+                let active = self.settings_page == page;
+                nav_line(format!("settings-{}", page.title().to_lowercase()), active)
+                    .aria_label(page.title())
+                    .child(ui::nav::glyph(page.glyph(), active))
+                    .child(ui::nav::title(page.title()))
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.settings_page = page;
+                        s.clear_confirm = false;
+                        if page == SettingsPage::Connections {
+                            s.mcp.screen = super::mcp_settings::Screen::List;
+                            s.mcp_request(meep_wire::mcp_store::Operation::Browse, w, cx);
+                        }
+                        cx.notify()
+                    }))
+            }));
+        let back = nav_line("close-settings", false)
+            .aria_label("Back to topics")
+            .child(ui::nav::glyph(Glyph::ArrowLeft, false))
+            .child(ui::nav::title("Back"))
+            .child(
+                ui::caption("Esc")
+                    .px(px(4.))
+                    .mr(px(6.))
+                    .rounded(px(3.))
+                    .bg(ui::ink(16)),
+            )
+            .on_click(cx.listener(|s, _, w, cx| {
+                let page = s.back.pop().unwrap_or(Page::Needs);
+                s.navigate(page, w, cx)
+            }));
+        meep_shell::sidebar(
+            list,
+            div().into_any_element(),
+            None,
+            back.into_any_element(),
+        )
+    }
+    fn settings(&self, w: &Window, cx: &mut Context<Self>) -> AnyElement {
+        use meep_shell::settings::{group, header, item, section};
+        let width =
+            w.viewport_size().width - px(meep_ui::design::current().sidebar + meep_shell::GUTTER);
+        let content = match self.settings_page {
+            SettingsPage::Appearance => {
+                fn select(
+                    s: &mut Desktop,
+                    choice: Option<&'static str>,
+                    w: &mut Window,
+                    cx: &mut Context<Desktop>,
+                ) {
+                    if let Err(e) = s.client().set_preference("appearance", &choice) {
+                        s.fail(e);
+                    } else {
+                        s.scheme = choice.map(str::to_owned);
+                        meep_shell::appearance::set_palette(
+                            meep_shell::appearance::resolve(choice, w.appearance()),
+                            cx,
+                        );
+                    }
+                    cx.notify();
+                }
+                return meep_shell::appearance::picker(
+                    self.scheme.as_deref(),
+                    false,
+                    width,
+                    select,
+                    w,
+                    cx,
+                );
+            }
+            SettingsPage::General => {
+                let account = if let Some(a) = &self.identity {
+                    item(
+                        a.email.clone().unwrap_or_else(|| "PostHog".into()),
+                        format!("{} · {}", a.label, a.region.key().to_uppercase()),
+                        control("logout", "Sign out", false, cx, |s, w, cx| {
+                            let b = s.backend.clone();
+                            s.job(async move { b.sign_out().await }, w, cx, |s, r, w, cx| {
+                                // The Mac is signed out either way; a server error follows.
+                                s.identity = None;
+                                s.mcp = super::mcp_settings::McpSettings::new(w, cx);
+                                s.error = None;
+                                s.back.clear();
+                                s.navigate(Page::Needs, w, cx);
+                                if let Err(e) = r {
+                                    s.fail(e)
+                                }
+                            })
+                        })
+                        .self_center(),
+                    )
+                } else {
+                    item(
+                        "Signed out",
+                        "Choose your PostHog region, then sign in.",
+                        ui::row().gap(px(8.)).child(self.region_picker(cx)).child(
+                            control(
+                                "settings-login",
+                                if self.login_busy {
+                                    "Waiting for PostHog…"
+                                } else {
+                                    "Sign in to PostHog"
+                                },
+                                true,
+                                cx,
+                                |s, w, cx| s.login(w, cx),
+                            )
+                            .disabled(self.login_busy),
+                        ),
+                    )
+                };
+                ui::column()
+                    .gap_0()
+                    .child(header(
+                        "General",
+                        "The PostHog account your topics work with.",
+                        None,
+                    ))
+                    .child(section("Account", "", None, true))
+                    .child(group([account.into_any_element()]))
+            }
+            SettingsPage::Connections => self.mcp_page(cx),
+            SettingsPage::Shortcuts => self.shortcuts_page(),
+            SettingsPage::Permissions => self.permissions_page(cx),
+            SettingsPage::Advanced => self.advanced_page(cx),
+            SettingsPage::Notifications => self.notifications_page(cx),
+        };
+        meep_shell::appearance::settings_body("settings-scroll", width, content)
+    }
+}
+impl Render for Desktop {
+    fn render(&mut self, w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The sidebar spinner runs while any topic's or view's agent works.
+        let working = self.states.iter().any(super::desktop::topic_working)
+            || self
+                .views
+                .rows
+                .iter()
+                .any(|v| super::desktop::view_working(v));
+        let reduced = cx.reduce_motion();
+        self.sidebar_activity
+            .update(cx, |a, cx| a.set_active(working, reduced, cx));
+        if let Some((topic, task)) = self.chat_task()
+            && let Some(t) = self
+                .states
+                .iter()
+                .find(|s| s.topic.id == topic)
+                .and_then(|s| s.tasks.iter().find(|t| t.id == task))
+            && t.column == Column::NeedsYou
+            && self.editing_review != Some((topic, task, t.review_version))
+        {
+            self.editing_review = Some((topic, task, t.review_version));
+            self.send_back = false;
+            self.draft.update(cx, |e, cx| {
+                e.set_value(t.draft.clone().unwrap_or_default(), w, cx)
+            });
+        }
+        if std::mem::take(&mut self.reveal_selection) {
+            let row = self.selection_bounds.clone();
+            let content = self.content_scroll.clone();
+            let board = matches!(self.page, Page::Topic(_, Tab::Tasks, _))
+                .then(|| self.board_scroll.clone());
+            // The detail pane changes the available width. Measure the selected
+            // row after layout, then move only as far as necessary on each axis.
+            w.on_next_frame(move |w, _| {
+                let row = row.bounds();
+                let viewport = content.bounds();
+                let adjustment = |start: Pixels, end: Pixels, low: Pixels, high: Pixels| {
+                    if start < low {
+                        low - start
+                    } else {
+                        (high - end).min(px(0.))
+                    }
+                };
+                let dy = adjustment(row.top(), row.bottom(), viewport.top(), viewport.bottom());
+                content.set_offset(content.offset() + point(px(0.), dy));
+                if let Some(board) = board {
+                    let viewport = board.bounds();
+                    let dx = adjustment(row.left(), row.right(), viewport.left(), viewport.right());
+                    board.set_offset(board.offset() + point(dx, px(0.)));
+                }
+                w.refresh();
+            });
+        }
+        // The layout row stretches the pane; a full height plus its gutters
+        // would push its bottom edge past the window.
+        let mut main = ui::column()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .gap(px(14.))
+            .px(px(24.))
+            .py(px(18.))
+            .overflow_hidden();
+        if self.sheet == Some(Sheet::New) && self.identity.is_some() {
+            main = main.p_0().child(self.new_topic_page(w, cx))
+        } else if self.page == Page::Settings {
+            main = main.p_0().child(self.settings(w, cx))
+        } else if self.identity.is_some() && matches!(self.page, Page::View(_) | Page::NewView) {
+            main = main.p_0().child(self.view_page(w, cx));
+        } else if self.identity.is_none() || self.states.is_empty() {
+            main = main.p_0().child(self.welcome(cx));
+        } else {
+            match self.page.clone() {
+                Page::Needs => main = main.child(self.attention_page(cx)),
+                Page::Topic(id, tab, detail) => {
+                    if let Some(state) = self.states.iter().find(|s| s.topic.id == id) {
+                        main = main
+                            .p_0()
+                            .child(self.topic_view(state, tab, detail.as_ref(), w, cx))
+                    }
+                }
+                Page::Settings | Page::View(_) | Page::NewView => {}
+            }
+        }
+        let rejection = self
+            .identity
+            .as_ref()
+            .and_then(|_| self.client().rejections().ok())
+            .and_then(|r| r.into_iter().next());
+        let dismissed = self
+            .error
+            .is_none()
+            .then(|| rejection.as_ref().map(|r| r.0))
+            .flatten();
+        let recovery = dismissed.and_then(|id| {
+            self.client()
+                .rejected_file_path(id)
+                .ok()
+                .flatten()
+                .map(|path| (id, path))
+        });
+        // Failures float as one of View's toast cards in the pane's corner:
+        // a plain sentence first, what to do next beside it.
+        let toast_key = self
+            .error
+            .as_deref()
+            .or(rejection.as_ref().map(|r| r.1.as_str()))
+            .map(|e| e.len())
+            .unwrap_or(0);
+        let toast = self
+            .error
+            .clone()
+            .or_else(|| rejection.as_ref().map(|r| r.1.clone()))
+            .map(|e| {
+                let (title, body) = match &recovery {
+                    Some((_, path)) => (
+                        format!("Couldn't upload {path}"),
+                        Some(format!("{e} A copy is saved on this Mac.")),
+                    ),
+                    None => (e, None),
+                };
+                let mut actions = ui::row().gap(px(6.)).pt(px(8.));
+                if let Some((id, path)) = recovery.clone() {
+                    actions = actions
+                        .child(control(
+                            "save-rejected-file",
+                            "Save a copy…",
+                            true,
+                            cx,
+                            move |s, w, cx| {
+                                s.save_rejected_file(id, &path, w, cx);
+                            },
+                        ))
+                        .child(control(
+                            "discard-rejected-file",
+                            "Discard",
+                            false,
+                            cx,
+                            move |s, _, _| {
+                                s.error = dismissed
+                                    .and_then(|id| s.client().dismiss_rejection(id).err())
+                                    .map(|e| e.to_string())
+                            },
+                        ));
+                }
+                let has_actions = recovery.is_some();
+                ui::row()
+                    .id("error-toast")
+                    .role(Role::Alert)
+                    .w(px(360.))
+                    .items_start()
+                    .gap(px(10.))
+                    .py(px(12.))
+                    .pl(px(14.))
+                    .pr(px(6.))
+                    .bg(rgb(ui::theme::color(ui::CANVAS)))
+                    .border_1()
+                    .border_color(ui::ink(0x14))
+                    .rounded(px(10.))
+                    .shadow(vec![BoxShadow {
+                        color: rgba(0x00000024).into(),
+                        offset: point(px(0.), px(8.)),
+                        blur_radius: px(24.),
+                        spread_radius: px(-6.),
+                        inset: false,
+                    }])
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(16.))
+                            .h(px(17.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                Icon::new(Glyph::TriangleAlert)
+                                    .size(px(14.))
+                                    .text_color(rgb(0xb4570a)),
+                            ),
+                    )
+                    .child(
+                        ui::column()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .line_clamp(3)
+                                    .line_height(px(17.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(title),
+                            )
+                            .when_some(body, |c, body| {
+                                c.child(
+                                    div()
+                                        .line_clamp(3)
+                                        .text_size(px(12.))
+                                        .line_height(px(16.))
+                                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                                        .child(body),
+                                )
+                            })
+                            .when(has_actions, |c| c.child(actions)),
+                    )
+                    .child(
+                        ui::icon_button("dismiss-error", Glyph::X, "Dismiss")
+                            .flex_none()
+                            .mt(px(-6.))
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                s.error = dismissed
+                                    .and_then(|id| s.client().dismiss_rejection(id).err())
+                                    .map(|e| e.to_string());
+                                cx.notify()
+                            })),
+                    )
+            });
+        let settings_open = self.page == Page::Settings;
+        let live = self.identity.is_some() && !(self.sidebar_hidden && !settings_open);
+        let can_toggle = self.identity.is_some() && !settings_open;
+        let sidebar_visible = !self.sidebar_hidden;
+        // A view's composer offers the models a view can be built with.
+        if self.identity.is_some() && matches!(self.page, Page::View(_) | Page::NewView) {
+            self.ensure_view_models(w, cx);
+        }
+        let view_panel = self.active_view_panel(w, cx);
+        // View's choreography: the sidebar slides in and out with its own
+        // spring, and settings arrive with a short travel once opened.
+        let rail_wanted = settings_open || live;
+        let rail_motion = ui::motion::presence("host-sidebar", rail_wanted, w, cx);
+        let rail = rail_motion.progress.clamp(0., 1.);
+        let arrival = ui::motion::presence("host-settings", settings_open, w, cx)
+            .progress
+            .clamp(0., 1.);
+        let rail_list = (rail > 0.).then(|| {
+            if settings_open {
+                self.settings_rail(cx)
+                    .relative()
+                    .left(px(ui::motion::travel(arrival, 8.)))
+                    .opacity(arrival)
+            } else {
+                self.sidebar(w, cx).opacity(rail)
+            }
+        });
+        // The Overview: its own pane beside the topic, sliding in with View's presence spring.
+        let overview_topic = match &self.page {
+            Page::Topic(id, ..) if self.sheet != Some(Sheet::New) && self.overview_docked(w) => {
+                self.states
+                    .iter()
+                    .find(|s| s.topic.id == *id)
+                    .map(|s| s.topic.id)
+            }
+            _ => None,
+        };
+        let overview_presence =
+            ui::motion::presence("topic-overview-pane", overview_topic.is_some(), w, cx);
+        let overview_pane =
+            (overview_presence.should_render() && overview_topic.is_some()).then(|| {
+                let topic = overview_topic.unwrap();
+                let state = self
+                    .states
+                    .iter()
+                    .find(|s| s.topic.id == topic)
+                    .cloned()
+                    .unwrap();
+                let full = super::overview::WIDTH;
+                let p = overview_presence.progress.clamp(0., 1.);
+                div()
+                    .id("topic-overview-slot")
+                    .h_full()
+                    .py(px(meep_shell::GUTTER))
+                    .overflow_hidden()
+                    .flex_shrink_0()
+                    .w(px((full + meep_shell::GUTTER) * p))
+                    .child(
+                        meep_shell::pane(self.overview(&state, cx))
+                            .h_full()
+                            .mr(px(meep_shell::GUTTER))
+                            .opacity((p * 1.6).clamp(0., 1.))
+                            .w(px(full)),
+                    )
+            });
+        let root = meep_shell::root();
+        #[cfg(feature = "demo-driver")]
+        let root = root.children(super::demo_driver::cursor());
+        root.track_focus(&self.focus)
+            .capture_key_down(cx.listener(|s, e, w, cx| s.key(e, w, cx)))
+            .on_action(
+                cx.listener(|s, _: &meep_shell::workspace::OpenSettings, w, cx| {
+                    s.go(Page::Settings, w, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|_, _: &meep_shell::workspace::CloseWindow, w, _| w.remove_window()),
+            )
+            .child(
+                meep_shell::window_layout(rail)
+                    .items_stretch()
+                    .when_some(rail_list, |l, list| {
+                        l.child(meep_shell::sidebar_slot(rail).child(list))
+                    })
+                    .child(
+                        meep_shell::pane(main.when(settings_open, |m| {
+                            m.relative()
+                                .left(px(ui::motion::travel(arrival, 8.)))
+                                .opacity(arrival)
+                        }))
+                        .my(px(meep_shell::GUTTER))
+                        .mr(px(meep_shell::GUTTER))
+                        .ml(px(meep_shell::GUTTER * (1. - rail))),
+                    )
+                    .children(view_panel)
+                    .children(overview_pane),
+            )
+            .when_some(toast, |root, toast| {
+                // Each new message rises into place once.
+                let arrived = ui::motion::arrival(
+                    ElementId::from(SharedString::from(format!("error-toast-{}", toast_key))),
+                    false,
+                    w,
+                    cx,
+                )
+                .progress
+                .clamp(0., 1.);
+                root.child(deferred(
+                    div()
+                        .absolute()
+                        .bottom(px(24. - ui::motion::travel(arrived, 8.)))
+                        .right(px(24.))
+                        .opacity(arrived)
+                        .occlude()
+                        .child(toast),
+                ))
+            })
+            .when(can_toggle, |root| {
+                root.child(
+                    meep_shell::sidebar_toggle(sidebar_visible).on_click(cx.listener(
+                        |s, _, _, cx| {
+                            s.sidebar_hidden = !s.sidebar_hidden;
+                            cx.notify()
+                        },
+                    )),
+                )
+            })
+            .when_some(
+                self.sheet.as_ref().filter(|s| !matches!(s, Sheet::New)),
+                |el, sh| el.child(self.sheet_view(sh, w, cx)),
+            )
+    }
+}
+
+/// The "…" button View shows on a sidebar row while it is hovered.
+fn row_actions(id: String, title: &str, group: SharedString) -> Button {
+    ui::contextual_icon_button(
+        SharedString::from(id),
+        Glyph::Ellipsis,
+        format!("Actions for {title}"),
+        group,
+        false,
+    )
+    .size(px(ui::nav::ACCESSORY))
+    .rounded(px(5.))
+}
+fn menu_item(glyph: Glyph, label: impl Into<SharedString>) -> PopupMenuItem {
+    PopupMenuItem::new(label).icon(Icon::new(glyph))
+}
+fn topic_menu(
+    m: PopupMenu,
+    owner: WeakEntity<Desktop>,
+    tid: TopicId,
+    w: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let open = owner.clone();
+    let chat = owner.clone();
+    let rename = owner.clone();
+    let archive = owner.clone();
+    let delete = owner.clone();
+    let archived = owner
+        .upgrade()
+        .and_then(|e| {
+            e.read(cx)
+                .states
+                .iter()
+                .find(|s| s.topic.id == tid)
+                .map(|s| s.archived)
+        })
+        .unwrap_or(false);
+    let m = m
+        .min_w(px(200.))
+        .item(
+            menu_item(Glyph::ArrowUpRight, "Open").on_click(move |_, w, cx| {
+                let _ = open.update(cx, |s, cx| s.go(Page::Topic(tid, Tab::Chat, None), w, cx));
+            }),
+        )
+        .item(
+            menu_item(Glyph::MessageCircle, "Chat with topic").on_click(move |_, w, cx| {
+                let _ = chat.update(cx, |s, cx| {
+                    s.go(Page::Topic(tid, Tab::Chat, None), w, cx);
+                    s.composer.focus_handle(cx).focus(w, cx);
+                });
+            }),
+        )
+        .separator()
+        .item(
+            menu_item(Glyph::Pencil, "Rename…").on_click(move |_, w, cx| {
+                let _ = rename.update(cx, |s, cx| s.open_sheet(Sheet::RenameTopic(tid), w, cx));
+            }),
+        )
+        .item(
+            menu_item(
+                Glyph::Archive,
+                if archived {
+                    "Restore from archive"
+                } else {
+                    "Archive"
+                },
+            )
+            .on_click(move |_, _, cx| {
+                let _ = archive.update(cx, |s, cx| {
+                    s.issue(
+                        tid,
+                        if archived {
+                            Command::UnarchiveTopic
+                        } else {
+                            Command::ArchiveTopic
+                        },
+                    );
+                    cx.notify()
+                });
+            }),
+        );
+    let m = if archived {
+        m
+    } else {
+        super::sidebar::section_menu_items(m, owner.clone(), super::sidebar::topic_key(tid), w, cx)
+    };
+    m.separator().item(
+        menu_item(Glyph::Trash, "Delete…").on_click(move |_, w, cx| {
+            let _ = delete.update(cx, |s, cx| s.open_sheet(Sheet::DeleteTopic(tid), w, cx));
+        }),
+    )
+}
+fn view_menu(
+    m: PopupMenu,
+    owner: WeakEntity<Desktop>,
+    vid: Uuid,
+    w: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let open = owner.clone();
+    let settings = owner.clone();
+    let delete = owner.clone();
+    let mut m = m
+        .min_w(px(200.))
+        .item(
+            menu_item(Glyph::ArrowUpRight, "Open").on_click(move |_, w, cx| {
+                let _ = open.update(cx, |s, cx| s.go(Page::View(vid), w, cx));
+            }),
+        )
+        .item(
+            menu_item(Glyph::Pencil, "Rename and icon…").on_click(move |_, w, cx| {
+                let _ = settings.update(cx, |s, cx| {
+                    s.go(Page::View(vid), w, cx);
+                    s.open_view_settings(vid, w, cx);
+                });
+            }),
+        );
+    m = m.separator();
+    m = super::sidebar::section_menu_items(m, owner.clone(), super::sidebar::view_key(vid), w, cx);
+    m.separator().item(
+        menu_item(Glyph::Trash, "Delete view…").on_click(move |_, w, cx| {
+            let _ = delete.update(cx, |s, cx| {
+                s.go(Page::View(vid), w, cx);
+                s.open_view_settings(vid, w, cx);
+                s.views.confirm_delete = true;
+            });
+        }),
+    )
+}

@@ -1,0 +1,33 @@
+[package]
+name = "meep-client"
+version = "0.1.0"
+edition = "2024"
+description = "Offline-first SQLite replica of a Meep server"
+
+[dependencies]
+sha2 = "0.10"
+meep-connections = { path = "../meep-connections" }
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+meep-store = { path = "../meep-store" }
+meep-topic = { path = "../meep-topic" }
+meep-wire = { path = "../meep-wire" }
+parking_lot = "0.12"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
+rusqlite = "0.41"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sse-stream = "0.2.6"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+async-stream = "0.3"
+axum = "0.8"
+meep-engine = { path = "../meep-engine" }
+tempfile = "3"
+tokio = { version = "1", features = ["net"] }

@@ -1,0 +1,261 @@
+{
+  "center": {
+    "panel_name": "StackPanel",
+    "children": [
+      {
+        "panel_name": "TabPanel",
+        "children": [
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ButtonStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "InputStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "TextStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "SelectStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "DialogStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "SwitchStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ProgressStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "DataTableStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ImageStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "IconStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "TooltipStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ProgressStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "CalendarStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ResizableStory"
+              }
+            }
+          },
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "ScrollbarStory"
+              }
+            }
+          }
+        ],
+        "info": {
+          "tabs": {
+            "active_index": 0
+          }
+        }
+      },
+      {
+        "panel_name": "TabPanel",
+        "children": [
+          {
+            "panel_name": "StoryContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "PopupStory"
+              }
+            }
+          }
+        ],
+        "info": {
+          "tabs": {
+            "active_index": 0
+          }
+        }
+      }
+    ],
+    "info": {
+      "stack": {
+        "sizes": [704.0, 263.0],
+        "axis": 1
+      }
+    }
+  },
+  "left_dock": {
+    "panel": {
+      "panel_name": "TabPanel",
+      "children": [
+        {
+          "panel_name": "StoryContainer",
+          "children": [],
+          "info": {
+            "panel": {
+              "story_klass": "ListStory"
+            }
+          }
+        }
+      ],
+      "info": {
+        "tabs": {
+          "active_index": 0
+        }
+      }
+    },
+    "placement": "left",
+    "size": 350.0,
+    "open": true,
+    "resizeable": true
+  },
+  "right_dock": {
+    "panel": {
+      "panel_name": "TabPanel",
+      "children": [
+        {
+          "panel_name": "StoryContainer",
+          "children": [],
+          "info": {
+            "panel": {
+              "story_klass": "ImageStory"
+            }
+          }
+        }
+      ],
+      "info": {
+        "tabs": {
+          "active_index": 0
+        }
+      }
+    },
+    "placement": "right",
+    "size": 320.0,
+    "open": true,
+    "resizeable": true
+  },
+  "bottom_dock": {
+    "panel": {
+      "panel_name": "TabPanel",
+      "children": [
+        {
+          "panel_name": "StoryContainer",
+          "children": [],
+          "info": {
+            "panel": {
+              "story_klass": "TextStory"
+            }
+          }
+        },
+        {
+          "panel_name": "StoryContainer",
+          "children": [],
+          "info": {
+            "panel": {
+              "story_klass": "IconStory"
+            }
+          }
+        }
+      ],
+      "info": {
+        "tabs": {
+          "active_index": 0
+        }
+      }
+    },
+    "placement": "bottom",
+    "size": 200.0,
+    "open": true,
+    "resizeable": true
+  }
+}

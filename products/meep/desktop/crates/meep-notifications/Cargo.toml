@@ -1,0 +1,19 @@
+[package]
+name = "meep-notifications"
+version = "0.1.0"
+edition = "2024"
+description = "Scoped desktop notification delivery and a macOS Notification Center adapter"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-user-notifications = "0.3"
+tokio = { version = "1", features = ["sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

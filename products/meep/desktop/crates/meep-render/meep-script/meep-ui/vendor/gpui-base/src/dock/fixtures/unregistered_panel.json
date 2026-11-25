@@ -1,0 +1,15 @@
+{
+  "center": {
+    "panel_name": "StackPanel",
+    "children": [
+      {
+        "panel_name": "TabPanel",
+        "children": [
+          { "panel_name": "PanelFromTheFuture", "children": [], "info": { "panel": { "keep": "me" } } }
+        ],
+        "info": { "tabs": { "active_index": 0 } }
+      }
+    ],
+    "info": { "stack": { "sizes": [0.0], "axis": 0 } }
+  }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "meep-ingest"
+version = "0.1.0"
+edition = "2024"
+description = "Connector events, delivery and replay for topic inboxes"
+
+[features]
+fixtures = []
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+meep-store = { path = "../meep-store" }
+meep-topic = { path = "../meep-topic" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+anyhow = "1"
+tempfile = "3"

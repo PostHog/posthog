@@ -1,0 +1,54 @@
+[package]
+name = "gpui-pre-ios"
+version = "0.3.11"
+edition = { workspace = true }
+publish = true
+license = "Apache-2.0"
+description = "Zed's `gpui_ios` crate (gpui-pre snapshot of zed@f816e1f)"
+repository = "https://github.com/zed-industries/zed"
+
+[package.metadata.gpui-pre]
+zed-crate = "gpui_ios"
+zed-version = "0.1.0"
+zed-rev = "f816e1f9263e3a8ef63c4baaa02e1441ce1c6038"
+
+[lib]
+path = "src/gpui_ios.rs"
+crate-type = ["staticlib", "rlib"]
+doctest = false
+name = "gpui_ios"
+
+[features]
+runtime_shaders = ["gpui_apple/runtime_shaders"]
+
+[dependencies]
+gpui = { workspace = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+anyhow = { workspace = true }
+block2 = { workspace = true }
+futures = { workspace = true }
+gpui_apple = { workspace = true, features = ["font-kit"] }
+log = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSThread", "NSOperation", "NSUserActivity", "block2"] }
+objc2-ui-kit = { workspace = true }
+objc2-quartz-core = { workspace = true, features = ["CADisplayLink"] }
+objc2-core-foundation = { workspace = true, default-features = true }
+parking_lot = { workspace = true }
+raw-window-handle = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "ios"
+path = "examples/ios.rs"
+test = false
+bench = false
+
+[[test]]
+name = "text_input"
+path = "tests/text_input.rs"
+harness = false

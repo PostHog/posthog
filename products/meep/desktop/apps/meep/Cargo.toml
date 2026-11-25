@@ -1,0 +1,60 @@
+[package]
+name = "meep"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "meep"
+path = "src/main.rs"
+
+[features]
+default = []
+ui-previews = []
+# Replays input from MEEP_DEMO_SOCKET into the window, for recording demos.
+demo-driver = []
+# Hot patching through `dx serve --hot-patch`; see scripts/dev.sh. Debug builds only.
+hot-reload = ["meep-render/hot-reload"]
+
+[dependencies]
+async-trait = "0.1"
+meep-notifications = { path = "../../crates/meep-notifications" }
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+mime_guess = "2"
+meep-client = { path = "../../crates/meep-client" }
+meep-connections = { path = "../../crates/meep-connections" }
+meep-posthog = { path = "../../crates/meep-posthog", features = ["oauth"] }
+meep-protocol = { path = "../../crates/meep-protocol" }
+meep-render = { path = "../../crates/meep-render", default-features = false, features = ["ui"] }
+meep-shell = { path = "../../crates/meep-shell" }
+meep-topic = { path = "../../crates/meep-topic" }
+meep-ui = { path = "../../crates/meep-render/meep-script/meep-ui" }
+meep-wire = { path = "../../crates/meep-wire" }
+open = "5"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", path = "../../crates/meep-render/meep-script/meep-ui/vendor/gpui-pre", features = ["test-support"] }
+gpui-platform = { package = "gpui-pre-platform", path = "../../crates/meep-render/meep-script/meep-ui/vendor/gpui-pre-platform", features = ["test-support"] }
+meep-server = { path = "../../crates/meep-server", features = ["fixture-host"] }
+meep-ai = { path = "../../crates/meep-ai" }
+axum = "0.8"
+meep-engine = { path = "../../crates/meep-engine" }
+meep-connectors = { path = "../../crates/meep-connectors" }
+meep-store = { path = "../../crates/meep-store" }
+meep-ingest = { path = "../../crates/meep-ingest" }
+
+[[test]]
+name = "previews"
+path = "tests/previews.rs"
+harness = false
+required-features = ["ui-previews"]

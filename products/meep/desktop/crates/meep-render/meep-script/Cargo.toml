@@ -1,0 +1,33 @@
+[package]
+name = "meep-script"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["native"]
+native = ["dep:rquickjs"]
+browser = ["dep:js-sys", "dep:wasm-bindgen"]
+test-support = []
+
+[dependencies]
+meep-ui = { path = "meep-ui", default-features = false }
+anyhow = "1"
+memchr = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+rquickjs = { version = "0.14", optional = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+web-time = "1"
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[[example]]
+name = "check"
+required-features = ["native"]
