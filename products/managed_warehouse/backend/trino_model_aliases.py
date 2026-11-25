@@ -16,7 +16,10 @@ from posthog.dataclasses import frozen
 
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema, is_dev_mode
 from products.managed_warehouse.backend.table_binding import get_data_modeling_table_names
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_connection import (
+    TRINO_SOURCE_MATERIALIZATION,
+    connect_managed_warehouse_trino,
+)
 
 if TYPE_CHECKING:
     from trino.dbapi import Cursor
@@ -227,7 +230,9 @@ def reconcile_trino_model_aliases(
         return ModelAliasReconciliation(active=False)
     models = _load_models(team_id, saved_query_ids)
     with connect_managed_warehouse_trino(
-        str(organization_id), principal=f"posthog:trino-model-aliases:team:{team_id}"
+        str(organization_id),
+        principal=f"posthog:trino-model-aliases:team:{team_id}",
+        source=TRINO_SOURCE_MATERIALIZATION,
     ) as connection:
         cursor = connection.cursor()
         if control:

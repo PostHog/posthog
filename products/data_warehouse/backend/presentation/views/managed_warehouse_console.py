@@ -44,6 +44,9 @@ MAX_HISTORY_WINDOW = timedelta(days=31)
 # The largest value of the BigIntegerField that stores the cap.
 MAX_SCAN_CAP_BYTES = 2**63 - 1
 
+# The SQL editor sets no query length limit, so this only bounds the request body.
+MAX_ESTIMATE_QUERY_LENGTH = 100_000
+
 # Same shape as hogtower accepts for a login name.
 LOGIN_USERNAME = r"[A-Za-z0-9_][A-Za-z0-9_-]{0,62}"
 
@@ -327,6 +330,68 @@ class ConsoleSettingsUpdateSerializer(serializers.Serializer):
     )
 
 
+class QueryEstimateWarning(TextChoices):
+    NO_FILTER_ON_LARGE_TABLE = "no_filter_on_large_table", "No filter on a large table"
+    EXCEEDS_CAP = "exceeds_cap", "Exceeds the per-query cap"
+    SIZE_UNKNOWN = "size_unknown", "Size unknown"
+
+
+class QueryEstimateRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=MAX_ESTIMATE_QUERY_LENGTH, help_text="The SQL editor query to estimate, HogQL or raw Trino SQL."
+    )
+    send_raw_query = serializers.BooleanField(
+        default=False, help_text="True when the query is raw Trino SQL. False when it is HogQL."
+    )
+    variables = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.",
+    )
+    filters = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.",
+    )
+
+
+class QueryEstimateTableSerializer(serializers.Serializer):
+    catalog = serializers.CharField(help_text="Trino catalog the query reads.")
+    schema = serializers.CharField(help_text="Schema the table lives in.")
+    table = serializers.CharField(help_text="Table name.")
+    size_bytes = serializers.IntegerField(
+        allow_null=True, help_text="Bytes of live data files, or null when the table is not in the storage listing."
+    )
+    has_filter = serializers.BooleanField(help_text="Whether the query limits at least one column of this table.")
+
+
+class QueryEstimateResponseSerializer(serializers.Serializer):
+    tables = QueryEstimateTableSerializer(many=True, help_text="Tables the query reads.")
+    upper_bound_bytes = serializers.IntegerField(
+        allow_null=True,
+        help_text="Most bytes the query can scan: the stored size of every table it reads. Null when no table size is known.",
+    )
+    estimated_cost_usd = serializers.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        allow_null=True,
+        help_text="Compute cost of the upper bound at the marginal rate, before the monthly free tier. Null when unknown.",
+    )
+    cap_bytes = serializers.IntegerField(
+        allow_null=True, help_text="The organization's per-query scan cap, or null for no cap."
+    )
+    exceeds_cap = serializers.BooleanField(help_text="Whether the upper bound is above the cap.")
+    complete = serializers.BooleanField(
+        help_text="False when a table has an unknown size, so the upper bound may be too low."
+    )
+    warnings = serializers.ListField(
+        child=serializers.ChoiceField(choices=QueryEstimateWarning.choices),
+        help_text="Things to check before running the query.",
+    )
+
+
 # An empty message means the error's own text is safe to show.
 _ERROR_STATUS: tuple[tuple[type[Exception], int, str], ...] = (
     (ExposedHogQLError, status.HTTP_400_BAD_REQUEST, ""),
@@ -594,6 +659,41 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Exception as error:
             return _error_response(error)
         return Response(StorageResponseSerializer(overview).data)
+
+    @validated_request(
+        request_serializer=QueryEstimateRequestSerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=QueryEstimateResponseSerializer, description="The most the query can scan, and its cost."
+            ),
+            status.HTTP_400_BAD_REQUEST: OpenApiResponse(
+                response=ConsoleErrorSerializer, description="The query is invalid or not allowed."
+            ),
+            **_ERRORS,
+        },
+        summary="Estimate a managed warehouse query",
+        description="Plan the query without running it and report the tables it reads, the most it can scan "
+        "and the compute cost of that, before the monthly free tier. Callers without access to every project "
+        "of the organization get the tables with unknown sizes.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:read"])
+    def estimate(self, request: Request, **kwargs) -> Response:
+        if (disabled := self._disabled_response()) is not None:
+            return disabled
+        data = request.validated_data
+        try:
+            result = console_facade.estimate_managed_trino_query(
+                self.team,
+                cast(User, request.user),
+                query=data["query"],
+                send_raw_query=data["send_raw_query"],
+                variables=data.get("variables"),
+                filters=data.get("filters"),
+                include_sizes=self._can_view_warehouse_wide_data(request),
+            )
+        except Exception as error:
+            return _error_response(error)
+        return Response(QueryEstimateResponseSerializer(result).data)
 
     @validated_request(
         responses={
