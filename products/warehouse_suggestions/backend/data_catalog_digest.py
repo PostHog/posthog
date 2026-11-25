@@ -3,14 +3,16 @@ from datetime import datetime
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.data_catalog.backend.facade.contracts import DigestRow
 
 from .facade.enums import WarehouseSuggestionStatus
 from .logic.access import CATALOG_KINDS, actionable_open_suggestions, is_on_models_surface
 from .logic.flags import is_warehouse_suggestions_enabled
 from .models import WarehouseSuggestion
-from .today_highlights import APPROVER_ACCESS_LEVEL, CATALOG_SURFACE, MODELS_SURFACE
+from .today_highlights import CATALOG_SURFACE, MODELS_SURFACE
 
 SAMPLE_SIZE = 5
 
@@ -31,11 +33,19 @@ def suggestion_rows(team: Team, user: User, new_since: datetime) -> list[DigestR
     models = [suggestion for suggestion in suggestions if is_on_models_surface(suggestion)]
     catalog = (
         [s for s in suggestions if not is_on_models_surface(s) and s.kind in CATALOG_KINDS]
-        if UserAccessControl(user, team).check_access_level_for_resource("data_catalog", APPROVER_ACCESS_LEVEL)
+        if _can_approve_catalog_items(team, user)
         else []
     )
     rows = [_row(CATALOG_GROUP, catalog, new_since), _row(MODELS_GROUP, models, new_since)]
     return [row for row in rows if row.count]
+
+
+def _can_approve_catalog_items(team: Team, user: User) -> bool:
+    return authorization.check(
+        resource=Resource(type=ResourceType.DATA_CATALOG, project_id=team.pk),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 def teams_with_open_suggestions(teams: list[Team]) -> set[int]:

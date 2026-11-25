@@ -229,10 +229,12 @@ def _project_digest(
 def _catalog_rows(team: Team, user: User, review: TeamPendingReview, new_since: datetime) -> list[DigestRow]:
     """The catalog queues as `user` sees them. A failure drops this project's catalog rows, so other readers still get mail."""
     try:
-        user_access_control = UserAccessControl(user=user, team=team)
-        if not user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+        # nosemgrep: authorization-through-sdk -- data_catalog cannot import the SDK (package cycle), and metrics_visible_to_user needs this object
+        if not (access := UserAccessControl(user=user, team=team)).check_access_level_for_resource(
+            "data_catalog", "viewer"
+        ):
             return []
-        return pending_rows(groups_visible_to(review, team, user, user_access_control, new_since))
+        return pending_rows(groups_visible_to(review, team, user, access, new_since))
     except Exception as e:
         logger.warning("data catalog digest catalog rows failed", team_id=team.id, user_id=str(user.uuid), error=str(e))
         capture_exception(e, {"team_id": team.id, "user_id": str(user.uuid)})
