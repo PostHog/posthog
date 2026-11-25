@@ -8,7 +8,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
     onEvent,
     template: {
         free: false,
-        status: 'deprecated',
+        status: 'hidden',
         type: 'destination',
         id: 'plugin-posthog-gcs-plugin',
         name: 'GCS Export',
