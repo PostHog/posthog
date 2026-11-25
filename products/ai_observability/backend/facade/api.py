@@ -79,10 +79,17 @@ from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
 from ..logic.traces.person import person_label
 from ..logic.traces.preview_queries import load_preview_sources
-from ..logic.traces.previews import page_turns
+from ..logic.traces.previews import page_turn_messages, page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
+from ..logic.traces.session_first_trace_queries import (
+    SESSION_PEOPLE_QUERY_NAME,
+    SESSION_PERSON_TRACES_QUERY_NAME,
+    SESSION_TITLE_READS,
+    SESSION_TITLE_TRACES_QUERY_NAME,
+    load_session_first_traces,
+)
 from ..logic.traces.session_queries import SessionFacts, load_session_facts, load_shared_session_facts
 from ..logic.traces.session_selection_queries import (
     SESSION_ID_MAX_LENGTH as SESSION_ID_MAX_LENGTH,
@@ -93,6 +100,7 @@ from ..logic.traces.session_selection_queries import (
 from ..logic.traces.session_windows import (
     ai_events_read_start,
     is_past_retention,
+    is_unknown_session,
     listed_sessions_fallback,
     session_window,
     shared_facts_traces_per_session,
@@ -141,7 +149,16 @@ from ..logic.traces.trace_metrics_queries import (
     metrics_insight_queries,
 )
 from ..logic.traces.trace_metrics_store import cached_trace_metrics
-from ..logic.traces.trace_paging import next_cursor, page_after, rows_to_read
+from ..logic.traces.trace_paging import (
+    SelectionPage,
+    around_takes,
+    next_cursor,
+    page_after,
+    page_around,
+    page_before,
+    previous_cursor,
+    rows_to_read,
+)
 from ..logic.traces.trace_queries import (
     PageTraceRows,
     PersonRow,
@@ -173,11 +190,12 @@ from ..logic.traces.trace_selection import (
     decode_cursor,
     resolve_window,
 )
-from ..logic.traces.trace_selection_queries import SelectionCounts, load_rows_after
+from ..logic.traces.trace_selection_queries import SelectionCounts, load_rows_after, load_rows_around, load_rows_before
 from ..logic.traces.tree import TreeNode
-from ..logic.traces.turn import Turn, TurnSides, missing_reason, preview, shown, unread_reason
+from ..logic.traces.turn import Turn, TurnSide, TurnSides, missing_reason, preview, shown, unread_reason
 from ..logic.traces.turn_queries import load_turn_sources
 from ..logic.traces.turn_sides import page_turn_sides
+from ..logic.traces.turn_timing import TurnTiming, turn_verdicts
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
@@ -206,6 +224,7 @@ TRACE_TURNS_MAX_IDS: Final = 20
 TRACE_TURNS_MAX_SPAN: Final = timedelta(days=30)
 SESSION_LIST_DEFAULT_LIMIT: Final = 50
 SESSION_LIST_MAX_LIMIT: Final = 100
+SESSION_TURNS_PAGE_SIZE: Final = 20
 
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
@@ -318,7 +337,7 @@ def get_session(
     timestamp_hint: datetime | None,
     include_support_traces: bool = False,
 ) -> contracts.SessionListItem | None:
-    """One session with its facts, over the window its turns are read in, so the two count the same
+    """One session with its facts, over the window `load_session_turns` reads its turns in, so the two count the same
     turns. A session the AI events retention does not hold whole is read from the shared events table, and is not
     found there without a `timestamp_hint`."""
     read_start = _ai_events_read_start(team)
@@ -344,6 +363,170 @@ def get_session(
 
 def _ai_events_read_start(team: Team) -> datetime:
     return ai_events_read_start(now(), ai_events_retention_days(team.pk))
+
+
+def load_session_turns(
+    team: Team,
+    user: User,
+    session_id: str,
+    *,
+    timestamp_hint: datetime | None,
+    include_support_traces: bool = False,
+    cursor: str | None,
+    before_cursor: str | None,
+    around: str | None,
+    limit: int,
+) -> Callable[[], contracts.SessionTurnPage] | None:
+    """Loads a page of the session's traces in session order, one per turn, each read the way `load_trace_list` reads
+    a trace, and returns the step that builds the page, or None for a session with no traces in its window. The window
+    is the team's AI events retention, reaching back to just before a `timestamp_hint` older than that.
+
+    `cursor` reads the page after it, `before_cursor` the page before it, and `around` the page that holds that trace
+    with about half the page before it, or the first page for a trace the session does not hold. Raises
+    `InvalidTraceCursorError` for a cursor this read did not hand out, before any read. A page takes two ClickHouse
+    reads: the page with the turn before it, then their rows. Each turn says whether its wait was slow and how long
+    the silence before it was. Each turn's input and output are the `load_trace_turns` sub-resource.
+
+    The step reads review states from Postgres but runs no ClickHouse query. So a caller that holds a query
+    concurrency slot for the load can release the slot before it runs the step.
+    """
+    selection = TraceSelection(
+        window=session_window(now(), _ai_events_read_start(team), timestamp_hint),
+        session_id=session_id,
+        order="oldest_first",
+        include_support_traces=include_support_traces,
+    )
+    page = _load_session_page(
+        team, user, selection, cursor=cursor, before_cursor=before_cursor, around=around, limit=limit
+    )
+    if is_unknown_session(page, read_from_start=cursor is None and before_cursor is None):
+        return None
+    previous = page.previous
+    loaded = _load_page_rows(team, user, [*([previous] if previous else []), *page.positions])
+
+    def build() -> contracts.SessionTurnPage:
+        previous_trace = (
+            _page_trace(selection.window, previous, loaded[previous.trace_id])
+            if previous and previous.trace_id in loaded
+            else None
+        )
+        return contracts.SessionTurnPage(
+            items=_session_turns(
+                _to_overview(previous_trace) if previous_trace else None,
+                _list_items(team, user, selection.window, page.positions, loaded),
+            ),
+            previous_cursor=previous_cursor(page),
+            next_cursor=next_cursor(page),
+        )
+
+    return build
+
+
+def _turn_timing(trace: contracts.TraceOverview) -> TurnTiming:
+    return TurnTiming(started_at=trace.created_at, wait_ms=trace.totals.latency_ms)
+
+
+def _session_turns(
+    previous: contracts.TraceOverview | None, items: Sequence[contracts.TraceListItem]
+) -> list[contracts.SessionTurn]:
+    verdicts = turn_verdicts(_turn_timing(previous) if previous else None, [_turn_timing(item) for item in items])
+    return [
+        contracts.SessionTurn(**dict(item), wait_slow=verdict.wait_slow, silence_before_ms=verdict.silence_before_ms)
+        for item, verdict in zip(items, verdicts)
+    ]
+
+
+def _load_session_page(
+    team: Team,
+    user: User,
+    selection: TraceSelection,
+    *,
+    cursor: str | None,
+    before_cursor: str | None,
+    around: str | None,
+    limit: int,
+) -> SelectionPage:
+    if around is not None:
+        return page_around(load_rows_around(team, user, selection, trace_id=around, takes=around_takes(limit)), limit)
+    if before_cursor is not None:
+        before = decode_cursor(before_cursor)
+        return page_before(
+            load_rows_before(team, user, selection, before=before, take=rows_to_read(limit)), limit, before
+        )
+    after = decode_cursor(cursor) if cursor is not None else None
+    return page_after(load_rows_after(team, user, selection, after=after, take=rows_to_read(limit)).rows, limit)
+
+
+def load_session_previews(
+    team: Team, user: User | None, session_ids: Sequence[str], *, include_support_traces: bool = False
+) -> Callable[[], contracts.SessionPreviewList]:
+    """Loads what each session's title is built from, the input preview of its first trace, and returns the step that
+    builds the titles, one per requested session in request order. Reads only `posthog.ai_events`, so a session it no
+    longer holds has no title.
+
+    The step reads the team's recipes from Postgres and normalizes each first trace's input only, but runs no ClickHouse
+    query, like the step of `load_trace_previews`.
+    """
+    requested = list(dict.fromkeys(session_ids))
+    first_traces = load_session_first_traces(
+        team,
+        user,
+        requested,
+        since=ai_events_read_start(now(), ai_events_retention_days(team.pk)),
+        include_support_traces=include_support_traces,
+        name=SESSION_TITLE_TRACES_QUERY_NAME,
+    )
+    sources = load_preview_sources(
+        team, user, [first.trace_id for first in first_traces.values()], reads=SESSION_TITLE_READS
+    )
+
+    def build() -> contracts.SessionPreviewList:
+        messages = page_turn_messages(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+        return contracts.SessionPreviewList(
+            items=[
+                _to_session_preview(
+                    session_id, messages.get(first_traces[session_id].trace_id) if session_id in first_traces else None
+                )
+                for session_id in requested
+            ]
+        )
+
+    return build
+
+
+def _to_session_preview(session_id: str, message: TurnSide) -> contracts.SessionPreview:
+    return contracts.SessionPreview(
+        session_id=session_id, input=preview(message), input_missing_reason=missing_reason(message)
+    )
+
+
+def load_session_people(
+    team: Team, user: User | None, session_ids: Sequence[str], *, include_support_traces: bool = False
+) -> contracts.SessionPeopleList:
+    """The person each requested session ran for, which is its first trace's person, in request order. Reads only
+    `posthog.ai_events`, so a session it no longer holds has no person."""
+    requested = list(dict.fromkeys(session_ids))
+    first_traces = load_session_first_traces(
+        team,
+        user,
+        requested,
+        since=ai_events_read_start(now(), ai_events_retention_days(team.pk)),
+        include_support_traces=include_support_traces,
+        name=SESSION_PERSON_TRACES_QUERY_NAME,
+    )
+    distinct_ids = {
+        session_id: first.distinct_id for session_id, first in first_traces.items() if first.distinct_id is not None
+    }
+    people = load_people(team, user, list(distinct_ids.values()), name=SESSION_PEOPLE_QUERY_NAME)
+    return contracts.SessionPeopleList(
+        items=[
+            contracts.SessionPersonItem(
+                session_id=session_id,
+                person=_to_person(people[distinct_ids[session_id]]) if session_id in distinct_ids else None,
+            )
+            for session_id in requested
+        ]
+    )
 
 
 def _to_session_item(facts: SessionFacts) -> contracts.SessionListItem:

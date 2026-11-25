@@ -452,6 +452,42 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * The person each session on a page ran for, which is its first trace's person, labeled by the project's
+ * display name properties. A read, sent as a POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPeopleCreateBodySessionIdsItemMax = 400
+
+export const aiObservabilitySessionsPeopleCreateBodySessionIdsMax = 100
+
+export const AiObservabilitySessionsPeopleCreateBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string().max(aiObservabilitySessionsPeopleCreateBodySessionIdsItemMax))
+        .min(1)
+        .max(aiObservabilitySessionsPeopleCreateBodySessionIdsMax)
+        .describe(
+            'The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.'
+        ),
+})
+
+/**
+ * The titles of a page of sessions: the user's message each session's first trace answered. A read, sent as a
+ * POST because a page of session ids may not fit in a query string.
+ */
+export const aiObservabilitySessionsPreviewsCreateBodySessionIdsItemMax = 400
+
+export const aiObservabilitySessionsPreviewsCreateBodySessionIdsMax = 100
+
+export const AiObservabilitySessionsPreviewsCreateBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string().max(aiObservabilitySessionsPreviewsCreateBodySessionIdsItemMax))
+        .min(1)
+        .max(aiObservabilitySessionsPreviewsCreateBodySessionIdsMax)
+        .describe(
+            'The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.'
+        ),
+})
+
+/**
  * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
  */
 export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({

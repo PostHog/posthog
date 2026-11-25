@@ -119997,6 +119997,55 @@ export namespace Schemas {
       nextCursor: string | null;
     }
 
+    export interface SessionPageRequest {
+      /**
+         * The IDs of the sessions on a page of the list, from 1 to 100. Items come back in this order, once per ID. A session ID is at most 400 characters, the longest the sessions list hands out.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 400
+         */
+      session_ids: string[];
+    }
+
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
+    }
+
+    export interface SessionPersonItem {
+      /** The session the person belongs to. */
+      sessionId: string;
+      /** The person the session's first trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace carries no distinct id. */
+      person: TracePerson | null;
+    }
+
+    export interface SessionPeopleList {
+      /** One item per requested session, in the order requested. */
+      items: SessionPersonItem[];
+    }
+
+    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
+
+
+    export const TracePreviewMissingReason = {
+      TooLarge: 'too_large',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface SessionPreview {
+      /** The session the title belongs to. */
+      sessionId: string;
+      /** The session's title: the user's message its first trace answered, cut at 200 characters. The first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing to show, when the AI events retention no longer holds the session, or when the message could not be read and `inputMissingReason` says why. */
+      input: string | null;
+      /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+      inputMissingReason: TracePreviewMissingReason | null;
+    }
+
+    export interface SessionPreviewList {
+      /** One title per requested session, in the order requested. A session that is not found has a null title. */
+      items: SessionPreview[];
+    }
+
     export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface SessionRecording {
@@ -120150,6 +120199,79 @@ export namespace Schemas {
     export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
+
+    export interface TraceHumanReviewScore {
+      /** The scorer's name. */
+      name: string;
+      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+      value: string;
+      /** The scorer's name and the score together, such as `Tone: 4.5`. */
+      label: string;
+    }
+
+    export interface TraceHumanReview {
+      /** The display name of whoever last saved the review, or null when that user was removed. */
+      reviewedBy: string | null;
+      /** When the review was last saved. */
+      reviewedAt: string;
+      /** The reviewer's reasoning, if any. */
+      comment: string | null;
+      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+      scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
+    }
+
+    export interface SessionTurn {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      /** Whether the token counts, error count and tools were computed from only some of the trace's events, because the trace has more events than were read or may have started before the time range read. */
+      totalsPartial: boolean;
+      /** Whether the cost and latency were computed from only some of the trace's events, because the trace may have started before the time range read. Otherwise they cover the whole trace, even when the token counts are partial. */
+      costAndLatencyPartial: boolean;
+      /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+      defaultNodeId: string | null;
+      /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+      firstError: string | null;
+      /** The tools the trace's steps called, each once, in the order first called. */
+      toolsCalled: string[];
+      /** Whether a support agent ran the trace while impersonating the user. */
+      isSupportTrace: boolean;
+      /** The trace's review and review queue, or null when it has neither that the user may see. */
+      review: TraceReviewStatus | null;
+      /** Whether the user waited 10 seconds or more for the turn's answer. */
+      waitSlow: boolean;
+      /** Milliseconds from the previous turn's answer to this turn's start, when they are a minute or more. Null for a shorter gap and for the session's first turn. */
+      silenceBeforeMs: number | null;
+    }
+
+    export interface SessionTurnPage {
+      /** A page of the session's traces, one per turn, oldest first, each read as the traces list reads it. A turn's input and output are read by trace id from the traces' turns. */
+      items: SessionTurn[];
+      /** The cursor of the page before this one, or null on the first. */
+      previousCursor: string | null;
+      /** The cursor of the next page, or null on the last one. A page read before a cursor always has one. */
+      nextCursor: string | null;
+    }
 
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
@@ -128298,11 +128420,6 @@ export namespace Schemas {
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
-    export interface TracePerson {
-      distinctId: string;
-      label: string;
-    }
-
     export type TraceNodeKindEnum = typeof TraceNodeKindEnum[keyof typeof TraceNodeKindEnum];
 
 
@@ -128663,46 +128780,10 @@ export namespace Schemas {
       steps: TraceStepFeedback[];
     }
 
-    export interface TraceHumanReviewScore {
-      /** The scorer's name. */
-      name: string;
-      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
-      value: string;
-      /** The scorer's name and the score together, such as `Tone: 4.5`. */
-      label: string;
-    }
-
-    export interface TraceHumanReview {
-      /** The display name of whoever last saved the review, or null when that user was removed. */
-      reviewedBy: string | null;
-      /** When the review was last saved. */
-      reviewedAt: string;
-      /** The reviewer's reasoning, if any. */
-      comment: string | null;
-      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
-      scores: TraceHumanReviewScore[];
-    }
-
     export interface TraceJsonSide {
       kind: 'json';
       /** The side's value for a side that is not a conversation, with JSON text in it parsed when no number loses precision in a browser. The value as captured when the side could not be normalized. */
       value: unknown;
-    }
-
-    export interface TraceReviewQueueAssignment {
-      /** The review queue's id. */
-      id: string;
-      /** The review queue's name. */
-      name: string;
-      /** The queue item that holds the trace, for moving or removing it. */
-      itemId: string;
-    }
-
-    export interface TraceReviewStatus {
-      /** The trace's human review, or null when it has none or the user may not see it. */
-      review: TraceHumanReview | null;
-      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-      queue: TraceReviewQueueAssignment | null;
     }
 
     export interface TraceListItem {
@@ -129044,14 +129125,6 @@ export namespace Schemas {
       /** One item per requested trace, in the order requested. */
       items: TracePersonItem[];
     }
-
-    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
-
-
-    export const TracePreviewMissingReason = {
-      TooLarge: 'too_large',
-      TimedOut: 'timed_out',
-    } as const;
 
     export interface TracePreview {
       /** The trace the preview belongs to. */
@@ -139539,6 +139612,35 @@ export namespace Schemas {
      * @maxLength 1000
      */
     search?: string;
+    };
+
+    export type AiObservabilitySessionsTurnsRetrieveParams = {
+    /**
+     * A trace id, to read the page that holds that turn with the turns before it. A trace outside the session reads the first page. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    around?: string;
+    /**
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor and around.
+     * @minLength 1
+     */
+    before_cursor?: string;
+    /**
+     * The nextCursor of a page, to read the page after it. Leave out cursor, before_cursor and around for the session's first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * How many turns a page holds, from 1 to 20. Defaults to 20.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
     };
 
     export type AiObservabilitySessionsRetrieveParams = {
