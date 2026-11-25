@@ -65,35 +65,15 @@ export type RoleId = ReplicaOf<Role>
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_OR_PLACE_SETTING =
-    /SECRET|PASSWORD|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_DIR$|_LOCATION$/
-const SECRET_OR_PLACE_PARAM = /^(password|sslpassword|sslrootcert|sslcert|sslkey)$/i
+    /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_URLS?$|_DSN$|_BROKERS?$|_DIR$|_LOCATION$/
+const URL_OR_CREDENTIALS_SHAPED = /\/\/|@/
 
 const presenceOf = (list: string): string => (list.split(',').some((part) => part.trim()) ? 'set' : '')
 
-function withoutHostOrCredentials(value: string): string {
-    const authorities = value.split('//').length - 1
-    if (authorities === 0) {
-        return value
-    }
-    let url: URL
-    try {
-        url = new URL(value)
-    } catch {
-        return 'unparsed url'
-    }
-    if (authorities !== 1) {
-        return 'unparsed url'
-    }
-    for (const param of [...url.searchParams.keys()].filter((key) => SECRET_OR_PLACE_PARAM.test(key))) {
-        url.searchParams.set(param, url.searchParams.get(param) ? 'set' : '')
-    }
-    return `${url.protocol}//${url.username}@${url.pathname}${url.search}`
-}
-
 const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
-    value === undefined || SECRET_OR_PLACE_SETTING.test(key)
-        ? value && presenceOf(value)
-        : withoutHostOrCredentials(value)
+    value !== undefined && (SECRET_OR_PLACE_SETTING.test(key) || URL_OR_CREDENTIALS_SHAPED.test(value))
+        ? presenceOf(value)
+        : value
 
 export function configHashOf(specs: RoleSpec[]): string {
     const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])
