@@ -286,6 +286,35 @@ describe('PropertyFilters recent selections', () => {
         })
     })
 
+    it('a person property with no definition can be picked and given a value', async () => {
+        useSetupMocks({ '/api/environments/:team/persons/values': [] })
+        const { onChange } = renderFilters({ allowNonCapturedPersonProperties: true, sendAllKeyUpdates: true })
+
+        await openNewFilter()
+        await searchFor('plan_from_flags')
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-tab-person_properties').textContent).toMatch(/: 0$/)
+        })
+        await switchToTab('taxonomic-tab-person_properties')
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-tab-person_properties')).toHaveClass('LemonTag--primary')
+        })
+        await selectItem('prop-filter-person-property-option-custom', onChange)
+        const valueInput = await screen.findByPlaceholderText('Enter value...')
+        await typeWithDebounce(valueInput, 'enterprise{Enter}')
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenLastCalledWith([
+                expect.objectContaining({
+                    key: 'plan_from_flags',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                    value: ['enterprise'],
+                }),
+            ])
+        })
+    })
+
     it('recents show at top of suggested filters before search', async () => {
         useSetupMocks({
             '/api/environments/:team/events/values': [

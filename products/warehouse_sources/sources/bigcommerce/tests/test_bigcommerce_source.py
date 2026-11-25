@@ -5,7 +5,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.bigcommerce._config import BigCommerceSourceConfig
 from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINTS,
-    ORDER_FAN_OUT_ENDPOINTS,
+    FAN_OUT_PARENTS,
     PARTITION_FIELDS,
     V2_ENDPOINTS,
 )
@@ -21,8 +21,9 @@ class TestBigCommerceSource:
 
     @staticmethod
     def _empty_page(endpoint: str) -> ScriptedResponse:
-        # Per-order endpoints fan out over the V2 orders listing.
-        if endpoint in V2_ENDPOINTS | ORDER_FAN_OUT_ENDPOINTS:
+        # Per-parent endpoints first read their parent listing.
+        listing = FAN_OUT_PARENTS[endpoint][0] if endpoint in FAN_OUT_PARENTS else endpoint
+        if listing in V2_ENDPOINTS:
             return ScriptedResponse(json=[])
         return ScriptedResponse(json={"data": [], "meta": {"pagination": {"current_page": 1, "total_pages": 1}}})
 

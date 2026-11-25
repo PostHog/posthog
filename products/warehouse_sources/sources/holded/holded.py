@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable, Iterable
 from typing import Any, Optional
 
 from requests import Response
@@ -6,12 +7,15 @@ from requests import Response
 from products.warehouse_sources.sources.holded.settings import HOLDED_API_HOST, HOLDED_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    Endpoint,
     EndpointResource,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -20,7 +24,28 @@ from products.warehouse_sources.sources.sdk import (
 
 @dataclasses.dataclass(frozen=True)
 class HoldedResumeConfig:
-    cursor: str
+    # Flat listings resume from the next page cursor.
+    cursor: Optional[str] = None
+    # A fan-out resumes from the state `build_dependent_resource` checkpoints: which parents
+    # finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
+
+
+# The fan-out helper needs an int page size, which `HoldedEndpointConfig` does not guarantee.
+@dataclasses.dataclass(frozen=True)
+class _FanoutEndpoint:
+    name: str
+    path: str
+    page_size: int
+    incremental_fields: list[Any] = dataclasses.field(default_factory=list)
+    default_incremental_field: Optional[str] = None
+
+
+def _fanout_endpoint(name: str) -> _FanoutEndpoint:
+    config = HOLDED_ENDPOINTS[name]
+    if config.page_size is None:
+        raise ValueError(f"Holded fan-out endpoint {name} must be cursor paginated")
+    return _FanoutEndpoint(name=name, path=config.path, page_size=config.page_size)
 
 
 class HoldedCursorPaginator(JSONResponseCursorPaginator):
@@ -46,6 +71,16 @@ def base_url(api_version: str) -> str:
     return f"{HOLDED_API_HOST}/api/{api_version}"
 
 
+def _list_endpoint_extra(paginator: BasePaginator | None = None) -> Endpoint:
+    return {
+        "paginator": paginator or HoldedCursorPaginator(),
+        # Every list response wraps its rows in `items`. A 200 without it means the shape
+        # changed, so fail the sync instead of loading an empty table.
+        "data_selector": "items",
+        "data_selector_required": True,
+    }
+
+
 def get_resource(endpoint: str) -> EndpointResource:
     config = HOLDED_ENDPOINTS[endpoint]
     params: dict[str, Any] = dict(config.params)
@@ -61,15 +96,7 @@ def get_resource(endpoint: str) -> EndpointResource:
         "table_name": endpoint,
         "write_disposition": "replace",
         "table_format": "delta",
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            "paginator": paginator,
-            # Every list response wraps its rows in `items`. A 200 without it means the shape
-            # changed, so fail the sync instead of loading an empty table.
-            "data_selector": "items",
-            "data_selector_required": True,
-        },
+        "endpoint": {"path": config.path, "params": params, **_list_endpoint_extra(paginator)},
     }
 
 
@@ -85,20 +112,45 @@ def holded_source(
         raise ValueError(f"Unknown Holded endpoint: {endpoint}")
     config = HOLDED_ENDPOINTS[endpoint]
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(api_version),
-            "auth": {"type": "bearer", "token": api_key},
-            "headers": {"Accept": "application/json"},
-        },
-        "resources": [get_resource(endpoint)],
+    client_config: ClientConfig = {
+        "base_url": base_url(api_version),
+        "auth": {"type": "bearer", "token": api_key},
+        "headers": {"Accept": "application/json"},
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume_config: Optional[HoldedResumeConfig] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"cursor": resume_config.cursor}
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(HoldedResumeConfig(fanout_state=state))
+
+        child = build_dependent_resource(
+            endpoint_configs={
+                config.fanout.parent_name: _fanout_endpoint(config.fanout.parent_name),
+                endpoint: _fanout_endpoint(endpoint),
+            },
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=_list_endpoint_extra(),
+            child_endpoint_extra=_list_endpoint_extra(),
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        )
+        return _source_response(endpoint, lambda: child)
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resources": [get_resource(endpoint)],
+    }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("cursor"):
@@ -110,17 +162,23 @@ def holded_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        initial_paginator_state=({"cursor": resume_config.cursor} if resume_config and resume_config.cursor else None),
     )
+    return _source_response(endpoint, lambda: resource, resource.column_hints)
 
+
+def _source_response(
+    endpoint: str, items: Callable[[], Iterable[Any]], column_hints: Optional[dict[str, Any]] = None
+) -> SourceResponse:
+    config = HOLDED_ENDPOINTS[endpoint]
     return SourceResponse(
-        name=resource.name,
-        items=lambda: resource,
+        name=endpoint,
+        items=items,
         primary_keys=config.primary_keys,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )
 
 

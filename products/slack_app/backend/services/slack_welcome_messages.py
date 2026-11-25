@@ -125,7 +125,7 @@ def build_channel_welcome(integration: WorkspaceIntegration) -> tuple[str, list[
     blocks: list[dict[str, Any]] = [
         section_block(
             ":wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke "
-            "around your codebase, or open a pull request to fix something."
+            "around your codebase, open a pull request to fix something, or tell you a joke."
         ),
         # One analytics question and one code change, so nobody reads the app as only the
         # half they happened to see first.
@@ -180,6 +180,7 @@ def onboarding_intro_text(slack_user_id: str) -> str:
         f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack. I can:\n"
         "• Answer questions about your product data\n"
         "• Dig into bugs and errors\n"
+        "• Tell jokes\n"
         "• Open pull requests with fixes\n"
         "Let's get you set up, it takes about 2 minutes."
     )
