@@ -23,6 +23,7 @@ import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
+import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsParentBreadcrumb'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -623,24 +624,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 // The Analytics list that opened the insight names the way back, like the dashboard scene allows.
                 const backLink = analyticsBackLink(searchParams, featureFlags)
+                const dashboardsParent = analyticsParentBreadcrumb(searchParams, featureFlags, {
+                    key: Scene.Dashboards,
+                    name: 'Dashboards',
+                    path: urls.dashboards(),
+                    iconType: 'dashboard',
+                })
+                const productAnalyticsParent = analyticsParentBreadcrumb(searchParams, featureFlags, {
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
+                    path: urls.savedInsights(),
+                    iconType: 'product_analytics',
+                })
                 return [
                     ...(backLink && dashboardId === null
-                        ? [
-                              {
-                                  key: backLink.url,
-                                  name: backLink.name,
-                                  path: backLink.url,
-                                  iconType: 'product_analytics' as FileSystemIconType,
-                              },
-                          ]
+                        ? [productAnalyticsParent]
                         : dashboardId !== null
                           ? [
-                                {
-                                    key: Scene.Dashboards,
-                                    name: 'Dashboards',
-                                    path: urls.dashboards(),
-                                    iconType: 'dashboard' as FileSystemIconType,
-                                },
+                                dashboardsParent,
                                 {
                                     key: Scene.Dashboard,
                                     name: dashboardLabel,
@@ -671,12 +672,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                               path: urls.endpoints(),
                                               iconType: 'endpoints' as FileSystemIconType,
                                           }
-                                        : {
-                                              key: Scene.SavedInsights,
-                                              name: 'Product analytics',
-                                              path: urls.savedInsights(),
-                                              iconType: 'product_analytics' as FileSystemIconType,
-                                          },
+                                        : productAnalyticsParent,
                             ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
