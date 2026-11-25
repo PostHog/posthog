@@ -61,7 +61,7 @@ export function holdOf(fault: HeldFault): FaultHold {
                     await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
                     answered = await answeredInWindow()
                 }
-                return answered
+                return answered || (await answeredInWindow())
             } finally {
                 holdEnds?.removeEventListener('abort', holdEnded)
             }
@@ -73,7 +73,7 @@ export function holdOf(fault: HeldFault): FaultHold {
                 await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
                 accepted = await applied()
             }
-            return accepted
+            return accepted || (await applied())
         },
         release: () => fault.remove(),
     }

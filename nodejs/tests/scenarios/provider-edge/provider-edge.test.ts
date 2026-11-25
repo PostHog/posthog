@@ -521,6 +521,30 @@ describe('provider edge', () => {
         }
     )
 
+    it.each<[string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>]>([
+        ['observed', (hold, holdEnds) => hold.observed(holdEnds)],
+        ['accepted', (hold, holdEnds) => hold.accepted!(holdEnds)],
+    ])(
+        'keeps a fault %s that applied while a read was on its way, when the hold ended before that read came back',
+        async (_, waitOn) => {
+            let answerFirstRead: (() => void) | undefined
+            const appliedAt = Date.now()
+            const held = holdOf({
+                firstAppliedAt: () =>
+                    answerFirstRead === undefined
+                        ? new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        : Promise.resolve(appliedAt),
+                remove: () => Promise.resolve(),
+            })
+            const holdEnds = new AbortController()
+            const waiting = waitOn(held, holdEnds.signal)
+            holdEnds.abort()
+            answerFirstRead!()
+
+            expect(await waiting).toBe(true)
+        }
+    )
+
     it('does not observe a fault for a drive that ended before its observation began', async () => {
         const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
         const answer = await send(ALICE)
