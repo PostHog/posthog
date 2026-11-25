@@ -27,6 +27,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
@@ -9145,6 +9146,56 @@ class TestFeatureFlagPropertyAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == 400:
             self.assertEqual(response.json()["code"], "restricted_property")
+
+    def test_member_cannot_switch_a_condition_from_inherited_to_person_aggregation(self):
+        restrict_properties(self, [("industry", PropertyDefinition.Type.GROUP, 0)])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="restricted-flag",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {"properties": [{"key": "industry", "type": "group", "value": "retail", "group_type_index": 0}]},
+                    {"properties": [], "rollout_percentage": 50},
+                ],
+            },
+        )
+        groups = [flag.filters["groups"][0], {**flag.filters["groups"][1], "aggregation_group_type_index": None}]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {"groups": groups}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["code"], "restricted_property")
+
+    def test_bucketing_check_reads_the_row_locked_for_the_save(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [], "rollout_percentage": 50}])
+        request = ServiceRequest(self.user, method="PATCH")
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"key": "renamed-flag"},
+            partial=True,
+            context={"request": request, "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        FeatureFlag.objects.filter(pk=flag.pk).update(
+            filters={
+                "groups": [
+                    {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                    {"properties": [], "rollout_percentage": 50},
+                ]
+            }
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            serializer.save()
+
+        self.assertEqual(caught.exception.get_codes(), ["restricted_property"])
+        flag.refresh_from_db()
+        self.assertEqual(flag.key, "restricted-flag")
 
     def test_system_write_changes_targeting_of_a_flag_using_a_restricted_property(self):
         restrict_properties(self, [SALARY])

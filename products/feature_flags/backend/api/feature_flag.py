@@ -946,9 +946,34 @@ def _targeting_part(value: Any) -> Any:
     return value
 
 
+def _with_condition_aggregation(filters: Mapping[str, Any]) -> Mapping[str, Any]:
+    """``filters`` with each condition's effective aggregation written out.
+
+    An absent aggregation inherits the flag's group type and an explicit null means persons, so
+    the two must not compare equal once ``_targeting_part`` drops nulls.
+    """
+    flag_aggregation = filters.get("aggregation_group_type_index")
+    resolved = dict(filters)
+    for key in _TARGETING_CONDITION_KEYS:
+        conditions = filters.get(key)
+        if isinstance(conditions, list):
+            resolved[key] = [
+                {
+                    **condition,
+                    "aggregation_group_type_index": flag_filters.condition_aggregation(condition, flag_aggregation),
+                }
+                if isinstance(condition, Mapping)
+                else condition
+                for condition in conditions
+            ]
+    return resolved
+
+
 def _same_targeting(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     # Python equality treats true as 1. canonical_value keeps them apart, as the flags service does.
-    return canonical_value(_targeting_part(left)) == canonical_value(_targeting_part(right))
+    return canonical_value(_targeting_part(_with_condition_aggregation(left))) == canonical_value(
+        _targeting_part(_with_condition_aggregation(right))
+    )
 
 
 def check_flag_limits_for_team(
@@ -1960,7 +1985,8 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_reactivated_references(attrs)
-        self._reject_unreadable_bucketing_change(attrs)
+        # update() runs this check again on the row it locks, which another writer may have changed since.
+        self._reject_unreadable_bucketing_change(attrs, cast(FeatureFlag | None, self.instance))
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -2803,21 +2829,21 @@ class FeatureFlagSerializer(
             code="restricted_property",
         )
 
-    def _reject_unreadable_bucketing_change(self, attrs: Mapping[str, Any]) -> None:
+    def _reject_unreadable_bucketing_change(self, data: Mapping[str, Any], instance: FeatureFlag | None) -> None:
         """Refuse a change to how the flag buckets users while its conditions use a property the member cannot read.
 
         The flag key and the bucketing settings decide which users a rollout percentage includes, so a
         member could change them to make the flag's answer for one person depend on that property.
         """
-        if self.instance is None or not self._property_restrictions_apply():
+        if instance is None or not self._property_restrictions_apply():
             return
-        assert isinstance(self.instance, FeatureFlag)
         if not any(
-            field in attrs and normalize(attrs[field]) != normalize(getattr(self.instance, field))
+            field in data and normalize(data[field]) != normalize(getattr(instance, field))
             for field, normalize in _BUCKETING_FIELDS.items()
         ):
             return
-        keys = self._unreadable_keys(attrs.get("get_filters", self.instance.filters) or {})
+        filters = data.get("get_filters", data.get("filters", instance.filters))
+        keys = self._unreadable_keys(filters or {})
         if keys:
             raise _restricted_flag_change_error(keys, "its key or bucketing settings")
 
@@ -3202,6 +3228,7 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
+                self._reject_unreadable_bucketing_change(validated_data, locked_instance)
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
                 if not self._v2_write:
