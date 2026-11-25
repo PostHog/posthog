@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BreakdownFilter, EventsNode, HogQLQuery, IntervalType, TrendsFilter, TrendsQuery
+from posthog.schema import BreakdownFilter, EventsNode, EventsQuery, HogQLQuery, IntervalType, TrendsFilter, TrendsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
@@ -108,6 +108,21 @@ class TestFramesFromRealRunners(ClickhouseTestMixin, APIBaseTest):
         assert frames is not None
         assert [field["type"] for field in frames[0]["fields"]] == ["string", "number"]
         assert frames[0]["meta"]["end"] is None
+
+    @time_machine.travel(NOW, tick=False)
+    def test_an_events_table_is_not_pivoted_into_series(self) -> None:
+        self._seed()
+        query = EventsQuery(
+            select=["toStartOfDay(timestamp)", "properties.$browser", "count()"],
+            orderBy=["toStartOfDay(timestamp)", "properties.$browser"],
+            event="$pageview",
+            after="-7d",
+        )
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query.model_dump(), self._run(query))
+
+        day_17, day_18 = _ms("2026-09-17T00:00:00+00:00"), _ms("2026-09-18T00:00:00+00:00")
+        assert _shape(frames) == [(None, {}, [[day_17, day_18, day_18], ["Chrome", "Chrome", "Safari"], [2, 1, 3]])]
 
 
 class TestFrameConverters(SimpleTestCase):
@@ -545,8 +560,50 @@ class TestFrameConverters(SimpleTestCase):
 
         assert [frame["fields"][1]["values"] for frame in (frames or [])] == [[7.5], [2.0]]
 
-    def test_kinds_without_frames_return_none(self) -> None:
-        assert frames_for(QueryBatchLanguage.QUERY, {"kind": "PathsQuery"}, {"results": []}) is None
+
+    @parameterized.expand(
+        [
+            ("records_become_a_table", {"results": [{"source": "1_/a", "value": 3}]}, [(None, {}, [["1_/a"], [3]])]),
+            ("no_rows_is_no_frames", {"results": []}, []),
+            ("rows_that_are_not_records", {"results": [1, 2]}, None),
+            ("no_rows_at_all", {"results": {"nodes": []}}, None),
+        ]
+    )
+    def test_a_kind_without_its_own_converter_is_a_table_or_none(
+        self, _name: str, result: dict[str, Any], expected: list | None
+    ) -> None:
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "PathsQuery"}, result)
+
+        assert (frames if expected is None else _shape(frames)) == expected
+
+    @parameterized.expand(
+        [
+            *((name, None) for name in _RUNNER_RESPONSES),
+            *(
+                (f"trends_{display}", display)
+                for display in ("ActionsTable", "ActionsBarValue", "WorldMap", "BoldNumber")
+            ),
+        ]
+    )
+    def test_every_recorded_kind_has_frames(self, name: str, display: str | None) -> None:
+        case = _RUNNER_RESPONSES[name] if display is None else _RUNNER_RESPONSES["trends_pie_by_breakdown"]
+        query = case["query"] if display is None else {**case["query"], "trendsFilter": {"display": display}}
+
+        for wrapped in (query, {"kind": "InsightVizNode", "source": query}):
+            assert frames_for(QueryBatchLanguage.QUERY, wrapped, case["response"]) is not None
+
+    def test_web_table_splits_compared_pairs_into_two_number_columns(self) -> None:
+        case = _RUNNER_RESPONSES["web_stats_by_page"]
+
+        [frame] = frames_for(QueryBatchLanguage.QUERY, case["query"], case["response"]) or []
+
+        assert [(field["name"], field["type"], field["values"]) for field in frame["fields"]][:5] == [
+            ("breakdown_value", "string", ["/x"]),
+            ("visitors", "number", [1]),
+            ("visitors (previous)", "number", [None]),
+            ("views", "number", [4]),
+            ("views (previous)", "number", [None]),
+        ]
 
     def test_hash_changes_with_content_and_end_is_the_last_time(self) -> None:
         def frame(values: list[Any]) -> Frame:
