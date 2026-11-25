@@ -1472,6 +1472,10 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  # The workflow env points this at localhost for the Django shards. Product tests use the
+                  # settings default: under DEBUG a presigned URL on localhost serves the object bytes instead
+                  # of a redirect, and the replay_vision thumbnail tests expect the redirect.
+                  OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: the runner starts pytest in products/<name>/, so pytest-split
@@ -1601,6 +1605,7 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
                   # --snapshot-warn-unused keeps the snapshots of the tests that --lf deselects from failing the rerun as unused.
                   SNAPSHOT_ARGS: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '--snapshot-warn-unused' }}
               shell: bash
