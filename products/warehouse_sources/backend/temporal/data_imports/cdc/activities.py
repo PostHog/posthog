@@ -373,6 +373,13 @@ class CDCExtractActivity:
             ).exclude(deleted=True)
         )
 
+    def _has_cdc_schemas(self) -> bool:
+        return (
+            ExternalDataSchema.objects.filter(source=self.source, sync_type=ExternalDataSchema.SyncType.CDC)
+            .exclude(deleted=True)
+            .exists()
+        )
+
     # ------------------------------------------------------------------
     # sync_type_config persistence (locked merge, see update_sync_type_config_keys)
     # ------------------------------------------------------------------
@@ -614,8 +621,12 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_active_cdc_schemas_syncing_schedule")
-            self._sync_own_schedule()
+            # Not every path that resumes a CDC table recreates the schedule, so a paused table keeps it.
+            if self._has_cdc_schemas():
+                self.log.info("no_syncing_cdc_schemas_keeping_schedule")
+            else:
+                self.log.info("no_cdc_schemas_syncing_schedule")
+                self._sync_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
@@ -1866,12 +1877,14 @@ def cleanup_orphan_slots_activity() -> None:
                 and cdc_config.auto_drop_slot
                 and retention_cap_mb is None
             )
-            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup. A slot
-            # this sweep drops gets no schedule, because its first run would race the drop. Repair recreates it.
+            # A slot this sweep drops gets no schedule, because its first run would race the drop. Repair
+            # recreates it.
             schedule_restored = False
-            if not will_auto_drop and lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+            if not will_auto_drop:
                 try:
-                    schedule_restored = restore_missing_extraction_schedule(source)
+                    schedule_restored = restore_missing_extraction_schedule(
+                        source, lagging=lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb)
+                    )
                     if schedule_restored:
                         source_log.warning("cdc_extraction_schedule_restored", lag_mb=round(lag_mb, 1))
                 except Exception:
