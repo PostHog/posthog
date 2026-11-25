@@ -235,7 +235,6 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (SeriesValuesFeature.MULTIPLE_SERIES, {"series": [EventsNode(event="a"), EventsNode(event="b")]}, None),
             (SeriesValuesFeature.ACTION_SERIES, {"series": [ActionsNode(id=1)]}, None),
             (
                 SeriesValuesFeature.DATA_WAREHOUSE_SERIES,
@@ -316,6 +315,52 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert precomputed == SeriesValuesUnavailable(reason=reason)
+        assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
+
+    @parameterized.expand([("second_series", 1), ("third_series", 2)])
+    @time_machine.travel(_NOW, tick=False)
+    def test_a_series_of_a_multi_series_query_matches_live(self, _name: str, series_index: int) -> None:
+        self._seed()
+        query = _query(
+            series=[
+                EventsNode(event="signed_up", math="dau"),
+                EventsNode(event="signed_up", math="total", properties=[_PRO]),
+                EventsNode(event="other", math="total"),
+            ]
+        )
+        [live_series] = [
+            row
+            for row in TrendsQueryRunner(team=self.team, query=query).calculate().results
+            if row["order"] == series_index
+        ]
+
+        precomputed = precomputed_series_values(
+            TrendsQueryRunner(team=self.team, query=query), series_index=series_index, run_inserts=True
+        )
+
+        assert isinstance(precomputed, PrecomputedSeriesValues)
+        live_by_day = {
+            datetime.fromisoformat(day): value for day, value in zip(live_series["days"], live_series["data"])
+        }
+        assert precomputed.values == {day: live_by_day[day] for day in precomputed.values}
+        assert sum(precomputed.values.values()) > 0
+        assert SeriesValuesFeature.MULTIPLE_SERIES in precomputed.features
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_refuses_a_series_the_query_does_not_have(self) -> None:
+        precomputed = precomputed_series_values(
+            TrendsQueryRunner(team=self.team, query=_query()), series_index=1, run_inserts=True
+        )
+
+        assert precomputed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.SERIES_NOT_FOUND)
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_insight_path_leaves_multi_series_queries_to_the_live_runner(self) -> None:
+        query = _query(series=[EventsNode(event="signed_up"), EventsNode(event="other")])
+
+        result = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert result is None
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
 
     @parameterized.expand(

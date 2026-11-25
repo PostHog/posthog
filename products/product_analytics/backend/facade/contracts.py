@@ -104,6 +104,7 @@ class SeriesValuesBlocker(StrEnum):
     PARTIAL_BUCKET = "partial_bucket"
     DATE_RANGE_TOO_LONG = "date_range_too_long"
     NOT_READY = "not_ready"
+    SERIES_NOT_FOUND = "series_not_found"
 
 
 @dataclass(frozen=True)
