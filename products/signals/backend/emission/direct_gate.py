@@ -117,9 +117,7 @@ async def steering_filters_signal(
     try:
         # Closed on the way out: unlike the batch pipeline, which builds one client for a whole run,
         # this path builds one per signal, and each carries its own httpx connection pool.
-        async with build_async_anthropic_client(
-            product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id
-        ) as client:
+        async with build_async_anthropic_client(ai_product=EMISSION_AI_PRODUCT, team_id=team.id) as client:
             actionable = await asyncio.wait_for(
                 check_actionability(
                     client,

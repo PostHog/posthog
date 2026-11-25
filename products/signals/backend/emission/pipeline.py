@@ -305,7 +305,7 @@ async def summarize_long_descriptions(
     needs_summary = [i for i, output in enumerate(outputs) if len(output.description) > threshold]
     if not needs_summary:
         return outputs
-    client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
+    client = build_async_anthropic_client(ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
     gateway_mode = resolve_ai_gateway_config() is not None
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
@@ -484,7 +484,7 @@ async def filter_actionable(
     )
     system_one_prompt = current_prompt(fallback)
     resolved_prompt = apply_steering(system_one_prompt.policy, steering or SourceSteering())
-    client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
+    client = build_async_anthropic_client(ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
     gateway_mode = resolve_ai_gateway_config() is not None
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()

@@ -125,11 +125,7 @@ EGRESS_PROBE_MAX_TIME_SECONDS = 3
 CURL_EXIT_OPERATION_TIMEOUT = 28
 CURL_EXIT_PATTERN = re.compile(r"curl_exit=(\d+)$")
 
-SESSION_INIT_PROBE_HOSTS = (
-    "gateway.us.posthog.com",
-    "gateway.eu.posthog.com",
-    "api.anthropic.com",
-)
+SESSION_INIT_PROBE_HOSTS = ("api.anthropic.com",)
 
 
 def _session_init_probe_hosts() -> list[str]:
