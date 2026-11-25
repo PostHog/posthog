@@ -22,6 +22,7 @@ import { readAppVersion } from './appInfo'
 import { DefaultPageGroup } from './DefaultPageGroup'
 import { currentDefaultPageHref } from './defaultPageStore'
 import { EnvironmentGroup } from './EnvironmentGroup'
+import { InternalUsersToggle } from './InternalUsersToggle'
 import { LegalGroup } from './LegalGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { SettingsGroup } from './SettingsGroup'
@@ -96,6 +97,12 @@ export function SettingsScreen(): ReactElement {
                             </Pressable44>
                         </SettingsGroup>
                     ) : null}
+                    <SettingsGroup title="Analytics">
+                        <InternalUsersToggle
+                            description="Uses each project's internal user filters in Web analytics, Live, and Sessions."
+                            testID="settings-exclude-internal-users"
+                        />
+                    </SettingsGroup>
                     <AppearanceGroup />
                     {__DEV__ ? (
                         <SettingsGroup

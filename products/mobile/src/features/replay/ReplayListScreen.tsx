@@ -126,8 +126,10 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                 <View style={styles.content}>{header}</View>
                 <StateView
                     icon={<RecordingIcon size={iconSizes.empty} color={colors.tertiary} />}
-                    title="Sessions aren't in the demo"
-                    message="Sign in to see your project's recordings."
+                    title="Sample sessions"
+                    message="Explore recordings from the demo workspace."
+                    actionLabel="Watch sample sessions"
+                    onAction={() => router.push('/replay/feed')}
                     testID="replay-demo"
                 />
             </View>

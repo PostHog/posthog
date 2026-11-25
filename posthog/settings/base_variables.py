@@ -69,6 +69,7 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # PostHog's internal US project is also used by callers running in the EU region.
 POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
 POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
+POSTHOG_USER_DELETION_API_KEY: str = get_from_env("POSTHOG_USER_DELETION_API_KEY", "")
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
@@ -97,6 +98,7 @@ HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", op
 # writer exchanges its hogtower `hlw_` credential at the token URL for a token and an S3 session that cover one team.
 # Only organizations with the `managed-warehouse-gigahog-imports` flag write there.
 GIGAHOG_URL: str | None = get_from_env("GIGAHOG_URL", optional=True)
+GIGAHOG_API_DIRECT: bool = get_from_env("GIGAHOG_API_DIRECT", False, type_cast=str_to_bool)
 GIGAHOG_IMPORTS_CATALOG: str | None = get_from_env("GIGAHOG_IMPORTS_CATALOG", optional=True)
 GIGAHOG_IMPORTS_DATA_PATH: str | None = get_from_env("GIGAHOG_IMPORTS_DATA_PATH", optional=True)
 GIGAHOG_IMPORTS_TOKEN_URL: str | None = get_from_env("GIGAHOG_IMPORTS_TOKEN_URL", optional=True)

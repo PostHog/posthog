@@ -213,6 +213,46 @@ class TestBillingManager(BaseTest):
         }
         assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_billing_read_only_writes_nothing_to_the_organization_or_license(self, mock_get: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.now() + datetime.timedelta(days=1),
+        )
+        valid_until_before = license.valid_until
+        self.organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 40},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        self.organization.save()
+        billing_status = cast(dict[str, Any], self._billing_status(None, events_usage=500, events_limit=1000))
+        billing_status["license"] = {"type": "enterprise"}
+        billing_status["customer"].update(
+            customer_id="cus_example",
+            available_product_features=_SURVEYS,
+            products=[{"type": "product_analytics", "usage_key": "events"}],
+        )
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.side_effect = lambda: copy.deepcopy(billing_status)
+
+        def stored_organization() -> dict[str, Any]:
+            return Organization.objects.values("usage", "available_product_features", "customer_id").get(
+                id=self.organization.id
+            )
+
+        organization_before = stored_organization()
+
+        read_only_response = BillingManager(license).get_billing_read_only(self.organization)
+
+        assert stored_organization() == organization_before
+        license.refresh_from_db()
+        assert license.valid_until == valid_until_before
+
+        assert BillingManager(license).get_billing(self.organization) == read_only_response
+        assert stored_organization()["customer_id"] == "cus_example"
+
     @parameterized.expand(
         [
             ("with_ip", "203.0.113.7", True),
@@ -365,6 +405,10 @@ class TestBillingManager(BaseTest):
             organization=organization,
             email="y3@x.com",
             password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        y2.join(
+            organization=Organization.objects.create(name="Other organization"),
             level=OrganizationMembership.Level.OWNER,
         )
         organization.refresh_from_db()
@@ -649,6 +693,68 @@ class TestBillingManager(BaseTest):
         assert rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
         assert rule.enabled is True
         assert rule.version == 2
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_update_available_product_features_keeps_organization_changes_made_during_the_request(
+        self, mock_get: MagicMock
+    ):
+        organization = Organization.objects.get(pk=self.organization.pk)
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def deactivate_while_pending(*args: Any, **kwargs: Any) -> MagicMock:
+            Organization.objects.filter(pk=organization.pk).update(is_active=False, members_can_create_projects=False)
+            response = MagicMock(status_code=200)
+            response.json.return_value = {"available_product_features": [{"key": "surveys", "name": "Surveys"}]}
+            return response
+
+        mock_get.side_effect = deactivate_while_pending
+
+        BillingManager(license).update_available_product_features(organization)
+
+        # The save hooks read this instance, so it must carry the change made during the request.
+        assert organization.is_active is False
+        organization.refresh_from_db()
+        assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
+        assert organization.is_active is False
+        assert organization.members_can_create_projects is False
+
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, {"detail": "Unauthorized"}, BillingServiceResponseError),
+            ("not_found", 404, {"detail": "Not found"}, BillingServiceResponseError),
+            ("empty_list", 200, {"available_product_features": []}, ValueError),
+            ("missing_list", 200, {}, ValueError),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_update_available_product_features_keeps_stored_features_on_an_error_response(
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        expected_error: type[Exception],
+        mock_get: MagicMock,
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        stored_features = [{"key": "access_control", "name": "Access control"}]
+        Organization.objects.filter(pk=self.organization.pk).update(available_product_features=stored_features)
+        organization = Organization.objects.get(pk=self.organization.pk)
+        mock_get.return_value.status_code = status_code
+        mock_get.return_value.json.return_value = body
+
+        with self.assertRaises(expected_error):
+            BillingManager(license).update_available_product_features(organization)
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == stored_features
 
     @parameterized.expand(
         [
@@ -1583,8 +1689,14 @@ class TestBuildBillingToken(BaseTest):
         assert "original_role" not in decoded
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("default_action", {}, "update_billing"),
+            ("named_action", {"escalation_action": "claim_coupon"}, "claim_coupon"),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_build_billing_token_with_privilege_escalation(self, mock_capture):
+    def test_build_billing_token_with_privilege_escalation(self, _name, token_kwargs, expected_action, mock_capture):
         """When authorizer_actor differs from user, original_role is set and capture is called"""
         member_user = User.objects.create_and_join(
             organization=self.organization,
@@ -1600,7 +1712,7 @@ class TestBuildBillingToken(BaseTest):
         )
 
         token = build_billing_token(
-            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer
+            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer, **token_kwargs
         )
 
         decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
@@ -1618,7 +1730,7 @@ class TestBuildBillingToken(BaseTest):
         assert call_kwargs["properties"]["target_user_id"] == member_user.id
         assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
         assert call_kwargs["properties"]["target_email"] == member_user.email
-        assert call_kwargs["properties"]["action"] == "update_billing"
+        assert call_kwargs["properties"]["action"] == expected_action
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
         """Should raise NotAuthenticated when authorizer_actor is not a member of the organization"""

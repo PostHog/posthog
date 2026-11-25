@@ -16,6 +16,7 @@ import type { WriterSample } from '../probe/writer-probe'
 import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
 import { nameOf } from './identity'
+import { ProbeProcess, startProbeProcess } from './probe-process'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import {
     ConsumerGroup,
@@ -24,6 +25,7 @@ import {
     RoleId,
     RoleSpec,
     consumerGroupsOf,
+    intakeTopicsOf,
     portOf,
     roleIdsOf,
     roleSpecs,
@@ -31,10 +33,11 @@ import {
 } from './roles'
 import {
     Hogli,
+    ProbeFailure,
     STACK,
+    createTopics,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
-    downServices,
     forgetSesBucket,
     groupLag,
     groupMembers,
@@ -61,13 +64,13 @@ import { writerCpuOf } from './writer-cpu'
 export type { RoleExit } from './supervisor'
 
 export interface Environment {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
-    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>
@@ -90,7 +93,7 @@ export type Action =
           signal: AbortSignal
       }
 
-export type Actuation = FaultHold & { journal?(): FailoverJournal }
+export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -200,6 +203,7 @@ export function createEnvironment({
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
     let edge: ProviderEdge | undefined
+    let probing: { edgeUrl: string | undefined; probes: ProbeProcess } | undefined
     let postgresServers = [postgresUrl]
     let cyclotronUrl = STACK.cyclotronNodeUrl
     let releaseLock: (() => Promise<void>) | undefined
@@ -208,7 +212,7 @@ export function createEnvironment({
     const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
     return {
-        async up() {
+        async up(signal) {
             if (!existsSync(TSX)) {
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
@@ -216,7 +220,7 @@ export function createEnvironment({
             stateDir = realpathSync(stateDir)
             releaseLock = await holdRunLock(stateDir)
             try {
-                await bringUp()
+                await bringUp(signal)
             } catch (error) {
                 await stop()
                 throw error
@@ -240,7 +244,14 @@ export function createEnvironment({
         roles: () => running.map(handleOf),
 
         async dependencyHealth() {
-            const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
+            if (!probing || probing.edgeUrl !== edge?.url) {
+                probing?.probes.close()
+                probing = {
+                    edgeUrl: edge?.url,
+                    probes: startProbeProcess({ edgeUrl: edge?.url, postgresUrl, sesValkey: sesRateLimiterValkey }),
+                }
+            }
+            const down = await probing.probes.check()
             return { healthy: down.length === 0, down }
         },
 
@@ -311,6 +322,7 @@ export function createEnvironment({
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs
+        await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
             async () => {
@@ -377,14 +389,14 @@ export function createEnvironment({
         }
     }
 
-    async function bringUp(): Promise<void> {
+    async function bringUp(signal: AbortSignal): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env)
+        await startStack(hogli, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -415,6 +427,10 @@ export function createEnvironment({
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
+        await createTopics(intakeTopicsOf(specs), docker)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')
@@ -422,7 +438,7 @@ export function createEnvironment({
         await supervisor.start(api)
         await untilHealthy(api, exitsBefore)
         if ((await missingTemplates(postgresUrl)).length > 0) {
-            await syncTemplates(hogli, stateDir, env)
+            await syncTemplates(hogli, stateDir, env, signal)
         }
         await waitForExpect(
             async () => {
@@ -442,6 +458,8 @@ export function createEnvironment({
         try {
             await supervisor.stop()
         } finally {
+            probing?.probes.close()
+            probing = undefined
             await edge?.close()
             edge = undefined
             await releaseLock?.()

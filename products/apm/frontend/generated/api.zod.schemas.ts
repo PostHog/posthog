@@ -78,6 +78,12 @@ export const DependenciesResponseApi = zod.object({
         )
         .describe('One edge per caller and callee, most requests first.'),
     truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
+    sampled: zod
+        .boolean()
+        .describe(
+            'True when the window held more traces than the sample reads, so the counts cover only the sampled traces.'
+        ),
+    trace_count: zod.number().describe('How many whole traces the edges were computed from.'),
     environment: zod
         .string()
         .nullable()
@@ -93,7 +99,7 @@ export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
 export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
 
 export const DeploymentVersionApi = zod.object({
-    version: zod.string().describe('The service.version resource attribute.'),
+    version: zod.string().describe('The version, read from the attribute named by version_source.'),
     first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
     last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
     requests: zod.number().describe('Requests counted in the window.'),
@@ -112,11 +118,18 @@ export const DeploymentVersionApi = zod.object({
 export type DeploymentVersionApi = zod.input<typeof DeploymentVersionApi>
 export type DeploymentVersionApiOutput = zod.output<typeof DeploymentVersionApi>
 
+export const VersionSourceEnumApi = zod
+    .enum(['service.version', 'k8s.replicaset.name'])
+    .describe('\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name')
+
+export type VersionSourceEnumApi = zod.input<typeof VersionSourceEnumApi>
+export type VersionSourceEnumApiOutput = zod.output<typeof VersionSourceEnumApi>
+
 export const DeploymentsResponseApi = zod.object({
     results: zod
         .array(
             zod.object({
-                version: zod.string().describe('The service.version resource attribute.'),
+                version: zod.string().describe('The version, read from the attribute named by version_source.'),
                 first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
                 last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
                 requests: zod.number().describe('Requests counted in the window.'),
@@ -139,6 +152,16 @@ export const DeploymentsResponseApi = zod.object({
             })
         )
         .describe('One row per version, oldest first.'),
+    version_source: zod
+        .union([
+            zod
+                .enum(['service.version', 'k8s.replicaset.name'])
+                .describe('\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name'),
+            zod.null(),
+        ])
+        .describe(
+            'The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.\n\n\* `service.version` - Service Version\n\* `k8s.replicaset.name` - K8S Replicaset Name'
+        ),
     service: zod.string().describe('The service the versions belong to.'),
     environment: zod
         .string()
@@ -229,6 +252,12 @@ export const HealthRowApi = zod.object({
     p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
     span_count: zod.number().describe('Requests counted in the window.'),
     error_count: zod.number().describe('Requests with an error status in the window.'),
+    apdex: zod
+        .number()
+        .nullable()
+        .describe(
+            'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+        ),
 })
 
 export type HealthRowApi = zod.input<typeof HealthRowApi>
@@ -236,7 +265,19 @@ export type HealthRowApiOutput = zod.output<typeof HealthRowApi>
 
 export const EndpointHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
-    endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+    endpoint: zod
+        .string()
+        .describe(
+            'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+        ),
+    span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+    route_attribute: zod
+        .string()
+        .nullable()
+        .describe(
+            'The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.'
+        ),
+    route: zod.string().nullable().describe('The route appended to the span name, or null.'),
     environment: zod
         .string()
         .nullable()
@@ -256,6 +297,12 @@ export const EndpointHealthApi = zod.object({
             p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
             span_count: zod.number().describe('Requests counted in the window.'),
             error_count: zod.number().describe('Requests with an error status in the window.'),
+            apdex: zod
+                .number()
+                .nullable()
+                .describe(
+                    'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                ),
         })
         .describe('The health row every surface renders.'),
 })
@@ -268,7 +315,19 @@ export const EndpointsHealthResponseApi = zod.object({
         .array(
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
-                endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+                endpoint: zod
+                    .string()
+                    .describe(
+                        'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+                    ),
+                span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+                route_attribute: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.'
+                    ),
+                route: zod.string().nullable().describe('The route appended to the span name, or null.'),
                 environment: zod
                     .string()
                     .nullable()
@@ -290,6 +349,12 @@ export const EndpointsHealthResponseApi = zod.object({
                         p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
                         span_count: zod.number().describe('Requests counted in the window.'),
                         error_count: zod.number().describe('Requests with an error status in the window.'),
+                        apdex: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                            ),
                     })
                     .describe('The health row every surface renders.'),
             })
@@ -367,6 +432,12 @@ export const ServiceHealthApi = zod.object({
             p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
             span_count: zod.number().describe('Requests counted in the window.'),
             error_count: zod.number().describe('Requests with an error status in the window.'),
+            apdex: zod
+                .number()
+                .nullable()
+                .describe(
+                    'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                ),
         })
         .describe('The health row every surface renders.'),
     sparkline: zod.array(zod.number()).describe('Request counts per bucket across the window, oldest first.'),
@@ -401,6 +472,12 @@ export const ServicesHealthResponseApi = zod.object({
                         p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
                         span_count: zod.number().describe('Requests counted in the window.'),
                         error_count: zod.number().describe('Requests with an error status in the window.'),
+                        apdex: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                            ),
                     })
                     .describe('The health row every surface renders.'),
                 sparkline: zod

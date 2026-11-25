@@ -51,7 +51,11 @@ import {
 } from 'products/data_warehouse/frontend/sql_editor/LemonSaveAsMenu'
 import { QuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuerySaveConfirmation'
 import { QuillQuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuillQuerySaveConfirmation'
-import { SAVE_AS_TARGETS } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import {
+    SAVE_AS_TARGETS,
+    getCohortIdentifier,
+    getCohortSaveDisabledReason,
+} from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -118,6 +122,8 @@ interface SQLEditorProps {
     hideFilters?: boolean
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
@@ -150,6 +156,8 @@ export function SQLEditor({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     hostSync,
 }: SQLEditorProps): JSX.Element {
@@ -247,6 +255,7 @@ export function SQLEditor({
         editor,
         singleStatement,
         hideAgentHints,
+        captureQueryTelemetry,
     })
 
     const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
@@ -255,6 +264,7 @@ export function SQLEditor({
     sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        captureQueryTelemetry,
         key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
@@ -272,6 +282,7 @@ export function SQLEditor({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        captureQueryTelemetry,
         query: sourceQuery.source,
         key: dataLogicKey,
         cachedResults: undefined,
@@ -382,6 +393,8 @@ export function SQLEditor({
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
+                                                                hideConnectionSelector={hideConnectionSelector}
+                                                                captureQueryTelemetry={captureQueryTelemetry}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />
@@ -542,11 +555,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         insightLoading,
         sourceQuery,
         isSourceQueryLastRun,
+        isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
         saveAsViewDisabledReason,
+        metadata,
+        activeQueryText,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget, saveAsCohort } =
+        useActions(editorSceneLogic)
     const {
         runQuery,
         reviewQuerySave,
@@ -621,6 +638,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const [pendingSave, setPendingSave] = useState<((candidates?: SaveCandidates) => void) | null>(null)
     const saveConfirmationAnchor = useRef<HTMLSpanElement>(null)
     const saveClickPosition = useRef({ x: 0, y: 0 })
+    const saveTriggerPosition = useRef<{ x: number; y: number } | null>(null)
     const [saveConfirmationPosition, setSaveConfirmationPosition] = useState({ x: 0, y: 0 })
 
     useEffect(() => {
@@ -659,24 +677,33 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         <IconWarning data-attr="sql-editor-save-warning" className="ml-1" aria-hidden="true" />
     ) : null
 
-    const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
-        if (target === 'insight') {
-            return saveAsInsightDisabledReason
-        }
-        if (target === 'view') {
-            return (
-                saveAsViewDisabledReason ??
-                saveAsDisabledReason ??
-                saveAsViewAccessDisabledReason ??
-                (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
-                    ? 'Run the latest query successfully to determine the view’s columns'
-                    : undefined)
-            )
-        }
-        if (target === 'endpoint') {
-            return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason
-        }
-        return saveAsDisabledReason
+    const cohortIdentifier = useMemo(
+        () =>
+            getCohortIdentifier(
+                response && 'columns' in response ? response.columns : undefined,
+                metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
+            ),
+        [response, metadata, activeQueryText, queryInput]
+    )
+    const saveAsDisabledReasons: Record<SaveAsTargetId, () => string | null | undefined> = {
+        cohort: () =>
+            saveAsDisabledReason ??
+            getCohortSaveDisabledReason({
+                isDirectConnection: !!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino',
+                isMultiQuery,
+                hasCurrentResults: !needsSaveConfirmation,
+                identifier: cohortIdentifier,
+            }),
+        insight: () => saveAsInsightDisabledReason,
+        view: () =>
+            saveAsViewDisabledReason ??
+            saveAsDisabledReason ??
+            saveAsViewAccessDisabledReason ??
+            (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
+                ? 'Run the latest query successfully to determine the view’s columns'
+                : undefined),
+        endpoint: () => saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason,
+        metric: () => saveAsDisabledReason,
     }
 
     const hasContextualRecommendation = editorSource !== 'insight' || dashboardId !== null
@@ -684,7 +711,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         id: item.action,
         ...SAVE_AS_TARGETS[item.action],
         recommended: hasContextualRecommendation && item.action === saveAsMenuItems.primary.action,
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))
 
@@ -695,6 +722,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             saveAsView(false, undefined, candidates)
         } else if (target === 'endpoint') {
             saveAsEndpoint(candidates)
+        } else if (target === 'cohort') {
+            saveAsCohort(cohortIdentifier)
         } else {
             saveAsMetric(undefined, candidates)
         }
@@ -713,23 +742,24 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const legacySaveMenuItems = [
         { action: 'insight' as const, label: 'Save as new insight...' },
         { action: 'view' as const, label: 'Save as new view...' },
         { action: 'endpoint' as const, label: 'Save as endpoint...' },
+        { action: 'cohort' as const, label: 'Save as cohort...' },
     ].map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const onPrimarySaveClick = (): void =>
         confirmSave((candidates) => saveAsTarget(saveAsMenuItems.primary.action, candidates))
-    const primarySaveDisabledReason = disabledReasonForSaveAsTarget(saveAsMenuItems.primary.action)
+    const primarySaveDisabledReason = saveAsDisabledReasons[saveAsMenuItems.primary.action]()
 
     const {
         disabledReason: editingViewDisabledReason,
@@ -799,13 +829,30 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     return (
         <div
+            onKeyDownCapture={(event) => {
+                // A menu opened from the keyboard fires no click, so record its trigger here as well.
+                const trigger = (event.target as HTMLElement).closest('button')
+                if (trigger && trigger.getAttribute('role') !== 'menuitem') {
+                    const bounds = trigger.getBoundingClientRect()
+                    saveTriggerPosition.current = { x: bounds.right, y: bounds.bottom }
+                }
+            }}
             onClickCapture={(event) => {
                 const target = (event.target as HTMLElement).closest('button, [role="menuitem"]')
                 const bounds = target?.getBoundingClientRect()
+                const isMenuItem = target?.getAttribute('role') === 'menuitem'
+                const targetCorner = bounds ? { x: bounds.right, y: bounds.bottom } : undefined
+                if (target && !isMenuItem && targetCorner) {
+                    // A button click may open a save menu. The menu closes once an item is picked, so the
+                    // confirmation anchors to the button instead of the item that vanished with the menu.
+                    saveTriggerPosition.current = targetCorner
+                }
                 saveClickPosition.current =
-                    event.detail === 0 && bounds
-                        ? { x: bounds.right, y: bounds.bottom }
-                        : { x: event.clientX, y: event.clientY }
+                    isMenuItem && saveTriggerPosition.current
+                        ? saveTriggerPosition.current
+                        : event.detail === 0 && targetCorner
+                          ? targetCorner
+                          : { x: event.clientX, y: event.clientY }
             }}
         >
             <span

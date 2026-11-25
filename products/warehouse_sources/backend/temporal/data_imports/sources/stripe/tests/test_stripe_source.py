@@ -3,7 +3,7 @@ import functools
 import threading
 import contextvars
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    EVENT_ID_COLUMN,
+    EVENT_RANK_COLUMN,
+    EVENT_TIME_COLUMN,
+    WEBHOOK_EVENT_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import latest_event_per_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -113,6 +120,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     V2_LIST_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
+    StripePermissionError,
     StripeResource,
     StripeTransientError,
     StripeUnsupportedVersionError,
@@ -726,6 +734,49 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "missing_permissions,expected_message",
+        [
+            (
+                {
+                    "Event": "The provided key 'rk_live_***abc' does not have the required permissions for this "
+                    "endpoint on account 'acct_123'. Having the 'rak_event_read' permission would allow this "
+                    "request to continue."
+                },
+                "Stripe credentials lack permissions for Event. In Stripe, add these permissions to your "
+                "restricted API key: rak_event_read.",
+            ),
+            (
+                {
+                    "Quote": "Having the 'rak_quote_read' permission would allow this request to continue.",
+                    "Event": "Having the 'rak_event_read' permission would allow this request to continue.",
+                    "SubscriptionItem (Subscription)": "Having the 'rak_subscription_read' permission would allow "
+                    "this request to continue.",
+                },
+                "Stripe credentials lack permissions for Quote, Event, SubscriptionItem (Subscription). In Stripe, "
+                "add these permissions to your restricted API key: rak_event_read, rak_quote_read, "
+                "rak_subscription_read.",
+            ),
+            (
+                {"Event": "This application does not have the required permissions for this endpoint."},
+                "Stripe credentials lack permissions for Event.",
+            ),
+        ],
+    )
+    def test_validate_credentials_permission_error_names_stripe_scopes(self, missing_permissions, expected_message):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripePermissionError(missing_permissions),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message == expected_message
 
     @pytest.mark.parametrize(
         "stripe_error,expected_start",
@@ -1915,6 +1966,73 @@ class TestWebhookUpsertCollapse:
         assert [row["status"] for row in rows] == [expected_status]
 
 
+class TestWebhookEventRows:
+    _FILES = [
+        [_event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"})],
+        [
+            _event_row(
+                "evt_open", "invoice.finalized", 1700000100, {"id": "in_1", "object": "invoice", "status": "open"}
+            ),
+            _event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"}),
+        ],
+    ]
+
+    def _rows(self, *, webhook_history: bool) -> pa.Table:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        result = SourceDriver(StripeSource(), config, webhook_files=self._FILES).run(
+            INVOICE_RESOURCE_NAME, [], webhook_history=webhook_history
+        )
+        assert result.raised is None
+        return pa.concat_tables(result.items)
+
+    def test_history_read_keeps_every_event_once(self) -> None:
+        rows = self._rows(webhook_history=True)
+
+        assert [
+            (row[EVENT_ID_COLUMN], row["status"], row[EVENT_TIME_COLUMN], row[EVENT_RANK_COLUMN])
+            for row in rows.to_pylist()
+        ] == [
+            ("evt_open", "open", datetime.fromtimestamp(1700000100, UTC), 2),
+            ("evt_paid", "paid", datetime.fromtimestamp(1700000100, UTC), 4),
+        ]
+        assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["paid"]
+
+    def test_history_read_reads_a_truncated_invoice_once_for_all_its_events(self) -> None:
+        files = [
+            [
+                _event_row("evt_open", "invoice.finalized", 1700000100, {**_INCOMPLETE_INVOICE, "status": "open"}),
+                _event_row("evt_paid", "invoice.paid", 1700000200, _INCOMPLETE_INVOICE),
+            ]
+        ]
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+
+        result = SourceDriver(StripeSource(), config, webhook_files=files).run(
+            INVOICE_RESOURCE_NAME,
+            lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path)),
+            webhook_history=True,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/invoices/in_1/lines"]
+        assert [
+            (row[EVENT_ID_COLUMN], row[EVENT_TIME_COLUMN], row["status"], len(orjson.loads(row["lines"])["data"]))
+            for row in pa.concat_tables(result.items).to_pylist()
+        ] == [
+            ("evt_open", datetime.fromtimestamp(1700000100, UTC), "open", len(_ALL_LINES)),
+            ("evt_paid", datetime.fromtimestamp(1700000200, UTC), "paid", len(_ALL_LINES)),
+        ]
+
+    def test_read_without_history_keeps_the_latest_object_only(self) -> None:
+        rows = self._rows(webhook_history=False)
+
+        assert rows.column("status").to_pylist() == ["paid"]
+        assert not set(WEBHOOK_EVENT_COLUMNS) & set(rows.column_names)
+
+
 def _stripe_list(data: list[dict[str, Any]], url: str, has_more: bool = False) -> dict[str, Any]:
     return {"object": "list", "data": data, "has_more": has_more, "url": url}
 
@@ -1933,6 +2051,18 @@ _INCOMPLETE_INVOICE = {
     "status": "paid",
     "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
 }
+
+
+def _subscription_is(
+    *, status: str, discounts: list[Any], items: list[dict[str, Any]]
+) -> Callable[[dict[str, Any]], bool]:
+    def check(row: dict[str, Any]) -> bool:
+        assert row["status"] == status
+        assert orjson.loads(row["discounts"]) == discounts
+        assert orjson.loads(row["items"])["data"] == items
+        return True
+
+    return check
 
 
 class TestWebhookRefetch:
@@ -1977,9 +2107,9 @@ class TestWebhookRefetch:
                 lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
             ),
             (
-                "tiers of a tiered price",
+                "tiers of a price archived since the event",
                 PRICE_RESOURCE_NAME,
-                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered", "active": True},
                 {
                     "/v1/prices/price_1": (
                         {"expand[0]": "tiers"},
@@ -1987,27 +2117,58 @@ class TestWebhookRefetch:
                             "id": "price_1",
                             "object": "price",
                             "billing_scheme": "tiered",
+                            "active": False,
                             "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
                         },
                     )
                 },
-                lambda row: len(orjson.loads(row["tiers"])) == 2,
+                lambda row: row["active"] is True and len(orjson.loads(row["tiers"])) == 2,
             ),
             (
-                "expanded subscription discounts",
+                "discounts of a subscription changed since the event",
                 SUBSCRIPTION_RESOURCE_NAME,
-                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "id": "sub_1",
+                    "object": "subscription",
+                    "status": "active",
+                    "discounts": ["di_1", "di_removed"],
+                    "items": {
+                        "object": "list",
+                        "data": [{"id": "si_1", "discounts": ["di_2"]}, {"id": "si_2", "discounts": []}],
+                    },
+                },
                 {
                     "/v1/subscriptions/sub_1": (
                         {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
                         {
                             "id": "sub_1",
                             "object": "subscription",
-                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                            "status": "canceled",
+                            "discounts": [
+                                {"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}},
+                                {"id": "di_added", "object": "discount", "coupon": {"id": "co_3"}},
+                            ],
+                            "items": {
+                                "object": "list",
+                                "data": [
+                                    {
+                                        "id": "si_1",
+                                        "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}],
+                                    },
+                                    {"id": "si_2", "discounts": []},
+                                ],
+                            },
                         },
                     )
                 },
-                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+                _subscription_is(
+                    status="active",
+                    discounts=[{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"],
+                    items=[
+                        {"id": "si_1", "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}]},
+                        {"id": "si_2", "discounts": []},
+                    ],
+                ),
             ),
         ]
     )
@@ -2071,6 +2232,24 @@ class TestWebhookRefetch:
     ) -> None:
         with scripted_network([answer]), pytest.raises(error):
             self._transform(INVOICE_RESOURCE_NAME, _INCOMPLETE_INVOICE)
+
+    def test_events_of_one_object_share_one_read(self) -> None:
+        refetcher = WebhookObjectRefetcher(
+            stripe_module.WEBHOOK_REFETCH[INVOICE_RESOURCE_NAME],
+            MagicMock(),
+            client_factory_provider=lambda: stripe_module._refetch_client_factory(
+                "sk_test", None, STRIPE_API_VERSION_ACACIA
+            ),
+        )
+
+        with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))) as network:
+            rows = refetcher.complete([{**_INCOMPLETE_INVOICE, "status": "open"}, _INCOMPLETE_INVOICE])
+
+        assert len(network.requests_log) == 1
+        assert [(row["status"], len(row["lines"]["data"])) for row in rows] == [
+            ("open", len(_ALL_LINES)),
+            ("paid", len(_ALL_LINES)),
+        ]
 
     def test_webhook_sync_completes_invoice_lines(self) -> None:
         source = StripeSource()
@@ -2530,6 +2709,24 @@ class TestStripeAppManifestCoversSourcePermissions:
 
         assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
         assert required - granted == set()
+
+    def test_every_app_read_permission_is_asked_of_a_restricted_key(self):
+        # The reverse drift: a table's scope reached the OAuth grant but not the key form (Event and
+        # twelve other read scopes), so key users got a 403 the moment they enabled the table.
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+        key_scopes = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        # A write scope on a restricted key includes the matching read scope.
+        missing = {
+            permission
+            for permission in granted
+            if permission.endswith("_read")
+            and permission not in key_scopes
+            and permission.replace("_read", "_write") not in key_scopes
+        }
+
+        assert missing == set()
 
     def test_manifest_omits_every_disallowed_permission(self):
         manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"

@@ -64,6 +64,18 @@ describe('VisualReviewClient', () => {
         expect(JSON.parse(init.body)).toEqual(expectedBody)
     })
 
+    it('posts the no-run-needed report to the skip endpoint', async () => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ outcome: 'posted', detail: 'Posted.' }))
+        const input = { repo_id: 'repo-1', run_type: 'storybook', commit_sha: 'abc', branch: 'feature', pr_number: 7 }
+
+        await client.reportNoRunNeeded(input)
+
+        const [url, init] = mockFetch.mock.calls[0]
+        expect(url).toBe('https://vr.example.com/api/projects/1/visual_review/runs/skip/')
+        expect(init.method).toBe('POST')
+        expect(JSON.parse(init.body)).toEqual(input)
+    })
+
     it('throws immediately on 4xx errors without retrying', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
 

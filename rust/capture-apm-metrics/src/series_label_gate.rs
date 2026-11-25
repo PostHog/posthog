@@ -142,6 +142,13 @@ struct Entry {
 #[must_use = "pass to SeriesLabelGate::commit once the rows are written"]
 pub struct LabelledSeries {
     keys: Vec<u64>,
+    rows: Vec<usize>,
+}
+
+impl LabelledSeries {
+    pub fn new_series_rows(&self) -> &[usize] {
+        &self.rows
+    }
 }
 
 pub struct SeriesLabelGate {
@@ -207,26 +214,60 @@ impl SeriesLabelGate {
     /// rows are written; a failed write drops it, so a retry of the same batch
     /// keeps its labels.
     pub fn decide(&self, token: &str, rows: &mut [KafkaMetricRow]) -> LabelledSeries {
+        let labelled = self.classify(token, rows);
+        self.strip_repeats(rows, &labelled);
+        labelled
+    }
+
+    /// The decision of [`Self::decide`] without the stripping, for a caller
+    /// that reads the labels of every row first. Pass the result to
+    /// [`Self::strip_repeats`].
+    pub fn classify(&self, token: &str, rows: &[KafkaMetricRow]) -> LabelledSeries {
         let now = (self.clock)();
         let mut keys = Vec::new();
+        let mut labelled_rows = Vec::new();
         let mut in_batch = HashSet::new();
         let mut skipped = 0u64;
 
-        for row in rows.iter_mut() {
+        for (index, row) in rows.iter().enumerate() {
             let key = gate_key(token, row.series_fingerprint);
             if self.seen_within_window(key, now) || !in_batch.insert(key) {
                 skipped += 1;
-                if self.enabled {
-                    strip_labels(row);
-                }
                 continue;
             }
             keys.push(key);
+            labelled_rows.push(index);
         }
 
         counter!("capture_metrics_series_labels_sent").increment(keys.len() as u64);
         counter!("capture_metrics_series_labels_skipped").increment(skipped);
-        LabelledSeries { keys }
+        LabelledSeries {
+            keys,
+            rows: labelled_rows,
+        }
+    }
+
+    /// A full cache reports the token's uncached series as new on every row.
+    pub fn cache_full(&self, token: &str) -> bool {
+        self.len.load(Ordering::Acquire) >= self.limits.max_entries
+            || self
+                .per_token
+                .get(&token_key(token))
+                .is_some_and(|count| *count >= self.limits.max_entries_per_token)
+    }
+
+    pub fn strip_repeats(&self, rows: &mut [KafkaMetricRow], labelled: &LabelledSeries) {
+        if !self.enabled {
+            return;
+        }
+        let mut kept = labelled.rows.iter().peekable();
+        for (index, row) in rows.iter_mut().enumerate() {
+            if kept.peek() == Some(&&index) {
+                kept.next();
+            } else {
+                strip_labels(row);
+            }
+        }
     }
 
     /// Run [`Self::decide`] and return the billable bytes of `rows` measured before any
@@ -271,6 +312,7 @@ impl SeriesLabelGate {
             }
         }
 
+        gauge!("capture_metrics_series_cache_size").set(self.len.load(Ordering::Acquire) as f64);
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
@@ -360,17 +402,32 @@ impl SeriesLabelGate {
     /// fill the gap.
     pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
-        match self
+        let before = self.len.load(Ordering::Acquire);
+        let result = self
             .pull_from_redis(client, PullKind::Seed, now - self.window_secs, budget)
-            .await
-        {
-            Ok(merged) => info!("Seeded series label cache with {merged} series from Redis"),
-            Err(PullError::Timeout { merged }) => warn!(
-                "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
-                budget.as_secs()
-            ),
-            Err(e) => warn!("Could not seed series label cache from Redis, starting empty: {e}"),
-        }
+            .await;
+        // Nothing else writes the cache before the seed returns, so its growth
+        // is what the seed merged, including pages read before a failure.
+        let merged = self.len.load(Ordering::Acquire).saturating_sub(before);
+        let outcome = match result {
+            Ok(_) => {
+                info!("Seeded series label cache with {merged} series from Redis");
+                "complete"
+            }
+            Err(PullError::Timeout { .. }) | Err(PullError::Redis(CustomRedisError::Timeout)) => {
+                warn!(
+                    "Series label cache seed timed out within its {}s budget after {merged} series, starting with a partial cache",
+                    budget.as_secs()
+                );
+                "timeout"
+            }
+            Err(e) => {
+                warn!("Could not finish seeding series label cache from Redis, starting with {merged} series: {e}");
+                "error"
+            }
+        };
+        counter!("capture_metrics_series_seed", "outcome" => outcome).increment(1);
+        gauge!("capture_metrics_series_seeded").set(merged as f64);
     }
 
     /// Merge the series with a score at or after `since` into the cache. A
@@ -763,6 +820,11 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use common_redis::{MockRedisClient, MockRedisValue};
+    use metrics::{
+        Counter, CounterFn, Gauge, GaugeFn, Histogram, Key, KeyName, Metadata, Recorder,
+        SharedString, Unit,
+    };
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -1017,6 +1079,8 @@ mod tests {
         let mut rows = vec![row(2)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+        assert!(gate.cache_full("token-a"));
+        assert!(!gate.cache_full("token-b"));
 
         let mut rows = vec![row(1), row(1)];
         gate.apply("token-b", &mut rows);
@@ -1365,6 +1429,197 @@ mod tests {
         let calls = client.get_calls();
         assert!(calls.iter().any(|c| c.op == "heal"));
         assert!(calls.iter().all(|c| c.op == "heal"));
+    }
+
+    /// Captures the last value written per metric name and label set.
+    #[derive(Default)]
+    struct TestRecorder {
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
+    }
+
+    struct TestHandle {
+        key: Key,
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
+    }
+
+    impl TestHandle {
+        fn update(&self, f: impl FnOnce(f64) -> f64) {
+            let mut values = self.values.lock().unwrap();
+            match values.iter_mut().find(|(k, _)| *k == self.key) {
+                Some((_, v)) => *v = f(*v),
+                None => values.push((self.key.clone(), f(0.0))),
+            }
+        }
+    }
+
+    impl CounterFn for TestHandle {
+        fn increment(&self, value: u64) {
+            self.update(|v| v + value as f64);
+        }
+        fn absolute(&self, value: u64) {
+            self.update(|_| value as f64);
+        }
+    }
+
+    impl GaugeFn for TestHandle {
+        fn increment(&self, value: f64) {
+            self.update(|v| v + value);
+        }
+        fn decrement(&self, value: f64) {
+            self.update(|v| v - value);
+        }
+        fn set(&self, value: f64) {
+            self.update(|_| value);
+        }
+    }
+
+    impl Recorder for TestRecorder {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+
+        fn register_counter(&self, key: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_gauge(&self, key: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            Histogram::noop()
+        }
+    }
+
+    type Recorded = Arc<Mutex<Vec<(Key, f64)>>>;
+
+    fn recorded(values: &Recorded, name: &str, label: Option<(&str, &str)>) -> Option<f64> {
+        values
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(key, _)| {
+                key.name() == name
+                    && label
+                        .is_none_or(|(k, v)| key.labels().any(|l| l.key() == k && l.value() == v))
+            })
+            .map(|(_, value)| *value)
+    }
+
+    fn seed_with_metrics(client: &MockRedisClient, budget: Duration) -> Recorded {
+        let (gate, _, _) = gate(true, false);
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(gate.seed_from_redis(client, budget));
+        });
+        snapshotter
+    }
+
+    fn seed_client() -> MockRedisClient {
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into(), "3".into()])
+    }
+
+    #[test]
+    fn cache_size_gauge_follows_each_request() {
+        let (gate, _, _) = gate(true, false);
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
+        let mut rows = vec![row(1), row(2), row(1)];
+
+        metrics::with_local_recorder(&recorder, || gate.apply("token", &mut rows));
+
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_cache_size", None),
+            Some(2.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_complete_seed_and_its_size() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "complete"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(3.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_spent_budget_as_timeout() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::ZERO);
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "timeout"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_redis_failure_as_error() {
+        let snapshotter = seed_with_metrics(&MockRedisClient::new(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_series_merged_before_a_redis_failure() {
+        let first = bucket_keys(START - WINDOW.as_secs() as i64, START).remove(0);
+        let client = MockRedisClient::new().zrangebyscore_ret(&first, vec!["1".into(), "2".into()]);
+
+        let snapshotter = seed_with_metrics(&client, Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(2.0)
+        );
     }
 
     #[test]

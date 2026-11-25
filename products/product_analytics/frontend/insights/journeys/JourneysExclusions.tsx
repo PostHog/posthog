@@ -4,10 +4,10 @@ import { Chip, ChipClose, Text } from '@posthog/quill'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PathsV2Item, PathsV2StepSource } from '~/queries/schema/schema-general'

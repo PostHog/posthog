@@ -7,7 +7,9 @@ from requests import HTTPError
 
 from products.warehouse_sources.sources.sdk import (
     Endpoint,
+    JSONResponseCursorPaginator,
     PageNumberPaginator,
+    PaginatorConfig,
     RESTAPIConfig,
     RESTClient,
     ResumableSourceManager,
@@ -27,8 +29,9 @@ class YotpoAuthenticationError(Exception):
 
 @frozen
 class YotpoResumeConfig:
-    page: int
+    page: int | None = None
     until: str | None = None
+    cursor: str | None = None
 
 
 def validate_start_date(value: str) -> None:
@@ -74,6 +77,15 @@ def get_access_token(app_key: str, api_secret: str) -> str:
     return token
 
 
+def get_paginator(endpoint: str) -> PaginatorConfig:
+    settings = ENDPOINTS[endpoint]
+    if settings.cursor_pagination:
+        return JSONResponseCursorPaginator(cursor_path="pagination.next_page_info", cursor_param="page_info")
+    if settings.page_size_param:
+        return PageNumberPaginator(base_page=1)
+    return "single_page"
+
+
 def get_endpoint(endpoint: str, app_key: str, token: str, start_date: str, until: str) -> Endpoint:
     settings = schema_for_resource(ENDPOINTS, endpoint)
     params: dict[str, Any] = dict(settings.params)
@@ -89,7 +101,7 @@ def get_endpoint(endpoint: str, app_key: str, token: str, start_date: str, until
         "data_selector": settings.data_selector,
         "data_selector_required": True,
         "params": params,
-        "paginator": PageNumberPaginator(base_page=1) if settings.page_size_param else "single_page",
+        "paginator": get_paginator(endpoint),
     }
 
 
@@ -155,8 +167,18 @@ def yotpo_source(
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state is not None:
+        if state is None:
+            return
+        if "cursor" in state:
+            resumable_source_manager.save_state(YotpoResumeConfig(cursor=state["cursor"], until=until))
+        else:
             resumable_source_manager.save_state(YotpoResumeConfig(page=int(state["page"]), until=until))
+
+    initial_state: dict[str, Any] | None = None
+    if resume and resume.cursor is not None:
+        initial_state = {"cursor": resume.cursor}
+    elif resume and resume.page is not None:
+        initial_state = {"page": resume.page}
 
     resource = rest_api_resource(
         config,
@@ -164,7 +186,7 @@ def yotpo_source(
         job_id=job_id,
         db_incremental_field_last_value=None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"page": resume.page} if resume else None,
+        initial_paginator_state=initial_state,
     )
     return SourceResponse(
         name=endpoint,

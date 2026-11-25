@@ -13,11 +13,14 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ..logic.eval_suggestions import (
     accept as eval_suggestion_accept,
+    eligibility as eval_suggestion_eligibility,
     suggestions as eval_suggestions,
 )
 from ..logic.eval_suggestions.runs import OBSERVATION_KEYS
 from ..models.eval_suggestions import (
+    EvalFixProblem,
     EvalSuggestion as EvalSuggestionModel,
+    EvalSuggestionKind,
     EvalSuggestionRun as EvalSuggestionRunModel,
 )
 from ..temporal.eval_suggestions_client import TEAM_TIMEOUT, start_first_visit_run
@@ -34,6 +37,15 @@ def list_eval_suggestions(team: Team, access: UserAccessControl | None) -> contr
         pending=latest.pending,
         results=[_to_eval_suggestion(suggestion) for suggestion in latest.suggestions],
     )
+
+
+def get_eval_suggestion_settings(team: Team) -> contracts.EvalSuggestionSettings:
+    return contracts.EvalSuggestionSettings(enabled=not eval_suggestion_eligibility.suggestions_turned_off(team))
+
+
+def update_eval_suggestion_settings(team: Team, *, enabled: bool) -> contracts.EvalSuggestionSettings:
+    eval_suggestion_eligibility.set_suggestions_turned_off(team, not enabled)
+    return contracts.EvalSuggestionSettings(enabled=enabled)
 
 
 def get_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: UUID) -> contracts.EvalSuggestion:
@@ -117,6 +129,12 @@ def _to_eval_suggestion_run(run: EvalSuggestionRunModel) -> contracts.EvalSugges
     )
 
 
+def _fix_problem(suggestion: EvalSuggestionModel) -> str | None:
+    # fix_dedupe_key ends the key with the problem.
+    problem = suggestion.dedupe_key.rpartition(":")[2]
+    return problem if suggestion.kind == EvalSuggestionKind.FIX_EVAL and problem in EvalFixProblem.values else None
+
+
 def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSuggestion:
     target = suggestion.target_evaluation
     similar = suggestion.similar_evaluation
@@ -143,6 +161,7 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         created_evaluation=suggestion.created_evaluation_id,
         target_evaluation=suggestion.target_evaluation_id,
         target_evaluation_name=target.name if target else None,
+        fix_problem=_fix_problem(suggestion),
         similar_evaluation=suggestion.similar_evaluation_id,
         similar_evaluation_name=similar.name if similar else None,
         dismiss_reason=suggestion.dismiss_reason,

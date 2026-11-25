@@ -95,7 +95,7 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
 
-You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, daily Sponsored Products campaign performance, change history and invoices are synced from every profile the token can access, along with your advertising accounts.""",
+You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands, Sponsored Display and Sponsored TV entities, Sponsored Products budget rules, daily performance reports (campaigns, search terms, targets, advertised and purchased products), change history and invoices are synced from every profile the token can access, along with your advertising accounts.""",
             iconPath="/static/services/amazon_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-ads",
             releaseStatus=ReleaseStatus.GA,

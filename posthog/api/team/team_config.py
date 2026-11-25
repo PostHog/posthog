@@ -9,23 +9,25 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.property import validate_group_type_index
 
+from products.access_control.backend.facade.api import organization_role_names
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
     InvalidPinnedAccountProperties,
     validate_pinned_account_properties,
+    validate_pinned_account_property_lists,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.feature_flags.backend.facade.request_blocklist import (
-    MAX_BLOCKED_HOSTS,
-    MAX_BLOCKED_IPS,
-    MAX_BLOCKLIST_INPUT_ENTRIES,
-    MIN_BLOCKED_IPV4_PREFIX,
-    MIN_BLOCKED_IPV6_PREFIX,
-    BlocklistEntryError,
-    normalize_blocked_hosts,
-    normalize_blocked_ips,
+from products.feature_flags.backend.facade.request_lists import (
+    MAX_LISTED_HOSTS,
+    MAX_LISTED_IPS,
+    MAX_REQUEST_LIST_INPUT_ENTRIES,
+    MIN_LISTED_IPV4_PREFIX,
+    MIN_LISTED_IPV6_PREFIX,
+    RequestListEntryError,
+    normalize_listed_hosts,
+    normalize_listed_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.replay_vision.backend.facade.workflow_scan_limits import (
@@ -70,8 +72,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "extra_settings",
-            "secret_api_token",
-            "secret_api_token_backup",
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
@@ -485,13 +485,13 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
     )
 
     # allow_blank lets a client send a list split from pasted lines, because the normalizers drop blank entries.
-    # The normalizers own the MAX_BLOCKED_* caps, because they count entries after dropping blanks and duplicates.
+    # The normalizers own the MAX_LISTED_* caps, because they count entries after dropping blanks and duplicates.
     blocked_hosts = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_BLOCKED_HOSTS}. "
+            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
             "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
             "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
             "reduced to its domain, and an internationalized domain is stored as punycode."
@@ -499,12 +499,12 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
     )
     blocked_ips = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
             f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
-            f"up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for IPv4 and "
-            f"/{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
+            f"up to {MAX_LISTED_IPS}. Ranges can be /{MIN_LISTED_IPV4_PREFIX} or narrower for IPv4 and "
+            f"/{MIN_LISTED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
             "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
         ),
     )
@@ -515,14 +515,14 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
     def validate_blocked_hosts(self, value: list[str]) -> list[str]:
         try:
-            return normalize_blocked_hosts(value)
-        except BlocklistEntryError as error:
+            return normalize_listed_hosts(value)
+        except RequestListEntryError as error:
             raise serializers.ValidationError(str(error))
 
     def validate_blocked_ips(self, value: list[str]) -> list[str]:
         try:
-            return normalize_blocked_ips(value)
-        except BlocklistEntryError as error:
+            return normalize_listed_ips(value)
+        except RequestListEntryError as error:
             raise serializers.ValidationError(str(error))
 
 
@@ -544,6 +544,18 @@ class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serialize
 
     class Meta:
         ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
+
+
+class TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(serializers.Serializer):
+    role_id = serializers.UUIDField(help_text="Organization role whose members inherit these properties.")
+    pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        help_text="Ordered account properties shown to members of this role.",
+    )
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsRoleDefaultPinnedProperties"
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -573,6 +585,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Pass an empty list to show no properties by default."
         ),
     )
+    role_default_pinned_properties = TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Default pinned account properties per organization role. A user who has not saved a personal "
+            "selection sees the merged defaults of every role they belong to, ordered by role name, instead "
+            "of default_pinned_properties. Replaces every role's defaults on write."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -584,6 +606,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "payment_event",
             "account_group_type_index",
             "default_pinned_properties",
+            "role_default_pinned_properties",
         ]
 
     def update(
@@ -613,3 +636,35 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
         except InvalidPinnedAccountProperties as error:
             raise serializers.ValidationError(error.errors)
         return [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties]
+
+    def validate_role_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        role_ids = [entry["role_id"] for entry in value]
+        if len(set(role_ids)) != len(role_ids):
+            raise serializers.ValidationError("Each role can appear only once.")
+        organization_id = self.instance.team.organization_id
+        known_role_ids = organization_role_names(organization_id=organization_id, role_ids=role_ids).keys()
+        if unknown_role_ids := [str(role_id) for role_id in role_ids if role_id not in known_role_ids]:
+            raise serializers.ValidationError(f"Roles not found in this organization: {', '.join(unknown_role_ids)}.")
+        try:
+            validated_lists = validate_pinned_account_property_lists(
+                team_id=self.instance.team_id,
+                pinned_property_lists=[
+                    [
+                        PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                        for reference in entry["pinned_properties"]
+                    ]
+                    for entry in value
+                ],
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
+        return [
+            {
+                "role_id": str(entry["role_id"]),
+                "pinned_properties": [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties],
+            }
+            for entry, pinned_properties in zip(value, validated_lists)
+            if pinned_properties
+        ]

@@ -49,8 +49,10 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     set_tags_on_object,
 )
+from posthog.api.uploaded_media import conversations_reply_images_enabled
+from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
@@ -103,10 +105,17 @@ from products.conversations.backend.models import (
     TicketAssignment,
     TicketView,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
+from products.conversations.backend.models.constants import (
+    AiFeedbackReason,
+    Channel,
+    ChannelDetail,
+    Status,
+    TicketMessageType,
+)
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
+    find_disallowed_image_sources,
     resolve_attachment_content_type,
     sanitize_attachment_filename,
     save_uploaded_media,
@@ -195,7 +204,8 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content "
-            "so the thread falls back to the markdown message."
+            "so the thread falls back to the markdown message. Each image src must be the url of an image "
+            "uploaded to this project."
         ),
     )
 
@@ -226,7 +236,10 @@ class TicketNoteCreateRequestSerializer(TicketNoteUpdateRequestSerializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for the note. Omit it to show the markdown message.",
+        help_text=(
+            "Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image "
+            "src must be the url of an image uploaded to this project."
+        ),
     )
 
 
@@ -247,7 +260,12 @@ class TicketReplyRequestSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "Optional TipTap rich content JSON for formatted messages. When set, channels deliver this "
+            'instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, '
+            '"alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to '
+            "this project, or the request fails with a 400."
+        ),
     )
 
     def validate_message(self, value: str) -> str:
@@ -296,6 +314,13 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     feedback_text = serializers.CharField(
         required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
     )
+    reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=AiFeedbackReason.choices),
+        required=False,
+        allow_empty=True,
+        max_length=len(AiFeedbackReason.choices),
+        help_text="Optional reasons for a bad rating. Ignored for a good rating.",
+    )
 
 
 class AiHumanOutcomeRequestSerializer(serializers.Serializer):
@@ -334,7 +359,10 @@ class ComposeTicketSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "TipTap rich content JSON for formatted messages. Each image src must be the url of an image "
+            "uploaded to this project."
+        ),
     )
     tags = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -609,6 +637,8 @@ class TicketAssigneeRequestField(serializers.Field):
 
 
 MAX_TAGS_ADDED_PER_UPDATE = 100
+# Inbound email sets these traits, and they keep unverified relayed or forwarded mail private and unattributed.
+INBOUND_EMAIL_TRAIT_KEYS = frozenset({"email_relayed", "email_forwarded"})
 
 
 class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -652,6 +682,13 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
 
+    def validate_anonymous_traits(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Send customer details as an object of fields, such as name and email.", code="invalid"
+            )
+        return value
+
     def validate_tags(self, value: list[str]) -> list[str]:
         # The cap counts new tags only. A client sends the whole list on every save, so a cap on
         # its length would reject every update of a ticket that already has more tags than the cap.
@@ -666,6 +703,11 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         tags = validated_data.pop("tags", None)
+        traits = validated_data.get("anonymous_traits")
+        if isinstance(traits, dict):
+            existing = instance.anonymous_traits if isinstance(instance.anonymous_traits, dict) else {}
+            kept = {key: value for key, value in existing.items() if key in INBOUND_EMAIL_TRAIT_KEYS}
+            validated_data["anonymous_traits"] = {**traits, **kept}
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request
@@ -726,6 +768,7 @@ def _ticket_action_properties(ticket: Ticket) -> dict[str, Any]:
         "channel_source": ticket.channel_source,
         "ticket_status": ticket.status,
         "is_assigned": getattr(ticket, "assignment", None) is not None,
+        "ai_triage_result": (ticket.ai_triage or {}).get("result"),
     }
 
 
@@ -1777,8 +1820,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             is_private=data["is_private"],
         )
 
+    def _validate_rich_content_images(self, rich_content: object) -> None:
+        # The in-app editor can paste external images, as it always could. The check covers API and MCP callers.
+        if isinstance(self.request.successful_authenticator, SessionAuthentication):
+            return
+        # API callers such as hogdesk may still send external images, so the check waits for the rollout.
+        if not conversations_reply_images_enabled(self.request.user, self.team):
+            return
+        disallowed = find_disallowed_image_sources(self.team_id, rich_content)
+        if disallowed:
+            raise ValidationError(
+                {
+                    "rich_content": [
+                        "Each image must be uploaded to this project first. Upload it and use the url the upload "
+                        f"returns. Not accepted: {', '.join(disallowed[:5])}"
+                    ]
+                }
+            )
+
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        self._validate_rich_content_images(rich_content)
         if is_scout_sandbox_request(request) and not is_private:
             raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
 
@@ -1979,6 +2041,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = TicketNoteUpdateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        self._validate_rich_content_images(data.get("rich_content"))
 
         with transaction.atomic():
             locked = Comment.objects.select_for_update().get(pk=comment.pk)
@@ -2080,10 +2143,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         distinct_id = f"reviewer:{request.user.distinct_id}"
 
         feedback_text = data.get("feedback_text", "").strip()
+        reasons = sorted(set(data.get("reasons") or []))
+        event_groups = groups(team=self.team)
 
-        if feedback_text and data["rating"] == "bad":
+        if (feedback_text or reasons) and data["rating"] == "bad":
             feedback_properties: dict[str, Any] = {
                 "$ai_feedback_text": feedback_text,
+                "feedback_reasons": reasons,
                 "ai_product": "conversations",
                 "ticket_id": str(ticket.id),
                 "message_id": data["message_id"],
@@ -2092,7 +2158,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties, groups=event_groups
+            )
         else:
             properties: dict[str, Any] = {
                 "$ai_metric_name": "reviewer_quality",
@@ -2105,7 +2173,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+            posthoganalytics.capture(
+                distinct_id=distinct_id, event="$ai_metric", properties=properties, groups=event_groups
+            )
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
 
@@ -2171,6 +2241,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = ComposeTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        self._validate_rich_content_images(data.get("rich_content"))
         team = self.team
 
         if not team.conversations_enabled:

@@ -133,9 +133,6 @@ There is no dead-letter queue, so a malformed message stops the feed until it is
 
 The topic's other Node readers, the workflow trigger consumer and the subscription matcher, skip a malformed message and count a parse error.
 They skip a control record without counting one.
-Outside cloud, the Kafka table that fills the legacy ClickHouse `cohort_membership` table reads this topic too, and it stores a control record as an `entered` row with a zero person id.
-So on a local stack with the sweep on, each floor record adds such a row.
-In cloud, that table's Kafka table reads another cluster, where the sweep produces nothing.
 
 ## Mark and sweep
 
@@ -257,10 +254,12 @@ Batch flag evaluation always reads it from Postgres.
 A cache entry without the level reads as `off`.
 
 `condition_type` is derived by Django on save.
+The migration `cohorts.0024_backfill_cohort_condition_type` filled it for the cohorts saved before the column existed, so a team needs no resave to classify its cohorts before it is added to `REALTIME_COHORT_EVALUATION_TEAM_IDS` or granted `serving`.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
 A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
+When such a cohort includes a routed cohort, it takes the routed cohort's membership from the table, as a flag that targets the routed cohort directly does, so [a failed read](#when-the-read-fails) makes the included cohort false there too.
 
 The team metadata cache that the flags service reads carries the team's access row level as `realtime_cohort_level`, or `off` when the team has no row.
 It carries the row's level, not Django's effective level, because `REALTIME_COHORT_TEAM_ALLOWLIST` can name every team.
@@ -350,13 +349,8 @@ Before the reconcile, both p-2 and p-3 would have matched.
 
 - `cohort_membership.last_updated` is when the consumer wrote the row.
   The producer's version is in `version`.
-- A table in ClickHouse is also named `cohort_membership`.
-  It is a separate, legacy copy, and the flags service does not read it.
 - The processor's changes reach flags through several hops: Kafka, the consumer's batch, the database through the flags service's read connection, and the flags pod's cache.
   Workflows read through the Node services' read-write pool for that database and do not cache.
 - A readiness stamp does not mean the consumer has applied the reconcile or that the sweep has run.
 - The partition count, 64, is also a constant in the Node consumer.
   If the processor ran fewer partitions, no run would ever complete its bitmap, and no sweep would ever run.
-- A cohort that references a realtime cohort and is itself evaluated dynamically does not use the table answer for the referenced cohort.
-  The referenced cohort is recomputed dynamically, where its behavioral leaves are false.
-  Django still lets such a flag be saved, because it checks the referenced cohort's readiness, not how it will be read.

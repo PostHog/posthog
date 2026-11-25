@@ -119,7 +119,7 @@ export interface AlertNotificationPagerDutyInput {
     onRegionChange: (value: AlertPagerDutyRegion) => void
 }
 
-interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
+export interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
     description?: ReactNode
     destinations: {
         showExisting: boolean
@@ -155,6 +155,22 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     add: {
         onClick: () => void
         disabledReason?: string
+    }
+}
+
+/** Adds the destination when Enter is pressed in one of its inputs, without submitting the surrounding form. */
+export function addDestinationOnEnter(
+    event: KeyboardEvent<HTMLInputElement>,
+    add: AlertNotificationDestinationEditorProps<string>['add']
+): void {
+    if (event.nativeEvent.isComposing) {
+        event.stopPropagation()
+        return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (!add.disabledReason) {
+        add.onClick()
     }
 }
 
@@ -325,17 +341,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     )
     const addDestinationButtonIsInline =
         notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty)
-    const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
-        if (event.nativeEvent.isComposing) {
-            event.stopPropagation()
-            return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        if (!add.disabledReason) {
-            add.onClick()
-        }
-    }
+    const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => addDestinationOnEnter(event, add)
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {

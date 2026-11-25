@@ -13,6 +13,7 @@ from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -27,6 +28,8 @@ from products.signals.backend.spend_billing import (
     uses_spend_billing,
 )
 from products.signals.backend.trial.funding import TrialFunding
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -200,9 +203,14 @@ def record_llm_spend(
     with transaction.atomic():
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id, trial_grant_id=trial_grant_id)
         if spend.finalized_at is not None:
-            if source_id and not strict:
-                return
-            raise ValueError("Cannot add generation costs to finalized spend")
+            if strict:
+                raise ValueError("Cannot add generation costs to finalized spend")
+            # Settlement runs after the model call, so raising would discard a paid response and fail every retry.
+            if not source_id:
+                logger.warning(
+                    "signals.spend.finalized_generation_skipped", team_id=team_id, signal_id=signal_id, stage=stage
+                )
+            return
         if trial_grant_id:
             if str(spend.trial_grant_id) != trial_grant_id:
                 raise ValueError("Generation funding cannot change")
@@ -339,7 +347,7 @@ def record_task_spend(
             if report:
                 apply_report_billing(spend, report)
         spend.spend = cost_to_spend(
-            run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+            run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
         )
         spend.accounting_failed = spend.accounting_failed or run.accounting_failed
         spend.accounting_pending = not run.complete
@@ -484,7 +492,7 @@ def complete_task_spend(
                     if report:
                         apply_report_billing(spend, report)
                 spend.spend = cost_to_spend(
-                    run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+                    run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
                 )
                 # The shared sweep settles late costs after this worker exhausts its retries.
                 spend.accounting_failed = run.accounting_failed
@@ -510,7 +518,7 @@ def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> st
             return None
         if spend.finalized_at is None:
             spend.spend = cost_to_spend(
-                run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
+                run.standard_cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
             )
             spend.accounting_failed = spend.accounting_failed or run.accounting_failed
             spend.accounting_pending = not run.complete

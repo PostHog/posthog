@@ -9,6 +9,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     retry_with_deadline,
     stop_at_request_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import (
+    NETWORK_ERRORS,
+    RetryableHTTPError,
+    is_retryable_status,
+    parse_retry_after,
+    raise_for_retryable_status,
+    raise_for_status_redacted,
+    vendor_retry,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     NO_REQUEST_TIMEOUT,
@@ -25,6 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 
 __all__ = [
+    "NETWORK_ERRORS",
+    "RetryableHTTPError",
+    "is_retryable_status",
+    "parse_retry_after",
+    "raise_for_retryable_status",
+    "raise_for_status_redacted",
+    "vendor_retry",
     "DEFAULT_RETRY",
     "BoundedRetry",
     "NO_REQUEST_TIMEOUT",

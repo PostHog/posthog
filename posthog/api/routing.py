@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
 from django.db.models.query import QuerySet
 
 import structlog
@@ -16,6 +15,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.scope_resolution import (
+    CURRENT_ALIAS,
+    is_flat_route,
+    note_flat_route,
+    record_scope_resolution,
+    record_token_on_project_path,
+)
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -47,7 +53,9 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
+    filter_visible_project_objects,
     is_service_auth,
 )
 from posthog.products import is_product_module
@@ -56,11 +64,9 @@ from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
-from products.authorization.backend.facade.enums import ResourceType
-from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
+from products.authorization.backend.presentation.querysets import can_filter_queryset
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -369,7 +375,19 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         Path parameters are parsed after super().initial(), so an
         authentication or permission error wins over a 404 for a malformed id.
         """
-        super().initial(request, *args, **kwargs)
+        # Read per request rather than per class, because a view can clear it for a request that names its scope.
+        if self.param_derived_from_user_current_team:
+            note_flat_route(request)
+        try:
+            super().initial(request, *args, **kwargs)
+        finally:
+            # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
+            if is_flat_route(request) or CURRENT_ALIAS in self.kwargs.values():
+                record_scope_resolution(request, token_team=self._get_team_from_request)
+            elif self._is_team_view or self._is_project_view:
+                record_token_on_project_path(
+                    request, token_team=self._get_team_from_request, path_kwargs=self.parent_query_kwargs
+                )
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
@@ -435,6 +453,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 *dangerously_defined,
                 *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
+                TwoFactorEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
                 IPRestrictionsPermission(),
@@ -466,6 +485,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(TwoFactorEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
         permission_classes.append(IPRestrictionsPermission)
@@ -591,12 +611,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             or not can_filter_queryset(queryset.model)
         ):
             return access.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
-        return filter_queryset(
-            queryset,
-            resource=Resource(
-                type=ResourceType(cast(str, model_to_resource(cast(Model, queryset.model)))), project_id=access.team.id
-            ),
-            include_all_if_admin=include_all_if_admin,
+        return filter_visible_project_objects(
+            queryset, team_id=access.team.id, include_all_if_admin=include_all_if_admin
         )
 
     def dangerously_get_object(self) -> Any:
@@ -928,11 +944,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(
+        permissions = UserPermissions(
             user=cast(User, self.request.user),
             team=self.team,
             organization_membership=self.user_access_control.organization_membership,
         )
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same memberships, so they reuse this instance.
+            authorization.reuse_current_rules(self.user_access_control, permissions)
+        return permissions
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

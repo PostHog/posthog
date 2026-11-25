@@ -139,4 +139,20 @@ describe('connectAgentLogic', () => {
 
         expect(logic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
     })
+
+    it('makes every key on a library page read that library and lists only its keys', async () => {
+        ;(businessKnowledgeKeysCreate as jest.Mock).mockResolvedValue(NEW_KEY)
+        const libraryLogic = connectAgentLogic({ libraryId: LIBRARY.id })
+        libraryLogic.mount()
+        await expectLogic(libraryLogic).toFinishAllListeners()
+        libraryLogic.actions.setLabel('Docs agent')
+
+        libraryLogic.actions.createKey()
+        await expectLogic(libraryLogic).toFinishAllListeners()
+
+        expect(businessKnowledgeKeysCreate).toHaveBeenCalledWith('1', { label: 'Docs agent', library_id: LIBRARY.id })
+        expect(libraryLogic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }])
+        expect(libraryLogic.values.reads).toBe(LIBRARY.id)
+        libraryLogic.unmount()
+    })
 })

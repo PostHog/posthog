@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { RefObject } from 'react'
 
-import { IconAtSign, IconGithub, IconPlus, IconUpload } from '@posthog/icons'
+import { IconAtSign, IconGitLab, IconGithub, IconPlus, IconUpload } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -20,6 +20,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useComposerFilePicker } from '../../../components/composer/useComposerFilePicker'
 import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
+import { gitlabProjectsLogic } from '../../../logics/gitlabProjectsLogic'
 import { githubAuthorizeUrl } from './githubAuthorizeUrl'
 
 export interface TaskComposerAddMenuProps {
@@ -38,7 +39,9 @@ export function TaskComposerAddMenu({
     const { fileInput, openPicker, isOver, addDisabledReason } = useComposerFilePicker(attachmentsKey, dropTargetRef)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    const needsGitHub = getIntegrationsByKind(['github']).length === 0
+    const { gitlabTaskIntegrations } = useValues(gitlabProjectsLogic)
+    const hasGitHub = getIntegrationsByKind(['github']).length > 0
+    const needsGitHub = !hasGitHub && gitlabTaskIntegrations.length === 0
     return (
         <>
             {fileInput}
@@ -98,7 +101,7 @@ export function TaskComposerAddMenu({
                             </DropdownMenuItem>
                         ) : (
                             <DropdownMenuItem onClick={onAddRepository} data-attr="task-composer-add-repository">
-                                <IconGithub />
+                                {hasGitHub ? <IconGithub /> : <IconGitLab />}
                                 Add a repository
                             </DropdownMenuItem>
                         ))}

@@ -17,10 +17,12 @@ import type {
     EventDefinitionBulkUpdateVerifiedResponseApi,
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
+    EventDefinitionsGolangRetrieveParams,
     EventDefinitionsListParams,
     EventDefinitionsPrimaryPropertiesRetrieveParams,
     EventDefinitionsTypescriptRetrieveParams,
     GeneratedDefinitionsApi,
+    GeneratedGolangDefinitionsApi,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
     PrimaryPropertiesResponseApi,
@@ -286,15 +288,31 @@ export const eventDefinitionsByNameRetrieve = async (
     })
 }
 
-export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/golang/`
+export const getEventDefinitionsGolangRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsGolangRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/golang/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/golang/`
 }
 
 export const eventDefinitionsGolangRetrieve = async (
     projectId: string,
+    params?: EventDefinitionsGolangRetrieveParams,
     options?: RequestInit
-): Promise<GeneratedDefinitionsApi> => {
-    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsGolangRetrieveUrl(projectId), {
+): Promise<GeneratedGolangDefinitionsApi> => {
+    return apiMutator<GeneratedGolangDefinitionsApi>(getEventDefinitionsGolangRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

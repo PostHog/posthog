@@ -114,6 +114,8 @@ export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 export interface CheckDatabaseNameResponseApi {
@@ -2097,6 +2099,8 @@ export interface SyncFrequencyBoundApi {
     label: string
     /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
     blocker: SyncFrequencyBlockerApi | null
+    /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it, and also when the pinned view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` and `ceiling`. */
+    pinned: boolean
 }
 
 export interface SyncFrequencyBoundsApi {
@@ -2108,7 +2112,7 @@ export interface SyncFrequencyBoundsApi {
     frequency_mode: FrequencyModeEnumApi
     /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
     options: SyncFrequencyOptionApi[]
-    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    /** The fastest bound: no cadence finer than this is allowed, because no upstream source syncs more often, or because the upstream view named here is pinned to this cadence (see `pinned`). Null when nothing upstream withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
     /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
     plan_floor: SyncFrequencyBoundApi | null
@@ -2118,6 +2122,18 @@ export interface SyncFrequencyBoundsApi {
     best_effort_sources: SyncFrequencyBlockerApi[]
     /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
     best_effort_sources_withheld: boolean
+}
+
+export interface SavedQueryPlanClampApi {
+    /**
+     * The refresh interval, in seconds, this view had before the rewrite. Null when it had none.
+     * @nullable
+     */
+    previous_target_seconds: number | null
+    /** The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed. */
+    plan_floor_seconds: number
+    /** When the refresh interval was rewritten. */
+    at: string
 }
 
 /**
@@ -2165,6 +2181,8 @@ export interface DataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp: SavedQueryPlanClampApi | null
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -2293,6 +2311,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp?: SavedQueryPlanClampApi | null
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -2458,9 +2478,20 @@ export interface SavedQueryRunApi {
     engine?: MaterializationEngineEnumApi
 }
 
+export interface SavedQueryRunSkippedNodeApi {
+    /** The data model node left out of the run. */
+    node_id: string
+    /** Name of the view left out of the run. */
+    name: string
+    /** Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile. */
+    reason: string
+}
+
 export interface SavedQueryRunResponseApi {
     /** The data model nodes included in the run. */
     node_ids: string[]
+    /** Views an upstream or downstream run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. Always empty for a run of only this view. */
+    skipped: SavedQueryRunSkippedNodeApi[]
 }
 
 /**
@@ -2867,29 +2898,71 @@ export const UploadedFileFormatEnumApi = {
 } as const
 
 export interface UploadedFileApi {
-    /** Id returned by upload_file for the stored file. */
-    upload_id: string
-    /** Sanitized filename returned by upload_file. */
-    filename: string
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
     /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
      *
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
     file_format: UploadedFileFormatEnumApi
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+}
+
+export interface InlineUploadApi {
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+    file: Blob
+}
+
+export interface CreateTableFromFileApi {
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+    file: Blob
+    /** Name the resulting table is queried by in HogQL. */
+    table_name: string
 }
 
 export interface CreateTableFromUploadApi {
-    /** Id returned by upload_file for the stored file. */
-    upload_id: string
-    /** Sanitized filename returned by upload_file. */
-    filename: string
+    /**
+     * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+     * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+     */
+    notebook_cell?: string
     /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
      *
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
     file_format: UploadedFileFormatEnumApi
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }
@@ -3474,7 +3547,7 @@ export type WarehouseSavedQueryDraftsListParams = {
 
 export type WarehouseTablesListParams = {
     /**
-     * Include table columns. Disable for lightweight table existence or name lookups.
+     * Include table columns. Disable for lightweight table lookups.
      */
     include_columns?: boolean
     /**
@@ -3493,6 +3566,13 @@ export type WarehouseTablesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseTablesRetrieveParams = {
+    /**
+     * Include table columns. Disable for lightweight table lookups.
+     */
+    include_columns?: boolean
 }
 
 /**

@@ -5,8 +5,11 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { IntegrationKind, IntegrationType } from '~/types'
+
+import { QuillIntegrationsList } from './QuillIntegrationsList'
 
 export function IntegrationsList({
     titleText = 'All connected integrations are listed here. These integrations may be used for various purposes, such as data warehouse or pipeline destinations. To connect a new integration, visit the relevant product area.',
@@ -25,6 +28,7 @@ export function IntegrationsList({
 }): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { startPolling, stopPolling } = useActions(integrationsLogic)
+    const quillSurface = useQuillSurface()
 
     useOnMountEffect(() => {
         startPolling()
@@ -39,6 +43,18 @@ export function IntegrationsList({
         }
         return true
     })
+
+    if (quillSurface) {
+        return (
+            <QuillIntegrationsList
+                titleText={titleText}
+                integrations={filteredIntegrations}
+                loading={integrationsLoading || integrations === null}
+                emptyState={emptyState}
+                renderActions={renderActions}
+            />
+        )
+    }
 
     return (
         <div>

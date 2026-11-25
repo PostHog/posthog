@@ -5,7 +5,7 @@ import { Suspense } from 'react'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { ANOMALY_SCORES_SEARCH_PARAM } from './anomalyScoresParam'
+import { ANOMALY_SCORES_SEARCH_PARAM, anomalySeriesKeyFromSearch } from './anomalyScoresParam'
 import type { TrendsAnomalyScoreOverlayProps } from './TrendsAnomalyScoreOverlay'
 
 // Only a link from the Anomalies tab asks for the marks, so their code and request stay out of every other chart.
@@ -14,16 +14,18 @@ const TrendsAnomalyScoreOverlay = lazyWithRetry(() =>
 )
 
 /** The anomaly score marks, for a chart that was opened from the Anomalies tab. Renders nothing otherwise. */
-export function RequestedAnomalyScoreOverlay(props: TrendsAnomalyScoreOverlayProps): JSX.Element | null {
+export function RequestedAnomalyScoreOverlay(
+    props: Omit<TrendsAnomalyScoreOverlayProps, 'seriesKey'>
+): JSX.Element | null {
     const enabled = useFeatureFlag('ANOMALIES_TAB')
-    const { searchParams } = useValues(router)
+    const { searchParams, location } = useValues(router)
 
     if (!enabled || !searchParams[ANOMALY_SCORES_SEARCH_PARAM]) {
         return null
     }
     return (
         <Suspense fallback={null}>
-            <TrendsAnomalyScoreOverlay {...props} />
+            <TrendsAnomalyScoreOverlay {...props} seriesKey={anomalySeriesKeyFromSearch(location.search)} />
         </Suspense>
     )
 }

@@ -125,6 +125,8 @@ import type { ExternalDataSourceConnectionOptionApi } from '../../../../../produ
 
 // Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
 export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
+import type { DataModelingSyncInterval } from '~/types'
+
 import {
     captureBIEditorQueryRun,
     captureBIEditorQuerySaved,
@@ -143,6 +145,7 @@ import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/
 import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
+import type { DataWarehouseSavedQueryUpdate } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { BreakingColumnChangeDeclinedError } from './BreakingColumnChangeDialog'
 import { draftsLogic } from './draftsLogic'
@@ -177,6 +180,7 @@ export interface SqlEditorLogicProps {
     mode?: SQLEditorMode
     singleStatement?: boolean
     hideAgentHints?: boolean
+    captureQueryTelemetry?: boolean
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -423,6 +427,12 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
                 ? source.sendRawQuery || undefined
                 : undefined,
     }
+}
+
+// Only editor state is dropped. Connection and engine fields stay, so a non-ClickHouse query fails to save.
+function metricDefinitionFromSource(source: HogQLQuery, query: string): Record<string, unknown> {
+    const { variables: _variables, filters: _filters, ...definition } = normalizeRawQuerySource({ ...source, query })
+    return definition
 }
 
 export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
@@ -807,13 +817,13 @@ export interface sqlEditorLogicActions {
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (
         viewId: string,
-        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
+        syncFrequency?: DataModelingSyncInterval | undefined,
         incremental?: DataWarehouseSavedQueryIncremental | null | undefined,
         createdViewName?: string | undefined
     ) => {
         createdViewName: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | null | undefined
-        syncFrequency: import('~/types').DataModelingSyncInterval | undefined
+        syncFrequency: DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     runDataWarehouseSavedQuery: (
@@ -823,9 +833,7 @@ export interface sqlEditorLogicActions {
         fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQuery: (
-        view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-    ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -835,10 +843,10 @@ export interface sqlEditorLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
-        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+        payload?: DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        payload?: DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     loadDatabase: (
         args_0?:
@@ -1062,7 +1070,7 @@ export interface sqlEditorLogicActions {
         value: true
     }
     reviewQuerySave: (save: (candidates?: SaveCandidates) => void) => {
-        save: (candidates?: SaveCandidates | undefined) => void
+        save: (candidates?: SaveCandidates) => void
     }
     reviewViewUpdate: (
         view: UpdateViewPayload,
@@ -2597,6 +2605,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setSourceQuery(nextSourceQuery)
                 actions.setLastRunQuery(nextSourceQuery)
                 const dataProps: DataNodeLogicProps = {
+                    captureQueryTelemetry: props.captureQueryTelemetry,
                     key: values.dataLogicKey,
                     query: executedSource,
                     autoLoad: false,
@@ -3213,10 +3222,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const created = await createMetricAsUser(
                         {
                             ...fields,
-                            definition: normalizeRawQuerySource({
-                                ...(values.sourceQuery.source as HogQLQuery),
-                                query: queryOverride ?? values.queryInput ?? '',
-                            }) as unknown as Record<string, unknown>,
+                            definition: metricDefinitionFromSource(
+                                values.sourceQuery.source,
+                                queryOverride ?? values.queryInput ?? ''
+                            ),
                             overwrite,
                         },
                         approve
@@ -3289,10 +3298,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         String(ApiConfig.getCurrentTeamId()),
                         values.editingMetricName,
                         {
-                            definition: normalizeRawQuerySource({
-                                ...(values.sourceQuery.source as HogQLQuery),
-                                query: values.queryInput ?? '',
-                            }) as unknown as Record<string, unknown>,
+                            definition: metricDefinitionFromSource(values.sourceQuery.source, values.queryInput ?? ''),
                         }
                     )
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
@@ -3948,6 +3954,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         source: {
                             ...normalizeRawQuerySource(query.source),
                             filters: normalizeFiltersForUrl(query.source.filters),
+                            variables: query.source.variables ?? {},
                         },
                     })
                 const currentQuery = { ...sourceQuery, source: { ...sourceQuery.source, query: queryInput } }
@@ -4764,11 +4771,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return cached
                 }
                 try {
-                    const response = await performQuery<HogQLMetadata>({
-                        kind: NodeKind.HogQLMetadata,
-                        language: HogLanguage.hogQL,
-                        query: subqueryText,
-                    })
+                    const response = await performQuery<HogQLMetadata>(
+                        {
+                            kind: NodeKind.HogQLMetadata,
+                            language: HogLanguage.hogQL,
+                            query: subqueryText,
+                            globals: values.placeholderValues ?? undefined,
+                        },
+                        { captureQueryTelemetry: props.captureQueryTelemetry }
+                    )
                     const errors = response?.errors ?? []
                     const result =
                         errors.length > 0

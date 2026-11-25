@@ -140,6 +140,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             workflow_id: invocation.hogFlow.id,
             action_id: action.id,
             is_test: false,
+            source: action.type === 'function_email' ? 'code' : 'workflow',
             ...(outcome.reason ? { reason: outcome.reason } : {}),
         })
         return outcome

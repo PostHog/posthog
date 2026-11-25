@@ -192,8 +192,14 @@ echo "running the bootstrap with the dry run's CA and, on arm64, the arm64 build
 cp /dry-run/host-bootstrap.sh /opt/posthog/nodejs/tests/scenarios/cloud/host-bootstrap.sh
 cd /opt/posthog
 export AWS_REGION=us-east-1 SCENARIO_RUN_ID="$RUN_ID" SCENARIO_EVIDENCE_BUCKET=dry-run
+step "the host resolves no stack service name before the bootstrap, as a fresh run host"
+if getent hosts db; then
+    echo "db resolves before the bootstrap, so this dry run would hide a missing hosts entry"
+    exit 1
+fi
 step "host-bootstrap.sh"
 bash nodejs/tests/scenarios/cloud/host-bootstrap.sh || { echo "host-bootstrap.sh exited $?"; exit 1; }
+getent hosts db || { echo "db does not resolve after the bootstrap"; exit 1; }
 step "host-prepare.sh"
 bash nodejs/tests/scenarios/cloud/host-prepare.sh
 code=$?
@@ -238,12 +244,22 @@ exit "$code"
 EOF
 
 password='dry:Run#1?&%x'
+upstream_resolver() {
+    local file
+    for file in /run/systemd/resolve/resolv.conf /etc/resolv.conf; do
+        [ -r "$file" ] || continue
+        awk '$1 == "nameserver" && $2 !~ /^127\./ && $2 != "::1" { print $2; found = 1; exit } END { exit !found }' "$file" && return 0
+    done
+    echo "No resolver outside this machine in /run/systemd/resolve/resolv.conf or /etc/resolv.conf; the host container needs one to resolve as a run host does" >&2
+    return 1
+}
+upstream=$(upstream_resolver)
 docker network create "$name" >/dev/null
 docker run -d --name "$name-db" --network "$name" --network-alias cluster --network-alias not-in-certificate \
     -e POSTGRES_USER=posthog -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=cyclotron_node \
     -v "$work/tls:/tls:ro" --entrypoint bash "postgres:${engine:-16}" -c \
     'install -o postgres -m 0600 /tls/server.crt /tls/server.key /var/lib/postgresql/ && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key' \
     >/dev/null
-docker run --name "$name-host" --platform "$platform" --network "$name" --privileged -v "$name-docker:/var/lib/docker" \
+docker run --name "$name-host" --platform "$platform" --network "$name" --dns "$upstream" --privileged -v "$name-docker:/var/lib/docker" \
     -e RUN_ID="$run_id" -e CARD_SECONDS="$card_seconds" -e DRY_RUN_DB_PASSWORD="$password" \
     -v "$work:/dry-run" ubuntu:24.04 bash /dry-run/host.sh 2>&1 | tee "$work/host.log"

@@ -65,8 +65,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // The table's TTL expires a row dated D at the start of day D + FLAG_EVALUATIONS_TTL_DAYS.
 // The day FLAG_EVALUATIONS_TTL_DAYS back has already expired when today starts.
 // This function returns the start of the UTC day FLAG_EVALUATIONS_TTL_DAYS - 1 days back, the oldest day the
-// table keeps. ClickHouse can drop an older row at any merge. For a FLAG_EVALUATIONS_ONLY team the row is the
-// only copy of the call. The fork skips a call this old and leaves it in the events table.
+// table keeps. ClickHouse can drop an older row at any merge. For a team whose events writes stop, the row is
+// the only copy of the call. The fork skips a call this old and leaves it in the events table.
 const retentionStartMs = (nowMs: number): number =>
     Math.floor(nowMs / DAY_MS) * DAY_MS - (FLAG_EVALUATIONS_TTL_DAYS - 1) * DAY_MS
 
@@ -76,7 +76,7 @@ const isPastRetention = ({ event }: EventToEmit<string>, retentionStart: number)
 export interface ForkFlagEvaluationsStepInput {
     eventsToEmit: EventToEmit<string>[]
     teamId: number
-    team: Pick<Team, 'flag_evaluations_mode'>
+    team: Pick<Team, 'flag_evaluations_mode' | 'keep_writing_flag_calls_to_events'>
 }
 
 /**
@@ -84,9 +84,10 @@ export interface ForkFlagEvaluationsStepInput {
  * narrows the assembled events row to the flag_evaluations column set and
  * produces it to the clickhouse_flag_evaluations topic. The event continues to
  * the events table unchanged, except for a team whose organization is on
- * FLAG_EVALUATIONS_ONLY: this step moves each event it queued for that team
- * to the realtime-only output, which only the CDP consumers read. Without a
- * topic for that output, the step removes the event from eventsToEmit.
+ * FLAG_EVALUATIONS_ONLY without keep_writing_flag_calls_to_events: this step
+ * moves each event it queued for that team to the realtime-only output, which
+ * only the CDP consumers read. Without a topic for that output, the step
+ * removes the event from eventsToEmit.
  *
  * Sits between create-event and emit-event, where the fully assembled
  * ProcessedEvent exists: person_id and person_properties from person
@@ -97,7 +98,7 @@ export interface ForkFlagEvaluationsStepInput {
  *
  * Every failure path before the produce is queued continues toward the events
  * table. A produce that fails permanently is counted and dropped, never
- * retried, so for a FLAG_EVALUATIONS_ONLY team the stored row is lost. The ack
+ * retried, so for a team whose events writes stop, the stored row is lost. The ack
  * rides as a side effect, so the batch does not commit its offsets until the
  * broker answers. Pipe this step without a retry envelope, because a retry
  * would queue the produce again.

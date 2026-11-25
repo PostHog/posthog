@@ -24,7 +24,7 @@ from posthog.schema import (
 from posthog.hogql_queries.validation.validate_query import first_query_rule_violation
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.tasks.alerts.trends import _has_breakdown
+from posthog.tasks.alerts.trends import _defined_result_count, _has_breakdown
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
@@ -133,9 +133,8 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
             f"Relative alert condition '{ctx.parsed_condition.type}' is not compatible with non time series trends"
         )
 
-    formula_nodes = trends_query.trendsFilter.formulaNodes if trends_query.trendsFilter else None
-    result_count = len(formula_nodes) if formula_nodes else len(trends_query.series)
-    if parsed_config.series_index >= result_count:
+    result_count = _defined_result_count(trends_query)
+    if not 0 <= parsed_config.series_index < result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)

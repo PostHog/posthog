@@ -169,26 +169,46 @@ class TestBuildDefaultSchemas:
 
     @parameterized.expand(
         [
-            ("no_incremental_support", False, False, [], False),
-            ("incremental_support_but_no_field", True, True, [], False),
-            ("source_prefers_full_refresh", True, True, [_field("updated_at")], True),
+            ("no_incremental_support", {"supports_incremental": False, "supports_append": False}),
+            ("incremental_support_but_no_field", {"incremental_fields": []}),
+            ("source_prefers_full_refresh", {"prefers_full_refresh": True}),
+            # A merge without a key fails on the second sync, and append would keep every old row version.
+            ("columns_show_no_key", {"columns": [("updated_at", "timestamp", False)]}),
+            ("source_declares_no_key", {"declares_primary_keys": True}),
         ]
     )
-    def test_full_refresh_fallback(
-        self, _name: str, supports_incremental: bool, supports_append: bool, fields: list, prefers_full_refresh: bool
-    ) -> None:
+    def test_full_refresh_fallback(self, _name: str, overrides: dict) -> None:
+        fields: dict = {
+            "name": "dim_table",
+            "supports_incremental": True,
+            "supports_append": True,
+            "incremental_fields": [_field("updated_at")],
+            **overrides,
+        }
+        schemas = build_default_schemas([SourceSchema(**fields)])
+        assert schemas[0] == {"name": "dim_table", "should_sync": True, "sync_type": "full_refresh"}
+
+    @parameterized.expand(
+        [
+            # The sync falls back to an `id` column when no key is set.
+            ("id_column", [("ID", "integer", False), ("updated_at", "timestamp", False)]),
+            # A source that declares its key in code reports no columns, and supplies the key at sync time.
+            ("no_columns", []),
+        ]
+    )
+    def test_incremental_without_a_detected_key(self, _name: str, columns: list) -> None:
         schemas = build_default_schemas(
             [
                 SourceSchema(
-                    name="dim_table",
-                    supports_incremental=supports_incremental,
-                    supports_append=supports_append,
-                    incremental_fields=fields,
-                    prefers_full_refresh=prefers_full_refresh,
+                    name="orders",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("updated_at")],
+                    columns=columns,
                 )
             ]
         )
-        assert schemas[0] == {"name": "dim_table", "should_sync": True, "sync_type": "full_refresh"}
+        assert schemas[0]["sync_type"] == "incremental"
 
     def test_webhook_only_table_left_disabled(self) -> None:
         schemas = build_default_schemas(

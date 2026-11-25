@@ -4,8 +4,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.abuse.classifier import HogFunctionContent
-from products.cdp.backend.abuse.rules import Rule, matched_rules
+from posthog.hogql.parser import _builtin_parse_cache, _user_parse_cache, clear_parse_caches
+
+from products.cdp.backend.abuse.classifier import HogFunctionContent, SetAsideReason
+from products.cdp.backend.abuse.rules import Rule, has_outbound_call, matched_rules, set_aside_scores
 
 
 def content(
@@ -34,6 +36,29 @@ def content(
 
 def liquid(template: str) -> HogFunctionContent:
     return content(inputs={"body": {"value": template, "templating": "liquid"}})
+
+
+CHAT_TEMPLATE_HOG = (
+    "let body := {'channel': inputs.channel}\n"
+    "if (not empty(inputs.blocks)) {\n  body['blocks'] := inputs.blocks\n}\n"
+    "fetch('https://chat.example.com/api/post', {'method': 'POST', 'body': body})"
+)
+CHAT_INPUTS = {
+    "channel": {"value": "C0001"},
+    "blocks": {"value": [{"type": "button", "url": "{true ? 'https://app.example.com' : 'http://localhost:3000'}"}]},
+}
+
+
+def post_to(url: str) -> HogFunctionContent:
+    return content(hog=f"fetch('{url}', {{'method': 'POST', 'body': {{'text': inputs.text}}}})")
+
+
+def set_aside(function: HogFunctionContent, question: str) -> SetAsideReason | None:
+    return set_aside_scores(function, matched_rules(function)).get(question)
+
+
+def unedited_template(hog: str, inputs: dict[str, Any]) -> HogFunctionContent:
+    return content(hog=hog, inputs=inputs, template_id="template-example", code_modified_from_template=False)
 
 
 class TestAbuseRules(SimpleTestCase):
@@ -82,7 +107,24 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.REQUEST_CATCHER,),
             ),
             ("tunnel_subdomain", content(hog="fetch('https://abc123.ngrok-free.app/x')"), (Rule.REQUEST_CATCHER,)),
-            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.REQUEST_CATCHER,)),
+            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.SECURITY_CALLBACK,)),
+            (
+                "oob_domain_in_a_webhook_url",
+                content(inputs={"url": {"value": "https://c0ffee.oast.pro/collect"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_service_outside_the_shared_list",
+                content(inputs={"url": {"value": "https://probe.xss.ht/"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_collector_named_in_a_host_label",
+                content(inputs={"url": {"value": "https://foo-xss-hunter.example.workers.dev/c"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            ("ordinary_workers_dev_host", content(inputs={"url": {"value": "https://api.example.workers.dev/c"}}), ()),
+            ("tool_name_inside_a_word", content(inputs={"url": {"value": "https://interactshop.example.com/c"}}), ()),
             ("catcher_lookalike", content(inputs={"url": {"value": "https://notwebhook.site/x"}}), ()),
             ("catcher_name_as_subdomain", content(inputs={"url": {"value": "https://webhook.site.example.com/x"}}), ()),
             (
@@ -125,6 +167,67 @@ class TestAbuseRules(SimpleTestCase):
                 content(mappings=[{"name": "Orders", "inputs": {"url": {"value": "http://10.0.0.8/orders"}}}]),
                 (Rule.INTERNAL_HOST,),
             ),
+            ("local_link_in_the_message_of_a_stock_template", unedited_template(CHAT_TEMPLATE_HOG, CHAT_INPUTS), ()),
+            (
+                "edited_template_code_that_sends_a_request_to_a_message_link",
+                content(
+                    hog="let request := {'url': 'https://chat.example.com/api/post'}\n"
+                    "let alias := request\n"
+                    "alias['url'] := inputs.blocks[1].url\n"
+                    "fetch(request.url, {'method': 'POST', 'body': {'blocks': inputs.blocks}})",
+                    inputs=CHAT_INPUTS,
+                    template_id="template-example",
+                    code_modified_from_template=True,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_url_input_of_a_stock_template",
+                unedited_template("fetch(inputs.url, {'body': inputs.body})", {"url": {"value": "http://10.0.0.9/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_input_in_a_url_variable_of_a_stock_template",
+                unedited_template(
+                    "let target := f'{inputs.base_url}/v1/events'\nfetch(target, {'body': inputs.body})",
+                    {"base_url": {"value": "http://10.0.0.9"}},
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_url_input_that_renders_another_input",
+                unedited_template(
+                    "fetch(inputs.url, {'body': inputs.body})",
+                    {
+                        "body": {"value": "http://169.254.169.254/latest/"},
+                        "url": {
+                            "value": "{% assign k = 'in' | append: 'puts' %}{{ [k].body }}",
+                            "templating": "liquid",
+                        },
+                    },
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_native_destination_whose_code_never_sends_the_request",
+                content(
+                    hog="return event;",
+                    inputs={"url": {"value": "http://127.0.0.1/"}},
+                    template_id="native-webhook",
+                    code_modified_from_template=False,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_that_fetches_inside_a_function",
+                unedited_template(
+                    "let url := 'https://api.example.com/v1'\n"
+                    "fun send(url) {\n  return fetch(url, {})\n}\n"
+                    "send(inputs.endpoint)",
+                    {"endpoint": {"value": "http://localhost:8000/"}},
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
             ("ipv4_shorthand", content(inputs={"url": {"value": "http://127.1/"}}), (Rule.INTERNAL_HOST,)),
             ("ipv4_as_one_number", content(hog="fetch('http://2130706433/')"), (Rule.INTERNAL_HOST,)),
             ("ipv4_in_hex", content(hog="fetch(f'http://0x7f000001/{event.uuid}')"), (Rule.INTERNAL_HOST,)),
@@ -152,7 +255,7 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "huge_authority",
                 content(inputs={"url": {"value": "http://" + "a" * 1_000_000}}),
-                (Rule.OVERSIZED_INPUT,),
+                (),
             ),
             (
                 "semicolon_in_userinfo",
@@ -187,12 +290,10 @@ class TestAbuseRules(SimpleTestCase):
             ("numeric_looking_domain", content(inputs={"url": {"value": "https://1.2.3.4.example.com/"}}), ()),
             ("many_urls", content(hog="https://example.com/" * 50_000, inputs={}), ()),
             ("templated_host", content(inputs={"url": {"value": "https://{inputs.host}/hook"}}), ()),
-            ("oversized_input", content(inputs={"padding": {"value": "B" * 65_537}}), (Rule.OVERSIZED_INPUT,)),
-            ("input_at_the_size_limit", content(inputs={"padding": {"value": "B" * 65_536}}), ()),
             (
-                "oversized_mapping_input",
-                content(mappings=[{"inputs": {"padding": {"value": {"nested": "B" * 70_000}}}}]),
-                (Rule.OVERSIZED_INPUT,),
+                "large_lookup_input",
+                content(inputs={"names": {"value": {f"id_{i}": f"Customer {i}" for i in range(10_000)}}}),
+                (),
             ),
             (
                 "workflow_function_called_from_a_destination",
@@ -212,6 +313,11 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "internal_function_passed_by_name",
                 content(hog="let run := postHogCreateTask\nrun({'title': event.event})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
+                "internal_function_in_an_inline_query_sample",
+                content(hog="let q := (select 1 from events sample {postHogCreateTask({})})"),
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
@@ -235,13 +341,32 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_name_bound_by_a_catch",
+                content(hog="try {\n  fetch(inputs.url)\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (),
+            ),
+            (
+                "internal_function_called_in_a_try_with_a_catch_of_that_name",
+                content(hog="try {\n  sendEmail({'to': inputs.to})\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "internal_function_name_in_a_string",
                 content(hog="print('postHogCreateTask runs in workflows')\nfetch(inputs.url)"),
                 (),
             ),
             (
                 "property_named_like_an_internal_function",
-                content(hog="fetch(inputs.url, {'body': event.properties.postHogGetTicket})"),
+                content(hog="fetch(inputs.url, {'body': event.properties.postHogCreateTask})"),
+                (),
+            ),
+            (
+                "support_ticket_mirror_destination",
+                content(
+                    hog="let ticket := postHogGetTicket({'ticket_id': event.properties.ticket_id})\n"
+                    "postHogUpdateTicket({'ticket_id': event.properties.ticket_id, 'updates': {'status': 'pending'}})\n"
+                    "fetch(inputs.url, {'body': ticket.body})"
+                ),
                 (),
             ),
             (
@@ -333,12 +458,45 @@ class TestAbuseRules(SimpleTestCase):
                     ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
                     ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
                     (
+                        "a_comment_block_closed_by_a_trimmed_end",
+                        "{% comment %}x{% endcomment-%}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_with_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}{{ \'x" }}{% endcomment %}{{ (1..20000) | size }}',
+                    ),
+                    (
+                        "a_raw_block_with_a_trimmed_end_tag_inside",
+                        "{% raw %}{%- endraw %}{{ 'x }}{% endraw %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_closed_by_an_end_before_a_curly_quote",
+                        "{% comment %}x{% endcomment\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_raw_block_closed_by_an_end_before_a_curly_quote",
+                        "{% raw %}x{% endraw\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    ("a_raw_block_closed_after_a_liquid_blank", "{% raw %}x{%\u180eendraw %}{{ (1..20000) | size }}"),
+                    (
+                        "a_raw_block_whose_first_end_tag_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ '{% endraw %}{{ (1..20000) | size }}' }}",
+                    ),
+                    (
                         "a_line_comment_in_a_liquid_block",
                         "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
                     ),
                     (
                         "a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
+                    ),
+                    (
+                        "a_raw_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  raw\n  - endraw\n  echo (1..20000) | size\n%}",
+                    ),
+                    (
+                        "a_comment_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  comment\n  -endcomment\n  echo (1..20000) | size\n%}",
                     ),
                     (
                         "a_comment_block_closed_by_a_suffixed_end",
@@ -363,10 +521,34 @@ class TestAbuseRules(SimpleTestCase):
                     ),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
                     (
+                        "in_a_comment_block_opened_by_a_trimmed_statement",
+                        "{% liquid\n  - comment\n  echo (1..20000) | size\n  endcomment\n  echo 1\n%}",
+                    ),
+                    (
                         "in_a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  assign xs = (1..20000)\n  endcomment\n  echo 1\n%}",
                     ),
                     ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
+                    (
+                        "in_a_raw_block_after_a_trimmed_end_tag",
+                        "{% raw %}{% endraw-%}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_a_python_only_blank",
+                        "{% raw %}{%\x1cendraw %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_an_end_tag_that_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_comment_block_after_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}" }}{{ (1..20000) | size }}{% endcomment %}',
+                    ),
+                    (
+                        "after_a_comment_block_with_an_end_tag_and_a_space",
+                        "{% comment %}x{% endcomment- %}{{ (1..20000) | size }}",
+                    ),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]
             ),
@@ -386,6 +568,17 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("huge_hog_range_with_a_start", content(hog="let ids := range(-5000, 5001)"), (Rule.HUGE_RANGE,)),
             ("hog_range_at_the_limit", content(hog="let ids := range(10000)"), ()),
+            ("local_function_named_range", content(hog="fun range(n) {\n  return [n]\n}\nprint(range(20000))"), ()),
+            (
+                "huge_range_beside_a_local_named_range_in_another_scope",
+                content(hog="fun helper() {\n  let range := 1\n}\nprint(range(20000))"),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "local_lambda_named_replace_all",
+                content(hog="let replaceAll := (s, a, b) -> s\nprint(replaceAll(event.event, '', 'xx'))"),
+                (),
+            ),
             (
                 "huge_range_in_a_hog_template_input",
                 content(inputs={"payload": {"value": "{range(1000000)}", "templating": "hog"}}),
@@ -435,13 +628,313 @@ class TestAbuseRules(SimpleTestCase):
             ("replace_all_of_nothing_with_nothing", content(hog="let name := replaceAll(event.event, '', '')"), ()),
             (
                 "several_rules",
-                content(
-                    hog="fetch('https://webhook.site/x'); fetch('http://127.0.0.1/')",
-                    inputs={"padding": {"value": "B" * 100_000}},
-                ),
-                (Rule.INTERNAL_HOST, Rule.REQUEST_CATCHER, Rule.OVERSIZED_INPUT),
+                content(hog="fetch('https://webhook.site/x'); fetch('http://127.0.0.1/')"),
+                (Rule.INTERNAL_HOST, Rule.REQUEST_CATCHER),
             ),
         ]
     )
     def test_matched_rules(self, _name: str, function: HogFunctionContent, expected: tuple[Rule, ...]) -> None:
         assert matched_rules(function) == expected
+
+    @parameterized.expand(
+        [
+            ("direct_fetch", content(), True),
+            ("no_call", content(hog="event.properties.internal := true\nreturn event", inputs={}), False),
+            (
+                "fetch_only_in_a_string_and_a_comment",
+                content(hog="print('fetch(inputs.url)')\n// fetch(inputs.url)\nreturn event", inputs={}),
+                False,
+            ),
+            (
+                "call_to_a_local_function_named_fetch",
+                content(hog="fun fetch(url) {\n  return url\n}\nfetch('x')"),
+                True,
+            ),
+            (
+                "fetch_beside_a_local_of_that_name_in_another_scope",
+                content(hog="fun f() {\n  let fetch := 1\n}\nprint(fetch('x'))"),
+                True,
+            ),
+            ("fetch_referenced_without_a_call", content(hog="let senders := {'a': fetch}\nreturn senders"), True),
+            ("fetch_in_a_lambda_callback", content(hog="arrayMap(url -> fetch(url), [inputs.url])"), True),
+            (
+                "property_rewrite_with_builtins_and_lambda_callbacks",
+                content(
+                    hog="event.properties.internal := has(inputs.internal_ips, event.properties.$ip)\n"
+                    "event.properties.tags := arrayMap(tag -> lower(trim(tag)), event.properties.tags ?? [])\n"
+                    "event.properties.internal_tags := arrayFilter(tag -> has(inputs.internal_tags, tag), "
+                    "event.properties.tags)\n"
+                    "return event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                False,
+            ),
+            ("closure_from_an_input_called_by_name", content(hog="let send := inputs.sender\nsend(inputs.url)"), True),
+            ("closure_called_as_a_member", content(hog="inputs.sender(inputs.url)"), True),
+            ("closure_from_an_input_as_a_callback", content(hog="arrayMap(inputs.sender, [inputs.url])"), True),
+            (
+                "closure_returned_by_a_local_function",
+                content(hog="fun identity(x) {\n  return x\n}\nidentity(inputs.sender)(inputs.url)"),
+                True,
+            ),
+            ("closure_returned_by_a_builtin", content(hog="coalesce(inputs.sender)(inputs.url)"), True),
+            (
+                "closure_swapped_in_through_upvalues",
+                content(
+                    hog="let evil := inputs.sender\nlet good := x -> x\nlet send := x -> good(x)\n"
+                    "let capture := () -> evil\nsend.upvalues[1] := capture.upvalues[1]\nsend(inputs.url)"
+                ),
+                True,
+            ),
+            (
+                "closure_called_as_a_tag",
+                content(hog="let send := inputs.sender\nlet response := <send url={inputs.url} />"),
+                True,
+            ),
+            (
+                "closure_called_through_an_implicit_catch_local",
+                content(hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  e(inputs.url)\n}"),
+                True,
+            ),
+            (
+                "closure_called_as_a_tag_through_an_implicit_catch_local",
+                content(
+                    hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  return <e url={inputs.url} />\n}"
+                ),
+                True,
+            ),
+            (
+                "inline_query",
+                content(hog="let q := (select event from events limit 1)"),
+                True,
+            ),
+            ("inline_union_query", content(hog="let q := (select 1 union all select 2)", inputs={}), True),
+            (
+                "closure_called_through_the_for_in_iterable_temporary",
+                content(hog="for (let x in [inputs.sender, <__H_expr_H__ url={inputs.url} />]) {\n  print(x)\n}"),
+                True,
+            ),
+            (
+                "closure_called_through_a_between_temporary",
+                content(hog="let hit := inputs.sender between <__expr__ url={inputs.url} /> and 1"),
+                True,
+            ),
+            ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
+            ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
+            ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),
+            (
+                "fetch_in_a_hog_template_input",
+                content(hog="return event", inputs={"url": {"value": "{fetch(event.uuid)}"}}),
+                True,
+            ),
+            (
+                "fetch_in_the_masking_hash",
+                content(hog="return event", inputs={}, masking={"hash": "{fetch(event.uuid)}"}),
+                True,
+            ),
+            ("code_that_does_not_parse", content(hog="let x := (", inputs={}), True),
+            (
+                "fetch_in_unchanged_template_code",
+                content(template_id="template-webhook", code_modified_from_template=False),
+                True,
+            ),
+            *(
+                (
+                    f"{prefix}_runs_code_other_than_its_hog",
+                    content(hog="return event", inputs={}, template_id=f"{prefix}-x"),
+                    True,
+                )
+                for prefix in ("plugin", "segment", "native")
+            ),
+        ]
+    )
+    def test_has_outbound_call(self, _name: str, function: HogFunctionContent, expected: bool) -> None:
+        assert has_outbound_call(function) is expected
+
+    @parameterized.expand(
+        [
+            *(
+                (f"post_to_{name}", post_to(url), SetAsideReason.CHAT_MESSAGES_ONLY)
+                for name, url in (
+                    ("slack_api", "https://slack.com/api/chat.postMessage"),
+                    ("slack_webhook", "https://hooks.slack.com/services/T0/B0/x"),
+                    ("discord_webhook", "https://discord.com/api/webhooks/1/x"),
+                    ("telegram", "https://api.telegram.org/bot0:x/sendMessage"),
+                    ("teams_webhook", "https://example.webhook.office.com/webhookb2/a@b/IncomingWebhook/c/d"),
+                    ("google_chat", "https://chat.googleapis.com/v1/spaces/x/messages"),
+                )
+            ),
+            (
+                "slack_template_code_with_builtins",
+                content(
+                    hog="let res := fetch('https://slack.com/api/chat.postMessage', {'body': {'text': inputs.text}, "
+                    "'headers': {'Authorization': f'Bearer {inputs.slack_workspace.access_token}'}})\n"
+                    "if (res.status != 200) {\n  throw Error(f'Failed: {res.status}')\n}"
+                ),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
+            (
+                "slack_and_a_second_host",
+                content(
+                    hog="fetch('https://slack.com/api/chat.postMessage', {'body': event})\n"
+                    "fetch('https://collector.example.net/x', {'body': event})"
+                ),
+                None,
+            ),
+            ("url_from_an_input", content(), None),
+            ("url_built_from_the_event", content(hog="fetch(f'https://hooks.slack.com/{event.event}')"), None),
+            (
+                "closure_called_beside_a_post",
+                content(hog="inputs.sender(1)\n" + post_to("https://slack.com/api/chat.postMessage").hog),
+                None,
+            ),
+            ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
+            (
+                "string_body",
+                content(hog="fetch('https://slack.com/api/chat.postMessage', {'body': event.properties.payload})"),
+                None,
+            ),
+            (
+                "body_built_in_a_local",
+                content(
+                    hog="let body := {'text': inputs.text}\nbody['username'] := inputs.username\n"
+                    "fetch('https://slack.com/api/chat.postMessage', {'body': body})"
+                ),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
+            (
+                "body_local_replaced_after_the_request",
+                content(
+                    hog="let body := {'text': inputs.text}\nfetch('https://slack.com/api/chat.postMessage', {'body': body})\n"
+                    "body := event.properties.payload"
+                ),
+                None,
+            ),
+            (
+                "options_from_a_variable",
+                content(
+                    hog="let options := {'body': {'text': 'hi'}}\nfetch('https://slack.com/api/chat.postMessage', options)"
+                ),
+                None,
+            ),
+            ("slack_file_upload", post_to("https://slack.com/api/files.getUploadURLExternal"), None),
+            ("telegram_set_webhook", post_to("https://api.telegram.org/bot0:x/setWebhook"), None),
+            ("dot_segment_in_a_webhook_path", post_to("https://hooks.slack.com/services/T0/../x"), None),
+            (
+                "dot_segment_in_a_teams_path",
+                post_to("https://example.webhook.office.com/webhookb2/a/IncomingWebhook/b/c/.."),
+                None,
+            ),
+            ("other_teams_path", post_to("https://example.webhook.office.com/x/y"), None),
+            (
+                "encoded_slash_before_two_dots",
+                post_to("https://hooks.slack.com/services/T0/B0/a%2F.."),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
+            ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
+            ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
+            ("port_out_of_range", post_to("https://hooks.slack.com:99999/services/x"), None),
+            (
+                "computed_option_key",
+                content(hog="fetch('https://slack.com/api/chat.postMessage', {inputs.key: 'x'})"),
+                None,
+            ),
+            ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
+            ("no_request", content(hog="return event", function_type="transformation", inputs={}), None),
+            (
+                "transformation_with_an_unreachable_chat_post",
+                content(
+                    hog="if (false) {\n  fetch('https://slack.com/api/chat.postMessage', {'body': {}})\n}\n"
+                    "event.properties.payload := inputs.payload\nreturn event",
+                    function_type="transformation",
+                ),
+                None,
+            ),
+        ]
+    )
+    def test_malformed_payload_score_set_aside_for_chat_message_posts(
+        self, _name: str, function: HogFunctionContent, expected: SetAsideReason | None
+    ) -> None:
+        assert set_aside(function, "malformed_payload") == expected
+
+    @parameterized.expand(
+        [
+            ("public_host_with_an_internal_path", post_to("https://staging.example.com/internal/hook"), True),
+            ("public_host_with_a_numeric_path", post_to("https://api.example.com/v2/orders/12345?page=2"), True),
+            (
+                "several_public_hosts",
+                content(hog="fetch('https://a.example.com/x')\nfetch('https://b.example.org/y')"),
+                True,
+            ),
+            ("url_from_an_input", content(), False),
+            ("url_built_from_the_event", content(hog="fetch(f'https://api.example.com/{event.event}')"), False),
+            ("address_in_the_query", post_to("https://api.example.com/go?to=169.254.169.254"), False),
+            ("public_address_in_the_query", post_to("https://api.example.com/go?to=203.0.113.7"), False),
+            ("encoded_url_in_the_query", post_to("https://api.example.com/go?to=http%3A%2F%2F10.0.0.1%2F"), False),
+            ("hex_address_in_the_path", post_to("https://api.example.com/0x7f000001/x"), False),
+            ("ipv6_address_in_the_query", post_to("https://api.example.com/go?to=[::1]"), False),
+            ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
+            ("internal_tld_host", post_to("https://billing.corp/x"), False),
+            ("loopback_dns_name", post_to("http://localtest.me/x"), False),
+            ("cluster_short_name", post_to("http://redis.posthog:6379/x"), False),
+            ("localhost_tld", post_to("http://app.localhost:3000/x"), False),
+            ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
+            ("address_in_the_host_name", post_to("https://10-0-0-1.example.com/x"), False),
+            ("public_address_host", post_to("https://203.0.113.7/x"), False),
+            ("code_that_does_not_parse", content(hog="fetch('https://api.example.com/x'", inputs={}), False),
+            (
+                "helper_function_beside_a_literal_fetch",
+                content(
+                    hog="fun body(x) {\n  return {'text': x}\n}\nfetch('https://api.example.com/x', {'body': body(event.event)})"
+                ),
+                True,
+            ),
+            (
+                "helper_after_a_write_into_an_array",
+                content(
+                    hog="let a := [1]\na[1] := 2\nfun body(x) {\n  return x\n}\n"
+                    "fetch('https://api.example.com/x', {'body': body(a)})"
+                ),
+                False,
+            ),
+            (
+                "helper_beside_a_dict_field_write",
+                content(
+                    hog="let d := {}\nd.x := 1\nfun body(x) {\n  return x\n}\n"
+                    "fetch('https://api.example.com/x', {'body': body(d)})"
+                ),
+                True,
+            ),
+            ("userinfo_before_the_host", post_to("https://169.254.169.254@api.example.com/x"), False),
+            ("backslash_in_the_authority", post_to("https://api.example.com\\\\@127.0.0.1/x"), False),
+            (
+                "closure_called_beside_a_post",
+                content(hog="inputs.sender(1)\n" + post_to("https://api.example.com/x").hog),
+                False,
+            ),
+            (
+                "call_to_a_name_the_for_in_loop_shadows",
+                content(
+                    hog="fun __H_expr_H__(url) { return null }\n"
+                    "for (let x in event.properties.sender) {\n  __H_expr_H__(inputs.url)\n}"
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_internal_network_score_set_aside_for_literal_public_urls(
+        self, _name: str, function: HogFunctionContent, expected: bool
+    ) -> None:
+        reason = SetAsideReason.LITERAL_PUBLIC_URLS if expected else None
+        assert set_aside(function, "internal_network") == reason
+
+    def test_parsed_code_and_templates_stay_out_of_the_parse_cache(self) -> None:
+        clear_parse_caches()
+        function = content(
+            hog="let ids := range(10)\nfetch(inputs.url, {'body': ids})",
+            inputs={"token": {"value": "{replaceAll('a decrypted secret, long enough to be cached', '', 'x')}"}},
+        )
+
+        assert matched_rules(function) == (Rule.REPLACE_AMPLIFICATION,)
+        assert _builtin_parse_cache.currsize + _user_parse_cache.currsize == 0

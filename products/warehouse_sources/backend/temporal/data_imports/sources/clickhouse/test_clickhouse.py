@@ -23,6 +23,10 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
@@ -44,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
     _CLOUDFLARE_TUNNEL_DOWN,
     _EGRESS_DENIED_PRIVATE_HOST,
+    _PROXY_AUTH_REQUIRED,
     _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
@@ -675,6 +680,12 @@ class TestTranslateError:
     def test_egress_denied_host_maps_to_private_host_error(self, msg):
         assert ClickHouseSource._translate_error(msg) == _EGRESS_DENIED_PRIVATE_HOST
 
+    def test_bare_proxy_auth_required_names_the_other_service(self):
+        # No "server response" body at all, unlike the egress-proxy-deny 407 above — some other
+        # service on that host/port demanded proxy credentials, not our own egress proxy.
+        msg = "HTTP driver received HTTP status 407 (for url http://wh.6dt3hlb5.requestrepo.com:18123)"
+        assert ClickHouseSource._translate_error(msg) == _PROXY_AUTH_REQUIRED
+
 
 class TestClickHouseSourceNonRetryableErrors:
     @pytest.fixture
@@ -682,19 +693,32 @@ class TestClickHouseSourceNonRetryableErrors:
         return ClickHouseSource()
 
     @pytest.mark.parametrize(
-        "observed_error",
+        ("observed_error", "expected_message"),
         [
             # Host resolved to a private-range address.
-            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
-            "to host '172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 "
-            "denied by rule 'Deny: Private Range'. . (for url http://example.com:18123)",
+            (
+                "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+                "to host '172.20.136.220:8000': no valid IP found among resolved addresses - 172.20.136.220 "
+                "denied by rule 'Deny: Private Range'. . (for url http://example.com:18123)",
+                _EGRESS_DENIED_PRIVATE_HOST,
+            ),
             # Different host and deny rule — the match must not rely on either volatile detail.
-            "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
-            "to host '169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 "
-            "denied by rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+            (
+                "DatabaseError: HTTP driver received HTTP status 407, server response: Egress proxying is denied "
+                "to host '169.254.169.254:80': no valid IP found among resolved addresses - 169.254.169.254 "
+                "denied by rule 'Deny: Not Global Unicast'. . (for url http://other.example.com:8443)",
+                _EGRESS_DENIED_PRIVATE_HOST,
+            ),
+            # A bare 407 with no body at all is a different host/service answering, not our
+            # egress proxy's SSRF refusal — it must map to the distinct _PROXY_AUTH_REQUIRED
+            # message instead of being swallowed by the egress-denied entry above.
+            (
+                "DatabaseError: HTTP driver received HTTP status 407 (for url http://wh.6dt3hlb5.requestrepo.com:18123)",
+                _PROXY_AUTH_REQUIRED,
+            ),
         ],
     )
-    def test_egress_denied_host_is_non_retryable(self, source, observed_error):
+    def test_407_responses_are_non_retryable(self, source, observed_error, expected_message):
         # Our egress proxy re-resolves the configured host on every connection, independently of
         # this source's own setup-time DNS check — so a host that now resolves to a private/
         # internal address is denied every attempt. Without this entry, `_handle_import_error`
@@ -702,8 +726,8 @@ class TestClickHouseSourceNonRetryableErrors:
         # few attempts (see `get_non_retryable_errors`'s matching entry).
         non_retryable_errors = source.get_non_retryable_errors()
         matching = [key for key in non_retryable_errors if key in observed_error]
-        assert matching, "Egress-denied host error should be recognised as non-retryable"
-        assert all(non_retryable_errors[key] == _EGRESS_DENIED_PRIVATE_HOST for key in matching)
+        assert matching, "Error should be recognised as non-retryable"
+        assert all(non_retryable_errors[key] == expected_message for key in matching)
 
 
 class TestGetSchemas:
@@ -813,20 +837,28 @@ class TestSourceClassValidateCredentials:
         assert msg == GENERIC_CONNECTION_ERROR
 
     @pytest.mark.parametrize(
-        "raw_error,expected",
+        "ssh_error,expected",
         [
-            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
             (
-                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
                 "Could not connect to your SSH tunnel",
             ),
             (
-                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                BaseSSHTunnelForwarderError(
+                    "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds"
+                ),
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                BaseSSHTunnelForwarderError(
+                    "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000"
+                ),
                 "SSH tunnel settings",
             ),
+            (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE),
         ],
     )
-    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+    def test_ssh_tunnel_errors_return_user_facing_message(self, ssh_error, expected):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
 
         source = source_module.ClickHouseSource()
@@ -837,7 +869,7 @@ class TestSourceClassValidateCredentials:
 
         with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
             with patch.object(source, "is_database_host_valid", return_value=(True, None)):
-                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                with patch.object(source, "get_schemas", side_effect=ssh_error):
                     with patch.object(source_module, "capture_exception"):
                         valid, msg = source.validate_credentials(config, team_id=1)
 

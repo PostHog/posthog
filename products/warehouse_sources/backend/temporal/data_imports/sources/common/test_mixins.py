@@ -1,5 +1,6 @@
 import socket
 import threading
+import contextlib
 from dataclasses import dataclass, field
 
 import pytest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from django.db import OperationalError
 from django.test import SimpleTestCase, override_settings
 
+import paramiko
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -22,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS,
     SSH_HANDSHAKE_EOF_ERROR,
     HostNotAllowedError,
     OAuthMixin,
@@ -611,23 +612,78 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
 
         forwarder.stop.assert_called_once_with(force=True)
 
-    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
-    def test_connect_failing_every_attempt_still_raises_the_gateway_error(self, entrypoint: str):
-        attempts = len(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS) + 1
+    @staticmethod
+    def _banner_read_failure(cause: Exception) -> paramiko.SSHException:
+        try:
+            raise cause
+        except Exception as e:
+            try:
+                raise paramiko.SSHException(f"Error reading SSH protocol banner{e}")
+            except paramiko.SSHException as wrapped:
+                return wrapped
+
+    def _forwarder_failing_with(self, gateway_error: Exception | None):
+        forwarder = self._forwarder(fails=True)
+        if gateway_error is None:
+            return forwarder
+
+        forwarder._connect_to_gateway.side_effect = gateway_error
+
+        def start(_self=None):
+            # sshtunnel's `_create_tunnels` swallows the gateway error and `start` raises its fixed message.
+            with contextlib.suppress(Exception):
+                forwarder._connect_to_gateway()
+            raise BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+
+        forwarder.__enter__.side_effect = start
+        return forwarder
+
+    @parameterized.expand(
+        [
+            (f"{entrypoint}_{name}", entrypoint, gateway_error, in_activity, backoff)
+            for entrypoint in ("open_ssh_tunnel", "factory")
+            for name, gateway_error, in_activity, backoff in [
+                ("no_cause", None, True, (2.0, 4.0, 8.0)),
+                ("refused", ConnectionRefusedError(111, "Connection refused"), True, (2.0, 4.0, 8.0)),
+                ("bad_host_key", paramiko.SSHException("Bad host key from server"), True, (2.0, 4.0, 8.0)),
+                ("banner_timeout", "banner_timeout", True, (2.0, 4.0, 8.0)),
+                ("banner_reset", "banner_reset", True, (2.0, 4.0, 8.0, 16.0, 30.0)),
+                ("banner_eof", "banner_eof", True, (2.0, 4.0, 8.0, 16.0, 30.0)),
+                ("banner_reset_web_request", "banner_reset", False, (2.0, 4.0, 8.0)),
+                ("banner_eof_web_request", "banner_eof", False, (2.0, 4.0, 8.0)),
+            ]
+        ]
+    )
+    def test_connect_failing_every_attempt_still_raises_the_gateway_error(
+        self, _name: str, entrypoint: str, gateway_error, in_activity: bool, backoff: tuple[float, ...]
+    ):
+        banner_causes = {
+            "banner_timeout": TimeoutError("timed out"),
+            "banner_reset": ConnectionResetError(104, "Connection reset by peer"),
+            "banner_eof": EOFError(),
+        }
+        if isinstance(gateway_error, str):
+            gateway_error = self._banner_read_failure(banner_causes[gateway_error])
+        attempts = len(backoff) + 1
         with (
             patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
             patch(f"{_MIXINS_MODULE}.time.sleep") as mock_sleep,
+            patch(f"{_MIXINS_MODULE}.random.uniform", side_effect=lambda low, high: high),
+            patch(f"{_MIXINS_MODULE}.activity.in_activity", return_value=in_activity),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
             get_tunnel = mock_ssh.from_config.return_value.get_tunnel
-            get_tunnel.side_effect = [self._forwarder(fails=True) for _ in range(attempts)]
+            get_tunnel.side_effect = [self._forwarder_failing_with(gateway_error) for _ in range(attempts + 2)]
             with pytest.raises(BaseSSHTunnelForwarderError, match="Could not establish session to SSH gateway"):
                 with self._tunnel_cm(entrypoint, self._config()):
                     pass
             # The budget stays bounded, so a credential that is really wrong reaches the same
-            # classification it reached before the retry existed.
+            # classification it reached before the retry existed. Only a sync whose bastion is up but
+            # dropped the connection before its banner gets the longer budget. A web request, such
+            # as a source check, must not wait that long for a port that is really wrong.
             assert get_tunnel.call_count == attempts
-            assert mock_sleep.call_count == attempts - 1
+            # Each wait is scaled by its own random draw, here pinned to the top of the range.
+            assert [c.args[0] for c in mock_sleep.call_args_list] == [delay * 1.5 for delay in backoff]
 
     @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
     def test_bare_handshake_eof_is_translated_and_not_retried(self, entrypoint: str):

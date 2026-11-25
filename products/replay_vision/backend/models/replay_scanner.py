@@ -51,11 +51,22 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
 
 
 def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
-    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None."""
+    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None.
+
+    Carries `balance_variants` and `start_on_launch` across under their scope names, so a scanner
+    that samples proportionally keeps doing so once the sampler reads the scope instead of the
+    config. Both are omitted at their default, because the mirror decides whether it owns a row's
+    scope by comparing the stored blob against a fresh derivation of it.
+    """
     config = scanner_config if isinstance(scanner_config, dict) else {}
     if config.get("experiment_id") is None:
         return None
-    return {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
+    scope: dict = {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
+    if config.get("balance_variants") is False:
+        scope["balance"] = False
+    if config.get("start_on_launch") is True:
+        scope["start_on_launch"] = True
+    return scope
 
 
 class ScannerType(models.TextChoices):
@@ -687,14 +698,21 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         return old is not None and derive_scope(old) == self.scope
 
     def targeted_recordings_query(self) -> "RecordingsQuery":
-        """The query every scan and estimate must run: the persisted filter plus the exposure
-        filter derived from `experiment_scope()`.
+        """The query every scan and estimate must run: the persisted filter narrowed by the scope.
 
-        Derived here rather than persisted into `query` so the experiment can only ever enter
-        through the access-checked scope stores (see `experiment_scope`). The serializer rejects
-        `experiment_exposure` inside `query` for the same reason.
+        Narrowed here rather than persisted into `query` so the experiment can only ever enter
+        through the access-checked scope stores. The serializer rejects `experiment_exposure`
+        inside `query` for the same reason.
+
+        Reads through `scope_for`, so a scanner narrowed only by the `scope` column is filtered
+        the same as one still carrying a legacy store. Reading `experiment_scope()` here instead
+        would return None for that scanner and sweep every session its filters match.
         """
-        return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+        from products.replay_vision.backend.scope.load import scope_for  # noqa: PLC0415
+
+        scope = scope_for(self)
+        query = self.recordings_query()
+        return scope.recordings_filter(query) if scope is not None else apply_experiment_targeting(query, None)
 
     @property
     def has_spend_ceiling(self) -> bool:

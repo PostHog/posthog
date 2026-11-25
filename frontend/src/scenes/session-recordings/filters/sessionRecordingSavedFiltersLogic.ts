@@ -135,9 +135,9 @@ export interface sessionRecordingSavedFiltersLogicActions {
     updatePlaylistSuccess: (
         playlists: {
             count: number
-            filters?: SavedSessionRecordingPlaylistsFilters | null | undefined
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            filters?: SavedSessionRecordingPlaylistsFilters | null
+            next?: string | null
+            previous?: string | null
             results: SessionRecordingPlaylistType[]
         },
         payload?: {
@@ -147,9 +147,9 @@ export interface sessionRecordingSavedFiltersLogicActions {
     ) => {
         playlists: {
             count: number
-            filters?: SavedSessionRecordingPlaylistsFilters | null | undefined
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            filters?: SavedSessionRecordingPlaylistsFilters | null
+            next?: string | null
+            previous?: string | null
             results: SessionRecordingPlaylistType[]
         }
         payload?: {

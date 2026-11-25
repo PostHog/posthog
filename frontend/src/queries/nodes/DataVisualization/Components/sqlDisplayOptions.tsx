@@ -16,6 +16,7 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic, type displayLogicType } from '../displayLogic'
+import { DEFAULT_SQL_MOVING_AVERAGE_INTERVALS, type SqlChartKind, sqlChartKind } from './Charts/sqlLineGraphAdapter'
 import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
@@ -36,6 +37,8 @@ interface SqlDisplayContext
     isBoxPlot: boolean
     isHorizontalBarChart: boolean
     isLineChart: boolean
+    isRawSql: boolean
+    chartKind: SqlChartKind
     isSingleAxisChart: boolean
     isDateXAxis: boolean
     supportsAnnotations: boolean
@@ -85,6 +88,8 @@ function useSqlDisplayContext(): SqlDisplayContext {
         isBoxPlot,
         isHorizontalBarChart,
         isLineChart,
+        isRawSql: dataVisualizationProps.query.kind === 'DataVisualizationNode',
+        chartKind: sqlChartKind({ visualizationType: type, chartSettings, yData }),
         isSingleAxisChart,
         isDateXAxis: xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME',
         supportsAnnotations:
@@ -95,6 +100,10 @@ function useSqlDisplayContext(): SqlDisplayContext {
         showLegend: chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount),
         legendShownByDefault: showsLegendByDefault(isProportionBar, proportionBarPartCount),
     }
+}
+
+function supportsMovingAverage(c: SqlDisplayContext): boolean {
+    return c.isRawSql && c.isLineChart && c.chartKind === 'line'
 }
 
 function showsMetricChange(c: SqlDisplayContext): boolean {
@@ -351,6 +360,22 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         value: (c) => c.chartSettings.chartStyle?.curve ?? 'smooth',
         onChange: (curve, c) => c.updateChartSettings({ chartStyle: { curve } }),
         dataAttr: 'data-visualization-line-style',
+    },
+    movingAverage: {
+        showCondition: supportsMovingAverage,
+        value: (c) => c.chartSettings.showMovingAverage ?? false,
+        onChange: (showMovingAverage, c) => c.updateChartSettings({ showMovingAverage }),
+        dataAttr: 'sql-chart-moving-average',
+    },
+    movingAverageIntervals: {
+        showCondition: (c) => supportsMovingAverage(c) && c.chartSettings.showMovingAverage,
+        value: (c) => c.chartSettings.movingAverageIntervals ?? DEFAULT_SQL_MOVING_AVERAGE_INTERVALS,
+        suffix: () => 'points',
+        onChange: (value, c) =>
+            c.updateChartSettings({
+                movingAverageIntervals: Math.max(2, Math.trunc(value ?? DEFAULT_SQL_MOVING_AVERAGE_INTERVALS)),
+            }),
+        dataAttr: 'sql-chart-moving-average-intervals',
     },
     trendLines: {
         showCondition: (c) => c.isScatterPlot,

@@ -391,26 +391,47 @@ function MarketplaceCredentialSection(): JSX.Element {
                     </AccessControlAction>
                 </div>
             )}
-            <div className="flex flex-col gap-1">
-                <p className="m-0 text-xs font-semibold text-secondary">Claude Code</p>
-                <CodeSnippet language={Language.Bash} thing="Claude Code command">
-                    {marketplaceCommand}
-                </CodeSnippet>
-                <p className="m-0 text-xs text-secondary">
-                    Run each line in Claude Code — skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>,
-                    auto-updating as you publish.
-                </p>
-            </div>
-            <div className="flex flex-col gap-1">
-                <p className="m-0 text-xs font-semibold text-secondary">Codex</p>
-                <CodeSnippet language={Language.Bash} thing="Codex command">
-                    {codexCommand}
-                </CodeSnippet>
-                <p className="m-0 text-xs text-secondary">
-                    Run both lines in your terminal — the same marketplace, added to Codex and installed. Codex loads
-                    the skills automatically.
-                </p>
-            </div>
+            <section className="flex flex-col gap-2">
+                <p className="m-0 text-base font-semibold">Claude Code</p>
+                <ol className="list-decimal pl-5 space-y-4 text-sm marker:font-semibold">
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Install the plugin</p>
+                        <p className="mt-1 mb-2">Run both lines in Claude Code.</p>
+                        <CodeSnippet language={Language.Bash} thing="Claude Code command">
+                            {marketplaceCommand}
+                        </CodeSnippet>
+                    </li>
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Enable auto-update (recommended)</p>
+                        <p className="mt-1 mb-2">
+                            Auto-update is off by default. Enable it to receive new and updated skills.
+                        </p>
+                        <p className="m-0">
+                            <code>/plugin</code> → <b>Marketplaces</b> → <code>posthog-skill-store-marketplace</code> →{' '}
+                            <b>Enable auto-update</b>
+                        </p>
+                    </li>
+                </ol>
+            </section>
+            <section className="flex flex-col gap-2">
+                <p className="m-0 text-base font-semibold">Codex</p>
+                <ol className="list-decimal pl-5 space-y-4 text-sm marker:font-semibold">
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Install the plugin</p>
+                        <p className="mt-1 mb-2">Run both lines in your terminal.</p>
+                        <CodeSnippet language={Language.Bash} thing="Codex command">
+                            {codexCommand}
+                        </CodeSnippet>
+                    </li>
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Start a new session</p>
+                        <p className="mt-1 mb-0">
+                            Start a new Codex session to use the skills and tools. Open <code>/plugins</code> to review
+                            installed plugins.
+                        </p>
+                    </li>
+                </ol>
+            </section>
         </>
     )
 }
@@ -424,7 +445,7 @@ function ConnectToClaudeCodeModal(): JSX.Element {
             isOpen={connectModalOpen}
             onClose={() => setConnectModalOpen(false)}
             title="Connect a coding agent"
-            description="Install your team's skills into Claude Code or Codex with automatic updates – or let any MCP-connected agent load them directly."
+            description="Install your team's skills into Claude Code or Codex, or let any MCP-connected agent load them directly."
             width={640}
         >
             <div className="flex flex-col gap-4">

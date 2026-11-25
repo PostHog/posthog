@@ -3,7 +3,11 @@ from typing import Any
 from requests import Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.sources.lokalise.settings import LOKALISE_ENDPOINTS, LokaliseEndpointConfig
+from products.warehouse_sources.sources.lokalise.settings import (
+    LOKALISE_ENDPOINTS,
+    LOKALISE_PARENT_ENDPOINTS,
+    LokaliseEndpointConfig,
+)
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     ClientConfig,
@@ -80,13 +84,21 @@ def validate_lokalise_credentials(api_token: str, api_version: str, schema_name:
         if response.status_code == 403 and schema_name is None:
             return True, None
         response.raise_for_status()
-        if schema_name and schema_name != "projects":
-            projects = response.json()["projects"]
-            if projects:
-                project_id = projects[0]["project_id"]
-                path = LOKALISE_ENDPOINTS[schema_name].path.format(project_id=project_id)
-                response = session.get(f"{base_url}{path}", params={"limit": 1}, auth=auth, timeout=30)
+        fanout = LOKALISE_ENDPOINTS[schema_name].fanout if schema_name else None
+        if schema_name and fanout is not None:
+            if fanout.parent_name != "projects":
+                parent_path = LOKALISE_PARENT_ENDPOINTS[fanout.parent_name].path
+                response = session.get(f"{base_url}{parent_path}", params={"limit": 1}, auth=auth, timeout=30)
                 response.raise_for_status()
+            parents = response.json()[fanout.parent_name]
+            if parents:
+                path = LOKALISE_ENDPOINTS[schema_name].path.format(
+                    **{fanout.resolve_param: parents[0][fanout.resolve_field]}
+                )
+                response = session.get(f"{base_url}{path}", params={"limit": 1}, auth=auth, timeout=30)
+                skipped = {action.get("status_code") for action in fanout.child_response_actions}
+                if response.status_code not in skipped:
+                    response.raise_for_status()
     except RequestException as error:
         status = error.response.status_code if error.response is not None else None
         if status == 401:
@@ -124,7 +136,7 @@ def lokalise_source(
         child_extra = _endpoint_config(endpoint_config)
         child_extra.pop("params")
         resource = build_dependent_resource(
-            endpoint_configs=LOKALISE_ENDPOINTS,
+            endpoint_configs={**LOKALISE_ENDPOINTS, **LOKALISE_PARENT_ENDPOINTS},
             child_endpoint=endpoint,
             fanout=endpoint_config.fanout,
             client_config=client,
@@ -133,7 +145,7 @@ def lokalise_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={
-                "data_selector": "projects",
+                "data_selector": endpoint_config.fanout.parent_name,
                 "data_selector_required": True,
                 "paginator": LokalisePagePaginator(),
             },

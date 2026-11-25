@@ -2,8 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -80,6 +82,20 @@ describe('recommendationsLogic', () => {
         },
     ])('$name', async ({ run, reported }) => {
         await expectLogic(marketingAnalyticsLogic, run).toDispatchActions([reported()])
+    })
+
+    it('reloads with the dashboard and leaves its reload button idle while loading', async () => {
+        const dashboardNodes = dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID })
+        dashboardNodes.mount()
+        const node = dataNodeLogic(logic.values.dataNodeProps)
+        node.mount()
+
+        await expectLogic(node, () => dashboardNodes.actions.reloadAll()).toDispatchActions([
+            (action) => action.type === node.actionTypes.loadData && action.payload.refresh === 'force_async',
+        ])
+
+        expect(logic.values.responseLoading).toBe(true)
+        expect(dashboardNodes.values.areAnyLoading).toBe(false)
     })
 
     it.each(['dismissed', 'applied'] as const)(

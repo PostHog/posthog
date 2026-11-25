@@ -220,6 +220,19 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '≈0.05×',
         costSummary: 'Input $0.13 · Output $0.26 per 1M tokens',
+        retired: true,
+    },
+    {
+        id: 'deepseek-ai/deepseek-v4.1-flash-1017',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: [],
+        label: 'DeepSeek V4.1 Flash',
+        cost: {
+            inputPerMtok: 0.3,
+            outputPerMtok: 1.2,
+        },
+        costMultiplier: '≈0.14×',
+        costSummary: 'Input $0.30 · Output $1.20 per 1M tokens',
     },
     {
         id: 'deepseek-ai/deepseek-v4.1-flash-1017-fast',
@@ -491,6 +504,30 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above',
     },
     {
+        id: 'gpt-6.2-sol',
+        runtimeAdapter: 'codex',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-6.2 Sol',
+        cost: {
+            inputPerMtok: 2,
+            outputPerMtok: 10,
+        },
+        costMultiplier: '1×',
+        costSummary: 'Input $2 · Output $10 per 1M tokens',
+    },
+    {
+        id: 'gpt-6.2-astra',
+        runtimeAdapter: 'codex',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-6.2 Astra',
+        cost: {
+            inputPerMtok: 8,
+            outputPerMtok: 40,
+        },
+        costMultiplier: '4×',
+        costSummary: 'Input $8 · Output $40 per 1M tokens',
+    },
+    {
         id: 'gpt-6.1-terra',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -525,7 +562,7 @@ export const MODELS: readonly CatalogModel[] = [
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
     claude: 'claude-sonnet-5-5',
-    codex: 'gpt-6.1-sol',
+    codex: 'gpt-6.2-sol',
 }
 
 export interface CapabilityNotch {
@@ -613,6 +650,16 @@ export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
     {
         runtimeAdapter: 'codex',
         prefix: 'gpt-6.1-sol',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+        runtimeAdapter: 'codex',
+        prefix: 'gpt-6.2-sol',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+        runtimeAdapter: 'codex',
+        prefix: 'gpt-6.2-astra',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     {

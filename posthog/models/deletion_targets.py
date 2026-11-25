@@ -5,7 +5,8 @@ that stores rows attributable to a person. This module is the one list of those 
 that starts carrying person data gets registered here rather than found by an auditor months later.
 
 Every target is swept with predicates built only from columns all of them declare: ``team_id``,
-``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, ``event``.
+``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, ``event``, plus the ingestion-time column
+each target names in ``inserted_at_column``.
 
 The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
@@ -25,10 +26,15 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.ai_events.sql import (
+    DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE,
+    TABLE_BASE_NAME as AI_EVENTS_TABLE,
+)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
     SHARDED_EVENTS_RECENT_DATA_TABLE,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -40,6 +46,7 @@ from posthog.models.flag_evaluations.sql import (
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
 
+EVENTS_HOGQL_TABLE = "events"
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 # ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
@@ -97,11 +104,13 @@ class DeletionTarget:
     node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
-    # variant is known to run against its physical columns. A predicate that applies to every row
-    # here resolves against the events HogQL table, and the only choice is legacy versus native-JSON.
-    # A fragment names physical columns (mat_*, the property-group maps, or JSON subcolumns), so it
-    # only runs against the schema it was compiled for.
+    # The HogQL table that an event removal compiles a request's predicate against for this table.
+    # None where no HogQL table reads this table's columns, so a predicate cannot run here.
+    hogql_table: str | None = None
+    # Which events-schema variant compile_hogql_predicate emits for an events table, None for any
+    # other table. A fragment names physical columns (mat_*, the property-group maps, or JSON
+    # subcolumns), so it only runs against the schema it was compiled for. Property removal compiles
+    # a predicate against the events schema only, so it applies one only where this is set.
     hogql_schema: HogQLSchema | None = None
     # True where the property-removal job sweeps the table. Its verification fails while any copy of
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
@@ -117,16 +126,6 @@ class DeletionTarget:
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
-    # The events storage table that holds a copy of each row here, with the same uuid, while ingestion
-    # still writes the event there. None where rows have no such copy. The copy must sit on the same
-    # shard as the row, because the check for rows without a copy reads both tables shard-locally.
-    # A deferred event removal with a HogQL predicate deletes rows here through the uuids of their copies.
-    copied_from: str | None = None
-    # The HogQL table that a request's predicate compiles against for the rows here that have no copy
-    # in copied_from. None where those rows cannot take a predicate. A row with a copy never takes it.
-    # The drain deletes a queued uuid from every target, so a predicate that matched a row here and
-    # not its copy would delete the copy too.
-    uncopied_rows_hogql_table: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -136,6 +135,13 @@ class DeletionTarget:
     # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
     # MutationRunner.patch_parts.
     uses_patch_parts: bool = False
+    # The server-side ingestion time that bounds deletes_job's person and queued-uuid arms. It must be
+    # stamped by ingestion, never taken from the event, or a tenant can backdate rows past the bound.
+    inserted_at_column: str = "inserted_at"
+    # Whether the property-removal presence check can read this table: it keeps every property in
+    # ``properties`` or ``person_properties`` and has both columns. Where it cannot, a property
+    # removal counts every row in the request's window and events instead.
+    property_presence_checkable: bool = True
 
     @property
     def cluster_name(self) -> str:
@@ -199,6 +205,7 @@ def shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
+    hogql_table=EVENTS_HOGQL_TABLE,
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
@@ -210,6 +217,7 @@ EVENTS_JSON = DeletionTarget(
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
+    hogql_table=EVENTS_HOGQL_TABLE,
     hogql_schema=HogQLSchema.NATIVE_JSON,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
@@ -220,28 +228,42 @@ EVENTS_JSON = DeletionTarget(
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
-# events-shaped table. Property removal rewrites its event properties and its person properties. A
-# HogQL predicate runs here only on rows with no events copy, compiled against the table's own HogQL
-# table. Deferred event removal with a predicate deletes the rows with a copy through the uuids of
-# their events copies, and queues the rows without one that the compiled predicate matches.
-# Immediate event removal with a predicate leaves the rows with a copy to the TTL, and refuses while
-# a row without one matches. Property removal with a predicate refuses while the table holds
-# matching rows. docs/internal/clickhouse-deletion-coverage.md explains these limits.
+# events-shaped table. Property removal rewrites its event properties and its person properties.
+# Event removal with a HogQL predicate compiles the predicate against the table's own HogQL table
+# and sweeps the rows it matches, as it does on each events table. Property removal with a predicate
+# refuses while the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md
+# explains these limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    cluster_setting="CLICKHOUSE_FLAGS_CLUSTER",
+    node_role=NodeRole.FLAGS,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
-    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
-    copied_from=EVENTS_DATA_TABLE(),
-    uncopied_rows_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
+    hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
+# Holds the raw prompts and completions that ingestion strips from the events copy of each AI event.
+AI_EVENTS = DeletionTarget(
+    data_table=AI_EVENTS_DATA_TABLE,
+    read_table=AI_EVENTS_TABLE,
+    optional=True,
+    cluster_setting="CLICKHOUSE_AI_EVENTS_CLUSTER",
+    node_role=NodeRole.AI_EVENTS,
+    accepts_person_id_rewrite=True,
+    # Ingestion writes each row here and to events under the same uuid.
+    queue_uuid_candidates=False,
+    # Kafka produce time, which ingestion stamps; the table has no inserted_at.
+    inserted_at_column="_timestamp",
+    # HEAVY_AI_PROPERTIES live in their own columns.
+    property_presence_checkable=False,
+)
+
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
-PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS, AI_EVENTS)
 
 # The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
 # keeps it registered while its rows stay in place; see COVERAGE_DOC.
@@ -261,10 +283,13 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
 #
-# sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
-# on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
+# sharded_events_recent is a transient mirror of the last few days of events, on a 9-day TTL keyed
+# on inserted_at. Nine days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+#
+# sharded_events_json_recent holds the same recent events in the events_json shape, with the same
+# TTL. It is accepted on the same terms.
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"

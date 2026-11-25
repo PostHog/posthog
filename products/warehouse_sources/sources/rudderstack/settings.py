@@ -1,13 +1,22 @@
 from dataclasses import field
 from typing import Literal
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 BASE_URLS = {
     "us": "https://api.rudderstack.com",
     "eu": "https://api.eu.rudderstack.com",
 }
 CATALOG_MAX_PAGES = 50
+# The usage API rejects a daily `start` older than 60 days.
+USAGE_MAX_LOOKBACK_DAYS = 59
+# Recent daily buckets keep counting events, so incremental syncs read them again.
+USAGE_REFRESH_DAYS = 2
 
 
 @frozen
@@ -17,12 +26,14 @@ class RudderStackEndpoint:
     data_selector: str
     paginator: Literal["single_page", "json_response", "catalog"] = "json_response"
     primary_keys: tuple[str, ...] = ("id",)
-    partition_key: str = "createdAt"
+    partition_key: str | None = "createdAt"
     params: dict[str, str | int] = field(default_factory=dict)
     fanout: DependentEndpointConfig | None = None
     page_size: int = 100
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
+    organization_token: bool = False
+    usage_window: bool = False
 
 
 # Timestamp filters for audit logs and sync history need account verification before enabling incremental sync.
@@ -65,6 +76,7 @@ ENDPOINTS: dict[str, RudderStackEndpoint] = {
         path="/v2/audit-logs",
         data_selector="data",
         params={"per_page": 100},
+        organization_token=True,
     ),
     "retl_connections": RudderStackEndpoint(
         name="retl_connections",
@@ -87,5 +99,46 @@ ENDPOINTS: dict[str, RudderStackEndpoint] = {
             parent_params={"pageSize": 100},
             child_params={"per_page": 100},
         ),
+    ),
+    "tracking_plan_events": RudderStackEndpoint(
+        name="tracking_plan_events",
+        path="/v2/catalog/tracking-plans/{tracking_plan_id}/events",
+        data_selector="data",
+        paginator="catalog",
+        primary_keys=("tracking_plan_id", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="tracking_plans",
+            resolve_param="tracking_plan_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "tracking_plan_id"},
+            # Cached plan data avoids a schema rebuild that blocks concurrent plan edits.
+            child_params={"rebuildSchemas": "false"},
+        ),
+    ),
+    "custom_types": RudderStackEndpoint(
+        name="custom_types", path="/v2/catalog/custom-types", data_selector="data", paginator="catalog"
+    ),
+    "regulations": RudderStackEndpoint(
+        name="regulations", path="/v2/regulations", data_selector="data", partition_key=None
+    ),
+    "event_metrics_usage": RudderStackEndpoint(
+        name="event_metrics_usage",
+        path="/v2/organizations/usage/event-metrics",
+        data_selector="data",
+        paginator="single_page",
+        primary_keys=("workspaceId", "sourceId", "bucket"),
+        partition_key="bucket",
+        params={"granularity": "day"},
+        incremental_fields=[
+            {
+                "label": "bucket",
+                "type": IncrementalFieldType.Date,
+                "field": "bucket",
+                "field_type": IncrementalFieldType.Date,
+            }
+        ],
+        organization_token=True,
+        usage_window=True,
     ),
 }

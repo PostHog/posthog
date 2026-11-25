@@ -1,19 +1,36 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
 
+import { AlertOnThisMenu } from './AlertOnThisMenu'
+import { endpointAlertTarget } from './alertPresets'
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { endpointOperationUrl } from './endpointOperationUrl'
 import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
-import { TelemetryLinks } from './TelemetryLinks'
+import { HealthTableLink } from './HealthTableLink'
+import { telemetryMenuSection } from './TelemetryLinks'
 
-export function EndpointsTab(): JSX.Element {
-    const { endpoints, endpointsHealthLoading, endpointsLoadError, services, endpointsService, timeRange } =
-        useValues(applicationObservabilityLogic)
-    const { setEndpointsService } = useActions(applicationObservabilityLogic)
+export interface EndpointsTabProps {
+    /** Absent when traces alerts are off, which leaves only the "Open in" links in the row menu. */
+    onCreateAlert?: (form: TracesAlertFormType) => void
+}
+
+export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element {
+    const {
+        endpoints,
+        filteredEndpoints,
+        search,
+        endpointsHealthLoading,
+        endpointsLoadError,
+        services,
+        endpointsService,
+        timeRange,
+    } = useValues(applicationObservabilityLogic)
+    const { setEndpointsService, setSearch } = useActions(applicationObservabilityLogic)
 
     const serviceNames = services.map((row) => row.service_name)
     if (endpointsService && !serviceNames.includes(endpointsService)) {
@@ -24,29 +41,39 @@ export function EndpointsTab(): JSX.Element {
         {
             title: 'Endpoint',
             key: 'endpoint',
+            sorter: (a, b) => a.endpoint.localeCompare(b.endpoint),
             render: (_, row) => (
-                <Link
-                    to={urls.tracingOperation(row.service_name, row.endpoint, { date_from: timeRange, date_to: null })}
-                    className="font-semibold"
+                <HealthTableLink
+                    to={endpointOperationUrl(row, { date_from: timeRange, date_to: null })}
+                    className="block max-w-36 truncate"
+                    title={row.endpoint}
                     data-attr="apm-endpoint-operation"
                 >
                     {row.endpoint}
-                </Link>
+                </HealthTableLink>
             ),
         },
         {
             title: 'Service',
             key: 'service_name',
-            render: (_, row) => row.service_name,
-        },
-        ...healthColumns<EndpointHealthApi>(),
-        {
-            title: 'Open in',
-            key: 'links',
+            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => (
-                <span className="flex gap-2">
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
+                <span className="block max-w-28 truncate" title={row.service_name}>
+                    {row.service_name}
                 </span>
+            ),
+        },
+        ...healthColumns<EndpointHealthApi>(filteredEndpoints),
+        {
+            key: 'actions',
+            width: 0,
+            render: (_, row) => (
+                <AlertOnThisMenu
+                    target={endpointAlertTarget(row)}
+                    source="endpoints"
+                    onCreateAlert={onCreateAlert}
+                    leadingSections={[telemetryMenuSection(row.service_name, timeRange, 'endpoints')]}
+                />
             ),
         },
     ]
@@ -64,6 +91,15 @@ export function EndpointsTab(): JSX.Element {
                     ]}
                     data-attr="apm-endpoints-service"
                 />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="max-w-80"
+                    placeholder="Search endpoints"
+                    value={search}
+                    onChange={setSearch}
+                    data-attr="apm-endpoints-search"
+                />
             </div>
             {endpointsLoadError && (
                 <LemonBanner type="error">
@@ -74,9 +110,14 @@ export function EndpointsTab(): JSX.Element {
             )}
             <LemonTable
                 columns={columns}
-                dataSource={endpoints}
+                dataSource={filteredEndpoints}
                 rowKey={(row) => `${row.service_name}\n${row.endpoint}`}
                 loading={endpointsHealthLoading}
+                emptyState={
+                    endpoints.length > 0
+                        ? `No endpoints match "${search}".`
+                        : 'No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle.'
+                }
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (row) => (
@@ -87,7 +128,6 @@ export function EndpointsTab(): JSX.Element {
                         />
                     ),
                 }}
-                emptyState="No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle."
                 data-attr="apm-endpoints-table"
             />
         </div>

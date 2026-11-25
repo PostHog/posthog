@@ -92,7 +92,7 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
             # `raise_for_status()`. Retrying can never satisfy a credential problem. Match the stable
             # status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://www.buzzsprout.com": "Your Buzzsprout API token is invalid or has been revoked. Create a new token in your Buzzsprout account settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://www.buzzsprout.com": "Your Buzzsprout API token does not have access to this podcast. Check the token and podcast ID, then reconnect.",
+            "403 Client Error: Forbidden for url: https://www.buzzsprout.com": "Your Buzzsprout API token does not have access to this podcast or table. The team table needs a token of a podcast admin or owner. Check the token and podcast ID, then reconnect.",
         }
 
     def get_schemas(

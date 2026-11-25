@@ -347,7 +347,7 @@ export interface supportLogicActions {
             target?: 'modal' | 'sidePanel'
         }
     ) => Partial<SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+        target?: 'modal' | 'sidePanel'
     }
     resetSendSupportRequest: (values?: SupportFormFields) => {
         values?: SupportFormFields

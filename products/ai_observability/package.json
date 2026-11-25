@@ -38,7 +38,8 @@
         "papaparse": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "catalog:*",
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:",
         "use-debounce": "*"
     }
 }

@@ -235,6 +235,83 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
+        describe('a run the audience limit cuts short', () => {
+            const truncatedRuns = (): any[] =>
+                queueAppMetrics.mock.calls
+                    .flatMap(([metrics]) => metrics)
+                    .filter((m) => m.metric_name === 'audience_truncated')
+
+            const runJob = async (jobState: BatchResolverState, job: Record<string, jest.Mock> = {}): Promise<void> => {
+                Object.assign((consumer as any).hogFunctionMonitoringService, {
+                    flush: jest.fn().mockResolvedValue(undefined),
+                })
+                await (consumer as any).processResolverJob({
+                    id: 'job-truncated',
+                    teamId: team.id,
+                    functionId: hogFlow.id,
+                    parentRunId: BATCH_JOB_ID,
+                    cancelRequestedAt: null,
+                    state: serializeResolverState(jobState),
+                    heartbeat: jest.fn().mockResolvedValue(undefined),
+                    bulkCreateAndCheckIn,
+                    reschedule: jest.fn().mockResolvedValue(undefined),
+                    ...job,
+                })
+            }
+
+            const oneTruncatedRun = [
+                {
+                    team_id: team.id,
+                    app_source_id: BATCH_JOB_ID,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: 1,
+                },
+            ]
+
+            beforeEach(() => {
+                ;(consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons.mockResolvedValue({
+                    users_affected: ['person-1', 'person-2', 'person-3'],
+                    cursor: 'person-3',
+                    has_more: true,
+                })
+            })
+
+            it('counts one truncated run when a page crosses the limit', async () => {
+                await runJob({ ...state, maxAudienceSize: 2 })
+
+                expect(truncatedRuns()).toEqual(oneTruncatedRun)
+                expect(triggeredMetrics()).toHaveLength(2)
+            })
+
+            it('counts nothing when the crossing page does not commit', async () => {
+                bulkCreateAndCheckIn.mockRejectedValue(new Error('lock lost'))
+
+                await expect(runJob({ ...state, maxAudienceSize: 2 })).rejects.toThrow('lock lost')
+
+                expect(truncatedRuns()).toEqual([])
+            })
+
+            it('counts one truncated run when the run reaches the limit on a page boundary', async () => {
+                await runJob({ ...state, cursor: 'person-2', totalEnqueued: 2, pagesProcessed: 1, maxAudienceSize: 2 })
+
+                expect(truncatedRuns()).toEqual(oneTruncatedRun)
+            })
+
+            it('counts nothing when ending the run at the limit does not commit', async () => {
+                const reschedule = jest.fn().mockRejectedValue(new Error('lock lost'))
+
+                await expect(
+                    runJob(
+                        { ...state, cursor: 'person-2', totalEnqueued: 2, pagesProcessed: 1, maxAudienceSize: 2 },
+                        { reschedule }
+                    )
+                ).rejects.toThrow('lock lost')
+
+                expect(truncatedRuns()).toEqual([])
+            })
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
@@ -560,6 +637,29 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         })
 
         it.each([
+            [undefined, []],
+            [[], []],
+            [['$host'], ['This run left out 1 test account filter that only applies to events, not people: $host']],
+            [
+                ['$host', '$browser'],
+                ['This run left out 2 test account filters that only apply to events, not people: $host, $browser'],
+            ],
+        ])('names the test account filters a ready audience left out: %j', async (skipped, messages) => {
+            const queueLogs = jest.fn()
+            const requestAudienceSnapshot = jest.fn().mockResolvedValue({
+                status: 'ready',
+                audience_size: 12,
+                error: null,
+                skipped_test_account_filters: skipped,
+            })
+            const consumer = buildConsumer(requestAudienceSnapshot, queueLogs)
+
+            await consumer.processResolverJob(buildJob(waitingState(3600 * 1000)))
+
+            expect(queueLogs.mock.calls.map(([entries]) => entries[0].message)).toEqual(messages)
+        })
+
+        it.each([
             [
                 'Django could not resolve it',
                 { status: 'failed', audience_size: null, error: 'Audience query timed out after 20 minutes.' },
@@ -708,7 +808,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 [
                     expect.objectContaining({
                         message:
-                            "Batch resolver failed: Sending to a realtime cohort isn't available here yet. Use a different audience.",
+                            "Batch resolver failed: Sending to a real-time cohort isn't available here yet. Use a different audience.",
                     }),
                 ],
                 'hog_flow'

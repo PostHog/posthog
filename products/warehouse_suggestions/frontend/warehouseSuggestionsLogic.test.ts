@@ -25,7 +25,13 @@ import {
 } from './generated/api'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './generated/api.schemas'
 import { intervalForSeconds } from './refreshIntervals'
-import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
+import {
+    DeprecateAction,
+    ROW_LEAVE_MS,
+    StripState,
+    SuggestionSurface,
+    warehouseSuggestionsLogic,
+} from './warehouseSuggestionsLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 jest.mock('./generated/api', () => ({
@@ -923,11 +929,11 @@ describe('warehouseSuggestionsLogic', () => {
         }
     )
 
-    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+    it.each<[string, boolean, DeprecateAction, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
         [
             'stops refreshing by default',
             false,
-            false,
+            'deprecate',
             undefined,
             { certification_id: 'cert-1', stopped_materialization: true },
             'Marked old_rollup as deprecated and stopped its refreshes.',
@@ -935,7 +941,7 @@ describe('warehouseSuggestionsLogic', () => {
         [
             'keeps refreshing when asked',
             true,
-            false,
+            'deprecate',
             { keep_materialized: true },
             { certification_id: 'cert-1', stopped_materialization: false },
             'Marked old_rollup as deprecated.',
@@ -943,18 +949,26 @@ describe('warehouseSuggestionsLogic', () => {
         [
             'deletes it when asked',
             false,
-            true,
+            'delete',
             { delete_view: true },
             { saved_query_id: 'view-1', stopped_materialization: true },
             'Deleted old_rollup.',
         ],
-    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
+        [
+            'stops refreshing without marking it deprecated when asked',
+            false,
+            'unmarked',
+            { mark_deprecated: false },
+            { saved_query_id: 'view-1' },
+            "Stopped refreshing old_rollup. It isn't marked deprecated.",
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deprecateAction, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
         mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
-        logic.actions.setDeleteView(deleteView)
+        logic.actions.setDeprecateAction(deprecateAction)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
@@ -964,17 +978,42 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
     })
 
-    it.each([
-        ['marks it deprecated for a data catalog editor', true, false],
-        ['deletes it for someone who cannot edit the data catalog', false, true],
-    ])('a view deprecation opens on the choice that %s', async (_name, canEditCatalog, expectedDeleteView) => {
-        jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+    it.each<[string, boolean, boolean, DeprecateAction]>([
+        ['marks it deprecated for a data catalog editor', true, true, 'deprecate'],
+        ['leaves it unmarked for someone who cannot edit the data catalog', false, true, 'unmarked'],
+        ['deletes a plain view for someone who cannot edit the data catalog', false, false, 'delete'],
+    ])(
+        'a view deprecation opens on the choice that %s',
+        async (_name, canEditCatalog, materialized, expectedAction) => {
+            jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+            const capture = jest.spyOn(posthog, 'capture')
+            const suggestion = { ...DEPRECATE, payload: { ...DEPRECATE.payload, materialized } }
+            mockList.mockResolvedValue(page([suggestion]))
+            await mountLogic()
+
+            logic.actions.openAcceptConfirm(suggestion.id)
+
+            expect(logic.values.deprecateAction).toBe(expectedAction)
+            expect(capture).toHaveBeenCalledWith(
+                'warehouse suggestion confirm opened',
+                expect.objectContaining({ deprecate_action: expectedAction })
+            )
+        }
+    )
+
+    it('reports the choice someone left the deprecate dialog on', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         mockList.mockResolvedValue(page([DEPRECATE]))
         await mountLogic()
-
         logic.actions.openAcceptConfirm(DEPRECATE.id)
+        logic.actions.setDeprecateAction('unmarked')
 
-        expect(logic.values.deleteView).toBe(expectedDeleteView)
+        logic.actions.closeAcceptConfirm()
+
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestion confirm cancelled',
+            expect.objectContaining({ deprecate_action: 'unmarked' })
+        )
     })
 
     it('reloads the list when an accept finds the view or table deleted', async () => {

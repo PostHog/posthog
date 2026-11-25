@@ -176,6 +176,15 @@ devbox:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
         untracked: true
+    devbox:claude:login:
+        click: hogli_commands.devbox.cli:devbox_claude_login
+        description: Log in to Claude Code on your devbox
+    devbox:claude:status:
+        click: hogli_commands.devbox.cli:devbox_claude_status
+        description: Show which Claude Code account your devbox uses
+    devbox:claude:logout:
+        click: hogli_commands.devbox.cli:devbox_claude_logout
+        description: Log out of Claude Code on your devbox
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
@@ -229,6 +238,39 @@ devbox:
     devbox:secret:rm:
         click: hogli_commands.devbox.cli:devbox_secret_rm
         description: Delete a Coder user secret
+    devbox:secrets:push:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_push
+        description: Lend 1Password secrets to your devbox, in memory and for a limited time
+    devbox:secrets:status:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_status
+        description: Show which secrets your devbox holds and for how long
+    devbox:secrets:clear:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_clear
+        description: Remove lent secrets from your devbox now
+    devbox:gh:login:
+        click: hogli_commands.devbox.gh_login:devbox_gh_login
+        description: Log the GitHub CLI in on your devbox, for gh and git
+    devbox:gh:status:
+        click: hogli_commands.devbox.gh_login:devbox_gh_status
+        description: Show which GitHub account the GitHub CLI on your devbox uses
+    devbox:gh:logout:
+        click: hogli_commands.devbox.gh_login:devbox_gh_logout
+        description: Log the GitHub CLI out on your devbox
+    devbox:trunk:login:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_login
+        description: Log the Trunk CLI in on your devbox, for the merge queue
+    devbox:trunk:status:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_status
+        description: Show which Trunk account the Trunk CLI on your devbox uses
+    devbox:trunk:logout:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_logout
+        description: Log the Trunk CLI out on your devbox
+    devbox:dotfiles:
+        click: hogli_commands.devbox.dotfiles:devbox_dotfiles
+        description: Apply your dotfiles repo on your devbox again
+    devbox:check:
+        click: hogli_commands.devbox.box_checks:devbox_check
+        description: Show which logins and other per-box setup your devbox is missing
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration
@@ -491,7 +533,7 @@ build:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
     build:schema-latest-versions:
-        bin_script: build-schema-latest-versions.py
+        cmd: bin/hogli build:projections --only schema-latest-versions
         description: Extract latest schema versions and generate frontend JSON config
     build:projections:
         click: hogli_commands.projections:cmd_build_projections
@@ -525,7 +567,7 @@ build:
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:widget-types:
         steps:
-            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: python products/dashboards/scripts/build_widget_types.py
             - cmd: pnpm --filter=@posthog/frontend exec node
                   ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
         description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
@@ -696,11 +738,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
     migrations:clickhouse:
         cmd: bin/migrate --scope=clickhouse
         description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
         services:
             - clickhouse
     migrations:check:
@@ -923,9 +967,6 @@ quality:
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
-    lint:tach:
-        click: hogli_commands.tach_lint:cmd_lint_tach
-        description: Check module boundaries with tach (dependencies without test code, interfaces with it)
     lint:migration-deletions:
         click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
         description: Block deleting historical Django migration files
@@ -994,15 +1035,12 @@ tools:
     product:isolate:move:
         click: hogli_commands.product.cli:cmd_isolate_move
         description: Mechanical isolation moves with repo-wide path rewrites
-    product:crossings:
-        click: hogli_commands.product.cli:cmd_crossings
-        description: Report consumer uses of watched-models crossing classes by kind
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
-        description: Score product maturity across isolation dimensions
+        description: 'Score product maturity: models moved in, generated API client use, hoglint level and debt'
     tool:temporal-codec-server:
         bin_script: temporal-codec-server
         description: Run a local Temporal codec server to decode Fernet payloads for debugging
@@ -1270,10 +1308,6 @@ environment:
         bin_script: dev-sandbox-selftest
         description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
         hidden: true
-    build:dashboard:widget:types:
-        bin_script: build-dashboard-widget-types.py
-        description: Widget enum preflight, date options, and form-field manifest codegen
-        hidden: true
     start:ai:gateway:
         bin_script: start-ai-gateway
         description: 'Bring up the local Go ai-gateway via docker compose and top up the anonymous-team ledger for AGENT_USE_AI_GATEWAY dev'
@@ -1349,4 +1383,8 @@ environment:
     devbox:worktree:hook:
         bin_script: devbox-worktree-hook
         description: 'Start or stop the devbox of this worktree from an app create or remove hook'
+        hidden: true
+    migrate:clickhouse:with:prod:grants:
+        bin_script: migrate-clickhouse-with-prod-grants
+        description: 'Apply ClickHouse migrations, running recent ones with the prod migrations user grants'
         hidden: true

@@ -221,6 +221,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "items": "Order line items in the shipment, with the quantity of each.",
         },
     },
+    "order_coupons": {
+        "description": "A coupon code applied to an order, with the type and amount of the discount it gave.",
+        "docs_url": "https://developer.bigcommerce.com/docs/rest-management/orders/order-coupons",
+        "columns": {
+            "id": "Numeric ID of the coupon code on the order.",
+            "coupon_id": "Identifier of the coupon the code belongs to.",
+            "order_id": "Identifier of the order the coupon was applied to.",
+            "code": "Coupon code the shopper entered.",
+            "amount": "Configured value of the discount. Dollar and percentage discounts both return a number, so read it with `type`.",
+            "type": "Discount type: 0 per item, 1 percentage, 2 per total, 3 shipping, 4 free shipping, 5 promotion.",
+            "discount": "Amount the coupon took off the order.",
+        },
+    },
     "refunds": {
         "description": "A refund issued against an order, with the refunded items and the payments returned to the shopper.",
         "docs_url": "https://developer.bigcommerce.com/docs/rest-management/orders/payment-actions",
@@ -235,6 +248,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "uses_merchant_override_values": "Whether the merchant set the refund amount and tax explicitly.",
             "items": "Items refunded.",
             "payments": "Refund payments made to payment providers.",
+        },
+    },
+    "product_reviews": {
+        "description": "A review of a catalog product, with its rating, text and moderation status.",
+        "docs_url": "https://developer.bigcommerce.com/docs/rest-catalog/products/reviews",
+        "columns": {
+            "id": "Unique identifier for the review.",
+            "product_id": "Identifier of the product the review is for.",
+            "title": "Title of the review.",
+            "text": "Text of the review.",
+            "status": "Moderation status of the review: `approved`, `disapproved` or `pending`.",
+            "rating": "Rating the reviewer gave, from 0 to 5.",
+            "email": "Email address of the reviewer.",
+            "name": "Name of the reviewer.",
+            "date_reviewed": "Date the product was reviewed.",
+            "date_created": "Date and time the review was created.",
+            "date_modified": "Date and time the review was last modified.",
         },
     },
 }

@@ -10,7 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { TRACING_DATE_TIME_FORMAT, TRACING_DISPLAY_TIMEZONE } from 'products/tracing/frontend/dateFormats'
 
-import type { RequestsSeries } from './servicePage'
+import { bucketIntervalLabel, type RequestsSeries } from './servicePage'
 
 export interface ServiceRequestsChartProps {
     data: RequestsSeries | null
@@ -23,21 +23,27 @@ export function ServiceRequestsChart({ data, loading }: ServiceRequestsChartProp
         () =>
             data
                 ? [
-                      { key: 'ok', label: 'OK', data: data.requests, color: getColorVar('data-color-1') },
+                      { key: 'ok', label: 'Successful', data: data.requests, color: getColorVar('data-color-1') },
                       { key: 'errors', label: 'Errors', data: data.errors, color: getColorVar('danger') },
                   ]
                 : [],
         [data]
     )
+    const interval = data ? bucketIntervalLabel(data.times) : null
     const config = useChartConfig<TimeSeriesBarChartConfig>(
-        () => ({ xAxis: { timezone: TRACING_DISPLAY_TIMEZONE }, showGrid: true }),
-        []
+        () => ({
+            xAxis: { timezone: TRACING_DISPLAY_TIMEZONE },
+            yAxis: { label: interval ? `Requests / ${interval}` : 'Requests' },
+            showGrid: true,
+            legend: { show: true, position: 'bottom', align: 'start' },
+        }),
+        [interval]
     )
     const hasData = !!data && data.times.length > 0
 
     return (
         // Quill's chart root is flex-1, so the sized container has to be a flex column.
-        <div className="relative h-48 flex flex-col" data-attr="apm-service-requests-chart">
+        <div className="relative h-56 flex flex-col" data-attr="apm-service-requests-chart">
             {hasData ? (
                 <TimeSeriesBarChart
                     series={series}

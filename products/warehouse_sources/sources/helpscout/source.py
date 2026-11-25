@@ -64,13 +64,13 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             # framework's stable marker; transient 429/5xx token errors don't.
             "401 Client Error: Unauthorized for url: https://api.helpscout.net": "Help Scout authentication failed. Please reconnect your Help Scout account.",
             # Reports are gated to the Plus and Pro plans, which a retry can't change.
-            "403 Client Error: Forbidden for url: https://api.helpscout.net/v2/reports": "Help Scout reports are only available on the Plus and Pro plans. Upgrade your Help Scout plan or deselect the happiness_ratings table.",
+            "403 Client Error: Forbidden for url: https://api.helpscout.net/v2/reports": "Help Scout reports are only available on the Plus and Pro plans. Upgrade your Help Scout plan or deselect the happiness_ratings and user_conversation_history tables.",
             # The linked OAuth integration was deleted while the source still references it.
             # Retrying can never resolve this, so ask the user to reconnect.
             "Integration not found": "The linked Help Scout integration no longer exists. Please reconnect your Help Scout account.",
-            # The Help Scout app isn't configured on this PostHog instance, so the source can't
-            # refresh its access token. Deterministic, so retrying never resolves it.
-            "Help Scout app not configured": "The Help Scout app is not configured on this PostHog instance. Please contact support.",
+            # "Help Scout app not configured" is not here on purpose. It means the worker that ran the job
+            # has no Help Scout client credentials, which is a PostHog fault that the customer can't fix,
+            # so it must not disable the schema.
         }
 
     @property

@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from .agent_egress import AgentEgressProbeWorkflow
 from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
@@ -48,12 +50,14 @@ from .process_task.activities import (
     send_followup_to_sandbox,
     start_agent_server,
     start_dev_stack_preview,
+    switch_model_from_message,
     track_workflow_event,
     update_task_run_status,
     wait_dev_stack_preview,
 )
 from .process_task.activities.agent_egress import (
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     prepare_agent_egress,
     probe_agent_egress,
     renew_agent_egress,
@@ -71,6 +75,9 @@ from .process_task.slack_agent_design_relay import SlackAgentDesignRelayWorkflow
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     AgentEgressProbeWorkflow,
     TaskRunGatewayUsageWorkflow,
@@ -83,8 +90,9 @@ WORKFLOWS = [
     ActivateDevStackImageWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     prepare_agent_egress,
+    initialize_agent_egress_git_grant,
     renew_agent_egress,
     probe_agent_egress,
     cleanup_agent_egress,
@@ -110,6 +118,7 @@ ACTIVITIES = [
     create_resume_snapshot,
     persist_agent_memory,
     send_followup_to_sandbox,
+    switch_model_from_message,
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,

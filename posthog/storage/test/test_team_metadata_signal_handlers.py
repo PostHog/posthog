@@ -11,9 +11,10 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_secret, hash_key_value
+from posthog.models.utils import hash_key_value
 from posthog.storage import object_storage
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX, token_auth_cache
 from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
@@ -149,11 +150,16 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
         spy_apply_async.assert_any_call(args=[api_token], countdown=RETIRED_TOKEN_RECLEAR_DELAY_SECONDS)
 
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_token_reset_drops_the_secret_key_auth_entry(self, _mock_push_vercel: Mock) -> None:
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save()
-        auth_key = f"{TOKEN_CACHE_PREFIX}{hash_key_value(self.team.secret_api_token, mode='sha256')}"
-        token_auth_cache.redis.setex(auth_key, 300, json.dumps({"type": "secret", "api_token": self.team.api_token}))
+    def test_token_reset_drops_the_cached_psak_auth_entry(self, _mock_push_vercel: Mock) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="Cached PSAK",
+            secure_value=hash_key_value("phs_cached_psak_token"),
+        )
+        auth_key = f"{TOKEN_CACHE_PREFIX}{psak.secure_value}"
+        token_auth_cache.redis.setex(
+            auth_key, 300, json.dumps({"type": "project_secret", "api_token": self.team.api_token})
+        )
 
         with self.captureOnCommitCallbacks(execute=True):
             self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
@@ -202,10 +208,12 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
-class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
+class TestFlagPolicyRequestListCacheRefresh(BaseTest):
     @parameterized.expand(
         [
             ("create_with_entries", None, {"blocked_hosts": ["example.com"]}),
+            ("create_with_allowed_hosts", None, {"allowed_hosts": ["example.com"]}),
+            ("create_with_allowed_ips", None, {"allowed_ips": ["203.0.113.7"]}),
             ("set_on_existing_row", {}, {"blocked_hosts": ["example.com"], "blocked_ips": ["203.0.113.7"]}),
             (
                 "clear_on_existing_row",
@@ -214,7 +222,7 @@ class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
             ),
         ]
     )
-    def test_blocklist_save_refreshes_team_metadata_cache(
+    def test_request_list_save_refreshes_team_metadata_cache(
         self, _name: str, existing: dict[str, list[str]] | None, saved: dict[str, list[str]]
     ) -> None:
         config = None if existing is None else TeamFeatureFlagPolicyConfig.objects.create(team=self.team, **existing)
@@ -237,7 +245,7 @@ class TestFlagPolicyBlocklistCacheRefresh(BaseTest):
 
         mock_task.delay.assert_not_called()
 
-    def test_flag_policy_save_with_update_fields_outside_blocklist_does_not_refresh(self) -> None:
+    def test_flag_policy_save_with_update_fields_outside_request_lists_does_not_refresh(self) -> None:
         config = TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=["example.com"])
 
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:

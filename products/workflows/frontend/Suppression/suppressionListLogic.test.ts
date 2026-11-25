@@ -1,11 +1,12 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as messagingApi from 'products/messaging/frontend/generated/api'
-import type { PaginatedMessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { removalWarning, suppressionListLogic } from './suppressionListLogic'
 
@@ -26,6 +27,10 @@ const suppressionRow = (identifier: string, source = 'MANUAL'): any => ({
 describe('suppressionListLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     describe('page-state failure isolation', () => {
@@ -64,51 +69,55 @@ describe('suppressionListLogic', () => {
     })
 
     describe('overlapping request isolation', () => {
-        // Guards the loader breakpoint: a pagination fetch that resolves after a newer reload
-        // (e.g. a debounced search) must be discarded, not overwrite the newer rows and desync
-        // currentPage from what the table shows.
-        it('discards a stale pagination response that resolves after a newer reload', async () => {
-            let resolveStalePage: (value: PaginatedMessageSuppressionApi) => void = () => {}
-            const stalePagePromise = new Promise<PaginatedMessageSuppressionApi>((resolve) => {
-                resolveStalePage = resolve
+        it('shows the search results when the next page they replaced arrives late', async () => {
+            const listed = ['a@example.com', 'b@example.com', 'c@example.com']
+            let releaseNextPage: () => void = () => {}
+            const nextPageHeld = new Promise<void>((resolve) => {
+                releaseNextPage = resolve
             })
-            const initialResult: PaginatedMessageSuppressionApi = {
-                count: 1,
-                next: null,
-                previous: null,
-                results: [suppressionRow('initial@example.com')],
-            }
-            const freshResult: PaginatedMessageSuppressionApi = {
-                count: 1,
-                next: null,
-                previous: null,
-                results: [suppressionRow('fresh@example.com')],
-            }
-            jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve')
-                .mockResolvedValueOnce(initialResult)
-                .mockImplementationOnce(() => stalePagePromise)
-                .mockResolvedValueOnce(freshResult)
-
+            let nextPageReceived: () => void = () => {}
+            const nextPageRequested = new Promise<void>((resolve) => {
+                nextPageReceived = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': async ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        const page = Number(params.get('page') ?? 1)
+                        if (page === 2) {
+                            nextPageReceived()
+                            await nextPageHeld
+                        }
+                        const matching = listed.filter((id) => id.includes(params.get('search') ?? ''))
+                        return [
+                            200,
+                            {
+                                count: matching.length,
+                                next:
+                                    page * 2 < matching.length ? `${request.url.split('?')[0]}?page=${page + 1}` : null,
+                                previous: null,
+                                results: matching.slice((page - 1) * 2, page * 2).map((id) => suppressionRow(id)),
+                            },
+                        ]
+                    },
+                },
+            })
             const logic = suppressionListLogic()
             logic.mount()
-            // Let the mount-time load settle so the mocks line up with the two racing requests.
-            await expectLogic(logic).toDispatchActions(['loadSuppressionsSuccess'])
+            await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
 
             logic.actions.loadNextPage()
-            await expectLogic(logic, () => {
-                logic.actions.loadSuppressions()
-            }).toDispatchActions(['loadSuppressionsSuccess'])
-
-            resolveStalePage({
-                count: 100,
-                next: 'next-url',
-                previous: null,
-                results: [suppressionRow('stale@example.com')],
-            })
+            await nextPageRequested
+            logic.actions.setSearchTerm('b')
+            await waitFor(() => expect(logic.values.suppressions.count).toBe(1))
+            releaseNextPage()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.suppressions).toEqual(freshResult)
-            expect(logic.values.currentPage).toBe(1)
+            expect([
+                logic.values.currentPage,
+                logic.values.suppressions.count,
+                logic.values.suppressions.results.map((row) => row.identifier),
+            ]).toEqual([1, 1, ['b@example.com']])
         })
     })
     describe('removal warning', () => {
@@ -155,6 +164,109 @@ describe('suppressionListLogic', () => {
                 identifiers: ['a@example.com'],
                 confirm_complaints: confirmComplaints,
             })
+        })
+
+        it.each([
+            [
+                'steps back when another session already removed part of a selection that filled the last page',
+                {
+                    listed: 'abcd',
+                    removedElsewhere: 'c',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
+            ],
+            [
+                'steps back when the page still links to a next page another session emptied',
+                {
+                    listed: 'abcde',
+                    removedElsewhere: 'ce',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
+            ],
+            [
+                'stays on the last page when rows are left on it',
+                { listed: 'abcd', removedElsewhere: '', selected: 'c', pageOnWhileRemoving: false, expected: [2, 'd'] },
+            ],
+            [
+                'steps back when the removal empties the last page the user moved to while it ran',
+                {
+                    listed: 'abcde',
+                    removedElsewhere: '',
+                    selected: 'c',
+                    pageOnWhileRemoving: true,
+                    expected: [2, 'de'],
+                },
+            ],
+        ])('%s', async (_label, { listed: initial, removedElsewhere, selected, pageOnWhileRemoving, expected }) => {
+            const addresses = (names: string): string[] => [...names].map((name) => `${name}@example.com`)
+            let listed = addresses(initial)
+            let releaseRemoval: () => void = () => {}
+            const removalHeld = new Promise<void>((resolve) => {
+                releaseRemoval = resolve
+            })
+            let removalReceived: () => void = () => {}
+            const removalRequested = new Promise<void>((resolve) => {
+                removalReceived = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                        const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+                        const rows = listed.slice((page - 1) * 2, page * 2)
+                        if (page > 1 && rows.length === 0) {
+                            return [404, { detail: 'Invalid page.' }]
+                        }
+                        const next = page * 2 < listed.length ? `${request.url.split('?')[0]}?page=${page + 1}` : null
+                        return [
+                            200,
+                            {
+                                count: listed.length,
+                                next,
+                                previous: null,
+                                results: rows.map((id) => suppressionRow(id)),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
+                        const { identifiers } = (await request.json()) as { identifiers: string[] }
+                        if (pageOnWhileRemoving) {
+                            removalReceived()
+                            await removalHeld
+                        }
+                        const removed = identifiers.filter((id) => listed.includes(id))
+                        listed = listed.filter((id) => !identifiers.includes(id))
+                        return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
+                    },
+                },
+            })
+            const logic = suppressionListLogic()
+            logic.mount()
+            await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
+            logic.actions.loadNextPage()
+            await waitFor(() => expect(logic.values.currentPage).toBe(2))
+            listed = listed.filter((id) => !addresses(removedElsewhere).includes(id))
+
+            logic.actions.removeSuppressions({ identifiers: addresses(selected), confirmComplaints: false })
+            if (pageOnWhileRemoving) {
+                await removalRequested
+                logic.actions.loadNextPage()
+                await waitFor(() => expect(logic.values.currentPage).toBe(3))
+                releaseRemoval()
+            }
+
+            const [expectedPage, expectedRows] = expected as [number, string]
+            await waitFor(() =>
+                expect([
+                    logic.values.currentPage,
+                    logic.values.suppressions.results.map((row) => row.identifier),
+                ]).toEqual([expectedPage, addresses(expectedRows)])
+            )
         })
     })
 })

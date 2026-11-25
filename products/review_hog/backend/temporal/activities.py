@@ -41,13 +41,20 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.deep_follow_up import DeepFollowUp
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
-from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
+from products.review_hog.backend.review_cadence import ReviewCadence
+from products.review_hog.backend.review_notes import (
+    comment_commands_enabled,
+    draft_review_notice,
+    first_review_note,
+    last_review_notice,
+)
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -149,6 +156,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_throttle,
     apply_zero_change_rule,
     plan_delta_review,
+    skip_follow_up,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -238,6 +246,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
 from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
+    DEEP_FOLLOW_UP_ACTION,
     REQUESTED_TRIGGERS,
     TRIGGER_AUTOMATIC,
     TRIGGER_LABEL,
@@ -292,6 +301,7 @@ class FetchPRDataInput:
     # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
     # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
     review_mode: str = REVIEW_MODE_FULL
+    trigger_action: str | None = None
 
 
 @dataclass(frozen=False)
@@ -585,6 +595,8 @@ class PublishInput:
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
     capped_lens_parts: int | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass
@@ -744,6 +756,9 @@ class GatePushInput:
     delta_band: bool = False
     # A coordinated PR always records the control arm of the delta split, so evaluations leave these PRs out.
     coordinator: bool = False
+    installation_id: str | None = None
+    github_repo_id: int | None = None
+    trigger_action: str | None = None
 
 
 @dataclass(frozen=False)
@@ -950,7 +965,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
     already_published = review_already_published(report, head_sha, input.review_mode)
-    already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
+    already_completed = (
+        bool(head_sha)
+        and report.automatic_reviewed_head_sha == head_sha
+        and input.trigger_action != DEEP_FOLLOW_UP_ACTION
+    )
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
@@ -1095,7 +1114,7 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
-    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    """Whether the rules still give this PR its automatic review when the turn starts, Standard or Deep."""
     if acting_user_id is None or input.repository is None:
         return False
     if input.report_id is not None:
@@ -1189,6 +1208,10 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     borrowed = resolved_from == "default" or (
         input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != owner.user_id
     )
+    # The dispatch passes the run user as an override, but nobody requested an automatic review. The status comment
+    # names whose threshold held findings back, which is the owner's, or the default one for a borrowed user.
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        resolved_from = "default" if borrowed else "author"
     # celebrate_clean_reviews follows the owner, who can differ from the acting user on an override
     # run, so load both users in one query instead of a second round trip below.
     extra_settings_ids = [owner.user_id] if owner.user_id is not None and owner.user_id != acting_user_id else []
@@ -2313,13 +2336,22 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
-    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
+    # Only an automatic turn ends with a note about the next automatic review: a comment or UI review runs for
+    # authors without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
+    ready_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
+        cadence = ReviewCadence.load(
+            input.team_id,
+            f"{input.owner}/{input.repo}",
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+        )
+        if cadence is not None and cadence.ends_after_ready_review():
+            ready_notice = last_review_notice(comment_commands_on)
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
         deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
@@ -2338,13 +2370,15 @@ def _publish(input: PublishInput) -> PublishResult:
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
         draft_notice=draft_notice,
+        ready_notice=ready_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
+        snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
-            automatic_reviewed_head_sha=input.head_sha
+            automatic_reviewed_head_sha=input.head_sha, automatic_reviewed_draft=_pr_draft(snapshot)
         )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
@@ -2621,9 +2655,74 @@ def _head_already_finalized(input: GatePushInput) -> bool:
     return completed_head_sha == input.head_sha
 
 
+def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
+    """The push gate of an automatic Deep turn: only the draft rule applies, with the re-read on GitHub of a Standard turn.
+
+    An automatic Deep turn is the PR's first Deep review: the dispatch starts one at most, and a published Deep review
+    stops every later automatic turn. The other rules weigh a push against the last automatic review, which was a
+    Standard one, so they do not apply. The dispatch keeps a draft on Standard, but a PR can turn back into a draft
+    while its Deep turn waits in the queue.
+    """
+    review = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched")
+    current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    if current is None or not current.pr_metadata.draft:
+        return review
+    token, installation_id = _installation_auth(input.team_id, input.repository)
+    if not _pr_draft_on_github(
+        input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+    ):
+        return review
+    ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    return apply_draft_rule(review, draft=True)
+
+
+def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> PushGateDecision:
+    if decision.skip:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    try:
+        _track_push_gate_decided(input, decision, draft)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
+    return decision
+
+
+def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact | None, draft: bool | None) -> bool:
+    """Rule 0: whether the repository's review cadence has a review for this turn. An unknown cadence reviews."""
+    cadence = ReviewCadence.load(
+        input.team_id,
+        input.repository,
+        installation_id=input.installation_id,
+        github_repo_id=input.github_repo_id,
+    )
+    if cadence is None or cadence.review_pushes:
+        return True
+    reviewed_draft = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(id=input.report_id)
+        .values_list("automatic_reviewed_draft", flat=True)
+        .first()
+    )
+    if reviewed_draft is not False and draft and current is not None:
+        # The queue drops a ready request for the head this turn holds, as for the draft rule below.
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+        draft = _pr_draft_on_github(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        )
+    return cadence.allows_follow_up(reviewed_draft=reviewed_draft, draft=draft)
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
+    # The Deep follow-up reviews the head that its Standard turn just reviewed, so no rule about pushes applies.
+    if input.trigger_action == DEEP_FOLLOW_UP_ACTION:
+        return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
+    if not _cadence_allows_follow_up(input, current, draft):
+        return _record_gate_decision(input, skip_follow_up(), draft)
+    # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
+    # automatic follow-up, and a new condition there would change its command sequence.
+    if input.review_mode == REVIEW_MODE_FULL:
+        return _gate_automatic_deep_push(input)
     snapshot: PRSnapshotArtefact | None = None
     change: PRChange | None = None
     if current is None:
@@ -2680,13 +2779,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             reviewable_lines=plan_lens_chunks(snapshot.pr_files).reviewable_lines if snapshot is not None else None,
             enabled=input.delta_band,
         )
-    if decision.skip:
-        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
-    try:
-        _track_push_gate_decided(input, decision, draft)
-    except Exception:
-        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
-    return decision
+    return _record_gate_decision(input, decision, draft)
 
 
 @activity.defn
@@ -3081,14 +3174,15 @@ def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> Non
     )
     if queued:
         _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+    DeepFollowUp(input).start()
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
-    """Record on the turn marker whether the turn was clean with full coverage, and queue the silent stamphog
-    review for a clean turn that the queue does not answer for.
+    """Record on the turn marker whether the turn was clean with full coverage, queue the silent stamphog
+    review for a clean turn that the queue does not answer for, and queue a Deep follow-up after a must-fix finding.
 
     The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
     """

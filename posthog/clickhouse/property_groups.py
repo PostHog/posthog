@@ -21,6 +21,9 @@ class PropertyGroupDefinition:
     hidden: bool = (
         False  # whether or not this column should be returned when searching for groups containing a property key
     )
+    # Bloom filters on mapKeys and mapValues slow inserts and don't speed up reads of a group with hundreds of keys.
+    has_indexes: bool = True
+    map_type: str = "Map(String, String)"
 
     def contains(self, property_key: str) -> bool:
         if self.hidden:
@@ -32,7 +35,7 @@ class PropertyGroupDefinition:
         return self.column_name if self.column_name else f"{source_column}_{self.column_type_name}_{group_name}"
 
     def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
-        column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
+        column_definition = f"{self.get_column_name(source_column, group_name)} {self.map_type}"
         if not self.is_materialized:
             return column_definition
 
@@ -41,7 +44,7 @@ class PropertyGroupDefinition:
             {column_definition}
             MATERIALIZED mapSort(
                 mapFilter((key, _) -> {self.key_filter_expression},
-                CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
+                CAST(JSONExtractKeysAndValues({source_column}, 'String'), '{self.map_type}'))
             )
             {codec_clause}
         """
@@ -49,7 +52,7 @@ class PropertyGroupDefinition:
     def get_index_definitions(
         self, source_column: PropertySourceColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
-        if not self.is_materialized:
+        if not self.is_materialized or not self.has_indexes:
             return
 
         map_column_name = self.get_column_name(source_column, group_name)
@@ -239,12 +242,20 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
     }
 
 
-# Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is left out because a
-# $feature/* map would copy a large share of each flag call's JSON. HogQL therefore reads $feature/* keys from the
-# JSON on this table. No column on this table family carries a CODEC.
+# Flag calls carry no $ai_* keys, so the ai groups are left out. No column on this table family carries a CODEC.
+# The feature_flags group stays hidden until every part inside the TTL has the map. A part written before migration
+# 0394 computes the map from the JSON on every read.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {
         "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
+        "feature_flags": dataclasses.replace(
+            event_property_group_definitions["properties"]["feature_flags"],
+            codec=None,
+            hidden=True,
+            has_indexes=False,
+            # A team sends the same flag keys on every call, and almost every value is true, false or a variant key.
+            map_type="Map(LowCardinality(String), LowCardinality(String))",
+        ),
     },
     "person_properties": {
         "custom": dataclasses.replace(event_property_group_definitions["person_properties"]["custom"], codec=None),

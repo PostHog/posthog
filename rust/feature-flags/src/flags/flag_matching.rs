@@ -26,6 +26,7 @@ use crate::flags::flag_models::{
     FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::flags::flag_request::KnownAbsentProperties;
 use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
@@ -53,6 +54,7 @@ use common_types::{PersonId, TeamId};
 use futures::future::Either;
 use rayon::prelude::*;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
@@ -492,6 +494,9 @@ pub struct FeatureFlagMatcher {
     detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     only_use_override_person_properties: bool,
+    /// Property keys the request lists as known absent. The merged property maps drop them, and
+    /// filters on them match as absent whether or not the stored properties were fetched.
+    known_absent: Arc<KnownAbsentProperties>,
     /// Team timezone used to interpret naive datetime filter values (IS_DATE_* and
     /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
     /// Parsed once per request and reused across every property comparison.
@@ -857,6 +862,7 @@ impl FeatureFlagMatcher {
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
+            known_absent: Arc::default(),
             timezone: Tz::UTC,
             now: Utc::now(),
             persons_db_deadline: None,
@@ -926,6 +932,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
         self.only_use_override_person_properties = only_use_override;
+        self
+    }
+
+    pub fn with_known_absent_properties(mut self, known_absent: KnownAbsentProperties) -> Self {
+        self.known_absent = Arc::new(known_absent);
         self
     }
 
@@ -1372,11 +1383,25 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) -> bool {
+        let empty_overrides = HashMap::new();
+        let overrides = person_property_overrides
+            .as_ref()
+            .unwrap_or(&empty_overrides);
+        // A known-absent key counts as supplied, because evaluation never reads its stored value.
+        // `flags_require_db_preparation` checks only key presence, so the null placeholders never
+        // reach matching.
+        let supplied_person_properties = if self.known_absent.person.is_empty() {
+            Cow::Borrowed(overrides)
+        } else {
+            let mut supplied = overrides.clone();
+            for key in &self.known_absent.person {
+                supplied.entry(key.clone()).or_insert(Value::Null);
+            }
+            Cow::Owned(supplied)
+        };
         let flags_requiring_db_preparation = flags_require_db_preparation(
             flags,
-            person_property_overrides
-                .as_ref()
-                .unwrap_or(&HashMap::new()),
+            &supplied_person_properties,
             &self.filtered_out_flag_ids,
             &|filter, effective_aggregation| {
                 self.group_filter_needs_db_prep(
@@ -1644,6 +1669,19 @@ impl FeatureFlagMatcher {
         let group_type = index_to_type_map.get(&group_type_index)?;
         let group_overrides = group_property_overrides?;
         group_overrides.get(group_type)
+    }
+
+    /// The keys the request lists as known absent for the group type at this index.
+    fn known_absent_group_keys(
+        &self,
+        group_type_index: GroupTypeIndex,
+    ) -> Option<&HashSet<String>> {
+        if self.known_absent.groups.is_empty() {
+            return None;
+        }
+        let mapping = self.group_type_mapping.mapping()?;
+        let group_type = mapping.group_indexes_to_types().get(&group_type_index)?;
+        self.known_absent.groups.get(group_type)
     }
 
     /// Builds merged group properties (DB + overrides) keyed by group type index for
@@ -2233,7 +2271,24 @@ impl FeatureFlagMatcher {
             {
                 PersonProperties::Complete(map)
             }
-            Some(map) if person_property_overrides.is_some() => PersonProperties::Partial(map),
+            Some(map) if person_property_overrides.is_some() => {
+                // A partial map is complete for this config when every predicate key is present
+                // or known absent. `Complete` and `Partial` differ only for missing keys.
+                let covered =
+                    config
+                        .rules
+                        .iter()
+                        .flat_map(|rule| &rule.targeting)
+                        .all(|predicate| {
+                            map.contains_key(&predicate.key)
+                                || self.known_absent.person.contains(&predicate.key)
+                        });
+                if covered {
+                    PersonProperties::Complete(map)
+                } else {
+                    PersonProperties::Partial(map)
+                }
+            }
             _ => PersonProperties::Unavailable,
         };
         let evaluation = Evaluator::new(config).evaluate(&EvaluationContext {
@@ -2573,9 +2628,15 @@ impl FeatureFlagMatcher {
         if !self.has_usable_group_key(group_type) {
             return false;
         }
-        !group_property_overrides
+        let supplied = group_property_overrides
             .and_then(|overrides| overrides.get(group_type))
             .is_some_and(|group_overrides| group_overrides.contains_key(&filter.key))
+            || self
+                .known_absent
+                .groups
+                .get(group_type)
+                .is_some_and(|keys| keys.contains(&filter.key));
+        !supplied
     }
 
     /// Whether a filter must be matched with `partial_props`, i.e. treat an absent key as
@@ -2584,14 +2645,17 @@ impl FeatureFlagMatcher {
     ///
     /// This is only true when the relevant property source was never fetched. Fetched and
     /// deliberately-skipped property maps are authoritative, so an absent key there
-    /// genuinely means the property is unset.
+    /// genuinely means the property is unset. A key the request lists as known absent is
+    /// unset whatever the fetch state.
     fn filter_needs_partial_props(
         &self,
         filter: &PropertyFilter,
         property_context: &PropertyContext,
     ) -> bool {
         if filter.prop_type != PropertyType::Group {
-            return self.flag_evaluation_state.person_properties_pending();
+            let known_absent = filter.prop_type == PropertyType::Person
+                && self.known_absent.person.contains(&filter.key);
+            return !known_absent && self.flag_evaluation_state.person_properties_pending();
         }
 
         // A group filter with no resolvable group type index can't be routed to a group
@@ -2626,7 +2690,12 @@ impl FeatureFlagMatcher {
             return false;
         }
 
-        self.flag_evaluation_state.group_properties_pending(gti)
+        let known_absent = self
+            .known_absent
+            .groups
+            .get(group_type)
+            .is_some_and(|keys| keys.contains(&filter.key));
+        !known_absent && self.flag_evaluation_state.group_properties_pending(gti)
     }
 
     /// Checks if a condition requires person/group properties to evaluate.
@@ -2689,6 +2758,7 @@ impl FeatureFlagMatcher {
     }
 
     /// Gets group properties by merging DB properties with overrides (overrides take precedence).
+    /// Keys the request lists as known absent for this group type are removed.
     fn get_group_properties(
         &self,
         group_type_index: GroupTypeIndex,
@@ -2703,11 +2773,17 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides.iter_owned());
         }
 
-        // Return all merged properties
+        if let Some(known_absent) = self.known_absent_group_keys(group_type_index) {
+            for key in known_absent {
+                merged_properties.remove(key);
+            }
+        }
+
         Ok(merged_properties)
     }
 
     /// Gets person properties by merging DB properties with overrides (overrides take precedence).
+    /// Keys the request lists as known absent are removed.
     fn get_person_properties(
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
@@ -2734,15 +2810,27 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides.iter_owned());
         }
 
+        // Listed keys are removed before and after each synthesis step. A listed key then never
+        // feeds a later step, even when an earlier step recreates it, as the `$os_name` alias
+        // recreates `$os` before `$initial_os` is filled.
+        let remove_known_absent = |properties: &mut HashMap<String, Value>| {
+            for key in &self.known_absent.person {
+                properties.remove(key);
+            }
+        };
+        remove_known_absent(&mut merged_properties);
+
         // Mirror $os <-> $os_name so a condition keyed on either matches when the
         // person row carries only one of them (web reports $os, mobile $os_name).
         // Runs before initial-property population so an aliased $os can backfill $initial_os.
         populate_os_aliases(&mut merged_properties);
+        remove_known_absent(&mut merged_properties);
 
         // Populate missing $initial_ properties from their non-initial counterparts.
         // DB $initial_ values are preserved; this only fills in missing ones from
         // the merged properties (which may come from DB or request overrides).
         populate_missing_initial_properties(&mut merged_properties);
+        remove_known_absent(&mut merged_properties);
 
         Ok(merged_properties)
     }

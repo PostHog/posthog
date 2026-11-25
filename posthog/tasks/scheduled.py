@@ -13,7 +13,11 @@ from posthog.cloud_utils import is_hobby
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
+from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
+    finalize_cohort_backfill_runs,
+    publish_cohort_backfill_run_gauges,
+)
 from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
@@ -23,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -59,6 +64,7 @@ from posthog.tasks.tasks import (
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     report_upcoming_events_deletions,
+    send_delayed_org_usage_reports,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -77,7 +83,11 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
+from products.aeo.backend.facade.tasks import (
+    refresh_aeo_stored_results_task,
+    run_aeo_citation_checks_task,
+    score_aeo_sentiment_backlog_task,
+)
 from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
@@ -110,6 +120,7 @@ from products.feature_flags.backend.tasks import (
     compute_feature_flag_metrics,
     drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
+    maintain_flag_definitions_v2_cache_entries,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     report_django_local_evaluation_usage_task,
@@ -119,12 +130,14 @@ from products.legal_documents.backend.facade.tasks import reconcile_pending_lega
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
+from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -181,14 +194,6 @@ from products.workflows.backend.facade.tasks import (
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
-
-# Organizations with delayed data ingestion that need delayed usage report re-runs
-# This is a temporary solution until we switch event usage queries from timestamp to created_at
-DELAYED_ORGS_EU: list[str] = [
-    "018beddd-5eb1-0000-7953-5a5b982e80bf",
-    "01975ab3-7ec5-0000-9751-a89cbc971419",
-]
-DELAYED_ORGS_US: list[str] = []
 
 
 def estimate_crontab_interval_seconds(schedule: crontab) -> int:
@@ -288,12 +293,28 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender, crontab(minute="41"), close_stale_provider_import_runs.s(), name="close stale provider import runs"
+    )
+    # Precomputed metrics for dashboard tiles: fill forward, backfill a day, drop what is past retention.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_metrics_precompute_fills.s(),
+        name="fill metrics precomputed metrics",
+        expires_seconds=5 * 60,
     )
     add_periodic_task_with_expiry(
         sender,
@@ -450,6 +471,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune expired signals scratchpad entries",
     )
 
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
+    )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -534,6 +563,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    # Flag definitions v2 cache upkeep - hourly at minute 5
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="5"),
+        maintain_flag_definitions_v2_cache_entries.s(),
+        name="maintain flag definitions v2 cache entries",
+        expires_seconds=60 * 60,
+    )
+
     # Flag definitions self-heal - every minute. Drains the queue the Rust
     # /flags/definitions endpoint fills on cache miss and rebuilds those caches,
     # so a missing entry heals in ~1 min instead of waiting for the hourly verifier.
@@ -579,11 +617,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send usage reports for specific orgs with delayed data ingestion
-    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
-    if delayed_orgs:
+    if get_instance_region() in ("US", "EU"):
         sender.add_periodic_task(
-            crontab(hour="10", minute="00"),
-            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            crontab(hour="12", minute="00"),
+            send_delayed_org_usage_reports.s(),
             name="send delayed org usage reports",
         )
 
@@ -1403,6 +1440,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="publish cohort backfill run gauges",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        dispatch_static_cohort_reconciliations.s(),
+        name="dispatch static cohort reconciliations",
+    )
+
     # Poll PandaDoc for legal documents we still think are unsigned and archive
     # any signed PDFs that missed their webhook — the safety net that recovers
     # dropped completion webhooks and the current signed-but-stuck backlog.
@@ -1445,5 +1489,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         score_aeo_sentiment_backlog_task.s(),
         name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
+    )
+    # More often than a stored result lives, so the views the page opens on are always stored.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_aeo_stored_results_task.s(),
+        name="AEO stored results refresh",
         expires_seconds=9 * 60,
     )

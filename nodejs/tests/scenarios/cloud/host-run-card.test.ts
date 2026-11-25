@@ -41,8 +41,11 @@ state="$XDG_CACHE_HOME/posthog-scenarios"
 run="$state/${RUNNER_RUN_ID}"
 mkdir -p "$run" "$state/edge-ca"
 printf '%s' "$SCENARIO_POOLER_URLS" >"$state/pooler-urls"
+command -v cargo >"$state/cargo" || true
 echo '{"phase":"drive"}' >"$run/result.json"
 echo 'hogli up exited 1' >"$state/hogli.log"
+mkdir -p "$SCENARIO_PROCESS_LOGS"
+seq 2500 | sed 's/^/Compiling crate /' >"$SCENARIO_PROCESS_LOGS/capture.log"
 echo 'private key' >"$state/edge-ca/ca.key"
 [ -z "\${FAKE_CARD_BLOCKS_COPY:-}" ] || touch "$SCENARIO_HOST_ROOT/evidence/run"
 if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
@@ -51,6 +54,12 @@ if [ -n "\${FAKE_CARD_HANGS:-}" ]; then
     while :; do sleep 0.1; done
 fi
 exit "\${FAKE_CARD_EXIT:-0}"
+`
+
+const RECORD_ARGS = `#!/usr/bin/env bash
+printf '%s\\n' "\${0##*/} $*" >>"$FAKE_COMMANDS"
+[ "\${FAKE_FAILS:-}" != "\${0##*/}" ] || exit 1
+PATH=\${PATH#*:} exec "\${0##*/}" "$@"
 `
 
 const FAKE_PNPM = `#!/usr/bin/env bash
@@ -72,27 +81,34 @@ describe('host-run-card.sh', () => {
         poolerUrls: string | null = POOLER_URLS
     ): ChildProcess {
         const bin = path.join(dir, 'bin')
+        const host = path.resolve(dir, env.SCENARIO_HOST_ROOT ?? 'host')
         mkdirSync(bin)
-        mkdirSync(path.join(dir, 'host', 'input'), { recursive: true })
-        writeFileSync(path.join(dir, 'host', 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, ...manifest }))
+        mkdirSync(path.join(host, 'input'), { recursive: true })
+        writeFileSync(path.join(host, 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, ...manifest }))
         if (poolerUrls !== null) {
-            mkdirSync(path.join(dir, 'host', 'pooler'), { recursive: true })
-            writeFileSync(path.join(dir, 'host', 'pooler', 'urls'), `${poolerUrls}\n`)
+            mkdirSync(path.join(host, 'pooler'), { recursive: true })
+            writeFileSync(path.join(host, 'pooler', 'urls'), `${poolerUrls}\n`)
         }
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         if (runner) {
             writeFileSync(path.join(bin, 'node'), runner, { mode: 0o755 })
         }
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
+        for (const command of ['cp', 'mkdir', 'mv', 'tail', 'find', 'sort', 'sha256sum']) {
+            writeFileSync(path.join(bin, command), RECORD_ARGS, { mode: 0o755 })
+        }
         return spawn('bash', [WRAPPER], {
+            cwd: dir,
             env: {
                 ...process.env,
                 PATH: `${bin}:${process.env.PATH}`,
                 HOME: dir,
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
-                SCENARIO_HOST_ROOT: path.join(dir, 'host'),
+                SCENARIO_HOST_ROOT: host,
+                SCENARIO_PROCESS_LOGS: path.join(dir, 'processes'),
                 FAKE_S3: path.join(dir, 's3'),
+                FAKE_COMMANDS: path.join(dir, 'commands'),
                 ...env,
             },
             stdio: 'ignore',
@@ -119,6 +135,9 @@ describe('host-run-card.sh', () => {
         ['the card fails', { FAKE_CARD_EXIT: '1' }, 1, true],
         ['the evidence upload fails', { FAKE_CARD_EXIT: '1', FAKE_UPLOAD_FAILS: '1' }, 1, false],
         ['the evidence cannot be copied', { FAKE_CARD_EXIT: '0', FAKE_CARD_BLOCKS_COPY: '1' }, 0, false],
+        ['the evidence cannot be listed', { FAKE_CARD_EXIT: '0', FAKE_FAILS: 'find' }, 0, false],
+        ['the host root is relative', { FAKE_CARD_EXIT: '0', SCENARIO_HOST_ROOT: 'host' }, 0, true],
+        ['the host root starts with a hyphen', { FAKE_CARD_EXIT: '0', SCENARIO_HOST_ROOT: '-host' }, 0, true],
     ])('marks done with the runner exit code when %s', async (_, env, exitCode, uploaded) => {
         await exited(start(env))
 
@@ -128,6 +147,11 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('evidence/hogli.log')) && readFileSync(s3('evidence/hogli.log'), 'utf8')).toBe(
             uploaded && 'hogli up exited 1\n'
         )
+        const processLog = existsSync(s3('evidence/processes/capture.log'))
+            ? readFileSync(s3('evidence/processes/capture.log'), 'utf8').split('\n')
+            : []
+        expect([processLog[0], processLog.length]).toEqual(uploaded ? ['Compiling crate 501', 2001] : [undefined, 0])
+        expect(readFileSync(path.join(dir, 'commands'), 'utf8')).not.toContain('capture')
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 
@@ -146,6 +170,16 @@ describe('host-run-card.sh', () => {
         expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'pooler-urls'), 'utf8')).toBe(
             POOLER_URLS
         )
+    })
+
+    it('hands the stack the cargo the bootstrap installed, which its Rust services run', async () => {
+        const cargo = path.join(dir, '.cargo', 'bin', 'cargo')
+        mkdirSync(path.dirname(cargo), { recursive: true })
+        writeFileSync(cargo, '#!/usr/bin/env bash\n', { mode: 0o755 })
+
+        await exited(start({}))
+
+        expect(readFileSync(path.join(dir, 'host', 'cache', 'posthog-scenarios', 'cargo'), 'utf8').trim()).toBe(cargo)
     })
 
     it.each<[string, NodeJS.ProcessEnv, object, string | null]>([

@@ -59,6 +59,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    posthog_code_keeps_bundled_skills,
     resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
     unmounted_mcp_installations_notice,
@@ -414,6 +415,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 interaction_origin=interaction_origin,
                 slack_reply_context=slack_reply_context,
                 origin_product=origin_product,
+                bundled_skills=True,
             )
             assert configs == [
                 McpServerConfig(
@@ -422,6 +424,11 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                     url="https://mcp.us.posthog.com/mcp",
                     headers=[
                         *self._expected_headers(consumer=expected_consumer),
+                        *(
+                            [{"name": "x-posthog-mcp-bundled-skills", "value": "true"}]
+                            if expected_consumer == "posthog-code"
+                            else []
+                        ),
                         *([{"name": "X-PostHog-Task-Origin", "value": origin_product}] if origin_product else []),
                     ],
                     description=POSTHOG_MCP_DESCRIPTION,
@@ -551,6 +558,10 @@ class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
             (
                 "not_shared",
                 "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
+            ),
+            (
+                "owner_only",
+                "1 MCP Store connection was not added to this run: Linear (only the person who connected it can use it).",
             ),
             ("not_selected", None),
             ("replaced_by_personal", None),
@@ -785,16 +796,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("internal", True, None, False),
-            ("user_created", False, None, True),
-            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+            ("internal", True, None, None, False),
+            ("user_created", False, None, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, None, False),
+            ("agent_started_run_of_a_user_created_task", False, None, {"agent_parent_task_id": "task-id"}, False),
         ]
     )
     def test_include_personal_mcp_for_task(
-        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+        self, _name: str, internal: bool, profile: TaskProfile | None, state: dict | None, expected: bool
     ) -> None:
         task = MagicMock(internal=internal, stored_profile=profile)
-        assert include_personal_mcp_for_task(task) is expected
+        assert include_personal_mcp_for_task(task, state) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
@@ -2016,6 +2028,37 @@ class TestGetPrAuthorshipMode(SimpleTestCase):
         task = Task(origin_product=Task.OriginProduct.USER_CREATED, profile=profile)
 
         assert get_pr_authorship_mode(task, state) == expected
+
+
+class TestPosthogCodeKeepsBundledSkills(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("acp_run_keeps_skills", "acp", {}, None, True),
+            ("environment_without_the_variable", "acp", {}, MagicMock(environment_variables={"FOO": "1"}), True),
+            ("environment_with_no_variables", "acp", {}, MagicMock(environment_variables=None), True),
+            ("pi_runtime", "pi", {}, None, False),
+            ("caller_disables_skills", "acp", {"disable_skills": True}, None, False),
+            (
+                "environment_disables_skills",
+                "acp",
+                {},
+                MagicMock(environment_variables={"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"}),
+                False,
+            ),
+        ]
+    )
+    def test_matches_what_provisioning_strips(
+        self,
+        _name: str,
+        runtime: str,
+        state: dict,
+        sandbox_environment: MagicMock | None,
+        expected: bool,
+    ) -> None:
+        task_run = MagicMock(state=state, task=MagicMock(runtime=runtime))
+        task_run.get_sandbox_environment.return_value = sandbox_environment
+
+        assert posthog_code_keeps_bundled_skills(task_run) is expected
 
 
 class TestMcpExecSkillsEnvVars(SimpleTestCase):

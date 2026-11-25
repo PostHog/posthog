@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.facade.api import (
     schema_needs_webhook,
     sources_missing_webhook,
     validate_source_prefix,
+    webhook_issues,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -114,7 +116,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
-    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
+    WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     ExternalDataSchemaSummarySerializer,
@@ -611,14 +613,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
-            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
-                source_id: missing
-                for source_id, missing in self._webhook_missing_by_source(instance).items()
-                if source_id == instance.pk
-            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(instance.team_id, schemas)
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def _stored_credential_for_update(
@@ -1200,6 +1198,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
         ),
+    )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )
 
 
@@ -2260,6 +2263,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         detected_primary_keys,
                         incremental_field,
                         normalize=False,
+                        fall_back_to_all_columns=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
@@ -2509,11 +2513,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Syncs every enabled schema, so it needs editor on each - a table locked below the source
         # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
-        self._assert_can_write_schemas(
+        schemas = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .exclude(deleted=True)
             .select_related("source", "table")
         )
+        self._assert_can_write_schemas(schemas)
 
         if is_any_external_data_schema_paused(self.team_id):
             return setup_error_response(
@@ -2521,6 +2526,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
+        request_manual_runs([schema.id for schema in schemas], self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 
@@ -2576,7 +2582,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 
