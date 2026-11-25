@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { PostHogValidationError } from '@/lib/errors'
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
 import {
@@ -237,7 +238,21 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 }
             }
 
-            const data = await context.api.query({ projectId }).runQuery({ query })
+            const runQuery = (): ReturnType<ReturnType<Context['api']['query']>['runQuery']> =>
+                context.api.query({ projectId }).runQuery({ query })
+            const data = await runQuery().catch((error: unknown) => {
+                // A PostHog server that predates `eventsLimit`, such as an older self-hosted instance,
+                // rejects the field, so read the trace uncapped there.
+                if (
+                    !('eventsLimit' in query) ||
+                    !(error instanceof PostHogValidationError) ||
+                    !error.detail.includes('eventsLimit')
+                ) {
+                    throw error
+                }
+                delete query.eventsLimit
+                return runQuery()
+            })
             // The backend renders `formatted_results` from the unredacted results, and
             // some clients read that string in preference to the structured payload, so
             // a trace response never carries it.
@@ -263,7 +278,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                     ? {
                           _eventsLimit: {
                               limit: TRACE_EVENTS_LIMIT,
-                              note: `The trace has more than ${TRACE_EVENTS_LIMIT} events, so only the earliest ${TRACE_EVENTS_LIMIT} were read and \`_truncated.totalEvents\` counts only those. totalCost, totalLatency, and the token totals cover every event. To read later events, run execute-sql on posthog.ai_events filtered by trace_id.`,
+                              note: `The trace has more than ${TRACE_EVENTS_LIMIT} matching events, so only the earliest ${TRACE_EVENTS_LIMIT} were read and \`_truncated.totalEvents\` counts only those. totalCost, totalLatency, and the token totals cover every matching event. To read later events, run execute-sql on posthog.ai_events filtered by trace_id with LIMIT 1 BY uuid, or on events filtered by properties.$ai_trace_id when ai_events has no rows for the trace.`,
                           },
                       }
                     : {}),

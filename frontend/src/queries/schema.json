@@ -62246,7 +62246,8 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "eventsLimit": {
-                    "description": "Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every event. Leave unset to return every event.",
+                    "description": "Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event.",
+                    "maximum": 10000,
                     "minimum": 1,
                     "type": "integer"
                 },

@@ -1269,7 +1269,6 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "properties": {
                     "$ai_trace_id": trace_id,
                     "$ai_parent_id": trace_id,
-                    "$ai_input": [{"role": "user", "content": f"question {minute}"}],
                     "$ai_latency": 1.0,
                     "$ai_input_tokens": 10,
                     "$ai_output_tokens": 5,
@@ -1297,7 +1296,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         trace = capped.results[0]
         self.assertTrue(capped.hasMore)
         self.assertEqual(
-            [event.properties["$ai_input"][0]["content"] for event in trace.events], ["question 0", "question 1"]
+            [event.createdAt for event in trace.events],
+            [(start + timedelta(minutes=minute)).isoformat() for minute in (0, 1)],
         )
         self.assertEqual(trace.totalCost, 1.5)
         self.assertEqual(trace.inputTokens, 30)
