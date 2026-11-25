@@ -34,7 +34,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.redis import get_client
 
 from products.aeo.backend.catalog import sync_brands_from_citations
-from products.aeo.backend.facade.contracts import BRAND_DOMAIN_MAX_LENGTH, MentionKind
+from products.aeo.backend.facade.contracts import BRAND_DOMAIN_MAX_LENGTH, MentionKind, is_findable_brand_name
 from products.aeo.backend.facts import backfill_facts, citation_rows, has_checks_without_facts
 from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck
 from products.aeo.backend.stored_results import bump_data_version_on_commit
@@ -42,6 +42,7 @@ from products.aeo.backend.stored_results import bump_data_version_on_commit
 # How many text mentions a row keeps. The first one decides the position; the rest show how the answer
 # named the brand.
 MAX_STORED_MENTIONS = 10
+WRITE_CHUNK_CHECKS = 50
 RESOLVE_BATCH_SIZE = 500
 
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
@@ -91,7 +92,7 @@ def brand_identity(brand_id: uuid.UUID, *, name: str, aliases: object, domain: s
         named.append((label, MentionKind.DOMAIN_LABEL))
     terms: dict[str, MentionKind] = {}
     for term, kind in named:
-        if term:
+        if is_findable_brand_name(term):
             terms.setdefault(term, kind)
     return BrandIdentity(
         brand_id=brand_id,
@@ -106,8 +107,14 @@ def identity_key(*, name: str, aliases: object, domain: str) -> str:
     alias_terms = sorted(
         {normalize_name(a) for a in aliases if isinstance(a, str)} if isinstance(aliases, list) else []
     )
-    payload = json.dumps([normalize_name(name), alias_terms, domain.lower()])
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+    payload: list[object] = [normalize_name(name), alias_terms, domain.lower()]
+    terms = (normalize_name(name), *alias_terms, domain_label(domain) or "")
+    unfindable = sorted({term for term in terms if term and not is_findable_brand_name(term)})
+    # Only a brand with a name that is never searched for gets a different key, so a pass resolves its rows
+    # again without that name and every other brand keeps the key it was resolved with.
+    if unfindable:
+        payload.append(unfindable)
+    return hashlib.sha256(json.dumps(payload).encode()).hexdigest()[:16]
 
 
 def identity_of(brand: AEOBrand) -> BrandIdentity:
@@ -206,14 +213,35 @@ class BrandMatcher:
         return None
 
     def text_mentions(self, text: str) -> dict[uuid.UUID, list[Mention]]:
+        """The first `MAX_STORED_MENTIONS` places where the text names each brand, in text order."""
         folded = fold(text)
+        urls = _urls(folded)
+        links: list[tuple[uuid.UUID, Mention]] = []
+        # A name inside a link or a domain of the same brand ("acme" in acme.com) is part of that mention.
+        inside: dict[uuid.UUID, list[tuple[int, int]]] = {}
+        for kind, spans in ((MentionKind.URL, urls), (MentionKind.DOMAIN, _bare_domains(folded, urls))):
+            for span in spans:
+                if brand_id := self.brand_for_host(span.host):
+                    links.append((brand_id, Mention(surface=text[span.start : span.end], kind=kind, start=span.start)))
+                    inside.setdefault(brand_id, []).append((span.start, span.end))
         found: dict[uuid.UUID, dict[int, Mention]] = {}
 
         def add(brand_id: uuid.UUID, mention: Mention) -> None:
+            if any(span_start < mention.start < span_end for span_start, span_end in inside.get(brand_id, ())):
+                return
             at = found.setdefault(brand_id, {})
             current = at.get(mention.start)
-            if current is None or _KIND_PRIORITY[mention.kind] < _KIND_PRIORITY[current.kind]:
-                at[mention.start] = mention
+            if current is not None:
+                if _KIND_PRIORITY[mention.kind] < _KIND_PRIORITY[current.kind]:
+                    at[mention.start] = mention
+                return
+            # A mention is dropped only when `MAX_STORED_MENTIONS` earlier ones are kept, so the kept ones stay the earliest.
+            if len(at) >= MAX_STORED_MENTIONS:
+                last = max(at)
+                if mention.start > last:
+                    return
+                del at[last]
+            at[mention.start] = mention
 
         for word in _WORD.finditer(folded):
             for term in self._by_word.get(word.group(), ()):
@@ -232,22 +260,9 @@ class BrandMatcher:
                         Mention(surface=text[start : start + len(term.text)], kind=term.kind, start=start),
                     )
                 start = folded.find(term.text, start + 1)
-        urls = _urls(folded)
-        # A name inside a link or a domain of the same brand ("acme" in acme.com) is part of that mention.
-        inside: dict[uuid.UUID, list[tuple[int, int]]] = {}
-        for kind, spans in ((MentionKind.URL, urls), (MentionKind.DOMAIN, _bare_domains(folded, urls))):
-            for span in spans:
-                if brand_id := self.brand_for_host(span.host):
-                    add(brand_id, Mention(surface=text[span.start : span.end], kind=kind, start=span.start))
-                    inside.setdefault(brand_id, []).append((span.start, span.end))
-        return {
-            brand_id: [
-                at[start]
-                for start in sorted(at)
-                if not any(span_start < start < span_end for span_start, span_end in inside.get(brand_id, ()))
-            ]
-            for brand_id, at in found.items()
-        }
+        for brand_id, mention in links:
+            add(brand_id, mention)
+        return {brand_id: [at[start] for start in sorted(at)] for brand_id, at in found.items()}
 
     def match(self, check: AEOCitationCheck) -> list[BrandMatch]:
         """The brands one check names, cites or retrieved. A failed check has none."""
@@ -337,7 +352,7 @@ def check_brand_rows(check: AEOCitationCheck, matcher: BrandMatcher) -> list[AEO
             matched_by=match.matched_by,
             mentions=[
                 {"surface": mention.surface, "kind": mention.kind.value, "start": mention.start}
-                for mention in match.mentions[:MAX_STORED_MENTIONS]
+                for mention in match.mentions
             ],
         )
         for match in matcher.match(check)
@@ -357,20 +372,28 @@ def write_check_brands(
     # Every check of one call belongs to one team: a run and a backfill page are both per team.
     team_id = checks[0].team_id
     ids = [check.id for check in checks]
-    rows = [row for check in checks for row in check_brand_rows(check, matcher)]
     existing = AEOCheckBrand.objects.for_team(team_id, canonical=True).filter(citation_check_id__in=ids)
     if brand_ids is not None:
         existing = existing.filter(brand_id__in=brand_ids)
-        rows = [row for row in rows if row.brand_id in brand_ids]
+    written = 0
     # One transaction, so a read never sees a check between losing its old rows and getting the new ones.
     with transaction.atomic():
         existing.delete()
-        AEOCheckBrand.objects.for_team(team_id, canonical=True).bulk_create(rows, ignore_conflicts=True)
+        # In chunks, because a brand named by a common word gives every check of a page a row.
+        for chunk_start in range(0, len(checks), WRITE_CHUNK_CHECKS):
+            rows = [
+                row
+                for check in checks[chunk_start : chunk_start + WRITE_CHUNK_CHECKS]
+                for row in check_brand_rows(check, matcher)
+                if brand_ids is None or row.brand_id in brand_ids
+            ]
+            AEOCheckBrand.objects.for_team(team_id, canonical=True).bulk_create(rows, ignore_conflicts=True)
+            written += len(rows)
         if brand_ids is None:
             AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(id__in=ids).update(
                 brands_resolved_at=timezone.now()
             )
-    return len(rows)
+    return written
 
 
 _RESOLVE_FIELDS = (

@@ -1902,6 +1902,25 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Update the existing brand" in json.dumps(response.json())
 
+    @parameterized.expand(
+        [
+            ("create_with_one_character_name", "post", {"domain": "x.com", "kind": "competitor", "name": "X"}, "name"),
+            ("update_with_punctuation_alias", "patch", {"aliases": ["Acme", "!!"]}, "aliases"),
+        ]
+    )
+    def test_brands_reject_a_name_answers_cannot_be_searched_for(
+        self, _name: str, method: str, body: dict, field: str
+    ) -> None:
+        brand_id = self._brand(self.team, "example.com")
+        url = f"/api/projects/{self.team.id}/aeo_brands/" + (f"{brand_id}/" if method == "patch" else "")
+
+        response = getattr(self.client, method)(url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"].startswith(field)
+        assert AEOBrand.objects.for_team(self.team.id).count() == 1
+        assert AEOBrand.objects.for_team(self.team.id).get(id=brand_id).aliases == []
+
     @parameterized.expand([("get", None), ("patch", {"status": "ignored"})])
     def test_another_teams_brand_is_not_found(self, method: str, body: dict | None) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
