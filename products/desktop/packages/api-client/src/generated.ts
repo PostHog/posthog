@@ -9554,6 +9554,29 @@ export namespace Schemas {
         source: string;
     };
     /**
+     * * `next_occurrence` - Next occurrence
+     * * `new_release` - New release
+     */
+    export type ResolvedUntilEnum = "next_occurrence" | "new_release";
+    export type ErrorTrackingIssueReleaseRead = {
+        /**
+         * ID of the release.
+         */
+        id: string;
+        /**
+         * Version of the release, as the build reported it.
+         */
+        version: string;
+        /**
+         * Project the release belongs to.
+         */
+        project: string;
+        /**
+         * When the release was created. Releases are ordered by it.
+         */
+        created_at: string;
+    };
+    /**
      * Read-only serializer for issue contract types returned by the facade.
      */
     export type ErrorTrackingIssueRead = {
@@ -9573,6 +9596,21 @@ export namespace Schemas {
          * Read-only serializer for issue contract types returned by the facade.
          */
         tags?: Array<ErrorTrackingIssueTagRead> | undefined;
+        /**
+         * When the issue was resolved. Null unless the status is resolved, and for issues resolved before this was recorded.
+         */
+        resolved_at: string | null;
+        /**
+         * What reopens the issue while it is resolved. next_occurrence: any new exception. new_release: only an exception from a release newer than latest_release, or an exception without a release. Null unless the status is resolved. A resolved issue with null reopens on the next exception.
+         *
+         * * `next_occurrence` - Next occurrence
+         * * `new_release` - New release
+         */
+        resolved_until: ResolvedUntilEnum | NullEnum;
+        /**
+         * The newest release, by creation time, that an exception of this issue came from. An issue resolved until a new release stays resolved for exceptions from this release or older ones. Null when no exception of the issue had a release.
+         */
+        latest_release: ErrorTrackingIssueReleaseRead | null;
     };
     export type ErrorTrackingIssueRedirectResponse = {
         /**
@@ -9594,6 +9632,7 @@ export namespace Schemas {
         severity: ErrorTrackingIssueSeverity | null;
         name: string | null;
         description: string | null;
+        resolved_until: ResolvedUntilEnum;
     }>;
     /**
      * * `agent_reported` - agent_reported
@@ -16851,6 +16890,7 @@ export namespace Schemas {
         severity: ErrorTrackingIssueSeverity | null;
         name: string | null;
         description: string | null;
+        resolved_until: ResolvedUntilEnum;
     }>;
     /**
      * An evaluation that scores LLM generations, traces, or sessions.
