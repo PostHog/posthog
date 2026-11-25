@@ -32,22 +32,8 @@ def _nonce_identity_hash(email: str, ip_address: str) -> str:
     return hashlib.sha256(f"{email.lower()}{ip_address}".encode()).hexdigest()[:16]
 
 
-def _open_challenges_key(ip_address: str) -> str:
-    return f"turnstile_open:{hashlib.sha256(ip_address.encode()).hexdigest()[:16]}"
-
-
-def has_too_many_open_challenges(ip_address: str) -> bool:
-    """Whether the IP left too many challenges unsolved. A solved challenge does not count, so real users behind one IP do not add up."""
-    key = _open_challenges_key(ip_address)
-    try:
-        pipeline = get_client().pipeline(transaction=True)
-        pipeline.zremrangebyscore(key, 0, time.time() - OPEN_CHALLENGE_WINDOW_SECONDS)
-        pipeline.zcard(key)
-        _, open_challenges = pipeline.execute()
-    except Exception:
-        logger.warning("turnstile_open_challenge_count_failed", exc_info=True)
-        return False
-    return open_challenges >= OPEN_CHALLENGE_LIMIT
+def _open_challenges_key(identity_hash: str) -> str:
+    return f"turnstile_open:{identity_hash}"
 
 
 def verify_turnstile_token(token: str, remote_ip: str) -> bool:
@@ -88,17 +74,31 @@ _NO_ATTEMPT_ID = "1"
 _LEGACY_ACTION = "signup"
 
 
-def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_attempt_id: str = "") -> str:
+def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_attempt_id: str = "") -> str | None:
+    """Store a nonce for a new challenge, or return None when this address already left OPEN_CHALLENGE_LIMIT
+    challenges unsolved from this IP. The count is per address and IP, so other people behind the IP are not blocked."""
     identity_hash = _nonce_identity_hash(email, ip_address)
     nonce = f"challenge:{identity_hash}:{uuid.uuid4()}"
     redis_key = f"turnstile_nonce:{nonce}"
+    open_key = _open_challenges_key(identity_hash)
+    now = time.time()
+    client = get_client()
+    pipeline = client.pipeline(transaction=True)
+    pipeline.zremrangebyscore(open_key, 0, now - OPEN_CHALLENGE_WINDOW_SECONDS)
+    # The add and the count run in one transaction, so concurrent requests cannot all pass the limit
+    pipeline.zadd(open_key, {nonce: now})
+    pipeline.zcard(open_key)
+    pipeline.expire(open_key, OPEN_CHALLENGE_WINDOW_SECONDS)
     # The action and the ID stay on the server, so the browser can change neither of them
-    pipeline = get_client().pipeline(transaction=True)
     pipeline.setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, f"{action}:{radar_attempt_id or _NO_ATTEMPT_ID}")
-    pipeline.zadd(_open_challenges_key(ip_address), {nonce: time.time()})
-    pipeline.expire(_open_challenges_key(ip_address), OPEN_CHALLENGE_WINDOW_SECONDS)
+    _, _, open_challenges, _, _ = pipeline.execute()
+    if open_challenges <= OPEN_CHALLENGE_LIMIT:
+        return nonce
+    pipeline = client.pipeline(transaction=True)
+    pipeline.zrem(open_key, nonce)
+    pipeline.delete(redis_key)
     pipeline.execute()
-    return nonce
+    return None
 
 
 def consume_challenge_nonce(nonce: str, email: str, ip_address: str, *, action: str) -> str | None:
@@ -125,7 +125,7 @@ def consume_challenge_nonce(nonce: str, email: str, ip_address: str, *, action: 
     pipeline.get(redis_key)
     pipeline.delete(redis_key)
     # A failed answer is not unsolved either: it refuses the attempt, and the lockout counts that
-    pipeline.zrem(_open_challenges_key(ip_address), nonce)
+    pipeline.zrem(_open_challenges_key(expected_hash), nonce)
     stored, deleted, _ = pipeline.execute()
     if deleted == 0:
         logger.warning("turnstile_nonce_not_found_or_expired")

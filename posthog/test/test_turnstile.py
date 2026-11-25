@@ -15,7 +15,6 @@ from posthog.turnstile import (
     _nonce_identity_hash,
     consume_challenge_nonce,
     create_challenge_nonce,
-    has_too_many_open_challenges,
     verify_turnstile_token,
 )
 
@@ -116,18 +115,17 @@ class TestChallengeNonce(TestCase):
 
         assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4", action=consumed_for) == expected
 
-    def test_only_unsolved_challenges_count_toward_the_open_challenge_limit(self):
-        # Fresh IPs, because the counts live in the shared Redis for the whole window
-        busy_ip, other_ip = (str(ipaddress.IPv6Address(uuid.uuid4().int)) for _ in range(2))
-        nonces = [
-            create_challenge_nonce(f"user{i}@example.com", busy_ip, action="login") for i in range(OPEN_CHALLENGE_LIMIT)
-        ]
-        assert has_too_many_open_challenges(busy_ip) is True
-        assert has_too_many_open_challenges(other_ip) is False
+    def test_only_unsolved_challenges_of_one_address_count_toward_its_open_challenge_limit(self):
+        # A fresh IP, because the counts live in the shared Redis for the whole window
+        ip = str(ipaddress.IPv6Address(uuid.uuid4().int))
+        nonces = [create_challenge_nonce("busy@example.com", ip, action="login") for _ in range(OPEN_CHALLENGE_LIMIT)]
 
-        consume_challenge_nonce(nonces[0], "user0@example.com", busy_ip, action="login")
+        assert create_challenge_nonce("busy@example.com", ip, action="login") is None
+        assert create_challenge_nonce("other@example.com", ip, action="login") is not None
 
-        assert has_too_many_open_challenges(busy_ip) is False
+        consume_challenge_nonce(nonces[0], "busy@example.com", ip, action="login")
+
+        assert create_challenge_nonce("busy@example.com", ip, action="login") is not None
 
     def test_validate_and_consume_single_use(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4", action="signup")

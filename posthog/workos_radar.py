@@ -32,12 +32,7 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.egress.workos_radar import workos_radar_check, workos_radar_report
 from posthog.models.instance_setting import get_instance_setting
-from posthog.turnstile import (
-    consume_challenge_nonce,
-    create_challenge_nonce,
-    has_too_many_open_challenges,
-    verify_turnstile_token,
-)
+from posthog.turnstile import consume_challenge_nonce, create_challenge_nonce, verify_turnstile_token
 from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
 
 from products.security.backend.facade.api import is_signup_risk_exempt
@@ -296,9 +291,14 @@ def evaluate_auth_attempt(
         outcome = "allow"
     if mode == RadarMode.SHADOW and outcome in ("block", "challenge"):
         outcome = "allow"
-    if outcome == "challenge" and has_too_many_open_challenges(ip_address):
-        logger.warning("workos_radar_open_challenge_limit", action=action.value, email_hash=_hash_email(email))
-        outcome = "block"
+    issued_nonce = None
+    if outcome == "challenge" and settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+        issued_nonce = create_challenge_nonce(
+            email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id
+        )
+        if issued_nonce is None:
+            logger.warning("workos_radar_open_challenge_limit", action=action.value, email_hash=_hash_email(email))
+            outcome = "block"
 
     _log_radar_event(
         email=email,
@@ -326,14 +326,13 @@ def evaluate_auth_attempt(
         raise SuspiciousAttemptBlocked()
 
     if outcome == "challenge":
-        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY or issued_nonce is None:
             logger.error("workos_radar_challenge_no_site_key", action=action.value, email_hash=_hash_email(email))
             raise SuspiciousAttemptBlocked()
 
-        nonce = create_challenge_nonce(email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id)
         logger.info("workos_radar_challenge_issued", action=action.value, email_hash=_hash_email(email))
         raise ChallengeRequired(
-            challenge_nonce=nonce,
+            challenge_nonce=issued_nonce,
             turnstile_site_key=settings.CLOUDFLARE_TURNSTILE_SITE_KEY,
         )
 
