@@ -47,7 +47,7 @@ export function Thread({
         return <ErrorCallout message={conversation.message} />
     }
     const { turns, activeTurnId } = conversation
-    if (turns.every((turn) => !turnHasContent(turn) && !turn.error)) {
+    if (turns.every((turn) => !turnHasContent(turn, conversationOnly) && !turn.error)) {
         return <p className="m-0 text-secondary">{emptyMessage}</p>
     }
     return (
