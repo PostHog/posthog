@@ -36,6 +36,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -48,6 +49,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -55,6 +57,7 @@ from posthog.permissions import (
     scopes_caller_lacks,
 )
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+from posthog.settings.utils import get_list
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -134,6 +137,8 @@ from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CO
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
 if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
@@ -1133,9 +1138,11 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
-def transactional_email_throttles() -> list[
-    PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle
-]:
+def transactional_email_throttles(
+    team_id: int,
+) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
+    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
+        return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
         TransactionalEmailBurstThrottle(),
@@ -1361,7 +1368,13 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
+        self._require_workflow_property_access()
         require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
+
+    def _require_workflow_property_access(self) -> None:
+        permission = CDPPropertyAccessPermission()
+        if not permission.has_permission(self.request, cast("APIView", self)):
+            raise exceptions.PermissionDenied(permission.message)
 
     def _writes_template_files(self, fields: dict[str, Any], template_id: UUID | None = None) -> bool:
         """Whether this request's save may write the template's file in the project tree.
@@ -1389,6 +1402,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
+        self._require_workflow_property_access()
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
@@ -1487,7 +1501,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action == "send":
-            return transactional_email_throttles()
+            return transactional_email_throttles(self.team_id)
         return super().get_throttles()
 
     def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
@@ -1767,7 +1781,13 @@ class MessageTemplatesViewSet(
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
+    @action(
+        detail=True,
+        methods=["POST"],
+        pagination_class=None,
+        required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE],
+        permission_classes=[IsAuthenticated, CDPPropertyAccessPermission],
+    )
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
         expected_type = request.validated_data.get("expected_type")
@@ -1826,7 +1846,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        return transactional_email_throttles()
+        return transactional_email_throttles(self.team_id)
 
     def read_object(self) -> MessageTemplateRow | None:
         # The `email` action names its template in the request body, not in the URL.

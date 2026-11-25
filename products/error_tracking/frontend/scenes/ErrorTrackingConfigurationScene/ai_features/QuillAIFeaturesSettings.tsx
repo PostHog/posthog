@@ -29,7 +29,7 @@ export function QuillAIFeaturesSettings({
     return (
         <QuillConfigurationSubsection
             title="Issue summaries"
-            description="When this is on, PostHog uses AI to summarize each new issue: what happened, the likely cause, who is affected, and a next step. Each summary uses your organization's AI credits. Summaries also need your organization to approve AI data processing."
+            description="When this is on, PostHog uses AI to summarize issues created after you turn it on: what happened, the likely cause, who is affected, and a next step. Each summary uses your organization's AI credits. Summaries also need your organization to approve AI data processing."
         >
             {settingsLoaded ? (
                 <QuillSettingSwitch

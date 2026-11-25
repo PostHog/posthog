@@ -19,7 +19,14 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.fork.menu import fork_menu_actions_block, fork_menu_element
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
+from products.slack_app.backend.logic.message_sentiment import (
+    UNHAPPY_SENTIMENTS,
+    SentimentResponseRequest,
+    SentimentResult,
+    respond_to_sentiment,
+)
 from products.slack_app.backend.logic.reply_suggestions import (
     clear_open_suggestions,
     remember_open_suggestions,
@@ -32,8 +39,6 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_menu_actions_block,
-    fork_menu_element,
     leading_mention_prefix,
     load_run_footer,
     normalize_labeled_mentions_to_bare,
@@ -279,6 +284,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
@@ -288,6 +294,8 @@ class SlackThreadHandler:
         self.turn_trace_id = turn_trace_id
         # What the person said to start this turn, so reply suggestions know what they asked for.
         self.turn_person_message = turn_person_message
+        # The context's ts is the message that opened the run, so a later turn carries its own message's ts here.
+        self.turn_person_message_ts = turn_person_message_ts or context.user_message_ts
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -311,6 +319,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
         include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
@@ -324,6 +333,7 @@ class SlackThreadHandler:
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
+            turn_person_message_ts=turn_person_message_ts,
         )
 
         handler.task_run_id = str(run_id) if run_id is not None else None
@@ -1182,9 +1192,27 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
-        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
+        """React to how the reader feels, then offer one private prompt under the answer: an interview invitation
+        if the reader is unhappy, else a tip."""
         if not self.actor_slack_user_id:
             return
+        result: SentimentResult | None = None
+        try:
+            result = respond_to_sentiment(
+                SentimentResponseRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    person_message=self.turn_person_message,
+                    person_message_ts=self.turn_person_message_ts,
+                    run_id=self.task_run_id,
+                    trace_id=self.turn_trace_id,
+                )
+            )
+        except Exception:
+            logger.warning("slack_app_sentiment_response_failed", exc_info=True)
         try:
             if offer_frustration_invite(
                 FrustrationInviteRequest(
@@ -1196,6 +1224,7 @@ class SlackThreadHandler:
                     signal="message",
                     person_message=self.turn_person_message,
                     trace_id=self.turn_trace_id,
+                    unhappy=result.sentiment in UNHAPPY_SENTIMENTS if result is not None else None,
                 )
             ):
                 return

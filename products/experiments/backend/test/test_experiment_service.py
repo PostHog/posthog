@@ -43,13 +43,13 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
-    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.facade.contracts import ExperimentVersionConflict
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -1922,7 +1922,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2793,7 +2793,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}
@@ -8325,6 +8325,23 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         experiment.refresh_from_db()
         assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
 
+    def test_a_save_turns_the_matured_users_setting_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self.service.create_experiment(
+            name="Warehouse experiment",
+            feature_flag_key="warehouse-experiment",
+            exposure_criteria=_warehouse_exposure(connection_id),
+            metrics=[_warehouse_metric(connection_id)],
+            only_count_matured_users=True,
+            allow_unknown_events=True,
+        )
+        assert experiment.only_count_matured_users is False
+
+        self.service.update_experiment(experiment, {"only_count_matured_users": True})
+
+        experiment.refresh_from_db()
+        assert experiment.only_count_matured_users is False
+
     @parameterized.expand(
         [
             (
@@ -8401,44 +8418,42 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert expected_error in str(ctx.exception)
         assert not Experiment.objects.filter(team=self.team).exists()
 
-    @parameterized.expand(
-        [("launch_action",), ("patch_start_date",), ("live_create",), ("patch_sources_of_a_launched_experiment",)]
-    )
-    def test_refuses_warehouse_native_sources_on_a_launched_experiment(self, path: str) -> None:
+    def test_launches_a_warehouse_native_experiment(self) -> None:
         connection_id = str(self.bigquery.id)
-        exposure_criteria = _warehouse_exposure(connection_id)
-        metrics = [_warehouse_metric(connection_id)]
-        with self.assertRaises(ValidationError) as ctx:
-            if path == "live_create":
-                self.service.create_experiment(
-                    name="Warehouse experiment",
-                    feature_flag_key="warehouse-experiment",
-                    exposure_criteria=exposure_criteria,
-                    metrics=metrics,
-                    start_date=timezone.now(),
-                )
-            elif path == "patch_sources_of_a_launched_experiment":
-                launched = self.service.create_experiment(
-                    name="Events experiment",
-                    feature_flag_key="events-experiment",
-                    metrics=[_EVENTS_METRIC],
-                    start_date=timezone.now(),
-                    allow_unknown_events=True,
-                )
-                self.service.update_experiment(launched, {"exposure_criteria": exposure_criteria, "metrics": metrics})
-            else:
-                experiment = self._create(exposure_criteria=exposure_criteria, metrics=metrics)
-                if path == "launch_action":
-                    self.service.launch_experiment(experiment)
-                else:
-                    self.service.update_experiment(experiment, {"start_date": timezone.now()})
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
 
-        assert "cannot run yet" in str(ctx.exception)
-        assert not Experiment.objects.filter(
-            team=self.team,
-            start_date__isnull=False,
-            exposure_criteria__exposure_config__kind="ExperimentWarehouseNativeExposureConfig",
-        ).exists()
+        self.service.launch_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.start_date is not None
+
+    @parameterized.expand([("launch_action",), ("patch_start_date",)])
+    def test_refuses_to_launch_when_the_user_lost_access_to_the_connection(self, path: str) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
+        # A launched experiment runs its sources without a user, so the launch is the last place to check access.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with self.assertRaises(ValidationError) as ctx:
+            if path == "launch_action":
+                self.service.launch_experiment(experiment)
+            else:
+                self.service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert "do not have access" in str(ctx.exception)
+        experiment.refresh_from_db()
+        assert experiment.start_date is None
 
     def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
         self.organization.available_product_features = [

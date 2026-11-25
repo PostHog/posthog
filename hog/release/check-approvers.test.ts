@@ -15,21 +15,42 @@ if (!BASH) {
 }
 
 // Answers the checker's GraphQL queries from the test repository: each commit's author opened its pull
-// request, which the subject names as (#<number>).
+// request, which the subject names as (#<number>). GitHub links the commits listed in the unlinked file
+// next to this script to no pull request, and a pull request is merged unless its first commit is one of them.
 const FAKE_GH = `#!/usr/bin/env bash
 set -euo pipefail
+unlinked="$(dirname "$0")/unlinked"
 query=$(printf '%s\\n' "$@" | sed -n 's/^query=//p')
 if [[ "$*" == *--paginate* ]]; then
+    exit 0
+fi
+if [[ "$*" == *pullRequest\\(* ]]; then
+    number=$(printf '%s\\n' "$@" | sed -n 's/^number=//p')
+    first=$(git log --all --topo-order --reverse --format='%H %s' | awk -v suffix="(#$number)" 'substr($0, length($0) - length(suffix) + 1) == suffix { print $1; exit }')
+    if [ -z "$first" ]; then
+        echo "Could not resolve to a PullRequest with the number of $number." >&2
+        exit 1
+    fi
+    merged=true
+    if grep -qxF "$first" "$unlinked"; then
+        merged=false
+    fi
+    jq -n --arg login "$(git log -1 --format=%an "$first")" --argjson merged "$merged" \\
+        '{title: "change", merged: $merged, author: {login: $login, __typename: "User"}}'
     exit 0
 fi
 fields='{}'
 for sha in $(grep -oE 'c[0-9a-f]{40}' <<<"$query" | cut -c2- | sort -u); do
     login=$(git log -1 --format=%an "$sha")
     number=$(git log -1 --format=%s "$sha" | sed -n 's/.*(#\\([0-9]*\\))$/\\1/p')
-    fields=$(jq --arg key "c$sha" --arg login "$login" --argjson number "$number" '. + {($key): {
+    pulls='[]'
+    if ! grep -qxF "$sha" "$unlinked"; then
+        pulls=$(jq -n --arg login "$login" --argjson number "$number" '[{number: $number, title: "change", merged: true,
+            author: {login: $login, __typename: "User"}, mergedBy: {login: "trunk-io[bot]", __typename: "Bot"}}]')
+    fi
+    fields=$(jq --arg key "c$sha" --arg login "$login" --argjson pulls "$pulls" '. + {($key): {
         authors: {totalCount: 1, nodes: [{user: {login: $login}}]},
-        associatedPullRequests: {nodes: [{number: $number, title: "change", merged: true,
-            author: {login: $login, __typename: "User"}, mergedBy: {login: "trunk-io[bot]", __typename: "Bot"}}]}
+        associatedPullRequests: {nodes: $pulls}
     }}' <<<"$fields")
 done
 jq -n --argjson fields "$fields" '{data: {repository: $fields}}'
@@ -38,6 +59,7 @@ jq -n --argjson fields "$fields" '{data: {repository: $fields}}'
 let repo: string
 let base: string
 let fakeBin: string
+let unlinkedHeads: Record<string, string>
 
 async function commit(path: string, author: string, subject: string): Promise<void> {
     await mkdir(join(repo, dirname(path)), { recursive: true })
@@ -91,13 +113,37 @@ beforeAll(async () => {
         ],
         { cwd: repo }
     )
+    await commit('products/notebooks/app.ts', 'ivan', 'feat(notebooks): land a stack layer (#10)')
+    const stackLayer = revParse('HEAD')
+
+    const branch = execFileSync('git', ['branch', '--show-current'], { cwd: repo, encoding: 'utf8' }).trim()
+    unlinkedHeads = {}
+    for (const [name, author, subject] of [
+        ['names none', 'judy', 'fix(notebooks): change notebooks with no pull request'],
+        ['names a pull request someone else opened', 'mallory', 'fix(notebooks): reuse a stack layer number (#10)'],
+        ['names a merged pull request', 'alice', 'fix(notebooks): reuse a merged number (#2)'],
+    ] as const) {
+        execFileSync('git', ['checkout', '-q', '--detach', stackLayer], { cwd: repo })
+        await commit(`products/notebooks/${author}.ts`, author, subject)
+        unlinkedHeads[name] = revParse('HEAD')
+    }
+    execFileSync('git', ['checkout', '-q', branch], { cwd: repo })
 
     fakeBin = await mkdtemp(join(tmpdir(), 'hog-fake-gh-'))
     await writeFile(join(fakeBin, 'gh'), FAKE_GH)
     await chmod(join(fakeBin, 'gh'), 0o755)
+    await writeFile(join(fakeBin, 'unlinked'), [stackLayer, ...Object.values(unlinkedHeads)].join('\n') + '\n')
 })
 
-async function check(approver: string, extraPaths?: string[]): Promise<{ status: number | null; output: string }> {
+function revParse(ref: string): string {
+    return execFileSync('git', ['rev-parse', ref], { cwd: repo, encoding: 'utf8' }).trim()
+}
+
+async function check(
+    approver: string,
+    extraPaths?: string[],
+    head = 'HEAD'
+): Promise<{ status: number | null; output: string }> {
     const output = join(repo, '.github-output')
     await writeFile(output, '')
     const options: string[] = []
@@ -106,7 +152,7 @@ async function check(approver: string, extraPaths?: string[]): Promise<{ status:
         options.push('--extra-paths', join(repo, '.extra-paths'))
     }
 
-    const run = spawnSync(BASH!, [CHECKER, ...options, base, 'HEAD', approver], {
+    const run = spawnSync(BASH!, [CHECKER, ...options, base, head, approver], {
         cwd: repo,
         env: {
             ...process.env,
@@ -126,6 +172,7 @@ describe.skipIf(!BASH)('check-approvers.sh', () => {
         ["the author of a change to a product's MCP tools", 'dana', 'dana (#5)'],
         ['the author of a change to the approver check itself', 'erin', 'erin (#6)'],
         ['the author of a move into the MCP code', 'gina', 'gina (#8)'],
+        ['the author of a stack layer that GitHub landed without marking it merged', 'ivan', 'ivan (#10)'],
     ])('blocks %s', async (_name, approver, violation) => {
         const result = await check(approver)
 
@@ -148,6 +195,15 @@ describe.skipIf(!BASH)('check-approvers.sh', () => {
 
         expect(result).toEqual({ status: 1, output: 'violations=hana (#9)\n' })
     })
+
+    test.each(['names none', 'names a pull request someone else opened', 'names a merged pull request'])(
+        'stops on a released commit with no merged pull request whose subject %s',
+        async (name) => {
+            const result = await check('carol', undefined, unlinkedHeads[name])
+
+            expect(result).toEqual({ status: 1, output: '' })
+        }
+    )
 
     test.each([
         ['a glob', ['packages/*']],

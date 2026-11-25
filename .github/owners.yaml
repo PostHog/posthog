@@ -46,8 +46,11 @@ rules:
           - batch-exports
           - team-growth
           - team-apm
-          - team-web-analytics
+          - team-analytics
           - team-warehouse-sources
+          - team-error-tracking
+          - team-self-driving
+          - team-surfaces
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
@@ -55,7 +58,7 @@ rules:
           - '/workflows/ci-livestream-tui.yml'
           - '/workflows/ci-livestream.yml'
           - '/workflows/livestream-docker-image.yml'
-      owners: [team-devex, team-web-analytics]
+      owners: [team-devex, team-analytics]
     - match:
           - '/workflows/cd-mcp-image.yml'
           - '/workflows/ci-mcp-agent-api-diff.yml'
