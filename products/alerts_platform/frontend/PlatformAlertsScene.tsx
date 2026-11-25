@@ -26,6 +26,7 @@ import {
     describeSchedule,
     listRowMute,
 } from './platformAlertFormat'
+import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
 import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
@@ -146,7 +147,11 @@ function listColumns(
         {
             width: 0,
             render: (_, row) =>
-                row.kind === 'group' ? null : <PlatformAlertRowMenu configuration={row.configuration} />,
+                row.kind === 'group' ? (
+                    <PlatformAlertGroupRowMenu configuration={row.configuration} group={row.group} />
+                ) : (
+                    <PlatformAlertRowMenu configuration={row.configuration} />
+                ),
         },
     ]
 }
