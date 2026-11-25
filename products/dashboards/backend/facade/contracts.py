@@ -22,7 +22,9 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
+    QueryBatchEngine,
     QueryBatchLanguage,
+    QueryBatchTargetFormat,
 )
 
 GRID_COLUMNS = 12
@@ -440,13 +442,17 @@ class Frame:
 
 @frozen
 class QueryBatchTarget:
-    """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
-    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`.
-    For `promql` and `logql`, it is the expression, run as a range query over the batch's time range."""
+    """A panel's query. For `query`, `query` is a PostHog query node as JSON, bare or as
+    `{query: <query node>, filters?, variables?}`. For `hogql`, it is the SQL, which reads the batch's time range
+    through `{filters}`. For `promql` and `logql`, it is the expression, run as a range query over the batch's time
+    range. `legend` and `format` are the client's and come back unchanged on the target's line."""
 
     ref_id: str
     language: QueryBatchLanguage
     query: str
+    legend: str | None = None
+    format: QueryBatchTargetFormat | None = None
+    engine: QueryBatchEngine | None = None
 
 
 @frozen

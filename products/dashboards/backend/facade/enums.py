@@ -59,7 +59,23 @@ class DashboardUsageCount(StrEnum):
 class QueryBatchLanguage(LabeledStrEnum):
     """What a query batch target's `query` text holds."""
 
+    QUERY = "query", "Query"
+    # Deprecated name for `query`, kept so callers written against it keep working.
     INSIGHT = "insight", "Insight"
     HOGQL = "hogql", "HogQL"
     PROMQL = "promql", "PromQL"
     LOGQL = "logql", "LogQL"
+
+
+class QueryBatchTargetFormat(LabeledStrEnum):
+    """How the client draws a query batch target. Echoed back on its line."""
+
+    TIME_SERIES = "time_series", "Time series"
+    TABLE = "table", "Table"
+
+
+class QueryBatchEngine(LabeledStrEnum):
+    """Which events engine a query batch target runs on."""
+
+    CLASSIC = "classic", "Classic"
+    NEW = "new", "New"
