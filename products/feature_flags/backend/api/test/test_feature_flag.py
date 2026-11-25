@@ -27,6 +27,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
@@ -79,13 +80,20 @@ from products.feature_flags.backend.api.feature_flag import (
     _flag_write_source,
     parse_created_by_ids,
 )
-from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import TURN_ON_MODES, turn_flag_on
+from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import (
+    SALARY,
+    SALARY_CONDITION,
+    TURN_ON_MODES,
+    restrict_properties,
+    turn_flag_on,
+)
 from products.feature_flags.backend.blast_radius_flag_deps import MAX_DEPENDENCY_DEPTH
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     flag_payload_codec,
     get_decrypted_flag_payload,
 )
+from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
@@ -8969,6 +8977,321 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(group["description"], "First rollout cohort")
         self.assertEqual(group["sort_key"], "g1")
         self.assertEqual(group["properties"][0]["label"], "Email")
+
+
+class TestFeatureFlagPropertyAccessControl(APIBaseTest):
+    def _create_flag(self, groups: list[dict]) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="restricted-flag", name="Restricted", filters={"groups": groups}
+        )
+
+    @parameterized.expand(
+        [
+            ("person_property", [SALARY], False, SALARY_CONDITION, None, 400),
+            ("person_property_with_read_access", [SALARY], True, SALARY_CONDITION, None, 201),
+            (
+                "parent_of_restricted_property",
+                [("profile.tax_id", PropertyDefinition.Type.PERSON, None)],
+                False,
+                {"key": "profile", "type": "person", "value": "x", "operator": "icontains"},
+                None,
+                400,
+            ),
+            (
+                "group_property_on_restricted_group_type",
+                [("industry", PropertyDefinition.Type.GROUP, 0)],
+                False,
+                {"key": "industry", "type": "group", "value": "retail", "group_type_index": 0},
+                0,
+                400,
+            ),
+            (
+                "group_property_on_another_group_type",
+                [("industry", PropertyDefinition.Type.GROUP, 1)],
+                False,
+                {"key": "industry", "type": "group", "value": "retail", "group_type_index": 0},
+                0,
+                201,
+            ),
+            (
+                "group_property_without_index_on_restricted_flag_aggregation",
+                [("industry", PropertyDefinition.Type.GROUP, 0)],
+                False,
+                {"key": "industry", "type": "group", "value": "retail"},
+                0,
+                400,
+            ),
+            ("person_property_in_super_groups", [SALARY], False, SALARY_CONDITION, None, 400, "super_groups"),
+            (
+                "person_property_named_by_a_json_number",
+                [("2024", PropertyDefinition.Type.PERSON, None)],
+                False,
+                {"key": 2024, "type": "person", "value": "1", "operator": "gt"},
+                None,
+                400,
+            ),
+        ]
+    )
+    def test_create_rejects_properties_the_member_cannot_read(
+        self, _name, restrictions, readable, condition, aggregation, expected_status, conditions_key="groups"
+    ):
+        restrict_properties(self, restrictions, member=PropertyAccessLevel.READ if readable else None)
+        filters: dict[str, Any] = {
+            "aggregation_group_type_index": aggregation,
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            conditions_key: [{"properties": [condition], "rollout_percentage": 100}],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": "new-flag", "filters": filters}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
+            self.assertIn(str(condition["key"]), response.json()["detail"])
+
+    def test_update_rejects_adding_a_property_the_member_cannot_read(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [], "rollout_percentage": 100}])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [SALARY_CONDITION], "rollout_percentage": 100}]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "restricted_property")
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"][0]["properties"], [])
+
+    @parameterized.expand(
+        [
+            ("property", {"group_type_index": []}, {}, None),
+            ("condition", {}, {"aggregation_group_type_index": []}, None),
+            ("flag", {}, {}, {"bad": "index"}),
+        ]
+    )
+    def test_malformed_group_type_index_is_a_validation_error(self, _name, prop_extra, condition_extra, aggregation):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "new-flag",
+                "filters": {
+                    "aggregation_group_type_index": aggregation,
+                    "groups": [
+                        {
+                            "properties": [{"key": "industry", "type": "group", "value": "retail", **prop_extra}],
+                            "rollout_percentage": 100,
+                            **condition_extra,
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("unchanged", "a", "a", 200),
+            ("true_to_one", True, 1, 400),
+            ("display_key_inside_value", ["first", {"name": "x"}], ["first", {"name": "y"}], 400),
+        ]
+    )
+    def test_member_edits_a_value_next_to_a_restricted_condition(self, _name, stored_value, new_value, expected_status):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [{"key": "plan", "type": "person", "value": stored_value}], "rollout_percentage": 100},
+            ]
+        )
+        groups = [
+            flag.filters["groups"][0],
+            {"properties": [{"key": "plan", "type": "person", "value": new_value}], "rollout_percentage": 100},
+        ]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {"groups": groups}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
+
+    @parameterized.expand(
+        [
+            ("key", "renamed-flag", 400),
+            ("bucketing_identifier", "device_id", 400),
+            ("ensure_experience_continuity", True, 400),
+            ("ensure_experience_continuity", False, 200),
+        ]
+    )
+    def test_member_changes_bucketing_of_a_flag_using_a_restricted_property(self, field, value, expected_status):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [], "rollout_percentage": 50},
+            ]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {field: value}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
+
+    def test_member_cannot_switch_a_condition_from_inherited_to_person_aggregation(self):
+        restrict_properties(self, [("industry", PropertyDefinition.Type.GROUP, 0)])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="restricted-flag",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {"properties": [{"key": "industry", "type": "group", "value": "retail", "group_type_index": 0}]},
+                    {"properties": [], "rollout_percentage": 50},
+                ],
+            },
+        )
+        groups = [flag.filters["groups"][0], {**flag.filters["groups"][1], "aggregation_group_type_index": None}]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {"groups": groups}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["code"], "restricted_property")
+
+    def test_bucketing_check_reads_the_row_locked_for_the_save(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [], "rollout_percentage": 50}])
+        request = ServiceRequest(self.user, method="PATCH")
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"key": "renamed-flag"},
+            partial=True,
+            context={"request": request, "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        FeatureFlag.objects.filter(pk=flag.pk).update(
+            filters={
+                "groups": [
+                    {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                    {"properties": [], "rollout_percentage": 50},
+                ]
+            }
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            serializer.save()
+
+        self.assertEqual(caught.exception.get_codes(), ["restricted_property"])
+        flag.refresh_from_db()
+        self.assertEqual(flag.key, "restricted-flag")
+
+    def test_member_deletes_an_experiment_flag_using_a_restricted_property(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [SALARY_CONDITION], "rollout_percentage": 100}])
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertTrue(flag.deleted)
+        self.assertEqual(flag.key, f"restricted-flag:deleted:{flag.id}")
+
+    def test_stale_key_echo_does_not_count_as_a_bucketing_change(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag([{"properties": [SALARY_CONDITION], "rollout_percentage": 100}])
+        payload = {
+            "name": "Renamed",
+            "key": "restricted-flag",
+            "version": 0,
+            "original_flag": {"name": "Restricted", "key": "restricted-flag"},
+        }
+        request = ServiceRequest(self.user, method="PATCH")
+        request.data = payload
+        serializer = FeatureFlagSerializer(
+            flag,
+            data=payload,
+            partial=True,
+            context={"request": request, "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        FeatureFlag.objects.filter(pk=flag.pk).update(key="concurrent-key", version=1)
+
+        serializer.save()
+
+        flag.refresh_from_db()
+        self.assertEqual((flag.name, flag.key), ("Renamed", "concurrent-key"))
+
+    def test_system_write_changes_targeting_of_a_flag_using_a_restricted_property(self):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [], "rollout_percentage": 100},
+            ]
+        )
+        groups = [*flag.filters["groups"][:1], {"properties": [], "rollout_percentage": 0}]
+
+        update_flag(flag, {"filters": {"groups": groups}}, team=self.team, user=None)
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"][1]["rollout_percentage"], 0)
+
+    @parameterized.expand(
+        [
+            ("unchanged_targeting", lambda groups: groups, 200),
+            ("editor_sort_key_added", lambda groups: [{**group, "sort_key": "abc"} for group in groups], 200),
+            ("every_restricted_condition_removed", lambda groups: groups[1:], 200),
+            (
+                "other_condition_rollout_changed",
+                lambda groups: [groups[0], {**groups[1], "rollout_percentage": 0}],
+                400,
+            ),
+            (
+                "condition_added_next_to_restricted_one",
+                lambda groups: [
+                    {**groups[0], "properties": [*groups[0]["properties"], {"key": "email", "value": "a@example.com"}]},
+                    groups[1],
+                ],
+                400,
+            ),
+        ]
+    )
+    def test_member_edits_flag_already_using_a_property_they_cannot_read(self, _name, edit_groups, expected_status):
+        restrict_properties(self, [SALARY])
+        flag = self._create_flag(
+            [
+                {"properties": [SALARY_CONDITION], "rollout_percentage": 100},
+                {"properties": [], "rollout_percentage": 100},
+            ]
+        )
+        read = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/").json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"name": "Renamed", "filters": {**read["filters"], "groups": edit_groups(read["filters"]["groups"])}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        flag.refresh_from_db()
+        self.assertEqual(flag.name, "Renamed" if expected_status == 200 else "Restricted")
+        if expected_status == 400:
+            self.assertEqual(response.json()["code"], "restricted_property")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
