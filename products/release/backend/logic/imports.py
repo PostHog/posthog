@@ -5,9 +5,10 @@ from collections.abc import Callable
 
 from django.db import connection, transaction
 
-from posthog.event_usage import report_user_or_team_action
+from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
+from posthog.ph_client import ph_scoped_capture
 
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags, release_flag_creator_id
 
@@ -135,10 +136,15 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
     )
     if not flags:
         return
-    for release in create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])]):
-        report_user_or_team_action(
-            "release created",
-            {"release_id": str(release.id), "source": "new_flag", "feature_flag_count": 1},
-            user=creator,
-            team=team,
-        )
+    created = create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])])
+    if not created:
+        return
+    distinct_id = str(creator.distinct_id) if creator and creator.distinct_id else str(team.uuid)
+    with ph_scoped_capture() as capture:
+        for release in created:
+            capture(
+                distinct_id=distinct_id,
+                event="release created",
+                properties={"release_id": str(release.id), "creation_source": "new_flag", "feature_flag_count": 1},
+                groups=groups(team.organization, team),
+            )

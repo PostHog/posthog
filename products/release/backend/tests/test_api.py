@@ -49,14 +49,21 @@ class TestReleaseAPI(APIBaseTest):
     ) -> None:
         with patch("products.release.backend.presentation.views.report_user_action") as report:
             response = self.client.post(self._url(), {"name": "Dark mode", "feature_flag_ids": flag_ids}, format="json")
+            retried = None
             if response.status_code == status.HTTP_201_CREATED:
                 self.client.delete(self._url(f"{response.json()['id']}/"))
+                retried = self.client.delete(self._url(f"{response.json()['id']}/"))
 
         lifecycle = [call for call in report.call_args_list if call.args[1] in ("release created", "release deleted")]
         assert [call.args[1] for call in lifecycle] == expected, response.json()
         if expected:
+            assert retried is not None and retried.status_code == status.HTTP_404_NOT_FOUND
             release_id = response.json()["id"]
-            assert lifecycle[0].args[2] == {"release_id": release_id, "source": "manual", "feature_flag_count": 0}
+            assert lifecycle[0].args[2] == {
+                "release_id": release_id,
+                "creation_source": "manual",
+                "feature_flag_count": 0,
+            }
             assert lifecycle[1].args[2] == {"release_id": release_id}
 
     @parameterized.expand(
@@ -869,9 +876,9 @@ class TestReleaseAPI(APIBaseTest):
     ) -> None:
         if imported:
             self.client.post(self._url("import_all/"))
-        reporting = patch("products.release.backend.logic.imports.report_user_or_team_action")
-        report = reporting.start()
-        self.addCleanup(reporting.stop)
+        scoped = patch("products.release.backend.logic.imports.ph_scoped_capture")
+        report = scoped.start().return_value.__enter__.return_value
+        self.addCleanup(scoped.stop)
         with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
             flag_id = self._flag("quiet-theme", active=not starts_inactive)
         if starts_inactive:
@@ -882,4 +889,6 @@ class TestReleaseAPI(APIBaseTest):
                 )
 
         assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == expected
-        assert [call.args[1]["source"] for call in report.call_args_list] == ["new_flag"] * len(expected)
+        assert [call.kwargs["properties"]["creation_source"] for call in report.call_args_list] == ["new_flag"] * len(
+            expected
+        )

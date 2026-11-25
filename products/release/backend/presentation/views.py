@@ -266,7 +266,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         report_user_action(
             request.user,
             "release created",
-            {"release_id": str(dto.id), "source": "manual", "feature_flag_count": len(dto.feature_flag_ids)},
+            {"release_id": str(dto.id), "creation_source": "manual", "feature_flag_count": len(dto.feature_flag_ids)},
             request=request,
         )
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
@@ -436,6 +436,9 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: UUID, **kwargs) -> Response:
         """Delete a release. Its flags, experiments and early access features stay."""
-        api.delete(self.team_id, pk)
+        try:
+            api.delete(self.team_id, pk)
+        except api.ReleaseNotFoundError:
+            raise NotFound("Release not found.")
         report_user_action(request.user, "release deleted", {"release_id": str(pk)}, request=request)
         return Response(status=status.HTTP_204_NO_CONTENT)
