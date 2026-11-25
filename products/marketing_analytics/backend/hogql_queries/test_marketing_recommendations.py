@@ -751,6 +751,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("every_word_converts_cheaply", "funnel analysis", "Search"),
             ("one_word_never_converted", "funnel spy", None),
             ("only_generic_words", "free online tool", None),
+            ("single_word_that_converts", "funnel", None),
+            ("single_word_ranking_on_a_landing_page", "funnel", None, "https://example.com/replay"),
             ("ranks_on_a_landing_page_of_the_ads", "funnel spy", "Replay", "https://www.example.com/replay/"),
             ("landing_page_of_a_paused_campaign", "funnel spy", None, "https://example.com/replay", None, "PAUSED"),
             (
@@ -879,24 +881,6 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         gap = next(rec for rec in recs if rec.rule == "keyword_gap")
         assert gap.detectedChange == expected
-
-    @parameterized.expand(
-        [
-            ("one_word_is_exact_match", "funnel", "[funnel]", "exact match"),
-            ("longer_query_is_phrase_match", "funnel tracking tool", '"funnel tracking tool"', "phrase match"),
-        ]
-    )
-    def test_keyword_gap_picks_the_match_type_by_query_length(
-        self, _name: str, query: str, expected_copy: str, expected_match: str
-    ) -> None:
-        terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
-        organic = (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
-
-        gap = next(rec for rec in recommend(_inputs((_campaign(),), terms, organic)) if rec.rule == "keyword_gap")
-
-        keyword_step = next(step for step in gap.steps or [] if step.linkText == "Keywords")
-        assert keyword_step.copyValue == expected_copy
-        assert expected_match in keyword_step.text
 
     @parameterized.expand(
         [
