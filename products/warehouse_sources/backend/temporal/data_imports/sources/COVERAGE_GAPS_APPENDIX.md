@@ -7816,7 +7816,7 @@ Note: Enumerated GET edges in Meta's official iguser.py, igmedia.py, and igcomme
 
 ## Instana — gaps
 
-Today (30): `access_logs`, `alert_configs`, `alerting_channels`, `apdex_configs`, `apdex_reports`, `application_metrics`, `applications`, `audit_logs`, `built_in_event_specifications`, `business_perspectives`, `custom_event_specifications`, `endpoint_metrics`, `endpoints`, `events`, `groups`, `host_agents`, `infrastructure_snapshots`, `mobile_apps`, `releases`, `service_metrics`, `services`, `slo_configs`, `slo_reports`, `synthetic_datacenters`, `synthetic_locations`, `synthetic_test_ci_cds`, `synthetic_tests`, `teams`, `users`, `websites`
+Today (35): `access_logs`, `alert_configs`, `alerting_channels`, `apdex_configs`, `apdex_reports`, `application_alert_configs`, `application_metrics`, `applications`, `audit_logs`, `built_in_event_specifications`, `business_perspectives`, `custom_event_specifications`, `endpoint_metrics`, `endpoints`, `events`, `groups`, `host_agents`, `infra_alert_configs`, `infrastructure_snapshots`, `maintenance_windows`, `mobile_app_alert_configs`, `mobile_apps`, `releases`, `service_metrics`, `services`, `slo_configs`, `slo_reports`, `synthetic_datacenters`, `synthetic_locations`, `synthetic_test_ci_cds`, `synthetic_tests`, `teams`, `users`, `website_alert_configs`, `websites`
 
 Diffed against: <https://instana.github.io/openapi/openapi.json>
 
@@ -7837,10 +7837,10 @@ Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 
 
 Re-audited 2026-11-19 against: <https://github.com/instana/client-python/blob/main/README.md>
 
-- [ ] `Maintenance windows (GET /api/settings/v2/maintenance)` — planned downtime windows that explain alert and SLO gaps; also GET /api/settings/maintenance in v1 (high)
-- [ ] `Smart alert configs for applications (GET /api/events/settings/application-alert-configs)` — application alert rules; alert_configs covers only the classic /api/events/settings/alerts (high)
-- [ ] `Infra alert configs (GET /api/events/settings/infra-alert-configs)` — infrastructure alert rules, same gap as above (medium)
-- [ ] `Website and mobile smart alert configs (GET /api/events/settings/website-alert-configs; GET /api/events/settings/mobile-app-alert-configs)` — alert rules for the websites and mobile_apps tables we sync (medium)
+- [x] `Maintenance windows (GET /api/settings/v2/maintenance)` — planned downtime windows that explain alert and SLO gaps; also GET /api/settings/maintenance in v1 (high). Added as `maintenance_windows`. The v1 `/api/settings/maintenance` is skipped: the spec marks it deprecated.
+- [x] `Smart alert configs for applications (GET /api/events/settings/application-alert-configs)` — application alert rules; alert_configs covers only the classic /api/events/settings/alerts (high). Added as `application_alert_configs` (fan-out over `applications`, because the endpoint requires `applicationId`).
+- [x] `Infra alert configs (GET /api/events/settings/infra-alert-configs)` — infrastructure alert rules, same gap as above (medium). Added as `infra_alert_configs`.
+- [x] `Website and mobile smart alert configs (GET /api/events/settings/website-alert-configs; GET /api/events/settings/mobile-app-alert-configs)` — alert rules for the websites and mobile_apps tables we sync (medium). Added as `website_alert_configs` and `mobile_app_alert_configs` (fan-out over `websites` and `mobile_apps`, because each endpoint requires the parent id).
 - [ ] `SLI configs (GET /api/settings/sli)` — service level indicator definitions that slo_configs refer to (medium)
 - [ ] `SLO correction windows (GET /api/settings/correction)` — time ranges excluded from SLO attainment, needed to read slo_reports correctly (medium)
 - [ ] `RBAC roles (GET /api/settings/rbac/roles)` — role lookup for the users, teams and groups tables (medium)
