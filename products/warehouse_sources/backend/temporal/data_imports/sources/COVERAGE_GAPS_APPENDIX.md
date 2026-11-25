@@ -7360,7 +7360,7 @@ Note: Docs pages are server-rendered HTML with no OpenAPI file, so I read the en
 
 ## Honeybadger — gaps
 
-Today (18): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `team_members`, `uptime_checks`
+Today (19): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `status_pages`, `team_members`, `uptime_checks`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
@@ -7382,13 +7382,13 @@ Note: Static endpoint list; source dir products/warehouse_sources/sources/honeyb
 
 Re-audited 2026-11-19 against: <https://docs.honeybadger.io/api/v3/openapi.json>
 
-- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high)
+- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Alarms (GET /projects/{project_id}/alarms)` — alarm definitions, the parent that alarm_history fans out over and the lookup for its alarm IDs (medium)
 - [ ] `Teams (GET /teams)` — team lookup, the parent that team_members fans out over (medium)
-- [ ] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium)
-- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium)
+- [x] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium). Added as `status_pages` from v2 `GET /accounts/{id}/status_pages` (fan-out over `accounts`, full refresh; off by default).
+- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Status page incident updates (GET /status_pages/{status_page_id}/incidents/{incident_id}/updates)` — timeline of updates per status page incident; fan-out over incidents (low)
-- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium)
+- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Project stats (GET /projects/{project_id}/stats)` — per-project rollup counts for dashboards (low)
 - [ ] `Fault summary (GET /projects/{project_id}/faults/summary)` — fault counts by state per project (low)
 - [ ] `Dashboards (GET /projects/{project_id}/dashboards)` — saved Insights dashboard definitions per project (low)
