@@ -38,5 +38,7 @@ describe('DashboardTileGroupTabs', () => {
         expect(screen.queryByLabelText('Loading dashboard tab') !== null).toBe(expected === 'loading')
         expect(screen.queryByText('Nothing to see here yet') !== null).toBe(expected === 'empty')
         expect(screen.queryByText('Tile content') !== null).toBe(expected === 'tiles')
+        expect(screen.queryAllByRole('tab')).toHaveLength(loading ? 0 : 1)
+        expect(screen.queryByLabelText('Loading dashboard tabs') !== null).toBe(loading)
     })
 })
