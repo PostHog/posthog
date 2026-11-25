@@ -99054,6 +99054,43 @@ export namespace Schemas {
       readonly filter_status?: SourceFilterRunStatus | null;
     }
 
+    export interface SlackAppReactionChoice {
+      /**
+         * Slack emoji name, such as eyes or a custom emoji of the workspace. Colons are allowed. Null inherits.
+         * @maxLength 102
+         * @nullable
+         */
+      emoji?: string | null;
+      /**
+         * Whether PostHog adds this reaction. Null inherits.
+         * @nullable
+         */
+      enabled?: boolean | null;
+    }
+
+    export interface SlackAppReactionChoices {
+      /** Added to a message when PostHog starts on the request. */
+      working?: SlackAppReactionChoice;
+      /** Added when PostHog replies. The working reaction is removed. */
+      done?: SlackAppReactionChoice;
+      /** Added when the request fails. */
+      error?: SlackAppReactionChoice;
+      /** Added after PostHog replies to a message that says please or thanks. */
+      polite?: SlackAppReactionChoice;
+    }
+
+    export interface PatchedSlackAppPersonalSettingsUpdate {
+      /** Replaces this person's reaction choices. A reaction left out inherits the workspace choice. */
+      reactions?: SlackAppReactionChoices;
+    }
+
+    export interface PatchedSlackAppWorkspaceSettingsUpdate {
+      /** Replaces the workspace's reaction choices. A reaction left out inherits PostHog's default. */
+      reactions?: SlackAppReactionChoices;
+      /** Whether PostHog works in Slack channels shared with other organizations. */
+      external_channels_enabled?: boolean;
+    }
+
     export type PatchedSubscriptionWriteContextsItem = {
       /** @minimum 1 */
       dashboard_id: number;
@@ -121911,6 +121948,76 @@ export namespace Schemas {
       channels: SlackAppChannelOption[];
     }
 
+    /**
+     * * `auto` - Always pick it up
+     * * `ask` - Ask before picking it up
+     * * `never` - Never pick it up
+     */
+    export type UntaggedFollowupModeEnum = typeof UntaggedFollowupModeEnum[keyof typeof UntaggedFollowupModeEnum];
+
+
+    export const UntaggedFollowupModeEnum = {
+      Auto: 'auto',
+      Ask: 'ask',
+      Never: 'never',
+    } as const;
+
+    export interface SlackAppChannelSettings {
+      /** Slack channel ID. */
+      slack_channel_id: string;
+      /**
+         * ID of the Slack integration of the project that mentions in this channel route to. Null inherits.
+         * @nullable
+         */
+      default_integration_id: number | null;
+      /**
+         * Repository, as owner/name, that tasks started in this channel use. Null inherits.
+         * @nullable
+         */
+      default_repository: string | null;
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
+       *
+       * * `auto` - Always pick it up
+       * * `ask` - Ask before picking it up
+       * * `never` - Never pick it up */
+      untagged_question_mode: UntaggedFollowupModeEnum | null;
+      /**
+         * Name of the person who last changed this channel's settings.
+         * @nullable
+         */
+      updated_by_name: string | null;
+      /**
+         * When this channel's settings last changed.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface SlackAppChannelSettingsList {
+      /** Channels that have at least one setting. */
+      channels: SlackAppChannelSettings[];
+    }
+
+    export interface SlackAppChannelSettingsUpdate {
+      /**
+         * ID of the Slack integration of a project connected to this workspace. Null inherits.
+         * @nullable
+         */
+      default_integration_id: number | null;
+      /**
+         * Repository as owner/name. Null inherits.
+         * @maxLength 255
+         * @nullable
+         */
+      default_repository: string | null;
+      /** What PostHog does with top-level questions in this channel that do not tag it. Null inherits.
+       *
+       * * `auto` - Always pick it up
+       * * `ask` - Ask before picking it up
+       * * `never` - Never pick it up */
+      untagged_question_mode: UntaggedFollowupModeEnum | null;
+    }
+
     export interface SlackAppDefaultProject {
       /** ID of the Slack integration of the project that becomes the workspace default. */
       integration_id: number;
@@ -121932,6 +122039,36 @@ export namespace Schemas {
       results: SlackAppChannelJoinResult[];
     }
 
+    export interface SlackAppResolvedReaction {
+      /** Slack emoji name that PostHog uses. */
+      emoji: string;
+      /** Whether PostHog adds this reaction. */
+      enabled: boolean;
+    }
+
+    export interface SlackAppResolvedReactions {
+      /** The reaction when PostHog starts on a request. */
+      working: SlackAppResolvedReaction;
+      /** The reaction when PostHog replies. */
+      done: SlackAppResolvedReaction;
+      /** The reaction when the request fails. */
+      error: SlackAppResolvedReaction;
+      /** The reaction to a message that says please or thanks. */
+      polite: SlackAppResolvedReaction;
+    }
+
+    export interface SlackAppPersonalSettings {
+      /**
+         * The Slack user this person linked in this workspace. Null when they have not linked one.
+         * @nullable
+         */
+      slack_user_id: string | null;
+      /** This person's reaction choices. Null fields use the workspace choice. */
+      reactions: SlackAppReactionChoices;
+      /** The reactions PostHog adds to this person's messages, after the workspace and default fallbacks. */
+      effective_reactions: SlackAppResolvedReactions;
+    }
+
     export interface SlackAppProjectOption {
       /** ID of the Slack integration that connects this project. */
       integration_id: number;
@@ -121939,6 +122076,29 @@ export namespace Schemas {
       project_name: string;
       /** Name of the organization that owns the project. */
       organization_name: string;
+    }
+
+    export interface SlackAppWorkspaceSettings {
+      /** The workspace's reaction choices. Null fields use PostHog's defaults. */
+      reactions: SlackAppReactionChoices;
+      /** Whether PostHog works in Slack channels shared with other organizations. */
+      external_channels_enabled: boolean;
+    }
+
+    export interface SlackAppSettings {
+      /** ID of the Slack integration that these settings are for. */
+      integration_id: number;
+      /**
+         * Name of the Slack workspace, as Slack sent it at install time.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /** Whether this person can change workspace settings: the person who installed Slack, or a project admin. */
+      can_edit_workspace: boolean;
+      /** Settings for everyone in the Slack workspace. */
+      workspace: SlackAppWorkspaceSettings;
+      /** Settings for this person's own Slack messages. */
+      personal: SlackAppPersonalSettings;
     }
 
     /**

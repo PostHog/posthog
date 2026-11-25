@@ -254,6 +254,20 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
     )
+    # Read on both row shapes: a personal choice wins over the workspace choice, which wins over the
+    # built-in default. The shape is ``ReactionSettings`` in ``services/reaction_settings.py``.
+    reactions = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Which emoji PostHog reacts with, and which reactions are off.",
+    )
+    # Only read on the workspace-wide row. NULL means no admin picked, which resolves to on when
+    # someone already approved an externally shared channel in this workspace, and off otherwise.
+    external_channels_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether PostHog may work in Slack channels shared with other organizations.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -342,8 +356,9 @@ class SlackChannel(UUIDModel):
     so workspace-scope here only governs the channel-level question
     ("can the bot speak here at all?"), not which project's data is read.
 
-    Reserved for future per-channel configuration (denials, routing
-    overrides, etc.) without needing another model.
+    A row also carries the channel's settings: the default project, repository
+    and untagged question mode. Any member of the workspace can change them. A
+    NULL setting falls back to the workspace or personal setting.
     """
 
     slack_workspace_id = models.CharField(max_length=64)
@@ -357,6 +372,39 @@ class SlackChannel(UUIDModel):
         related_name="approved_slack_channels",
         help_text="The PostHog user who clicked Approve. Carries the email and audit trail.",
     )
+    # SET_NULL, not CASCADE: removing one project's install must not drop the channel's approval.
+    default_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="slack_channel_defaults",
+        help_text="The Slack install of the project that mentions in this channel route to.",
+    )
+    default_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="The repository, as owner/name, that tasks started in this channel use.",
+    )
+    untagged_question_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with top-level questions in this channel that do not tag the app.",
+    )
+    # db_constraint=False: a foreign key constraint to posthog_user locks that hot table when the column is added.
+    settings_updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="The PostHog user who last changed this channel's settings.",
+    )
+    settings_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
