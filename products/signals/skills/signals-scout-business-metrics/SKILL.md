@@ -79,6 +79,7 @@ The grain of the time column sets the lens and the cadence:
 The period lenses compare with a trend expectation, not with a plain median: a measure that grows a steady 8% a month sits 40% above the median of its prior 6 months every month, and a median baseline would report that growth as a step every time.
 The expectation is the median of the 3 prior periods, grown for two periods at the median period-over-period change of the base, so one spiky period cannot manufacture a move in the next one.
 The bar is 20% off that expectation, or twice the series' usual period-over-period swing when that is larger, so a series that moves 25% every month needs a 50% move.
+A second, drift lens scores the last 3 periods against the 3 before, trend-adjusted, at 10% or one and a half times the series' swing, so a rate that slides a few percent a month still surfaces within a quarter and a flat, noisy series stays quiet.
 A metric with several measure columns is several series: score each numeric column, the first one first, at most 5.
 Never score the in-progress period.
 The bars and the windows are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
@@ -175,7 +176,8 @@ Score the measure with the lens of its grain, from the `series:` entry you updat
 Do not compute the medians yourself: the bundled `scripts/lens.py` does the arithmetic.
 Fetch it once per run with `llma-skill-file-get` (`file_path: scripts/lens.py`), write it to `/tmp/lens.py`, and pipe the series in: `echo '{"mode": "judge", "grain": "monthly", "series": [["2026-10-01", 81609], ...]}' | python3 /tmp/lens.py`.
 Read `verdict`, `deviation_pct`, `bar_pct` and `clears_report_bar`; the request and response shapes are in [`references/driver-analysis.md`](references/driver-analysis.md#the-script).
-The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily); at least 20% off the trend expectation, or twice the series' usual swing when that is larger, with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily only).
+The bars: a step of at least 30% off both medians with at least 20 units on the count basis (daily); at least 20% off the trend expectation, or twice the series' usual swing when that is larger, with the same floor (weekly and up); a drift of at least 15% that is not already a long trend (daily), or of the last 3 periods against the 3 before of at least 10% or one and a half times the series' swing (weekly and up).
+The floor applies to counts only: tell the script when the series is a count (`count_basis`) or give it the count series behind a money or ratio measure (`counts`).
 The exact rules are in [`references/driver-analysis.md`](references/driver-analysis.md#detection).
 
 No lens passes: refresh the `baseline:` entry, stamp `last_judged`, and move on.

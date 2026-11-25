@@ -141,8 +141,22 @@ Invented example, a monthly count: the 6 prior months are 980, 1,050, 1,120, 1,2
 A latest month of 1,520 is 4% above expected: no move.
 A latest month of 1,880 is 28% above expected: a candidate.
 
-For a monthly measure with 13 closed months, also compare with the same month a year earlier: a move that the year-earlier month shows too is seasonal, so remember it and do not report it.
+For a monthly measure with 13 closed months (a quarterly one with 5 quarters), the script also compares with the same period a year earlier and sets `seasonal_match` when that period moved the same way by at least half as much: say so in the report and give the finding lower priority, because the move may be the calendar.
 A measure whose changes already ran at 20% or more in the same direction in each of the 3 prior periods is a long trend, not a new move.
+
+### Period drift lens (weekly, monthly, quarterly)
+
+A rate that slides 4% a month never clears the step bar and still loses a fifth of its value in a quarter, so the script also scores the drift:
+
+- `prior_avg`: the average of the 3 periods before the last 3.
+- `expected_avg = prior_avg * (1 + g) ^ 3`, the trend carried forward 3 periods.
+- `drift_deviation`: the average of the last 3 periods (the latest included) over `expected_avg`, minus 1.
+- `drift bar = max(0.10, 1.5 * swing)`.
+
+Pass when `abs(drift_deviation) >= drift bar`.
+The trend adjustment keeps a steadily growing series quiet; the swing term keeps a volatile one quiet, because an average of 3 periods still carries noise and a flat series that swings 7% a month drifts 10% by chance.
+
+The 20-unit floor applies only to counts: send `count_basis: true` when the series is a count, or `counts` (a parallel count series) when the measure is money or a ratio; with neither, the script applies no floor.
 
 ## Decomposition
 
