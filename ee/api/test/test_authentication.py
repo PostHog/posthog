@@ -2071,6 +2071,27 @@ class TestEEAuthenticationAPI(APILicensedTest):
             mock_request.return_value.json.return_value = userinfo
             return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
 
+    @parameterized.expand([("email_match", False), ("linked_identity", True)])
+    def test_google_login_refuses_service_account(self, _name: str, linked: bool) -> None:
+        self.client.logout()
+        User.objects.filter(pk=self.user.pk).update(type="service_account", is_email_verified=False)
+        if linked:
+            UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-new")
+        original_password = self.user.password
+        original_login = self.user.last_login
+        original_memberships = list(self.user.organization_memberships.values_list("pk", flat=True))
+
+        response = self._complete_google_login(self.user.email, True)
+
+        self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(UserSocialAuth.objects.filter(user=self.user).count(), int(linked))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, original_password)
+        self.assertEqual(self.user.last_login, original_login)
+        self.assertFalse(self.user.is_email_verified)
+        self.assertEqual(list(self.user.organization_memberships.values_list("pk", flat=True)), original_memberships)
+
     def _complete_chatgpt_login(self, email: str, email_verified: bool | None, login_query: str = "") -> HttpResponse:
         def provider_response(url: str, *args: Any, **kwargs: Any) -> MagicMock:
             if url.endswith("/.well-known/openid-configuration"):
@@ -2561,9 +2582,21 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     # Finish SAML flow (i.e. actual log in)
 
+    @parameterized.expand(
+        [("human", False, False), ("service_account", True, False), ("linked_service_account", True, True)]
+    )
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
-    def test_can_login_with_saml(self):
-        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+    def test_can_login_with_saml(self, _name: str, service_account: bool, linked: bool) -> None:
+        user = User.objects.create(
+            email="engineering@posthog.com",
+            distinct_id=str(uuid.uuid4()),
+            type="service_account" if service_account else "human",
+        )
+        if linked:
+            config = self.organization_domain.saml_identity_provider_configs.get()
+            UserSocialAuth.objects.create(
+                user=user, provider="saml", uid=f"{config.saml_relay_state}:engineering@posthog.com"
+            )
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -2588,6 +2621,14 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             format="multipart",
         )
 
+        if service_account:
+            self.assertTrue(response.redirect_chain[0][0].startswith("/login?error_code=social_login_failure"))
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertEqual(UserSocialAuth.objects.filter(user=user).count(), int(linked))
+            self.assertFalse(user.organization_memberships.exists())
+            user.refresh_from_db()
+            self.assertIsNone(user.last_login)
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
         self.assertRedirects(response, "/")  # redirect to the home page
 
