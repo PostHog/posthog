@@ -59,7 +59,7 @@ import { getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
-import { toParams } from 'lib/utils/url'
+import { getRelativeNextPath, toParams } from 'lib/utils/url'
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -4805,7 +4805,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardFailedToLoad: boolean,
                 searchParams: Record<string, any>
             ): Breadcrumb[] => {
-                const backUrl = searchParams.backUrl as string | undefined
+                // Anyone can put a `backUrl` in a shared link, so only a path inside the app becomes the first crumb.
+                const backUrl = getRelativeNextPath(searchParams.backUrl, window.location)
                 const backName = searchParams.backName as string | undefined
                 return [
                     backUrl
