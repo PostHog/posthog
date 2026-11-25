@@ -591,7 +591,6 @@ def build_trace_system_prompt(
 @frozen
 class JudgeTranscript:
     text: str
-    # The complete transcript did not fit the budget, so the judge saw shortened content.
     truncated: bool
 
 
