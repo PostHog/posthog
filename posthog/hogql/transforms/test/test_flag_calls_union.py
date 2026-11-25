@@ -78,6 +78,8 @@ UNION_EXPANSION = "FROM flag_evaluations"
 FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
 FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
 SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
+UNKEYED_READ_MEMORY_CAP = "max_memory_usage=8589934592"
 KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -1286,6 +1288,45 @@ class TestReadFlagCallsWithUnion(BaseTest):
             return
         with pytest.raises(QueryError, match=reason):
             self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+    @parameterized.expand(
+        [
+            ("mode_2", UNKEYED_FEATURE_PROPERTY, ONLY, True, True),
+            ("mode_0_native", UNKEYED_FEATURE_PROPERTY, EVENTS, True, True),
+            ("subscript", f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'", ONLY, True, True),
+            (
+                "key_the_predicate_cannot_carry",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'café'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "scan_found_by_type",
+                "SELECT count() FROM persons p JOIN events e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called' AND e.properties.`$feature/new-checkout` = 'true'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "flag_key_pinned",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'new-checkout'",
+                ONLY,
+                True,
+                False,
+            ),
+            ("no_feature_property", FLAG_CALLS, ONLY, True, False),
+            ("mode_1_legacy", UNKEYED_FEATURE_PROPERTY, READ, False, False),
+        ]
+    )
+    def test_unkeyed_feature_property_read_runs_under_a_memory_cap(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, capped: bool
+    ):
+        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+        assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
 
     @parameterized.expand(
         [
