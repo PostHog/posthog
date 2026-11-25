@@ -90,10 +90,9 @@ describe.each([false, true])('scorer scene with Today navigation: %s', (todayRai
             </BindLogic>
         )
 
-        for (const name of [backLabel, 'Cancel']) {
-            const link = await screen.findByRole('link', { name })
-            expect(link.getAttribute('href')).toBe(`/project/${MOCK_DEFAULT_TEAM.id}${destination}`)
-        }
+        const expectedPath = `/project/${MOCK_DEFAULT_TEAM.id}${destination}`
+        expect((await screen.findByLabelText(backLabel)).getAttribute('href')).toBe(expectedPath)
+        expect(screen.getByText('Cancel').closest('a')?.getAttribute('href')).toBe(expectedPath)
     })
 
     it.each(['reported', 'composite'] as const)(

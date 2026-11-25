@@ -36,9 +36,9 @@ export interface compositeInputsLogicValues {
     search: string
     tagFilters: ResourceTagFilters
     validation: {
-        preview?: ExperimentScorePreviewApi
         error: string | null
         fingerprint: string
+        preview?: ExperimentScorePreviewApi
     } | null
     validationLoading: boolean
     versions: Record<
@@ -139,12 +139,19 @@ export interface compositeInputsLogicActions {
     validateFormulaSuccess: (
         validation:
             | {
+                  error: null
+                  fingerprint: string
+                  preview: ExperimentScorePreviewApi
+              }
+            | {
                   error: string
                   fingerprint: string
+                  preview?: undefined
               }
             | {
                   error: null
                   fingerprint: string
+                  preview?: undefined
               },
         payload?: {
             draft: ScoreDefinitionDraft
@@ -152,12 +159,19 @@ export interface compositeInputsLogicActions {
     ) => {
         validation:
             | {
+                  error: null
+                  fingerprint: string
+                  preview: ExperimentScorePreviewApi
+              }
+            | {
                   error: string
                   fingerprint: string
+                  preview?: undefined
               }
             | {
                   error: null
                   fingerprint: string
+                  preview?: undefined
               }
         payload?: {
             draft: ScoreDefinitionDraft
