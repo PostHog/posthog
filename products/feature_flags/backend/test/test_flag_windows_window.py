@@ -13,6 +13,7 @@ from products.feature_flags.backend.exposure_change import FlagExposureConfig
 from products.feature_flags.backend.flag_windows.baseline import HOUR
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
 from products.feature_flags.backend.flag_windows.exposure import ConditionExposure, ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import ScoreParameters
 from products.feature_flags.backend.flag_windows.window import (
@@ -75,8 +76,9 @@ EDIT = WatchedEdit(
 )
 
 
-def _window(state: WindowState = OPEN) -> ObservationWindow:
-    return ObservationWindow(edit=EDIT, config_before=BEFORE, config_after=AFTER, state=state)
+def _window(state: WindowState = OPEN, enables: bool = False) -> ObservationWindow:
+    edit = dataclasses.replace(EDIT, enables=enables)
+    return ObservationWindow(edit=edit, config_before=BEFORE, config_after=AFTER, state=state)
 
 
 def _exposure(
@@ -103,6 +105,24 @@ def _exposure(
     ]
 
 
+def _last_values(exposure: Sequence[ExposureBucket], errors: tuple[int, int] = (0, 0)) -> list[LastValueBucket]:
+    """The same people as in `exposure`, with the exposed and the unexposed errors."""
+
+    def counts(carried: ExposureCounts) -> LastValueCounts:
+        return LastValueCounts(
+            with_flag=carried.with_flag,
+            exposed=carried.exposed,
+            unexposed=carried.unexposed,
+            exposed_with_errors=errors[0],
+            unexposed_with_errors=errors[1],
+        )
+
+    return [
+        LastValueBucket(start=bucket.start, in_bucket=counts(bucket.in_bucket), since_edit=counts(bucket.since_edit))
+        for bucket in exposure
+    ]
+
+
 def _rising_then_flat(hours: int) -> list[float]:
     # Flat from the second bucket on, so the share is stable from the end of the fourth bucket.
     return [0.10] + [0.25] * (hours - 1)
@@ -110,8 +130,8 @@ def _rising_then_flat(hours: int) -> list[float]:
 
 RISING = _rising_then_flat(2)
 RISING_EXPOSURE = _exposure(RISING)
-# The exposure query has no bucket for an hour in which nobody carried the flag. The flat buckets start at hours 1, 5 and
-# 6, so the share is stable from the end of hour 6.
+# The exposure query has no bucket for an hour in which nobody carried the flag. The flat buckets start at hours 1, 5
+# and 6, so the share is stable from the end of hour 6.
 STABLE_WITH_A_GAP = [bucket for index, bucket in enumerate(_exposure(_rising_then_flat(30))) if index not in (2, 3, 4)]
 NOBODY_EXPOSED = _exposure([0.0] * 12, exposed=0)
 # Level 1 finds the exposed people significantly worse.
@@ -254,6 +274,98 @@ class TestAdvanceWindow(SimpleTestCase):
                 scored=True,
             ),
             param(
+                "flag_that_no_event_carries_has_reach_by_last_value",
+                hours_since_edit=12,
+                exposure=[],
+                last_values=_last_values(_exposure(_rising_then_flat(12))),
+                condition_match=ConditionMatch.REASON,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "watched_condition_that_counts_nobody_has_the_reach_of_the_flag",
+                hours_since_edit=12,
+                exposure=_exposure(
+                    [0.0] * 12,
+                    exposed=0,
+                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=0, exposed=0, unexposed=0)},
+                ),
+                last_values=_last_values(_exposure(_rising_then_flat(12))),
+                condition_match=ConditionMatch.REASON,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "edit_that_enables_has_the_reach_of_the_flag_beside_people_who_only_loaded_flags",
+                hours_since_edit=12,
+                exposure=_exposure(
+                    [0.0] * 12,
+                    exposed=0,
+                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=50, exposed=0, unexposed=50)},
+                ),
+                last_values=_last_values(_exposure(_rising_then_flat(12))),
+                condition_match=ConditionMatch.REASON,
+                enables=True,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "exposed_earlier_but_not_in_the_latest_hour_has_reach",
+                hours_since_edit=12,
+                exposure=[],
+                last_values=_last_values(_exposure([*_rising_then_flat(11), 0.0])),
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "errors_by_last_value_make_the_window_suspicious",
+                exposure=[],
+                last_values=_last_values(RISING_EXPOSURE, errors=(50, 10)),
+                # No error event carries the flag.
+                errors=dataclasses.replace(SUSPICIOUS_ERRORS, exposed_with_errors=0, unexposed_with_errors=0),
+                expected=_stays(SUSPICIOUS),
+                scored=True,
+            ),
+            param(
+                "reach_by_last_value_wins_over_the_events",
+                hours_since_edit=12,
+                exposure=NOBODY_EXPOSED,
+                last_values=_last_values(_exposure(_rising_then_flat(12))),
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "nobody_exposed_without_last_values_stays_open",
+                hours_since_edit=12,
+                exposure=NOBODY_EXPOSED,
+                has_last_values=False,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "stable_share_without_last_values_stays_open",
+                hours_since_edit=28,
+                exposure=_exposure(_rising_then_flat(28)),
+                has_last_values=False,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "nobody_exposed_by_last_value_closes_as_no_reach",
+                hours_since_edit=12,
+                exposure=[],
+                last_values=_last_values(NOBODY_EXPOSED),
+                expected=_closed(CloseReason.NO_REACH),
+            ),
+            param(
+                "share_by_last_value_stable_long_enough_closes_as_no_regression",
+                hours_since_edit=28,
+                exposure=[],
+                last_values=_last_values(_exposure(_rising_then_flat(28))),
+                expected=_closed(CloseReason.NO_REGRESSION),
+                scored=True,
+            ),
+            param(
                 "reverted_wins_over_suspicious",
                 state=SUSPICIOUS,
                 flag=BEFORE,
@@ -310,11 +422,17 @@ class TestAdvanceWindow(SimpleTestCase):
         exposure: Sequence[ExposureBucket] = RISING_EXPOSURE,
         errors: ErrorCounts | None = None,
         condition_match: ConditionMatch | None = None,
+        last_values: Sequence[LastValueBucket] | None = None,
+        has_last_values: bool = True,
+        enables: bool = False,
         parameters: WindowParameters = PARAMETERS,
         scored: bool = False,
     ) -> None:
+        if last_values is None and has_last_values:
+            last_values = _last_values(exposure)
+
         outcome = advance_window(
-            _window(state),
+            _window(state, enables),
             flag=flag,
             now=EDITED_AT + timedelta(hours=hours_since_edit),
             exposure=exposure,
@@ -323,6 +441,7 @@ class TestAdvanceWindow(SimpleTestCase):
             baseline=[],
             parameters=parameters,
             condition_match=condition_match,
+            last_values=last_values,
         )
 
         assert dataclasses.replace(outcome, score=None) == expected
@@ -344,6 +463,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 errors_since_edit=None,
                 hours={},
                 baseline=[],
+                last_values=None,
                 parameters=PARAMETERS,
             )
 
