@@ -22,6 +22,7 @@ from products.dashboards.backend.v2.frames import (
     MAX_PIVOT_LABEL_BYTES,
     MAX_PIVOT_SERIES,
     MAX_PROMETHEUS_SERIES,
+    MAX_RECORD_FIELDS,
     MAX_STREAM_LABEL_BYTES,
     frame_json,
     frames_for,
@@ -604,6 +605,35 @@ class TestFrameConverters(SimpleTestCase):
             ("views", "number", [4]),
             ("views (previous)", "number", [None]),
         ]
+
+    @parameterized.expand(
+        [
+            ("all_null_metric", ["context.columns.visitors"], [[None]], [("visitors", "string", [None])]),
+            (
+                "viewport_breakdown",
+                ["context.columns.breakdown_value", "context.columns.visitors"],
+                [[[1920, 1080], [3, 1]]],
+                [
+                    ("breakdown_value", "other", [[1920, 1080]]),
+                    ("visitors", "number", [3]),
+                    ("visitors (previous)", "number", [1]),
+                ],
+            ),
+        ]
+    )
+    def test_web_table_splits_only_metric_columns_holding_a_pair(
+        self, _name: str, columns: list[str], rows: list[list[Any]], expected: list[tuple[str, str, list[Any]]]
+    ) -> None:
+        query = {"kind": "WebStatsTableQuery", "breakdownBy": "Viewport", "properties": []}
+
+        [frame] = frames_for(QueryBatchLanguage.QUERY, query, {"columns": columns, "results": rows}) or []
+
+        assert [(field["name"], field["type"], field["values"]) for field in frame["fields"]] == expected
+
+    def test_sparse_records_past_the_cell_budget_have_no_frames(self) -> None:
+        rows = [{f"key_{index}": 1} for index in range(MAX_RECORD_FIELDS + 1)]
+
+        assert frames_for(QueryBatchLanguage.QUERY, {"kind": "HogQuery"}, {"results": rows}) is None
 
     def test_hash_changes_with_content_and_end_is_the_last_time(self) -> None:
         def frame(values: list[Any]) -> Frame:

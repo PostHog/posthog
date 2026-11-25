@@ -73,6 +73,9 @@ MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
 # Each Prometheus series becomes a frame of its own, many times the size of the series in the response. Above this
 # many series, it has no frames.
 MAX_PROMETHEUS_SERIES = 1000
+# A list of records with many distinct keys expands to rows x keys cells, so sparse records are bounded before allocation.
+MAX_RECORD_FIELDS = 1000
+MAX_RECORD_CELLS = 2_000_000
 
 
 def frames_for(
@@ -576,8 +579,19 @@ def table_frames(kind: str, result: Mapping[str, Any]) -> Optional[list[Frame]]:
         table = _web_table(result) if kind.startswith("Web") else result
         return hogql_frames(table, pivot=False)
     if all(isinstance(row, Mapping) for row in rows):
+        if not _records_fit(rows):
+            return None
         return [records_frame(rows, truncated=result.get("hasMore") is True)] if rows else []
     return None
+
+
+def _records_fit(rows: Sequence[Mapping[str, Any]]) -> bool:
+    names: set[Any] = set()
+    for row in rows:
+        names.update(row)
+        if len(names) > MAX_RECORD_FIELDS or len(names) * len(rows) > MAX_RECORD_CELLS:
+            return False
+    return True
 
 
 def _web_table(result: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -586,13 +600,7 @@ def _web_table(result: Mapping[str, Any]) -> Mapping[str, Any]:
     columns = [str(column).removeprefix(_WEB_COLUMN_PREFIX) for column in result["columns"]]
     rows = result["results"]
     pairs = [
-        bool(rows)
-        and all(
-            isinstance(row[index], list | tuple) and len(row[index]) == 2 and _is_number_or_none(row[index])
-            for row in rows
-            if index < len(row) and row[index] is not None
-        )
-        for index in range(len(columns))
+        column != "breakdown_value" and _is_compared_pair_column(rows, index) for index, column in enumerate(columns)
     ]
     types = list(result.get("types") or [])
     new_columns: list[str] = []
@@ -614,6 +622,15 @@ def _web_table(result: Mapping[str, Any]) -> Mapping[str, Any]:
                 new_row.append(value)
         new_rows.append(new_row)
     return {**result, "columns": new_columns, "types": new_types, "results": new_rows}
+
+
+def _is_compared_pair_column(rows: Sequence[Sequence[Any]], index: int) -> bool:
+    """A breakdown dimension can also be a number pair (a viewport is `[width, height]`), so only metric columns split,
+    and only when at least one row actually holds a pair."""
+    values = [row[index] for row in rows if index < len(row) and row[index] is not None]
+    return bool(values) and all(
+        isinstance(value, list | tuple) and len(value) == 2 and _is_number_or_none(value) for value in values
+    )
 
 
 def _is_number_or_none(values: Sequence[Any]) -> bool:
