@@ -1,9 +1,12 @@
+import re
 import uuid
 import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -26,10 +29,29 @@ from products.aeo.backend.dashboard import (
     SCORECARD_SQL,
     TOPICS_SQL,
     TREND_SQL,
+    build_dashboard_tiles,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 
 TILE_NAMES = ["Non-branded visibility this week", "Visibility trend", "Topics", "Pages to watch"]
+
+
+class TestDashboardTiles(SimpleTestCase):
+    def test_every_rate_column_reads_as_a_percentage(self) -> None:
+        for tile in build_dashboard_tiles():
+            if tile["type"] != "INSIGHT":
+                continue
+            query = tile["query"]
+            rates = set(re.findall(r"AS (\w*(?:visibility|citation_rate))\b", query["source"]["query"]))
+            columns = [
+                *query.get("tableSettings", {}).get("columns", []),
+                *query.get("chartSettings", {}).get("yAxis", []),
+            ]
+            with self.subTest(tile=tile["name"]):
+                assert rates
+                assert {
+                    column["column"] for column in columns if column["settings"]["formatting"]["suffix"] == "%"
+                } == rates
 
 
 class TestCreateDashboardAPI(APIBaseTest):
