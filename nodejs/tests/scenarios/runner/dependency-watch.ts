@@ -33,14 +33,11 @@ async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization, unchecked }
 }
 
-// The probes run in their own process, but a host busy enough to saturate the runner's loop can still starve that
-// process, and the provider edge answers on the runner's own loop. So a probe that ran out its budget without an answer
-// while the runner was busy is a harness limit.
-const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
+const unansweredWhileRunnerBusy = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
 
 const limited = (failure: ProbeFailure, attempt: Attempt): boolean =>
-    failure.hostLimit !== undefined || excused(failure, attempt)
+    failure.hostLimit !== undefined || unansweredWhileRunnerBusy(failure, attempt)
 
 function kindOf(
     failure: ProbeFailure,
