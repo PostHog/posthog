@@ -19,8 +19,10 @@ from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import (
     aws_sagemaker_source,
     error_for_response,
     get_rows,
+    parent_operations,
     validate_credentials,
 )
+from products.warehouse_sources.sources.aws_sagemaker.settings import AWS_SESSION_ACTIONS, ENDPOINTS
 from products.warehouse_sources.sources.aws_sagemaker.source import AwsSagemakerSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, UnknownResourceError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -744,6 +746,17 @@ def test_bad_config_never_sends_credentials(
         valid, error = AwsSagemakerSource().validate_credentials(config, team_id=1, api_version="2017-07-24")
     assert valid is False and error and message in error
     assert network.requests_log == []
+
+
+def test_a_role_session_allows_every_operation_a_table_calls() -> None:
+    operations = {
+        operation
+        for settings in ENDPOINTS.values()
+        for operation in (settings.list_operation, settings.describe_operation, *parent_operations(settings.parent))
+        if operation
+    }
+
+    assert {f"sagemaker:{operation}" for operation in operations} - set(AWS_SESSION_ACTIONS) == set()
 
 
 def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig) -> None:
