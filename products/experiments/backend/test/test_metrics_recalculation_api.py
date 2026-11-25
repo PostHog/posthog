@@ -423,7 +423,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("m2", {"ok": "m2"}),
         ]
         assert tuple(result["configuration_status"] for result in body["results"]) == expected_statuses
-        assert body.get("active_run") is None
+        # The generated API type requires these keys, so an unset value is null, not a missing key.
+        assert body["active_run"] is None
+        assert body["rows_read"] is None
+        assert body["estimated_rows_total"] is None
 
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/{id}/

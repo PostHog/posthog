@@ -2161,16 +2161,6 @@ class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculatio
         ),
     )
 
-    # Optional keys stay out of the response when unset, so a contract with None reads like a payload without the key.
-    _omitted_when_none: tuple[str, ...] = ("rows_read", "estimated_rows_total")
-
-    def to_representation(self, instance: Any) -> dict[str, Any]:
-        data = super().to_representation(instance)
-        for name in self._omitted_when_none:
-            if name in data and data[name] is None:
-                del data[name]
-        return data
-
 
 class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculationRunSerializer):
     """GET latest: the newest terminal run, or the timeseries fallback, plus a pointer to any active run."""
@@ -2199,8 +2189,6 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
             "results stay as they are"
         ),
     )
-
-    _omitted_when_none = ("rows_read", "estimated_rows_total", "active_run")
 
 
 class FiniteFloatField(serializers.FloatField):
