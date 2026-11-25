@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow, invalidate_published_days
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
@@ -59,6 +60,17 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
         )
         invalidate_published_days(EventsHealthDaily)
 
+    def _define_events(self, events: list[tuple[str, bool]]) -> None:
+        self.team.ingested_event = True
+        self.team.save()
+        for event, seen in events:
+            EventDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=event,
+                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
+            )
+
     def _flagged(self, check: RollupHealthCheck, rows: list[Row]) -> bool:
         window = window_ending_yesterday(check.window_days)
         self._insert(rows, window)
@@ -88,7 +100,6 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
                 [PAGEVIEWS, PAGEVIEWS, ("$pageview", True, False, 1)],
                 False,
             ),
-            ("no_live_events_with_screens_only", NoLiveEventsCheck(), [SCREENS], False),
         ]
     )
     def test_rule(self, _name: str, check: RollupHealthCheck, rows: list[Row], expected: bool) -> None:
@@ -98,6 +109,7 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
     def test_no_live_events_probes_the_hours_after_the_rollup(
         self, _name: str, send_event_today: bool, expected: bool
     ) -> None:
+        self._define_events([("$pageview", True)])
         if send_event_today:
             _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=dt.datetime.now(dt.UTC))
             flush_persons_and_events()
@@ -106,25 +118,52 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("web_project_gone_silent", True, "$pageview", True, True),
-            ("app_project_gone_silent", True, "$screen", True, True),
-            ("nothing_ingested_yet", False, None, False, True),
-            ("server_only_project", True, "$mcp_tool_call", True, False),
-            ("pageview_placeholder_never_seen", True, "$pageview", False, False),
+            ("web_project_gone_silent", True, [("$pageview", True)], [], HealthIssue.Severity.CRITICAL, ["$pageview"]),
+            ("app_project_gone_silent", True, [("$screen", True)], [], HealthIssue.Severity.CRITICAL, ["$screen"]),
+            ("nothing_ingested_yet", False, [], [], HealthIssue.Severity.CRITICAL, ["$pageview", "$screen"]),
+            ("server_only_project", True, [("$mcp_tool_call", True)], [], None, None),
+            ("pageview_placeholder_never_seen", True, [("$pageview", False)], [], None, None),
+            ("app_project_sending_screens", True, [("$screen", True)], [SCREENS], None, None),
+            (
+                "mixed_project_sending_both",
+                True,
+                [("$pageview", True), ("$screen", True)],
+                [PAGEVIEWS, SCREENS],
+                None,
+                None,
+            ),
+            (
+                "mixed_project_web_gone_silent",
+                True,
+                [("$pageview", True), ("$screen", True)],
+                [SCREENS],
+                HealthIssue.Severity.WARNING,
+                ["$pageview"],
+            ),
         ]
     )
-    def test_no_live_events_skips_projects_that_never_sent_web_events(
-        self, _name: str, ingested_event: bool, defined_event: str | None, seen: bool, expected: bool
+    def test_no_live_events_judges_each_event_type_the_project_sends(
+        self,
+        _name: str,
+        ingested_event: bool,
+        defined_events: list[tuple[str, bool]],
+        rows: list[Row],
+        expected_severity: str | None,
+        expected_events: list[str] | None,
     ) -> None:
-        self.team.ingested_event = ingested_event
-        self.team.save()
-        if defined_event:
-            EventDefinition.objects.create(
-                team=self.team,
-                project_id=self.team.project_id,
-                name=defined_event,
-                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
-            )
-        self._publish_window_for_another_project(window_ending_yesterday(NoLiveEventsCheck.window_days))
+        if ingested_event:
+            self._define_events(defined_events)
+        window = window_ending_yesterday(NoLiveEventsCheck.window_days)
+        self._insert(rows, window)
+        self._publish_window_for_another_project(window)
 
-        self.assertEqual(self.team.id in NoLiveEventsCheck().detect([self.team.id]), expected)
+        results = NoLiveEventsCheck().detect([self.team.id]).get(self.team.id)
+
+        if expected_severity is None:
+            self.assertIsNone(results)
+        else:
+            assert results is not None
+            self.assertEqual(
+                [(result.severity, result.payload["events"]) for result in results],
+                [(expected_severity, expected_events)],
+            )
