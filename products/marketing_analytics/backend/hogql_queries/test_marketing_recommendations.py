@@ -244,7 +244,6 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
             ),
             ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
-            # PostHog conversions that match no campaign may belong to it.
             ("conversions_not_measured", 360.0, 0.0, None, False),
         ]
     )
@@ -570,7 +569,6 @@ class TestMarketingRecommendations(SimpleTestCase):
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert ("with 2 conversions" in leak.reason) is search_term_conversions
         assert {(rec.rule.value, rec.subject) for rec in recs if rec.rule != "brand_leak"} == expected
-        # Google Ads saw "product analytics" convert once, which says nothing about PostHog conversions.
         review_steps = [step.text for rec in recs if rec.rule == "review_campaign" for step in rec.steps or []]
         assert any('spent the most: "product analytics"' in text for text in review_steps) is lists_costly_searches
 

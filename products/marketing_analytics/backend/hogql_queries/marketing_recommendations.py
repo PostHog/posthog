@@ -1046,7 +1046,6 @@ class _Recommender:
         if not self.terms:
             return []
         terms = list(self.terms.values())
-        # Without search term conversions, the rules that judge a search by its conversions have nothing to go on.
         benchmarks = (
             {
                 term.term: benchmark
@@ -1570,9 +1569,8 @@ class _Recommender:
 
     # Advice to spend more waits for the brand negatives: blocking brand searches frees budget and changes the
     # impression share that advice relies on. Once the negative is in place, the leak card counts as applied and
-    # leaves the list, so holding the advice longer would leave nothing on screen. Without search term conversions
-    # the campaign still counts its brand conversions from before the negative, so the advice waits for those to
-    # leave the date range.
+    # leaves the list, so holding the advice longer would leave nothing on screen. PostHog conversions still count
+    # the brand conversions from before the negative, so then the advice waits for them to leave the date range.
     def _holds_spend_advice(self, campaign: CampaignStats, leak: _BrandSpend | None) -> bool:
         if leak is None:
             return False
@@ -1930,14 +1928,12 @@ class _Recommender:
         return cost / conversions if conversions else None
 
     def _sets_the_bar(self, campaign: CampaignStats) -> bool:
-        # Without search term conversions, a leaking campaign keeps the conversions of its brand searches, so it
-        # would lower the bar for every other campaign.
+        # With PostHog conversions, a leaking campaign keeps its brand conversions and would lower the bar for the rest.
         return campaign.conversions_measured and (
             self.inputs.search_term_conversions or not self._leak_to_fix(campaign, self.brand_spend)
         )
 
     def _campaign_benchmark(self, campaign: CampaignStats | None) -> _Benchmark | None:
-        # Without a benchmark, no rule judges the campaign by its CPA.
         if campaign is not None and not campaign.conversions_measured:
             return None
         if campaign is not None and campaign.target_cpa:

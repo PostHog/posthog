@@ -110,7 +110,6 @@ UNMATCHED_MIN_SHARE = 0.05
 POSTHOG_CONVERSIONS_FAILED_GAP = (
     "PostHog conversions could not be counted for this period, so CPAs use the conversions Google Ads reports."
 )
-# The id the conversion goal queries give a row that no campaign's cost matched.
 NO_CAMPAIGN_ID = "-"
 POSTHOG_CONVERSIONS_NOT_READY_GAP = (
     "PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. "
@@ -124,9 +123,7 @@ class PostHogConversions:
     by_campaign: dict[str, float] | None
     gap: MarketingAnalyticsRecommendationsDataGapKind | None = None
     gap_message: str | None = None
-    # utm_campaign values of Google Ads conversions that match no campaign, most conversions first.
     unmatched_campaigns: tuple[str, ...] = ()
-    # Why each marked goal that the other marked goals are counted without was skipped.
     skipped_goals: tuple[str, ...] = ()
 
 
@@ -268,7 +265,6 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 ),
                 drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
                 limit=ROW_LIMIT,
-                # Only Google Ads costs can match these campaigns, so the other integrations would add scans for nothing.
                 integrationFilter=IntegrationFilter(integrationSourceIds=self._google_ads_source_ids or None),
             ),
             team=self.team,
@@ -290,8 +286,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         try:
             response = runner.calculate()
         except Exception as error:
-            # A goal can still break the query, such as a warehouse goal that lost a column, and that must not take
-            # down every recommendation.
+            # A broken goal, such as a warehouse goal that lost a column, must not take down every recommendation.
             capture_exception(error)
             return _posthog_conversions_failed()
         if response.hasMore:
@@ -1056,8 +1051,7 @@ def _posthog_conversions_failed() -> PostHogConversions:
 
 
 def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]) -> tuple[str, ...]:
-    # An empty utm_campaign names nothing to map, and a few stray conversions should not stop judging every
-    # campaign without conversions.
+    # An empty utm_campaign names nothing to map, and a few stray conversions must not block every campaign.
     named = {campaign: conversions for campaign, conversions in unmatched.items() if campaign.strip()}
     total = sum(named.values())
     if total < UNMATCHED_MIN_SHARE * (matched_conversions + total):

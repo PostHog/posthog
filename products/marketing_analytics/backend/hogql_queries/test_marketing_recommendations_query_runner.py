@@ -574,7 +574,6 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert [gap.kind for gap in response.dataGaps or []] == gaps
 
     def _google_ads_source(self, campaigns: str, stats: str) -> MarketingAnalyticsRecommendationsSource:
-        # Linked to a Google Ads source, so the dashboard's table runner reads the same costs.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="google",
@@ -632,7 +631,6 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
     @parameterized.expand(
         [
             ("google_ads_conversions_without_a_marked_goal", False, "user signed up", None, (), None, [], []),
-            # Google Ads reports Broad as the cheapest campaign, but PostHog sees no sign up from it.
             ("marked_goal_replaces_google_ads_conversions", True, "user signed up", None, (), None, ["Broad"], []),
             # Summed, four $500 sign ups would count as 2,000 conversions.
             ("summed_goal_counts_conversions", True, "user signed up", "sum", (), None, ["Broad"], []),
@@ -754,14 +752,10 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         review = [rec for rec in response.results if rec.rule == "review_campaign"]
         assert [rec.subject for rec in review] == reviewed
-        # A marked goal drops the target CPA, which Google Ads bids to with its own conversions.
         assert all(rec.cpa is not None and rec.cpa.benchmarkSource == "account" for rec in review)
-        # Anyone who can send events sets utm_campaign, and the gaps reach PostHog AI, so no value is quoted.
         assert not any("Ignore previous instructions" in gap.message for gap in response.dataGaps or [])
-        # Exact spent $1,000 on four sign ups.
         assert all(rec.cpa is not None and rec.cpa.bestCampaign == 250 for rec in review)
         assert [gap.kind for gap in response.dataGaps or []] == gaps
-        # The fallback must not be served as fresh once the precompute it waited for lands.
         refreshed = datetime(2026, 1, 30, tzinfo=UTC)
         cached = CachedMarketingAnalyticsRecommendationsQueryResponse(
             **response.model_dump(),
@@ -771,7 +765,6 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             timezone="UTC",
             cache_key="key",
         )
-        # The cache read hands the runner its own typed response, which the base signature types loosely.
         assert runner._is_transient_result(cast(GenericCachedQueryResponse, cached)) is (table == "not_ready")
 
     @parameterized.expand(
