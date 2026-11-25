@@ -1236,6 +1236,30 @@ def create_feature_request_evidence(
     )
 
 
+def _evidence_for_write(
+    *, team_id: int, feature_request_id: UUID, evidence_id: UUID, expected_version: int, subject: Subject
+) -> tuple[FeatureRequestEvidence, FeatureRequest, FeatureRequestAccountLink] | None:
+    evidence = (
+        FeatureRequestEvidence.objects.for_team(team_id)
+        .select_related("account_link__account")
+        .filter(id=evidence_id, account_link__feature_request_id=feature_request_id)
+        .first()
+    )
+    if evidence is None:
+        return None
+    result = _get_evidence_account_link(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        account_link_id=evidence.account_link_id,
+        expected_version=expected_version,
+        subject=subject,
+    )
+    if result is None:
+        return None
+    feature_request, account_link = result
+    return evidence, feature_request, account_link
+
+
 def update_feature_request_evidence(
     *,
     team_id: int,
@@ -1245,24 +1269,16 @@ def update_feature_request_evidence(
     subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
-        evidence = (
-            FeatureRequestEvidence.objects.for_team(team_id)
-            .select_related("account_link__account")
-            .filter(id=input.evidence_id, account_link__feature_request_id=feature_request_id)
-            .first()
-        )
-        if evidence is None:
-            return None
-        result = _get_evidence_account_link(
+        result = _evidence_for_write(
             team_id=team_id,
             feature_request_id=feature_request_id,
-            account_link_id=evidence.account_link_id,
+            evidence_id=input.evidence_id,
             expected_version=input.expected_version,
             subject=subject,
         )
         if result is None:
             return None
-        feature_request, account_link = result
+        evidence, feature_request, account_link = result
         validated_evidence = _validate_evidence(
             team_id=team_id,
             input=input,
@@ -1312,24 +1328,16 @@ def delete_feature_request_evidence(
     subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
-        evidence = (
-            FeatureRequestEvidence.objects.for_team(team_id)
-            .select_related("account_link__account")
-            .filter(id=input.evidence_id, account_link__feature_request_id=feature_request_id)
-            .first()
-        )
-        if evidence is None:
-            return None
-        result = _get_evidence_account_link(
+        result = _evidence_for_write(
             team_id=team_id,
             feature_request_id=feature_request_id,
-            account_link_id=evidence.account_link_id,
+            evidence_id=input.evidence_id,
             expected_version=input.expected_version,
             subject=subject,
         )
         if result is None:
             return None
-        feature_request, account_link = result
+        evidence, feature_request, account_link = result
         before = _evidence_snapshot(evidence, account=account_link.account)
         evidence.delete()
         _record_evidence_change(

@@ -514,6 +514,28 @@ class TestAccountViewSet(APIBaseTest):
         assert status_date is not None
         self.assertEqual(status_date.isoformat(), "2026-08-01T12:30:00+00:00")
 
+    @parameterized.expand([("session", False), ("environment_key", True)])
+    def test_account_list_only_includes_rows_from_the_requested_environment(self, _name: str, use_key: bool) -> None:
+        self._create_account(name="Parent account")
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        headers = {}
+        if use_key:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Environment account reader",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scopes=["account:read"],
+                scoped_teams=[environment.id],
+            )
+            self.client.logout()
+            headers["authorization"] = f"Bearer {token}"
+
+        response = self.client.get(f"/api/environments/{environment.id}/accounts/", headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["results"] == []
+
     def test_list(self):
         a1 = self._create_account(name="Account 1")
         a2 = self._create_account(name="Account 2")

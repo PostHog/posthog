@@ -74,12 +74,8 @@ def accounts_visible_to(
     require_resource_access: bool = False,
     preloaded_access: "UserAccessControl | None" = None,
 ) -> QuerySet[Account]:
-    team = preloaded_access.team if preloaded_access is not None else None
-    accounts = (
-        Account.objects.for_team(team.parent_team_id or team_id, canonical=True)
-        if team is not None and team.pk == team_id
-        else Account.objects.for_team(team_id)
-    )
+    # Keep the rows on the same team as the permission check, including for environment URLs.
+    accounts = Account.objects.unscoped().filter(team_id=team_id)
     resource = Resource(type=ResourceType.ACCOUNT, project_id=team_id)
     with authorization.authorization_session():
         if preloaded_access is not None:

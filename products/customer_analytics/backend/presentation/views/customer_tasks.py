@@ -545,20 +545,16 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        task = api.archive_customer_task(
-            team_id=self.canonical_team_id,
-            task_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-            subject=Subject(user_id=request.user.pk),
-        )
-        if task is None:
-            return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(CustomerTaskSerializer(instance=task).data)
+        return self._set_archived(request, archived=True)
 
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        task = api.restore_customer_task(
+        return self._set_archived(request, archived=False)
+
+    def _set_archived(self, request: Request, *, archived: bool) -> Response:
+        operation = api.archive_customer_task if archived else api.restore_customer_task
+        task = operation(
             team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),

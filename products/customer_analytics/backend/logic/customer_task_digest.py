@@ -38,6 +38,7 @@ class CustomerTaskDigest:
     settings_url: str
 
 
+@authorization.authorization_session()
 def build_customer_task_digest(*, user: User, team: Team, reference_time: datetime) -> CustomerTaskDigest | None:
     if timezone.is_naive(reference_time):
         raise ValueError("reference_time must include a timezone")

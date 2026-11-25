@@ -591,12 +591,17 @@ def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
         api as authorization,  # noqa: PLC0415 — HogQL's schema imports without Django
     )
 
-    if team_id is None or not authorization.check(
-        resource=Resource(type=ResourceType.TICKET, project_id=team_id),
-        action=Action.VIEW,
-        subject=Subject(user_id=user_id),
-    ):
+    if team_id is None:
         raise TableAccessDeniedError(table_name)
+    with authorization.authorization_session():
+        if database.user_access_control is not None:
+            authorization.reuse_current_rules(database.user_access_control)
+        if not authorization.check(
+            resource=Resource(type=ResourceType.TICKET, project_id=team_id),
+            action=Action.VIEW,
+            subject=Subject(user_id=user_id),
+        ):
+            raise TableAccessDeniedError(table_name)
 
 
 class _AccountTagsTable(LazyTable):
