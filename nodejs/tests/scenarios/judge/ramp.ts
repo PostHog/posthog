@@ -215,8 +215,6 @@ const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
-// The runner process also hosts the provider edge, so a busy event loop answers webhooks late and slows the workers
-// that wait on them. Host CPU cannot see one saturated core, and a late edge would otherwise read as a product break.
 const MAX_LOOP_LAG_P99_MS = 250
 
 const laggedOf = ({ loopLagP99Ms, scale }: Pick<DrivenStep, 'loopLagP99Ms' | 'scale'>): string | undefined =>
