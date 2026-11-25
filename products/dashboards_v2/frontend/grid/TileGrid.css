@@ -4,6 +4,11 @@
     }
 }
 
+.TileGrid__text {
+    cursor: text;
+    user-select: text;
+}
+
 .TileGrid {
     /* An empty grid still needs height to take a drop: one row (GRID.rowPx), or all of the section it is in. */
     min-height: 32px;

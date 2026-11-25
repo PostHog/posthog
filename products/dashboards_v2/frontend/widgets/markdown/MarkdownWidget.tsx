@@ -6,7 +6,7 @@ import type { MarkdownConfig } from './markdownSpec'
 export function MarkdownWidget({ widget }: { widget: ContentWidget<MarkdownConfig> }): JSX.Element {
     // Every viewer would load an image from any URL the editor typed, so only PostHog-hosted images show.
     return (
-        <LemonMarkdown className="text-sm" disableImages>
+        <LemonMarkdown className="TileGrid__text text-sm" disableImages>
             {widget.config.text}
         </LemonMarkdown>
     )
