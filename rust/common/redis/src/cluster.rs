@@ -338,6 +338,7 @@ impl Client for RedisClusterClient {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -468,8 +469,14 @@ mod tests {
         .expect("a read must end within its timeouts")
     }
 
-    fn any<T: Default>() -> T {
-        T::default()
+    fn assert_unsupported<T: Debug>(result: Result<T, CustomRedisError>, method: &str) {
+        match result {
+            Err(CustomRedisError::InvalidConfiguration(message)) => assert_eq!(
+                message,
+                format!("{method} is not supported by the quota cluster client")
+            ),
+            other => panic!("{method} returned {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -478,92 +485,68 @@ mod tests {
         let client =
             RedisClusterClient::new(node.url(), RESPONSE_TIMEOUT, CONNECTION_TIMEOUT, true)
                 .unwrap();
+        let key = || KEY.to_string();
+        let format = RedisValueFormat::Utf8;
 
-        let results = [
-            (
-                "zrangebyscore_limit",
-                client
-                    .zrangebyscore_limit(any(), any(), any(), any(), any())
-                    .await
-                    .err(),
-            ),
-            ("zadd", client.zadd(any(), any(), any()).await.err()),
-            ("zadd_nx", client.zadd_nx(any(), any(), any()).await.err()),
-            ("zrem", client.zrem(any(), any()).await.err()),
-            ("hincrby", client.hincrby(any(), any(), any()).await.err()),
-            ("get", client.get(any()).await.err()),
-            (
-                "get_with_format",
-                client.get_with_format(any(), any()).await.err(),
-            ),
-            ("get_raw_bytes", client.get_raw_bytes(any()).await.err()),
-            (
-                "set_bytes",
-                client.set_bytes(any(), any(), any()).await.err(),
-            ),
-            ("set", client.set(any(), any()).await.err()),
-            (
-                "set_with_format",
-                client.set_with_format(any(), any(), any()).await.err(),
-            ),
-            ("setex", client.setex(any(), any(), any()).await.err()),
-            (
-                "setex_with_format",
-                client
-                    .setex_with_format(any(), any(), any(), any())
-                    .await
-                    .err(),
-            ),
-            (
-                "set_nx_ex",
-                client.set_nx_ex(any(), any(), any()).await.err(),
-            ),
-            (
-                "set_nx_ex_with_format",
-                client
-                    .set_nx_ex_with_format(any(), any(), any(), any())
-                    .await
-                    .err(),
-            ),
-            (
-                "batch_incr_by_expire_nx",
-                client.batch_incr_by_expire_nx(any(), any()).await.err(),
-            ),
-            (
-                "batch_incr_by_expire",
-                client.batch_incr_by_expire(any(), any()).await.err(),
-            ),
-            (
-                "batch_incr_by_expire_at",
-                client.batch_incr_by_expire_at(any()).await.err(),
-            ),
-            ("del", client.del(any()).await.err()),
-            ("hget", client.hget(any(), any()).await.err()),
-            ("scard", client.scard(any()).await.err()),
-            ("mget", client.mget(any()).await.err()),
-            ("get_multiple", client.get_multiple(any()).await.err()),
-            ("scard_multiple", client.scard_multiple(any()).await.err()),
-            (
-                "batch_sadd_expire",
-                client.batch_sadd_expire(any(), any()).await.err(),
-            ),
-            ("batch_set_nx_ex", client.batch_set_nx_ex(any()).await.err()),
-            ("batch_del", client.batch_del(any()).await.err()),
-            (
-                "execute_pipeline",
-                client.execute_pipeline(any()).await.err(),
-            ),
-        ];
+        assert_unsupported(
+            client.zrangebyscore_limit(key(), key(), key(), 0, 1).await,
+            "zrangebyscore_limit",
+        );
+        assert_unsupported(client.zadd(key(), key(), 1).await, "zadd");
+        assert_unsupported(client.zadd_nx(key(), key(), 1).await, "zadd_nx");
+        assert_unsupported(client.zrem(key(), key()).await, "zrem");
+        assert_unsupported(client.hincrby(key(), key(), 1).await, "hincrby");
+        assert_unsupported(client.get(key()).await, "get");
+        assert_unsupported(
+            client.get_with_format(key(), format).await,
+            "get_with_format",
+        );
+        assert_unsupported(client.get_raw_bytes(key()).await, "get_raw_bytes");
+        assert_unsupported(client.set_bytes(key(), vec![], None).await, "set_bytes");
+        assert_unsupported(client.set(key(), key()).await, "set");
+        assert_unsupported(
+            client.set_with_format(key(), key(), format).await,
+            "set_with_format",
+        );
+        assert_unsupported(client.setex(key(), key(), 1).await, "setex");
+        assert_unsupported(
+            client.setex_with_format(key(), key(), 1, format).await,
+            "setex_with_format",
+        );
+        assert_unsupported(client.set_nx_ex(key(), key(), 1).await, "set_nx_ex");
+        assert_unsupported(
+            client.set_nx_ex_with_format(key(), key(), 1, format).await,
+            "set_nx_ex_with_format",
+        );
+        assert_unsupported(
+            client.batch_incr_by_expire_nx(vec![(key(), 1)], 1).await,
+            "batch_incr_by_expire_nx",
+        );
+        assert_unsupported(
+            client.batch_incr_by_expire(vec![(key(), 1)], 1).await,
+            "batch_incr_by_expire",
+        );
+        assert_unsupported(
+            client.batch_incr_by_expire_at(vec![(key(), 1, 1)]).await,
+            "batch_incr_by_expire_at",
+        );
+        assert_unsupported(client.del(key()).await, "del");
+        assert_unsupported(client.hget(key(), key()).await, "hget");
+        assert_unsupported(client.scard(key()).await, "scard");
+        assert_unsupported(client.mget(vec![key()]).await, "mget");
+        assert_unsupported(client.get_multiple(vec![key()]).await, "get_multiple");
+        assert_unsupported(client.scard_multiple(vec![key()]).await, "scard_multiple");
+        assert_unsupported(
+            client.batch_sadd_expire(vec![(key(), key())], 1).await,
+            "batch_sadd_expire",
+        );
+        assert_unsupported(
+            client.batch_set_nx_ex(vec![(key(), key(), 1)]).await,
+            "batch_set_nx_ex",
+        );
+        assert_unsupported(client.batch_del(vec![key()]).await, "batch_del");
+        assert_unsupported(client.execute_pipeline(vec![]).await, "execute_pipeline");
 
-        for (method, error) in results {
-            match error {
-                Some(CustomRedisError::InvalidConfiguration(message)) => assert_eq!(
-                    message,
-                    format!("{method} is not supported by the quota cluster client")
-                ),
-                other => panic!("{method} returned {other:?}"),
-            }
-        }
         assert_eq!(node.connections(), 0);
     }
 
