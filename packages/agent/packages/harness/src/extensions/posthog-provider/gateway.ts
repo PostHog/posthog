@@ -1,13 +1,11 @@
 import { type CloudRegion, getCustomCloud } from "@posthog/agent-contracts";
 
-export const GATEWAY_PRODUCT = "posthog_code";
-
 const GATEWAY_HOSTS: Record<CloudRegion, string> = {
-  us: "https://gateway.us.posthog.com",
-  eu: "https://gateway.eu.posthog.com",
+  us: "https://ai-gateway.us.posthog.com",
+  eu: "https://ai-gateway.eu.posthog.com",
   dev: "http://localhost:3308",
-  "dev-cloud": "https://gateway.dev.posthog.dev",
-  custom: "https://gateway.us.posthog.com",
+  "dev-cloud": "https://ai-gateway.dev.posthog.dev",
+  custom: "https://ai-gateway.us.posthog.com",
 };
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
@@ -15,10 +13,6 @@ export function getGatewayBaseUrl(region: CloudRegion): string {
     return getCustomCloud()?.gatewayUrl ?? GATEWAY_HOSTS.custom;
   }
   return GATEWAY_HOSTS[region];
-}
-
-export function getLlmGatewayUrl(region: CloudRegion): string {
-  return `${getGatewayBaseUrl(region)}/${GATEWAY_PRODUCT}`;
 }
 
 /**

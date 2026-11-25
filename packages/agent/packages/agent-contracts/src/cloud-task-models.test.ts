@@ -7,6 +7,7 @@ import {
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   isAnthropicModel,
@@ -78,6 +79,37 @@ describe("normalizeGatewayModelsResponse", () => {
 
     expect(models[0]?.context_window).toBe(256000);
   });
+});
+
+describe("gatewayModelRowsFromTaskModels", () => {
+  it.each([
+    ["claude", "claude-opus-5-5", true, "claude", true],
+    ["codex", "gpt-6-sol", true, "codex", true],
+    ["claude", "zai-org/glm-5.3", true, "claude", true],
+    ["claude", "claude-opus-5-5", false, "claude", false],
+  ])(
+    "offers a %s model %s (allowed=%s) on the %s picker",
+    (runtimeAdapter, id, allowed, adapter, expectedAllowed) => {
+      const models = normalizeGatewayModelsResponse(
+        gatewayModelRowsFromTaskModels({
+          models: [
+            {
+              runtime_adapter: runtimeAdapter,
+              model: id,
+              context_window: 1000000,
+              allowed,
+            },
+          ],
+        }),
+      );
+
+      const filter =
+        adapter === "codex" ? isCodexAdapterModel : isClaudeAdapterModel;
+      expect(models.filter(filter)).toMatchObject([
+        { id, context_window: 1000000, allowed: expectedAllowed },
+      ]);
+    },
+  );
 });
 
 describe("getClaudeModelRecency", () => {

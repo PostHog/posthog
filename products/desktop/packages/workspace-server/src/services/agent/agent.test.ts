@@ -142,6 +142,13 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   DEFAULT_GATEWAY_MODEL: "claude-opus-4-8",
   DEFAULT_CODEX_MODEL: "gpt-5.5",
   fetchGatewayModels: vi.fn().mockResolvedValue([]),
+  gatewayModelRowsFromTaskModels: vi.fn(() => []),
+  normalizeGatewayModelsResponse: vi.fn((rows) => rows),
+  TASK_MODELS_FETCH_TIMEOUT_MS: 10_000,
+  taskModelsUrl: vi.fn(
+    (apiHost: string, projectId: number) =>
+      `${apiHost}/api/projects/${projectId}/tasks/models/`,
+  ),
   formatGatewayModelName: vi.fn((model) => model.id),
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
@@ -188,6 +195,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { DEFAULT_GATEWAY_MODEL as SHARED_DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
@@ -225,9 +233,12 @@ function createMockDependencies() {
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
+      authenticatedFetch: vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ models: [] }))),
       ensureGatewayProxy: vi.fn().mockResolvedValue({
         proxyUrl: "http://127.0.0.1:9999",
-        mode: "legacy",
+        mode: "go",
       }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -484,17 +495,35 @@ describe("AgentService", () => {
     });
   });
 
-  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+  it("lists models from the Django catalog when the proxy cannot start", async () => {
     deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
       new Error("PostHog session ended"),
     );
 
     await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
 
-    expect(fetchGatewayModels).toHaveBeenCalledWith({
-      gatewayUrl: "https://gateway.example.com",
-      authToken: "gateway-token",
-      projectId: 1,
+    expect(deps.agentAuthAdapter.authenticatedFetch).toHaveBeenCalledWith(
+      "https://us.posthog.com/api/projects/1/tasks/models/",
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(fetchGatewayModels).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the default model when the Django catalog times out", async () => {
+    deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
+      new Error("PostHog session ended"),
+    );
+    deps.agentAuthAdapter.authenticatedFetch.mockRejectedValueOnce(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+    );
+
+    expect(options.find((option) => option.id === "model")).toMatchObject({
+      currentValue: SHARED_DEFAULT_GATEWAY_MODEL,
     });
   });
 
@@ -528,11 +557,9 @@ describe("AgentService", () => {
       authToken: "gateway-token",
       projectId: 1,
     });
-    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
-      "https://us.posthog.com",
-      1,
-      { awaitRecheck: false },
-    );
+    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(1, {
+      awaitRecheck: false,
+    });
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
       type: "select",
@@ -970,7 +997,6 @@ describe("AgentService", () => {
       const session = await service.startSession(baseSessionParams);
 
       expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
-        baseSessionParams.apiHost,
         baseSessionParams.projectId,
       );
       expect(session?.gatewayMode).toBe("go");
