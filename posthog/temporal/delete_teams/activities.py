@@ -124,7 +124,10 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
         from posthog.models.team.util import delete_team_records
 
         try:
-            await database_sync_to_async_pool(delete_team_records)(inputs.team_ids)
+            # A cancel does not stop the worker thread, so the purges check for it between batches.
+            await database_sync_to_async_pool(delete_team_records)(
+                inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+            )
         except RecursionError:
             # The cascade delete materializes full rows for models with delete signals, which
             # decodes their JSON columns via json.loads. A pathologically deeply-nested JSON

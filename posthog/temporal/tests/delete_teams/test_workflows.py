@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import patch
@@ -361,7 +362,7 @@ async def test_recursion_error_fails_fast_without_retry():
 async def test_delete_team_records_activity_converts_recursion_error():
     # The real activity turns a RecursionError from the cascade into a small, non-retryable
     # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
-    def raise_recursion(team_ids: list[int]) -> None:
+    def raise_recursion(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
         raise RecursionError("maximum recursion depth exceeded")
 
     with patch("posthog.models.team.util.delete_team_records", raise_recursion):

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.models.team.util import _delete_misc_small_tables_for_teams
+from posthog.models.team.util import TeamPurgeStopped, _delete_misc_small_tables_for_teams, delete_team_records
 
 from products.error_tracking.backend.logic.team_purge import delete_stack_frames_and_symbol_sets_for_team
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
@@ -56,3 +56,12 @@ class TestDeleteStackFramesAndSymbolSetsForTeam(BaseTest):
 
         assert not ErrorTrackingStackFrame.objects.filter(team_id=self.team.id).exists()
         assert not ErrorTrackingSymbolSet.objects.filter(team_id=self.team.id).exists()
+
+    def test_team_records_step_runs_the_purge_before_the_cascade(self, _sleep: MagicMock) -> None:
+        self._create_frames_and_symbol_sets(self.team)
+
+        with self.assertRaisesRegex(TeamPurgeStopped, "stack frame purge"):
+            delete_team_records([self.team.id], should_stop=lambda: True)
+
+        assert Team.objects.filter(id=self.team.id).exists()
+        assert ErrorTrackingStackFrame.objects.filter(team_id=self.team.id).count() == 5

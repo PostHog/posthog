@@ -442,7 +442,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
         time.sleep(0.1)
 
 
-def delete_team_records(team_ids: list[int]) -> None:
+def delete_team_records(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Delete the Team rows once their bulky child data has been removed.
 
     FOR UPDATE on the teams blocks concurrent FK-inserts to any child table during the
@@ -453,6 +453,11 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
+
+    # A workflow that passed the small-tables step before these purges existed retries only this step, so they run
+    # here too. Each purge finds nothing to delete once the small-tables step ran it.
+    _delete_stack_frames_and_symbol_sets_for_teams(team_ids, should_stop=should_stop)
+    _delete_event_definitions_for_teams(team_ids, should_stop=should_stop)
 
     with transaction.atomic():
         with connections["default"].cursor() as cursor:
