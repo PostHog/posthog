@@ -70,6 +70,7 @@ def reuse(access: UserAccessControl, permissions: UserPermissions | None = None)
     if session is None or not isinstance(access.user, User) or not session.can_cache():
         return
     key = _principal_key(access.user)
+    session.users.setdefault(access.user.pk, access.user)
     if access.team is not None:
         session.access.setdefault(key, access)
     elif (membership := access.organization_membership) is not None:
