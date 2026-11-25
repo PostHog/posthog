@@ -59,27 +59,27 @@ SSH_TUNNEL_CONNECT_TIMEOUT_ERROR = (
 
 
 # An SSH server that has too many connections waiting to authenticate (OpenSSH `MaxStartups`) closes
-# each new one before it sends its banner. The client has already written its own banner, so the
-# kernel answers with a reset. This is a server under load, not a wrong host or a refused login, so
-# the message must not start with sshtunnel's "Could not establish session to SSH gateway": that
-# prefix is non-retryable and turns the schema off.
-SSH_GATEWAY_CONNECTION_RESET_ERROR = (
-    "The SSH server reset the connection before the SSH handshake, which it does when it has too many "
-    "new connections at the same time"
+# each new one before it sends its banner. The client reads a reset when its own banner is still
+# unread on the server, and an end of stream when the close arrives first. Both are a server under
+# load, not a wrong host or a refused login, so the message must not start with sshtunnel's "Could
+# not establish session to SSH gateway": that prefix is non-retryable and turns the schema off.
+SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR = (
+    "The SSH server closed the connection before the SSH handshake, which it does when it has too "
+    "many new connections at the same time"
 )
 
 
-class SSHGatewayConnectionResetError(BaseSSHTunnelForwarderError):
+class SSHGatewayClosedBeforeBannerError(BaseSSHTunnelForwarderError):
     def __init__(self) -> None:
-        super().__init__(SSH_GATEWAY_CONNECTION_RESET_ERROR)
+        super().__init__(SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR)
 
 
-def _is_reset_before_banner(error: BaseException | None) -> bool:
+def _closed_before_banner(error: BaseException | None) -> bool:
     # paramiko raises the banner error inside its `except` block, so the socket error is the context.
     return (
         isinstance(error, SSHException)
         and "SSH protocol banner" in str(error)
-        and isinstance(error.__context__, ConnectionResetError)
+        and isinstance(error.__context__, ConnectionResetError | EOFError)
     )
 
 
@@ -95,8 +95,8 @@ class SSHTunnelForwarder(_UnboundedSSHTunnelForwarder):
         try:
             super().start()
         except BaseSSHTunnelForwarderError:
-            if _is_reset_before_banner(self._gateway_connect_error):
-                raise SSHGatewayConnectionResetError() from self._gateway_connect_error
+            if _closed_before_banner(self._gateway_connect_error):
+                raise SSHGatewayClosedBeforeBannerError() from self._gateway_connect_error
             raise
 
     def _connect_to_gateway(self) -> None:

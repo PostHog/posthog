@@ -39,8 +39,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.ssh_tunnel import (
-    SSH_GATEWAY_CONNECTION_RESET_ERROR,
-    SSHGatewayConnectionResetError,
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR,
+    SSHGatewayClosedBeforeBannerError,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
@@ -750,9 +750,9 @@ async def test_unknown_resource_error_reraised_as_non_reportable():
         # it is a NonReportableError — without this branch a resolver outage mints one captured
         # exception per attempt, across every direct SQL source at once.
         (TemporaryHostResolutionError("db.example.com"), "db.example.com"),
-        # An SSH server at its limit of new connections resets the excess ones, while it serves the
+        # An SSH server at its limit of new connections closes the excess ones, while it serves the
         # other schemas of the same source. A later attempt gets through, so it must not report.
-        (SSHGatewayConnectionResetError(), SSH_GATEWAY_CONNECTION_RESET_ERROR),
+        (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR),
     ],
 )
 async def test_transient_connect_error_reraised_as_non_reportable(error: Exception, expected_fragment: str):

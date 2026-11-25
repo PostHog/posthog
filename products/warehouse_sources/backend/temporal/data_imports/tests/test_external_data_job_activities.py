@@ -17,7 +17,7 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CONNECTION_RESET_ERROR
+from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
     IMPORT_ACTIVITY_TYPE,
@@ -717,14 +717,14 @@ def test_warehouse_bucket_error_never_disables_the_schema_or_shows_source_copy(
             "Acme kept returning temporary errors.",
             {"Acme API error (retryable)": "Acme kept returning temporary errors."},
         ),
-        # An SSH server at its limit of new connections resets the excess ones before its banner.
+        # An SSH server at its limit of new connections closes the excess ones before its banner.
         # The schemas of one source connect at the same time, so the server serves some and refuses
         # the others. Every SQL source that tunnels must keep the schema enabled.
         *[
             (
-                f"ssh_gateway_reset_{source_type.value.lower()}",
+                f"ssh_gateway_closed_before_banner_{source_type.value.lower()}",
                 source_type,
-                str(ApplicationError(SSH_GATEWAY_CONNECTION_RESET_ERROR, type="NonReportableError")),
+                str(ApplicationError(SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR, type="NonReportableError")),
                 TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
             )
             for source_type in (
