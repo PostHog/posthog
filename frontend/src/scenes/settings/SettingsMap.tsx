@@ -92,6 +92,7 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
+import { SlackAppChannelSettings } from 'products/slack_app/frontend/settings/SlackAppChannelSettings'
 import { SlackAppPersonalSettings } from 'products/slack_app/frontend/settings/SlackAppPersonalSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
@@ -2244,6 +2245,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'How PostHog works for you when you use it in Slack.',
                 component: <SlackAppPersonalSettings />,
                 keywords: ['slack', 'project', 'thread', 'model', 'tips', 'personal'],
+            },
+            {
+                id: 'slack-app-channels',
+                title: 'Channel settings',
+                description:
+                    "Set a default project, repository and question mode for a Slack channel. A channel setting wins over each person's own setting. Anyone in the project can change it.",
+                component: <SlackAppChannelSettings />,
+                keywords: ['slack', 'channel', 'repository', 'project', 'questions'],
             },
         ],
     },

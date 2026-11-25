@@ -13,9 +13,10 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.facade import api as signals_facade
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled, is_slack_app_web_settings_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services.channel_settings import load_channel_defaults
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
@@ -25,6 +26,7 @@ SLACK_INTEGRATION_KIND = "slack"
 
 ResolutionSource = Literal[
     "thread",
+    "channel_default",
     "user_default",
     "workspace_default",
     "sole_candidate",
@@ -189,8 +191,9 @@ def resolve_from_candidates(
 ) -> ResolutionResult:
     """Run the routing resolver over a pre-loaded candidate list.
 
-    Precedence: ``thread`` > ``user_default`` > ``workspace_default`` >
-    ``sole_candidate`` > ``needs_picker``.
+    Precedence: ``thread`` > ``channel_default`` > ``user_default`` >
+    ``workspace_default`` > ``sole_candidate`` > ``needs_picker``. ``channel_default`` applies only
+    while the ``slack-app-web-settings`` flag is on.
 
     When ``user`` is provided, defaults whose target is no longer accessible
     silently fall through. When ``user is None`` the resolver trusts saved
@@ -236,6 +239,14 @@ def resolve_from_candidates(
             return ResolutionResult(
                 integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
             )
+
+    channel_defaults = load_channel_defaults(slack_team_id, channel)
+    if channel_defaults is not None and channel_defaults.default_integration_id in candidate_ids:
+        target = candidates_by_id[channel_defaults.default_integration_id]
+        if (accessible_team_ids is None or target.team_id in accessible_team_ids) and is_slack_app_web_settings_enabled(
+            target
+        ):
+            return ResolutionResult(integration=target, source="channel_default", candidates=accessible)
 
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the

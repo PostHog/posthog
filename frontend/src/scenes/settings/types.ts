@@ -229,6 +229,7 @@ export type SettingId =
     | 'integration-linear'
     | 'integration-other'
     | 'integration-slack'
+    | 'slack-app-channels'
     | 'slack-app-personal'
     | 'integration-webhooks'
     | 'internal-user-filtering'

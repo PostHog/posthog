@@ -110,6 +110,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
+from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
     ResolutionResult,
@@ -146,7 +147,6 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
     resolve_untagged_followup_mode,
-    resolve_untagged_question_mode,
     set_untagged_question_mode,
 )
 from products.slack_app.backend.services.slack_user_info import (
@@ -2626,7 +2626,10 @@ def _route_untagged_question(
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
     # One indexed read, ahead of user resolution, which can call Slack's users.info for every author.
-    if resolve_untagged_question_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
+    if (
+        resolve_channel_untagged_question_mode(workspace_result.candidates[0], slack_user_id, channel)
+        == UntaggedFollowupMode.NEVER
+    ):
         return ROUTE_HANDLED_LOCALLY
 
     resolution = resolve_user_for_workspace(
@@ -4168,7 +4171,8 @@ def _handle_untagged_question_run(payload: dict) -> HttpResponse:
     if (
         not isinstance(event, dict)
         or slack.missing_scopes(REQUIRED_SLACK_SCOPES)
-        or resolve_untagged_question_mode(integration.integration_id, slack_user_id) == UntaggedFollowupMode.NEVER
+        or resolve_channel_untagged_question_mode(integration, slack_user_id, event.get("channel"))
+        == UntaggedFollowupMode.NEVER
         or (posthog_user := _is_org_member(integration, slack_user_id)) is None
         or not _can_access_team(posthog_user, integration)
     ):
