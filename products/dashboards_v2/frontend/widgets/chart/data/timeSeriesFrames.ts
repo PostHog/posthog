@@ -1,6 +1,6 @@
 import type { Series, YAxisConfig } from '@posthog/quill-charts'
 
-import type { DataFrame } from '../vizTypes'
+import type { DataFrame } from '../../../query/queryTypes'
 
 export type TimeSeriesData = {
     labels: string[]

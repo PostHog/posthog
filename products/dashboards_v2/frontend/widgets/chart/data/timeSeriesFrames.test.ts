@@ -1,4 +1,4 @@
-import type { DataFrame } from '../vizTypes'
+import type { DataFrame } from '../../../query/queryTypes'
 import { MAX_REMEMBERED_COLORS, stableSeriesColors, timeSeriesFromFrames } from './timeSeriesFrames'
 
 const frame = (

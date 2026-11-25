@@ -157,6 +157,30 @@ const SQL = {
     createdByType: daily('event, count() as created', "event in ('insight created', 'dashboard created')", 'day, event'),
 }
 
+const SAMPLE = {
+    empty: `select toStartOfDay(timestamp) as day, count() as events from events where false group by day order by day -- sample: empty`,
+    emptyTotal: 'select count() as events from events where false -- sample: empty',
+    error: 'select missing_column from events -- sample: error',
+    slow: `${SQL.pageviewsOverTime} -- sample: slow`,
+    slowTotal: `${SQL.pageviews} -- sample: slow`,
+    stale: `${SQL.signupsOverTime} -- sample: stale`,
+    malformed: `${SQL.visitorsOverTime} -- sample: malformed`,
+}
+
+const RICH_MARKDOWN = [
+    '## Markdown',
+    '',
+    'Text tiles support **bold**, _italic_, `code` and [links](https://posthog.com/docs).',
+    '',
+    '- A list item',
+    '- Another item',
+    '',
+    '| Metric | Owner |',
+    '| --- | --- |',
+    '| Signups | Growth |',
+    '| Errors | Platform |',
+].join('\n')
+
 const REFRESHED_AT = '2026-11-19T09:00:00Z'
 
 const BIG_TILE_COUNT = 120
@@ -254,6 +278,74 @@ export const kitchenSinkDashboard: Dashboard = {
                             time: { from: 'now-6h', to: 'now' },
                         },
                     }),
+                ]),
+            ],
+        },
+        {
+            id: 'tile-states',
+            title: 'Tile states',
+            tiles: [
+                tile(
+                    'ts-demo',
+                    0,
+                    0,
+                    24,
+                    4,
+                    text(
+                        '**Sample data.** A project that has not sent any events sees made-up charts instead of empty ones. ' +
+                            '[Show this tab with sample data](/dashboard-v2?tab=tile-states&sample_data=true) or [with real data](/dashboard-v2?tab=tile-states).'
+                    )
+                ),
+                section('ts-good', 0, 4, 24, 'Every widget type', [
+                    ...statRow('ts-good-stat', 0, 24, [
+                        stat('Number', SQL.signups, 'number'),
+                        stat('Currency', SQL.revenue, 'currency'),
+                        stat('Percentage', SQL.conversionRate, 'percentage'),
+                        stat('No format', SQL.visitors),
+                    ]),
+                    tile('ts-good-line', 0, STAT_ROWS, 8, 14, line('Line', SQL.signupsOverTime)),
+                    tile('ts-good-bar', 8, STAT_ROWS, 8, 14, bar('Bars by breakdown', SQL.sources)),
+                    tile('ts-good-stacked', 16, STAT_ROWS, 8, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
+                    tile('ts-good-markdown', 0, STAT_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
+                ]),
+                section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
+                    tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
+                    tile('ts-slow-stat', 12, 0, 6, STAT_ROWS, stat('Slow total', SAMPLE.slowTotal)),
+                    tile('ts-stale', 18, 0, 6, 12, { ...line('Stale result', SAMPLE.stale), refreshedAt: REFRESHED_AT }),
+                ]),
+                section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
+                    tile('ts-empty-line', 0, 0, 8, 12, line('Empty result', SAMPLE.empty)),
+                    tile('ts-empty-stat', 8, 0, 4, STAT_ROWS, stat('Empty total', SAMPLE.emptyTotal)),
+                    tile('ts-error-stat', 12, 0, 4, STAT_ROWS, stat('Failed total', SAMPLE.error)),
+                    tile('ts-error-line', 16, 0, 8, 12, line('Failed query', SAMPLE.error)),
+                    tile('ts-partial', 0, 12, 24, 14, {
+                        type: 'chart',
+                        title: 'One of two queries failed',
+                        config: {
+                            targets: [
+                                { refId: 'A', query: { language: 'hogql', query: SQL.pageviewsOverTime }, legend: 'Pageviews' },
+                                { refId: 'B', query: { language: 'hogql', query: SAMPLE.error }, legend: 'Broken' },
+                            ],
+                            viz: { type: 'line' },
+                        },
+                    }),
+                ]),
+                section('ts-broken', 0, 82, 24, 'Broken tiles', [
+                    tile('ts-throws', 0, 0, 8, 10, { ...line('Widget throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
+                    tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown widget type', config: {} }),
+                    tile('ts-unknown-viz', 16, 0, 8, 10, { type: 'chart', title: 'Unknown chart type', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'pie' } } }),
+                    tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'stat', options: { format: 'banana' } } } }),
+                    tile('ts-bad-markdown', 8, 10, 8, 10, { type: 'markdown', title: 'Invalid text config', config: { text: 42 } }),
+                    tile('ts-bad-chart', 16, 10, 8, 10, { type: 'chart', title: 'Chart with no query', config: { viz: { type: 'line' } } }),
+                ]),
+                section('ts-appearance', 0, 104, 24, 'Tile appearance', [
+                    tile('ts-headerless', 0, 0, 6, 8, { ...text('A tile with its header hidden.'), title: 'Hidden title', parts: { header: false } }),
+                    tile('ts-long-title', 6, 0, 6, 8, {
+                        ...stat('A very long title that is cut off at the edge of the tile instead of wrapping onto another line', SQL.visitors),
+                        description: 'Hover the icon to read the description.',
+                    }),
+                    tile('ts-tinted', 12, 0, 6, 8, { ...stat('Blue background', SQL.sessions), appearance: { backgroundColor: 'var(--color-blue-500)' } }),
+                    tile('ts-no-background', 18, 0, 6, 8, { ...text('No background and no border.'), appearance: { backgroundColor: 'transparent', border: false } }),
                 ]),
             ],
         },

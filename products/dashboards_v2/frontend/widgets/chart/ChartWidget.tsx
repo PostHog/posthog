@@ -1,24 +1,27 @@
 import clsx from 'clsx'
-import { useContext, useMemo } from 'react'
+import { Suspense, useContext, useMemo } from 'react'
 
 import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
 import { FiltersContext } from '../../filters/filtersContext'
-import { WidgetLoading } from '../WidgetView'
+import type { DataFrame, RunQuery } from '../../query/queryTypes'
+import { useQueryFrames } from '../../query/useQueryFrames'
+import { WidgetLoading, WidgetMessage } from '../core/WidgetView'
 import { type ChartConfig, chartTargets, hasNoOwnRange } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './data/targetResults'
-import { useQueryFrames } from './data/useQueryFrames'
-import type { ChartStates, DataFrame, RunQuery, VizDefinition } from './vizTypes'
-
-function Message({ children }: { children: string }): JSX.Element {
-    return <div className="flex h-full items-center justify-center text-center text-secondary text-sm">{children}</div>
-}
+import type { ChartStates, VizDefinition } from './vizTypes'
 
 function DefaultEmpty(): JSX.Element {
-    return <Message>This query returned no results.</Message>
+    return (
+        <WidgetMessage
+            problem="empty"
+            title="There are no results for this query"
+            description="Try changing the date range or the filters."
+        />
+    )
 }
 
 function DefaultError({ message }: { message: string }): JSX.Element {
-    return <Message>{`Couldn't run this query. ${message}`}</Message>
+    return <WidgetMessage problem="failedQuery" title="Couldn't run this query" description={message} />
 }
 
 function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Element | null {
@@ -96,7 +99,9 @@ function ChartData({
             {isEmpty(result.frames) ? (
                 <Empty options={options} />
             ) : (
-                <viz.Component frames={result.frames} options={options} />
+                <Suspense fallback={<Loading options={options} />}>
+                    <viz.Component frames={result.frames} options={options} />
+                </Suspense>
             )}
         </div>
     )
@@ -116,14 +121,26 @@ export function ChartWidget({
     const { time: surroundingTime } = useContext(FiltersContext)
     const viz = vizTypes.find((candidate) => candidate.type === widget.config.viz.type)
     if (!viz) {
-        return <Message>This dashboard can't show this chart type.</Message>
+        return (
+            <WidgetMessage
+                problem="unknownType"
+                title="This chart type isn't available"
+                description="This dashboard can't draw charts of this type."
+            />
+        )
     }
     // A host that passes no runner has no data to show, so the tile names its kind of chart instead.
     if (!runQuery) {
-        return <Message>{viz.label}</Message>
+        return <WidgetMessage title={viz.label} />
     }
     if (!(widget.config.time ?? surroundingTime) && chartTargets(widget.config).some(hasNoOwnRange)) {
-        return <Message>A PromQL or LogQL chart needs a time range.</Message>
+        return (
+            <WidgetMessage
+                problem="invalidSettings"
+                title="This chart needs a time range"
+                description="PromQL and LogQL queries don't carry one, so set one on the chart or the dashboard."
+            />
+        )
     }
     return <ChartData widget={widget} viz={viz} runQuery={runQuery} states={states} />
 }

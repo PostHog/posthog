@@ -16,8 +16,8 @@ import {
     undoEdit,
 } from '../dashboard/edits/dashboardHistory'
 import { kitchenSinkDashboard } from '../fixtures/kitchenSinkDashboard'
+import { sizeOfWidgets } from '../widgets/core/widgetSpec'
 import { DEFAULT_WIDGETS } from '../widgets/defaultWidgets'
-import { sizeOfWidgets } from '../widgets/widgetSpec'
 
 // The scene passes the same list to the view, so edits here and the grid on screen use the same sizes.
 const sizeOf = sizeOfWidgets(DEFAULT_WIDGETS)

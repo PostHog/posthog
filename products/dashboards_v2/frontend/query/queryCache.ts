@@ -1,4 +1,4 @@
-import type { QueryRequest, QueryResult, RunQuery } from '../vizTypes'
+import type { QueryRequest, QueryResult, RunQuery } from './queryTypes'
 
 type Entry = { promise: Promise<QueryResult>; result?: QueryResult; refresh: number }
 
