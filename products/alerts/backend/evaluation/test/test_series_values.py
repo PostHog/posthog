@@ -193,8 +193,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         sync_execute(
             """
             INSERT INTO sharded_series_values_preaggregated
-                (team_id, job_id, time_window_start, series_key, value)
-            VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '', 1)
+                (team_id, job_id, time_window_start, time_window_end, series_key, value)
+            VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '2024-01-14 11:00:00', '', 1)
             """,
             {"team_id": self.team.pk, "job_id": str(job.id)},
         )
