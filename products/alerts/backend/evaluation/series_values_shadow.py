@@ -6,7 +6,6 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from prometheus_client import Counter, Histogram
 from temporalio.exceptions import CancelledError
 
 from posthog.schema import TrendsQuery
@@ -15,6 +14,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_dict
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -32,18 +32,6 @@ SHADOW_BUILD_BUDGET_SECONDS = 60
 AlertKind = Literal["threshold", "detector"]
 ShadowOutcome = Literal["match", "mismatch", "partial", "unavailable", "error"]
 _CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
-
-_SHADOW_COMPARISON_COUNTER = Counter(
-    "posthog_insight_alerts_series_values_shadow_total",
-    "Alert checks by the outcome of comparing their live values with stored closed-day values",
-    labelnames=["outcome", "insight_kind"],
-)
-_SHADOW_COMPARISON_DURATION = Histogram(
-    "posthog_insight_alerts_series_values_shadow_duration_seconds",
-    "Wall-clock time of the series values shadow step in a trends alert check, including any inline build",
-    labelnames=["outcome"],
-    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
-)
 
 
 @frozen
@@ -78,7 +66,8 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
         )
     except _CANCELLATION:
         raise
-    except Exception:
+    except Exception as err:
+        capture_exception(err, {"feature": "alerts", "phase": "series_values_flag_check", "team_id": team.pk})
         logger.exception("alert_series_values_flag_check_failed", team_id=team.pk)
         return False
 
@@ -149,6 +138,10 @@ def compare_series_values_shadow(
     except _CANCELLATION:
         raise
     except Exception as err:
+        capture_exception(
+            err,
+            {"feature": "alerts", "phase": "series_values_shadow", "team_id": alert.team_id, "alert_id": str(alert.id)},
+        )
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
     _record(
@@ -188,9 +181,6 @@ def _record(
     live_cached: bool | None = None,
 ) -> None:
     try:
-        _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome, insight_kind=insight_kind).inc()
-        if duration_seconds is not None:
-            _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
         team = alert.team
         posthoganalytics.capture(
             event=SHADOW_COMPARISON_EVENT,
