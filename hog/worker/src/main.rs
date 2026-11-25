@@ -4,7 +4,9 @@
 // each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
 // and keeps running after a failure. R for each `op`:
 //   detect             {"sourcemap":[index],"composed":[],"mapping":[],"elf":[],"macho":[]}
-//   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
+//   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"}
+//                      | {"outside":"map path"} | null]}, outside for a map that resolves outside
+//                      the selected `roots`, which the worker never opens
 //   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
 //   drop, save         {}
 //   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
@@ -91,6 +93,7 @@ enum Request {
     ReadPairs {
         paths: Vec<String>,
         public_path_prefix: Option<String>,
+        roots: Vec<String>,
     },
     Drop {
         ids: Vec<usize>,
@@ -344,6 +347,7 @@ struct CssCandidateAnswer {
 enum PairAnswer {
     Read(PairState),
     Skipped { skipped: String },
+    Outside { outside: String },
     Missing(()),
 }
 
@@ -447,7 +451,8 @@ impl Worker {
             Request::ReadPairs {
                 paths,
                 public_path_prefix,
-            } => Ok(self.read_pairs(&paths, public_path_prefix.as_deref())),
+                roots,
+            } => self.read_pairs(&paths, public_path_prefix.as_deref(), &roots),
             Request::Drop { ids } => {
                 self.pairs.take_all(&ids)?;
                 Ok(Answer::Done {})
@@ -536,10 +541,17 @@ impl Worker {
         })
     }
 
-    fn read_pairs(&mut self, paths: &[String], public_path_prefix: Option<&str>) -> Answer {
+    fn read_pairs(
+        &mut self,
+        paths: &[String],
+        public_path_prefix: Option<&str>,
+        roots: &[String],
+    ) -> Result<Answer, Failure> {
+        let roots: Vec<PathBuf> = cleanup::canonical_roots(roots).map_err(Failure::failed)?;
+
         let read: Vec<Result<SourcePair, Unreadable>> = paths
             .par_iter()
-            .map(|path| pair::read_pair(Path::new(path), public_path_prefix))
+            .map(|path| pair::read_pair(Path::new(path), public_path_prefix, &roots))
             .collect();
         self.trace.mark("read pairs");
 
@@ -553,9 +565,12 @@ impl Worker {
                 }
                 Err(Unreadable::Skipped(skipped)) => PairAnswer::Skipped { skipped },
                 Err(Unreadable::NoSourcemap) => PairAnswer::Missing(()),
+                Err(Unreadable::Outside(map)) => PairAnswer::Outside {
+                    outside: display(&map),
+                },
             })
             .collect();
-        Answer::Pairs { pairs }
+        Ok(Answer::Pairs { pairs })
     }
 
     fn inject(

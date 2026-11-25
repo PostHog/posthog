@@ -144,6 +144,16 @@ def project_moved_to_new_events_table(team_id: int | None) -> bool:
     return team_id in _allowlisted_team_ids() or _flag_enabled_for_project(EVENTS_TABLE_ROLLOUT_FLAG, team_id)
 
 
+def can_move_any_project_to_new_events_table() -> bool:
+    """Whether project_moved_to_new_events_table can be true for any project. When it is false, a caller can skip a
+    check of each project."""
+    return (
+        is_cloud()
+        or bool(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"))
+        or bool(_allowlisted_team_ids())
+    )
+
+
 def project_opted_in_to_new_events_table(team: "Team") -> bool:
     """Whether the project chose events_json early, in project settings.
 

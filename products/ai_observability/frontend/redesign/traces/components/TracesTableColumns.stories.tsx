@@ -40,6 +40,7 @@ const ITEMS: TraceListItemApi[] = [
         createdAt: '2026-09-01T11:38:00Z',
         isSupportTrace: true,
         totalsPartial: true,
+        costAndLatencyPartial: true,
         toolsCalled: ['search_docs', 'read_file', 'run_sql', 'send_email'],
         review: { review: null, queue: { id: 'queue-1', name: 'Billing answers', itemId: 'item-1' } },
     }),

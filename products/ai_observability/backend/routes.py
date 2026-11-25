@@ -37,6 +37,7 @@ from products.ai_observability.backend.presentation.views.trace_clusters import 
 from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
 from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
 from products.ai_observability.backend.presentation.views.trace_feedback import TraceFeedbackViewSet
+from products.ai_observability.backend.presentation.views.trace_metrics import TraceMetricsViewSet
 from products.ai_observability.backend.presentation.views.trace_nodes import TraceNodeViewSet
 from products.ai_observability.backend.presentation.views.trace_people import TracePeopleViewSet
 from products.ai_observability.backend.presentation.views.trace_previews import TracePreviewsViewSet
@@ -74,6 +75,7 @@ def register_routes(routers: RouterRegistry) -> None:
     # Registered before the traces, so that the trace route does not read "previews" and the others as a trace id.
     for prefix, viewset, basename in [
         ("previews", TracePreviewsViewSet, "project_ai_observability_trace_previews"),
+        ("metrics", TraceMetricsViewSet, "project_ai_observability_trace_metrics"),
         ("people", TracePeopleViewSet, "project_ai_observability_trace_people"),
         ("sentiment", TraceSentimentViewSet, "project_ai_observability_trace_sentiment"),
     ]:

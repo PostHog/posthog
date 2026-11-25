@@ -23,12 +23,14 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.change_wording import duration
 from products.experiments.backend.health.checks.events_received import joined, quoted
+from products.experiments.backend.health.checks.metric_calculation_failed import calculated_metric_values
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckRows,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -66,6 +68,19 @@ class _Worded:
     cause: str | None
     # Without the usual causes, which the finding says once for all the metrics that have no cause.
     detail: str
+
+
+def metric_all_zero_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if (
+        ctx.archived
+        or not ctx.is_launched
+        or calculation is None
+        or calculation.metric_count == 0
+        or calculation.finished_at is None
+    ):
+        return {}
+    return calculated_metric_values(calculation)
 
 
 def metric_all_zero_rows(ctx: HealthContext) -> CheckRows:

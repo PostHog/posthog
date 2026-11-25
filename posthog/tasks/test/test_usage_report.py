@@ -1866,6 +1866,7 @@ class TestQueryUsageReportSQL:
         # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
         mock_execute_split_query.side_effect = [
             {
+                "web_events": [(1, 5)],
                 "node_events": [(1, 10)],
                 "python_events": [(1, 7)],
                 "node_mcp_events": [(1, 9)],
@@ -1889,7 +1890,7 @@ class TestQueryUsageReportSQL:
                 (1, "posthog-aspnetcore", "posthog-ai", 2),
             ],
         ]
-        mock_sync_execute.return_value = [(1, 4, 6, 7, 0, 0, 0, 0, 0, 2)]
+        mock_sync_execute.return_value = [(1, 4, 6, 7, 0, 0, 0, 0, 0, 2, 3)]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
 
@@ -1966,6 +1967,8 @@ class TestQueryUsageReportSQL:
         assert result["kmp_events"] == [(1, 8)]
         assert result["ruby_events"] == [(1, 2)]
         assert result["dotnet_events"] == [(1, 2)]
+        assert result["web_events"] == [(1, 2)]
+        assert "web_mcp_raw_event_rows" not in result
 
         # New MCP Analytics metrics are merged straight into the returned dict.
         assert result["mcp_missing_capability_events"] == [(1, 6)]
@@ -6393,9 +6396,9 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
         # pieces that must be added, not overwritten, and kept separate per team and per event.
         mock_sync_execute.side_effect = [
-            [(1, 0, 0, 2, 0, 0, 0, 0, 0, 1), (2, 0, 0, 5, 0, 0, 0, 0, 0, 0)],
-            [(1, 0, 0, 3, 7, 0, 0, 0, 0, 2)],
-            [(1, 0, 0, 4, 0, 0, 0, 0, 0, 0), (4, 0, 0, 0, 0, 0, 0, 0, 0, 0), (3, 0, 0, 0, 0, 0, 0, 0, 0, 4)],
+            [(1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 2), (2, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0)],
+            [(1, 0, 0, 3, 7, 0, 0, 0, 0, 2, 2)],
+            [(1, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0), (4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), (3, 0, 0, 0, 0, 0, 0, 0, 0, 4, 5)],
         ]
 
         result = _get_mcp_analytics_event_metric_counts(
@@ -6408,7 +6411,10 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # never KeyErrors on a quiet event.
         self.assertEqual(result["mcp_prompts_list_events"], [])
         self.assertEqual(sorted(result["web_mcp_events"]), [(1, 3), (3, 4)])
-        self.assertEqual(set(result), {*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events"})
+        self.assertEqual(sorted(result["web_mcp_raw_event_rows"]), [(1, 4), (3, 5)])
+        self.assertEqual(
+            set(result), {*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events", "web_mcp_raw_event_rows"}
+        )
 
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
@@ -6671,6 +6677,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         sync_execute("SYSTEM STOP MERGES")
         self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
+        duplicate_web_events: list[tuple[str, str]] = []
         for lib, event in [
             ("web", "$mcp_tool_call"),
             ("web", "$mcp_tools_list"),
@@ -6685,14 +6692,18 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 properties={"$lib": lib, "$mcp_interface": "webmcp"},
             )
             if lib == "web":
-                _create_event(
-                    event=event,
-                    team=self.team,
-                    distinct_id="webmcp_user",
-                    event_uuid=event_uuid,
-                    timestamp=self.begin + relativedelta(hours=5),
-                    properties={"$lib": lib, "$mcp_interface": "webmcp"},
-                )
+                duplicate_web_events.append((event, event_uuid))
+        # One insert collapses rows that share a sorting key, so the copies go in a second insert.
+        flush_persons_and_events()
+        for event, event_uuid in duplicate_web_events:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="webmcp_user",
+                event_uuid=event_uuid,
+                timestamp=self.begin + relativedelta(hours=5),
+                properties={"$lib": "web", "$mcp_interface": "webmcp"},
+            )
 
         for event, interface, hours in [
             ("$pageview", "webmcp", 2),
@@ -6720,7 +6731,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         metrics = get_all_event_metrics_in_period(self.begin, self.end)
         assert dict(metrics["web_mcp_events"]) == {self.team.id: 2, self.analytics_team.id: 1}
-        assert dict(metrics["web_events"])[self.analytics_team.id] == 1
+        # 5 web events from setUp plus 4 in-period web events that are not WebMCP.
+        assert dict(metrics["web_events"]) == {self.team.id: 9, self.analytics_team.id: 0}
         assert dict(metrics["web_lite_events"]) == {self.team.id: 1}
         assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 5, self.analytics_team.id: 1}
         assert dict(metrics["mcp_tools_list_events"]) == {self.team.id: 1}

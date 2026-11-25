@@ -41,7 +41,7 @@ TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # requests to present it.
 TEST_PARTNER_CLIENT_SECRET = "test_partner_client_secret"
 
-# The test partner can create accounts, so it has to sign its requests with a private key.
+# Every provisioning partner has to sign its requests with a private key.
 TEST_PARTNER_JWKS_URI = "https://partner.example.com/.well-known/jwks.json"
 TEST_PARTNER_KID = "test-partner-key"
 # Generated once at import: RSA keygen is slow, and no test mutates the key.
