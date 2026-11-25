@@ -111,7 +111,7 @@ export function QuillActionsTable(): JSX.Element {
                         <div className="flex min-w-0 flex-col items-start gap-0.5">
                             <Button
                                 variant="link-foreground"
-                                size="sm"
+                                size="inline"
                                 nativeButton={false}
                                 left
                                 render={<LinkPrimitive to={urls.action(action.id)} />}
