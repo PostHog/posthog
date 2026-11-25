@@ -141,7 +141,7 @@ describe('provider edge process', () => {
                     'bash',
                     ['-c', 'ulimit -n 1024 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, runner],
                     { cwd: NODEJS_DIR, timeout: 20_000 },
-                    (_error, stdout, stderr) => resolve(stdout || stderr)
+                    (error, stdout, stderr) => resolve(error?.killed ? `timed out after ${stdout}` : stdout || stderr)
                 )
             )
 
