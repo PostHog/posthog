@@ -1459,7 +1459,8 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
 
     One row per (report, issue). The row is the claim: it is taken before the comment goes out, so a
     re-notified report cannot post a second comment on the same issue, and it records which issues
-    already heard back.
+    already heard back. A claim also blocks the team's other open reports from commenting on that
+    issue, so an issue gets one comment at a time.
     """
 
     all_teams = models.Manager()  # noqa: DJ012

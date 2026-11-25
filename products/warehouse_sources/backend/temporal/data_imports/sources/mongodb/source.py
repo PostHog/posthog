@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
+    is_atlas_srv_name,
     mongo_client,
     mongo_source,
 )
@@ -106,6 +107,15 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
 )
+
+_MONGO_SRV_SCHEME_REQUIRED_MESSAGE = (
+    "Your cluster address only works in a mongodb+srv:// connection string. In MongoDB Atlas, "
+    "click Connect on your cluster, copy the connection string it shows, then try again."
+)
+
+# The prefix the shared host check uses when a name has no addresses. Only then is the SRV probe
+# worth running: other refusals, such as a malformed host, must not reach the resolver.
+_HOST_UNRESOLVED_PREFIX = "Couldn't resolve the host"
 
 _MONGO_SRV_RECORD_MISSING_MESSAGE = (
     "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
@@ -585,6 +595,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # This check allows an early failure for obviously invalid connection strings for non SRV connections.
             valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
+                if (host_errors or "").startswith(_HOST_UNRESOLVED_PREFIX) and is_atlas_srv_name(
+                    connection_params["host"]
+                ):
+                    return False, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE
                 return False, host_errors
 
         try:

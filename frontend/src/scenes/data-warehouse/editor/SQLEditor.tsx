@@ -638,6 +638,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const [pendingSave, setPendingSave] = useState<((candidates?: SaveCandidates) => void) | null>(null)
     const saveConfirmationAnchor = useRef<HTMLSpanElement>(null)
     const saveClickPosition = useRef({ x: 0, y: 0 })
+    const saveTriggerPosition = useRef<{ x: number; y: number } | null>(null)
     const [saveConfirmationPosition, setSaveConfirmationPosition] = useState({ x: 0, y: 0 })
 
     useEffect(() => {
@@ -828,13 +829,30 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     return (
         <div
+            onKeyDownCapture={(event) => {
+                // A menu opened from the keyboard fires no click, so record its trigger here as well.
+                const trigger = (event.target as HTMLElement).closest('button')
+                if (trigger && trigger.getAttribute('role') !== 'menuitem') {
+                    const bounds = trigger.getBoundingClientRect()
+                    saveTriggerPosition.current = { x: bounds.right, y: bounds.bottom }
+                }
+            }}
             onClickCapture={(event) => {
                 const target = (event.target as HTMLElement).closest('button, [role="menuitem"]')
                 const bounds = target?.getBoundingClientRect()
+                const isMenuItem = target?.getAttribute('role') === 'menuitem'
+                const targetCorner = bounds ? { x: bounds.right, y: bounds.bottom } : undefined
+                if (target && !isMenuItem && targetCorner) {
+                    // A button click may open a save menu. The menu closes once an item is picked, so the
+                    // confirmation anchors to the button instead of the item that vanished with the menu.
+                    saveTriggerPosition.current = targetCorner
+                }
                 saveClickPosition.current =
-                    event.detail === 0 && bounds
-                        ? { x: bounds.right, y: bounds.bottom }
-                        : { x: event.clientX, y: event.clientY }
+                    isMenuItem && saveTriggerPosition.current
+                        ? saveTriggerPosition.current
+                        : event.detail === 0 && targetCorner
+                          ? targetCorner
+                          : { x: event.clientX, y: event.clientY }
             }}
         >
             <span

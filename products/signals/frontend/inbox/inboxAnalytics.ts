@@ -952,7 +952,8 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
 export type InboxReportTagSurface = 'card' | 'detail'
 
 /**
- * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * A tag chip was clicked. On a card it adds that tag to the Tags filter or removes it, and on the
+ * report detail it sets the filter to that tag alone and opens the Reports list. The resulting query
  * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
  */
 export function captureInboxReportTagClicked(params: {

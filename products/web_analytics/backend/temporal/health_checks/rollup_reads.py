@@ -22,7 +22,7 @@ class EventsHealthTotals:
     pageleaves: int = 0
     pageleaves_with_scroll_depth: int = 0
     web_vitals: int = 0
-    proxied_browser_events: int = 0
+    proxied_pageviews: int = 0
     pageviews_unusable_session_id: int = 0
     pageviews_absent_session_id: int = 0
 
@@ -49,7 +49,7 @@ def events_health_totals(team_ids: list[int], window: RollupWindow) -> dict[int,
             pageleaves=total(Q(event=PAGELEAVE)),
             pageleaves_with_scroll_depth=total(Q(event=PAGELEAVE, has_scroll_depth=True)),
             web_vitals=total(Q(event=WEB_VITALS)),
-            proxied_browser_events=total(Q(event__in=[PAGEVIEW, SCREEN], has_custom_api_host=True)),
+            proxied_pageviews=total(Q(event=PAGEVIEW, has_custom_api_host=True)),
             pageviews_unusable_session_id=total(
                 Q(
                     event=PAGEVIEW,
@@ -66,7 +66,7 @@ def events_health_totals(team_ids: list[int], window: RollupWindow) -> dict[int,
             pageleaves=row["pageleaves"],
             pageleaves_with_scroll_depth=row["pageleaves_with_scroll_depth"],
             web_vitals=row["web_vitals"],
-            proxied_browser_events=row["proxied_browser_events"],
+            proxied_pageviews=row["proxied_pageviews"],
             pageviews_unusable_session_id=row["pageviews_unusable_session_id"],
             pageviews_absent_session_id=row["pageviews_absent_session_id"],
         )

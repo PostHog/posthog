@@ -640,7 +640,11 @@ class DataWarehouseSavedQuerySerializer(
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     view.set_columns(
-                        view.get_columns(user=self.context["request"].user, database=self.context["database"])
+                        view.get_columns(
+                            user=self.context["request"].user,
+                            database=self.context["database"],
+                            jev_plan=getattr(self, "_jev_plan", None),
+                        )
                     )
                 else:
                     view.set_columns(_columns_from_client_types(client_types))
@@ -773,7 +777,9 @@ class DataWarehouseSavedQuerySerializer(
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     inferred_columns = probe.get_columns(
-                        user=self.context["request"].user, database=self.context["database"]
+                        user=self.context["request"].user,
+                        database=self.context["database"],
+                        jev_plan=getattr(self, "_jev_plan", None),
                     )
                 else:
                     inferred_columns = _columns_from_client_types(client_types)
@@ -966,8 +972,9 @@ class DataWarehouseSavedQuerySerializer(
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
+            self._jev_plan = modeling_api.plan_prompt_jev_on_zero_rows(select_ast, context, self.context["get_team"]())
             prepare_and_print_ast(
-                node=select_ast,
+                node=self._jev_plan.query if self._jev_plan is not None else select_ast,
                 context=context,
                 dialect="clickhouse",
                 stack=None,

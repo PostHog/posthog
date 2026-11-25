@@ -207,6 +207,30 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreateBodyPrUrlMax = 500
+
+export const signalsMonitorPrCreateBodyNoteDefault = ``
+export const signalsMonitorPrCreateBodyNoteMax = 4000
+
+export const SignalsMonitorPrCreateBody = /* @__PURE__ */ zod.object({
+    pr_url: zod
+        .url()
+        .max(signalsMonitorPrCreateBodyPrUrlMax)
+        .describe(
+            "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported."
+        ),
+    note: zod
+        .string()
+        .max(signalsMonitorPrCreateBodyNoteMax)
+        .default(signalsMonitorPrCreateBodyNoteDefault)
+        .describe(
+            'Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.'
+        ),
+})
+
 export const signalsOnboardingCreateBodyScannerIdsMax = 100
 
 export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
@@ -5547,7 +5571,7 @@ export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */
 })
 
 /**
- * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
  * @summary Preview a source filter
  */
 export const signalsSourceConfigsFilterPreviewCreateBodySourceProductMax = 100
@@ -5556,20 +5580,69 @@ export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
 
 export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
 
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax = 255
+
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax = 100
+
 export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
-        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     source_type: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
-        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     expression: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
         .describe(
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
+    scope_ids: zod
+        .array(zod.string().max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax))
+        .max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax)
+        .nullish()
+        .describe(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
+        ),
+})
+
+/**
+ * Check whether a filter expression can be saved as the source's filter, and where it is invalid when it cannot. Checks the expression against the source's active catalog only: reads no warehouse records and works before the source is connected or synced. An empty expression is valid. Saves nothing.
+ * @summary Validate a source filter
+ */
+export const signalsSourceConfigsFilterValidateCreateBodySourceProductMax = 100
+
+export const signalsSourceConfigsFilterValidateCreateBodySourceTypeMax = 100
+
+export const signalsSourceConfigsFilterValidateCreateBodyExpressionMax = 16384
+
+export const signalsSourceConfigsFilterValidateCreateBodyScopeIdsItemMax = 255
+
+export const signalsSourceConfigsFilterValidateCreateBodyScopeIdsMax = 100
+
+export const SignalsSourceConfigsFilterValidateCreateBody = /* @__PURE__ */ zod.object({
+    source_product: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodySourceProductMax)
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
+    source_type: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodySourceTypeMax)
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
+    expression: zod
+        .string()
+        .max(signalsSourceConfigsFilterValidateCreateBodyExpressionMax)
+        .describe(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
+    scope_ids: zod
+        .array(zod.string().max(signalsSourceConfigsFilterValidateCreateBodyScopeIdsItemMax))
+        .max(signalsSourceConfigsFilterValidateCreateBodyScopeIdsMax)
+        .nullish()
+        .describe(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
         ),
 })
 

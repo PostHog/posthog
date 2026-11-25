@@ -1,3 +1,4 @@
+import { kitchenSinkDashboard } from '../fixtures/kitchenSinkDashboard'
 import { chartSpec } from '../widgets/chart/chartSpec'
 import { barSpec } from '../widgets/chart/viz/bar/barSpec'
 import { lineSpec } from '../widgets/chart/viz/line/lineSpec'
@@ -25,6 +26,10 @@ const nestedSections = (depth: number): unknown =>
           }
 
 describe('validateDashboard', () => {
+    it('accepts the kitchen sink fixture', () => {
+        expect(validateDashboard(kitchenSinkDashboard, SPECS)).toEqual([])
+    })
+
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([
         ...['javascript:alert(1)', '//example.com/phish'].map((href) => ({
             name: `a link tab to ${href}`,
@@ -38,6 +43,34 @@ describe('validateDashboard', () => {
             },
             expected: [{ path: expect.stringMatching(/^tabs\[1\]/), message: expect.any(String) }],
         })),
+        {
+            name: 'a tile pointing at a widget the document does not have',
+            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, widget: { ref: 'gone' } }]),
+            expected: [
+                {
+                    path: 'tabs[0].tiles[0].widget.ref',
+                    message: 'There is no widget "gone" in the dashboard\'s widgets',
+                },
+            ],
+        },
+        {
+            name: 'a full widget that also carries a ref, which only a shared widget may have',
+            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, widget: { ...note, ref: 'note' } }]),
+            expected: [{ path: 'tabs[0].tiles[0].widget', message: expect.stringContaining('ref') }],
+        },
+        {
+            name: 'a tile smaller than the shared widget it shows',
+            document: {
+                ...(withTiles([{ id: 'a', place: { x: 0, y: 0, w: 2, h: 4 }, widget: { ref: 'note' } }]) as object),
+                widgets: { note },
+            },
+            expected: [
+                {
+                    path: 'tabs[0].tiles[0].place',
+                    message: 'This markdown tile is at least 3 columns wide and 4 rows tall',
+                },
+            ],
+        },
         {
             name: 'an unknown widget type',
             document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 6, h: 4 }, widget: { type: 'lnie' } }]),

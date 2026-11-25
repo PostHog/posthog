@@ -1,13 +1,18 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.sources.intruder.settings import INTRUDER_ENDPOINTS, IntruderEndpointConfig
+from products.warehouse_sources.sources.intruder.settings import (
+    INTRUDER_ENDPOINTS,
+    IntruderEndpointConfig,
+    IntruderFanOut,
+)
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     JSONResponsePaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -55,14 +60,6 @@ def _client_config(access_token: str) -> ClientConfig:
     }
 
 
-def _rename_issue_id(row: dict[str, Any]) -> dict[str, Any]:
-    # `include_from_parent=["id"]` injects the owning issue's id as `_issues_id`; expose it as
-    # `issue_id` so the composite primary key [issue_id, id] matches the pre-migration row shape.
-    if "_issues_id" in row:
-        row["issue_id"] = row.pop("_issues_id")
-    return row
-
-
 def _source_response(endpoint: str, config: IntruderEndpointConfig, items: Any) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
@@ -92,7 +89,7 @@ def _list_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": {"limit": PAGE_SIZE, **config.params},
                     "data_selector": "results",
                 },
             }
@@ -122,29 +119,39 @@ def _list_source(
     return _source_response(endpoint, config, resource)
 
 
-def _issue_fan_out_source(
+def _fan_out_source(
     access_token: str,
     endpoint: str,
     config: IntruderEndpointConfig,
+    fan_out: IntruderFanOut,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
 ) -> SourceResponse:
-    """Fan out over every issue, materializing the child endpoint's rows tagged with `issue_id`.
+    """Fan out over every parent row, materializing the child endpoint's rows tagged with the parent id.
 
-    Each child row gets the owning `issue_id` injected so the composite primary key
-    [issue_id, id] stays unique table-wide. Full refresh only — re-pulled rows on resume are deduped
-    by the primary key on merge.
+    Each child row gets the owning parent id injected (e.g. `issue_id`) so the composite primary key
+    stays unique table-wide. Full refresh only — re-pulled rows on resume are deduped by the primary
+    key on merge.
     """
+    injected_key = make_parent_key_name(fan_out.parent, "id")
+
+    def rename_parent_id(row: dict[str, Any]) -> dict[str, Any]:
+        # `include_from_parent=["id"]` injects the parent id as `_<parent>_id`; expose it under the
+        # name the composite primary key uses.
+        if injected_key in row:
+            row[fan_out.parent_id_key] = row.pop(injected_key)
+        return row
+
     rest_config: RESTAPIConfig = {
         "client": _client_config(access_token),
         "resource_defaults": {},
         "resources": [
             {
-                "name": "issues",
+                "name": fan_out.parent,
                 "endpoint": {
-                    "path": INTRUDER_ENDPOINTS["issues"].path,
-                    "params": {"limit": PAGE_SIZE},
+                    "path": INTRUDER_ENDPOINTS[fan_out.parent].path,
+                    "params": {"limit": PAGE_SIZE, **INTRUDER_ENDPOINTS[fan_out.parent].params},
                     "data_selector": "results",
                 },
             },
@@ -154,12 +161,13 @@ def _issue_fan_out_source(
                 "endpoint": {
                     "path": config.path,
                     "params": {
-                        "issue_id": {"type": "resolve", "resource": "issues", "field": "id"},
+                        fan_out.parent_id_key: {"type": "resolve", "resource": fan_out.parent, "field": "id"},
                         "limit": PAGE_SIZE,
+                        **config.params,
                     },
                     "data_selector": "results",
                 },
-                "data_map": _rename_issue_id,
+                "data_map": rename_parent_id,
             },
         ],
     }
@@ -193,8 +201,10 @@ def intruder_source(
     resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
 ) -> SourceResponse:
     config = INTRUDER_ENDPOINTS[endpoint]
-    if config.fan_out_over_issues:
-        return _issue_fan_out_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
+    if config.fan_out is not None:
+        return _fan_out_source(
+            access_token, endpoint, config, config.fan_out, team_id, job_id, resumable_source_manager
+        )
     return _list_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
 
 

@@ -321,15 +321,15 @@ class _GoConverter:
         )
 
     def _check_contexts(self, values: list[_Value]) -> None:
-        """Raises _Unsupported for a value anywhere but page text. Go escapes an attribute value by what the attribute
-        holds, such as a link, and Liquid can't."""
+        """Raises _Unsupported for a value anywhere but page text and the page title. Go escapes an attribute value by
+        what the attribute holds, such as a link, and Liquid can't."""
         context = HtmlContext()
         cursor = 0
         for value in values:
             context.feed(self.text[cursor : value.start])
             if context.untrusted:
                 raise _Unsupported(f"{value.source} after a script")
-            if (where := context.where()) != "text":
+            if (where := context.where()) not in ("text", "title"):
                 raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
             context.feed("x")
             cursor = value.end
@@ -352,7 +352,7 @@ _PLACES = {
 
 def _escaped(path: str) -> str:
     # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
-    return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
+    return f'{{{{ {path} | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}}}'
 
 
 def _append(out: list[str], chunk: str) -> None:
