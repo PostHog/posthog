@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconBolt, IconLock, IconTrash } from '@posthog/icons'
 import {
@@ -112,6 +112,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
     // The editor remounts after each save, and stays the same email until the person leaves the page.
     const [visitId] = useState(() => uuid())
+    const sensitiveSwitchId = useId()
+    const clickTrackingSwitchId = useId()
 
     const testSendLogic = messageTemplateTestSendLogic(props)
     const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
@@ -143,6 +145,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    const settingDisabledReason =
+        editDisabledReason ?? (isSavingSensitive || isSavingClickTracking ? 'Saving the setting' : undefined)
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft
@@ -253,7 +257,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     <div className="flex items-start gap-3 min-w-0">
                                         <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
                                         <div className="min-w-0">
-                                            <div className="font-semibold">Protect sensitive data</div>
+                                            <label
+                                                htmlFor={sensitiveSwitchId}
+                                                className={
+                                                    settingDisabledReason
+                                                        ? 'block font-semibold'
+                                                        : 'block font-semibold cursor-pointer'
+                                                }
+                                            >
+                                                Protect sensitive data
+                                            </label>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 For emails with login codes or reset links. PostHog keeps no copy of
                                                 what each email contained, turns link click tracking off by default, and
@@ -262,23 +275,27 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         </div>
                                     </div>
                                     <LemonSwitch
+                                        id={sensitiveSwitchId}
                                         checked={!!originalTemplate.sensitive}
                                         onChange={setSensitive}
                                         loading={isSavingSensitive}
-                                        disabledReason={
-                                            editDisabledReason ??
-                                            (isSavingSensitive || isSavingClickTracking
-                                                ? 'Saving the setting'
-                                                : undefined)
-                                        }
-                                        aria-label="Protect sensitive data"
+                                        disabledReason={settingDisabledReason}
                                         data-attr="message-template-sensitive-toggle"
                                     />
                                 </div>
                                 {originalTemplate.sensitive && (
                                     <div className="border-t border-primary pt-3 mt-3 pl-8 flex items-start justify-between gap-4">
                                         <div className="min-w-0">
-                                            <div className="font-semibold text-sm">Track link clicks</div>
+                                            <label
+                                                htmlFor={clickTrackingSwitchId}
+                                                className={
+                                                    settingDisabledReason
+                                                        ? 'block font-semibold text-sm'
+                                                        : 'block font-semibold text-sm cursor-pointer'
+                                                }
+                                            >
+                                                Track link clicks
+                                            </label>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 Rewrite links to count clicks. Keep this off for links carrying login or
                                                 reset tokens, or mark individual links with{' '}
@@ -286,16 +303,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                             </p>
                                         </div>
                                         <LemonSwitch
+                                            id={clickTrackingSwitchId}
                                             checked={originalTemplate.click_tracking_enabled === true}
                                             onChange={setClickTrackingEnabled}
                                             loading={isSavingClickTracking}
-                                            disabledReason={
-                                                editDisabledReason ??
-                                                (isSavingSensitive || isSavingClickTracking
-                                                    ? 'Saving the setting'
-                                                    : undefined)
-                                            }
-                                            aria-label="Track link clicks"
+                                            disabledReason={settingDisabledReason}
                                             data-attr="message-template-click-tracking-toggle"
                                         />
                                     </div>

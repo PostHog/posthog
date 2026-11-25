@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonCard, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
@@ -11,6 +12,8 @@ import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
 export function NameStep(): JSX.Element {
     const { draft } = useValues(transactionalEmailWizardLogic)
     const { updateDraft } = useActions(transactionalEmailWizardLogic)
+    const sensitiveSwitchId = useId()
+    const clickTrackingSwitchId = useId()
 
     return (
         <div className="flex flex-col gap-4 max-w-160">
@@ -36,7 +39,9 @@ export function NameStep(): JSX.Element {
                     <div className="flex items-start gap-3 min-w-0">
                         <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
                         <div className="min-w-0">
-                            <div className="font-semibold">Protect sensitive data</div>
+                            <label htmlFor={sensitiveSwitchId} className="block font-semibold cursor-pointer">
+                                Protect sensitive data
+                            </label>
                             <p className="text-secondary text-sm m-0 mt-1">
                                 For emails with login codes or reset links. PostHog keeps no copy of what each email
                                 contained, turns link click tracking off by default, and records only the site address
@@ -45,25 +50,30 @@ export function NameStep(): JSX.Element {
                         </div>
                     </div>
                     <LemonSwitch
+                        id={sensitiveSwitchId}
                         checked={draft.sensitive}
                         onChange={(sensitive) => updateDraft({ sensitive })}
-                        aria-label="Protect sensitive data"
                         data-attr="transactional-email-wizard-sensitive"
                     />
                 </div>
                 {draft.sensitive && (
                     <div className="border-t border-primary pt-3 mt-3 pl-8 flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                            <div className="font-semibold text-sm">Track link clicks</div>
+                            <label
+                                htmlFor={clickTrackingSwitchId}
+                                className="block font-semibold text-sm cursor-pointer"
+                            >
+                                Track link clicks
+                            </label>
                             <p className="text-secondary text-sm m-0 mt-1">
                                 Rewrite links to count clicks. Keep this off for links carrying login or reset tokens,
                                 or mark individual links with <code>data-ph-no-track</code>.
                             </p>
                         </div>
                         <LemonSwitch
+                            id={clickTrackingSwitchId}
                             checked={draft.clickTrackingEnabled}
                             onChange={(clickTrackingEnabled) => updateDraft({ clickTrackingEnabled })}
-                            aria-label="Track link clicks"
                             data-attr="transactional-email-wizard-click-tracking"
                         />
                     </div>

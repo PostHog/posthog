@@ -249,9 +249,57 @@ describe('MessageTemplate', () => {
                     expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'true')
                 )
                 expect(patchBodies).toEqual([{ click_tracking_enabled: true }])
+                expect(screen.getByText('Editing draft')).toBeInTheDocument()
+
+                fireEvent.click(screen.getByLabelText('Track link clicks'))
+                await waitFor(() =>
+                    expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'false')
+                )
+                expect(patchBodies).toEqual([{ click_tracking_enabled: true }, { click_tracking_enabled: null }])
+                expect(screen.getByText('Editing draft')).toBeInTheDocument()
             }
         }
     )
+
+    it('resets click tracking when sensitive is toggled off and back on', async () => {
+        const patchBodies: Record<string, unknown>[] = []
+        let serverState = {
+            ...PASSWORD_RESET_WITH_DRAFT,
+            sensitive: true,
+            click_tracking_enabled: true as boolean | null,
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        let tick = 1
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, serverState] },
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patchBodies.push(body)
+                    const sensitiveChanged = 'sensitive' in body && body.sensitive !== serverState.sensitive
+                    serverState = {
+                        ...serverState,
+                        ...body,
+                        ...(sensitiveChanged ? { click_tracking_enabled: null } : {}),
+                        updated_at: `2026-01-01T00:0${tick++}:00Z`,
+                    }
+                    return [200, serverState]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, serverState.name)
+
+        fireEvent.click(screen.getByText('API'))
+        expect(await screen.findByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'true')
+
+        fireEvent.click(screen.getByText('Protect sensitive data'))
+        await waitFor(() => expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument())
+        expect(patchBodies).toEqual([{ sensitive: false }])
+
+        fireEvent.click(screen.getByText('Protect sensitive data'))
+        await waitFor(() => expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'false'))
+        expect(patchBodies).toEqual([{ sensitive: false }, { sensitive: true }])
+    })
 
     it('hides the nested click tracking toggle on a non-sensitive template', async () => {
         useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT } })

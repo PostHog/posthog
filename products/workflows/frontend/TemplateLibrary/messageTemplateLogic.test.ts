@@ -16,6 +16,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
+        info: jest.fn(),
     },
 }))
 
@@ -426,60 +427,27 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.hasDraft).toBe(true)
         })
 
-        it('toggling click tracking saves only click_tracking_enabled (true or null) without publishing the draft', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setClickTrackingEnabled(true)
-            }).toDispatchActions(['setClickTrackingEnabledDone'])
-
-            expect(bodies).toEqual([{ click_tracking_enabled: true }])
-            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
-            expect(logic.values.templateChanged).toBe(false)
-            expect(logic.values.hasDraft).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.setClickTrackingEnabled(false)
-            }).toDispatchActions(['setClickTrackingEnabledDone'])
-
-            expect(bodies).toEqual([{ click_tracking_enabled: true }, { click_tracking_enabled: null }])
-            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
-            expect(logic.values.templateChanged).toBe(false)
-            expect(logic.values.hasDraft).toBe(true)
-        })
-
-        it('turning sensitive off syncs the server-reset click_tracking_enabled value', async () => {
+        it('publishing sends the content and leaves out settings and draft_content', async () => {
+            logic.unmount()
+            const sensitiveServerTemplate = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: true,
+            }
             useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': sensitiveServerTemplate },
                 patch: {
-                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
                         const body = (await request.json()) as Record<string, unknown>
                         bodies.push(body)
-                        return [
-                            200,
-                            {
-                                ...serverTemplate,
-                                sensitive: false,
-                                click_tracking_enabled: null,
-                                updated_at: '2026-01-01T00:02:00Z',
-                            },
-                        ]
+                        return [200, { ...sensitiveServerTemplate, ...body, draft_content: null }]
                     },
                 },
             })
-            logic.actions.setOriginalTemplate({
-                ...logic.values.originalTemplate,
-                sensitive: true,
-                click_tracking_enabled: true,
-            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
 
-            await expectLogic(logic, () => {
-                logic.actions.setSensitive(false)
-            }).toDispatchActions(['setSensitiveDone'])
-
-            expect(bodies).toEqual([{ sensitive: false }])
-            expect(logic.values.originalTemplate.sensitive).toBe(false)
-            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
-        })
-
-        it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
             })
@@ -491,6 +459,123 @@ describe('messageTemplateLogic', () => {
             expect(bodies[0]).not.toHaveProperty('draft_content')
             expect(bodies[0]).not.toHaveProperty('sensitive')
             expect(bodies[0]).not.toHaveProperty('click_tracking_enabled')
+        })
+
+        it('reconciles a concurrent sensitivity turn-off when saving click tracking', async () => {
+            jest.clearAllMocks()
+            logic.unmount()
+            const sensitiveServerTemplate = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: true as boolean | null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': sensitiveServerTemplate },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...sensitiveServerTemplate,
+                                ...body,
+                                sensitive: false,
+                                click_tracking_enabled: null,
+                                updated_at: '2026-01-01T00:02:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setClickTrackingEnabled(false)
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'MessageTemplate',
+                    resource_id: 'existing-id',
+                    updated_at: '2026-01-01T00:01:00Z',
+                    actor_user_id: null,
+                })
+            }).toFinishAllListeners()
+
+            expect(bodies).toEqual([{ click_tracking_enabled: null }])
+            expect(logic.values.originalTemplate.sensitive).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBeNull()
+            expect(logic.values.deferredExternalEdit).toBeNull()
+            expect(mockToast.info).toHaveBeenCalledWith(
+                'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
+            )
+        })
+
+        it.each([
+            { description: 'reloads newer published content on a clean form', dirty: false },
+            { description: 'flags an external conflict while preserving unsaved local edits', dirty: true },
+        ])('reconciles a concurrent publish during a click tracking save: $description', async ({ dirty }) => {
+            logic.unmount()
+            const sensitiveServerTemplate = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null as boolean | null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            const publishedElsewhere = {
+                templating: 'liquid' as const,
+                email: { subject: 'Published elsewhere', html: '<p>New live</p>' },
+            }
+            const unsavedEdit = {
+                templating: 'liquid' as const,
+                email: { subject: 'Unsaved local edit', html: '<p>Local</p>' },
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': sensitiveServerTemplate },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        bodies.push(body)
+                        return [
+                            200,
+                            {
+                                ...sensitiveServerTemplate,
+                                ...body,
+                                content: publishedElsewhere,
+                                draft_content: null,
+                                updated_at: '2026-01-01T00:02:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            if (dirty) {
+                logic.actions.setTemplateValue('content', unsavedEdit)
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setClickTrackingEnabled(true)
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'MessageTemplate',
+                    resource_id: 'existing-id',
+                    updated_at: '2026-01-01T00:01:00Z',
+                    actor_user_id: null,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+            expect(logic.values.externallyEdited).toBe(dirty)
+            expect(logic.values.hasDraft).toBe(dirty)
+            expect(logic.values.template.content).toEqual(dirty ? unsavedEdit : publishedElsewhere)
         })
     })
 

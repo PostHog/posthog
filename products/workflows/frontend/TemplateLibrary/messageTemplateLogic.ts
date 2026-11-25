@@ -71,6 +71,65 @@ function splitDraft(template: MessageTemplate): {
     return { form: draft ? { ...form, content: draft } : form, draft, published: template.content }
 }
 
+// Reconcile non-setting fields before advancing updated_at so a deferred realtime event
+// for an intervening edit (such as a publish or sensitive change) is never silently masked.
+function applySettingUpdate(
+    updated: Awaited<ReturnType<typeof messagingTemplatesPartialUpdate>>,
+    values: {
+        originalTemplate: MessageTemplate
+        template: MessageTemplate
+        publishedContent: TemplateContent | null
+        savedDraft: TemplateContent | null
+        hasUnsavedChanges: boolean
+        externallyEdited: boolean
+        templateChanged: boolean
+    },
+    actions: {
+        setDraftState: (draft: TemplateContent | null, published: TemplateContent) => void
+        setOriginalTemplate: (template: MessageTemplate) => void
+        resetTemplate: (values?: MessageTemplate) => void
+        setExternallyEdited: (externallyEdited: boolean) => void
+        setTemplateValues: (values: Partial<MessageTemplate>) => void
+    }
+): void {
+    const {
+        form: serverForm,
+        draft: serverDraft,
+        published: serverPublished,
+    } = splitDraft(updated as unknown as MessageTemplate)
+    const hasExternalChanges =
+        serverForm.name !== values.originalTemplate.name ||
+        (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
+        !objectsEqual(serverForm.tags ?? [], values.originalTemplate.tags ?? []) ||
+        (serverForm.transactional_hog_flow_id ?? null) !==
+            (values.originalTemplate.transactional_hog_flow_id ?? null) ||
+        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
+        !objectsEqual(serverDraft, values.savedDraft)
+
+    if (hasExternalChanges && !values.hasUnsavedChanges && !values.externallyEdited) {
+        actions.setDraftState(serverDraft, serverPublished)
+        actions.setOriginalTemplate(serverForm)
+        actions.resetTemplate(serverForm)
+        return
+    }
+
+    if (hasExternalChanges) {
+        actions.setExternallyEdited(true)
+    }
+
+    const changes = {
+        sensitive: updated.sensitive,
+        click_tracking_enabled: updated.click_tracking_enabled,
+        updated_at: updated.updated_at,
+    }
+    actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+    if (values.templateChanged) {
+        actions.setTemplateValues(changes)
+    } else {
+        actions.resetTemplate({ ...values.template, ...changes })
+    }
+}
+
 export interface MessageTemplateLogicProps {
     id: string
     messageId?: string | null
@@ -1009,17 +1068,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     sensitive,
                 })
-                const changes = {
-                    sensitive: updated.sensitive,
-                    click_tracking_enabled: updated.click_tracking_enabled,
-                    updated_at: updated.updated_at,
-                }
-                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
-                if (values.templateChanged) {
-                    actions.setTemplateValues(changes)
-                } else {
-                    actions.resetTemplate({ ...values.template, ...changes })
-                }
+                applySettingUpdate(updated, values, actions)
                 posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
@@ -1032,20 +1081,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     click_tracking_enabled: clickTrackingEnabled ? true : null,
                 })
-                const changes = {
-                    click_tracking_enabled: updated.click_tracking_enabled,
-                    updated_at: updated.updated_at,
-                }
-                actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
-                if (values.templateChanged) {
-                    actions.setTemplateValues(changes)
+                applySettingUpdate(updated, values, actions)
+                if (updated.sensitive) {
+                    posthog.capture('email template click tracking changed', {
+                        template_id: props.id,
+                        click_tracking_enabled: updated.click_tracking_enabled === true,
+                    })
                 } else {
-                    actions.resetTemplate({ ...values.template, ...changes })
+                    lemonToast.info(
+                        'Sensitive data protection was turned off elsewhere, so link click tracking is on by default.'
+                    )
                 }
-                posthog.capture('email template click tracking changed', {
-                    template_id: props.id,
-                    click_tracking_enabled: clickTrackingEnabled,
-                })
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
             }

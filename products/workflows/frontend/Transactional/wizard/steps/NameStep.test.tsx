@@ -26,19 +26,20 @@ describe('NameStep', () => {
 
         expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument()
 
-        const sensitiveToggle = screen.getByLabelText('Protect sensitive data')
-        fireEvent.click(sensitiveToggle)
+        // Clicking the visible label toggles the associated switch.
+        fireEvent.click(screen.getByText('Protect sensitive data'))
+        expect(screen.getByLabelText('Protect sensitive data')).toHaveAttribute('aria-checked', 'true')
 
         const clickToggle = screen.getByLabelText('Track link clicks')
         expect(clickToggle).toHaveAttribute('aria-checked', 'false')
 
-        fireEvent.click(clickToggle)
+        fireEvent.click(screen.getByText('Track link clicks'))
         expect(clickToggle).toHaveAttribute('aria-checked', 'true')
 
-        fireEvent.click(sensitiveToggle)
+        fireEvent.click(screen.getByText('Protect sensitive data'))
         expect(screen.queryByLabelText('Track link clicks')).not.toBeInTheDocument()
 
-        fireEvent.click(sensitiveToggle)
+        fireEvent.click(screen.getByText('Protect sensitive data'))
         expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'false')
 
         logic.unmount()
