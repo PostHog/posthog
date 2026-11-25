@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and bounded enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
 
 ## GitHub App
 

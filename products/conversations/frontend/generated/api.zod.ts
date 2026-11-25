@@ -238,6 +238,8 @@ export const conversationsTicketsAiFeedbackCreateBodyMessageIdMax = 200
 
 export const conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax = 2000
 
+export const conversationsTicketsAiFeedbackCreateBodyReasonsMax = 5
+
 export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .object({
         message_id: zod
@@ -253,6 +255,17 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
             .max(conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax)
             .optional()
             .describe('Optional text explaining a bad rating.'),
+        reasons: zod
+            .array(
+                zod
+                    .enum(['wrong_facts', 'missed_question', 'too_vague', 'wrong_tone', 'should_not_run'])
+                    .describe(
+                        "\* `wrong_facts` - Wrong or made-up facts\n\* `missed_question` - Missed the customer's question\n\* `too_vague` - Too vague to act on\n\* `wrong_tone` - Wrong tone or style\n\* `should_not_run` - Should not have run on this ticket"
+                    )
+            )
+            .max(conversationsTicketsAiFeedbackCreateBodyReasonsMax)
+            .optional()
+            .describe('Optional reasons for a bad rating. Ignored for a good rating.'),
     })
     .describe('Payload for recording reviewer feedback on an AI reply.')
 

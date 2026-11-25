@@ -56,6 +56,18 @@ def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserInte
     ).order_by("-created_at")
 
 
+def linked_slack_user_id(*, user: User, slack_team_id: str) -> str | None:
+    """The Slack user this PostHog user linked in this workspace, most recently linked first."""
+    return (
+        UserIntegration.objects.filter(
+            kind=UserIntegration.IntegrationKind.SLACK, user=user, config__slack_team_id=slack_team_id
+        )
+        .order_by("-created_at")
+        .values_list("integration_id", flat=True)
+        .first()
+    )
+
+
 def granted_user_scopes(user_scopes: str) -> frozenset[str]:
     return frozenset(user_scopes.replace(",", " ").split())
 
