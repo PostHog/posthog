@@ -216,13 +216,13 @@ class TestValidateMetricDefinition(BaseTest):
                 ["events"],
             ),
             (
-                "subquery_in_a_property_filter",
+                "view_read_only_through_a_property_filter",
                 _FILTERS_SQL,
                 {
                     "dateRange": {"date_from": "-30d"},
-                    "properties": [{"type": "hogql", "key": "person_id in (select id from persons)"}],
+                    "properties": [{"type": "hogql", "key": "1 in (select 1 from signups_view)"}],
                 },
-                ["events", "persons"],
+                ["events", "signups_view"],
             ),
             (
                 "saved_view_keeps_its_name_and_the_tables_it_reads",

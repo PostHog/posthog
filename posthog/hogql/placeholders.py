@@ -28,6 +28,17 @@ class FindBlockingCalls(TraversingVisitor):
         super().visit_call(node)
 
 
+# Reserved binding key in {filters(...)} that receives the date range instead of a property filter.
+BOUND_TIMESTAMP_KEY = "timestamp"
+
+_DATE_BOUND_CHAINS = (
+    ["filters", "dateRange", "from"],
+    ["filters", "dateRange", "to"],
+    ["filters", "previous", "dateRange", "from"],
+    ["filters", "previous", "dateRange", "to"],
+)
+
+
 def is_filters_placeholder(node: ast.Placeholder) -> bool:
     if node.chain:
         return node.chain[0] == "filters"
@@ -57,6 +68,33 @@ def is_filters_predicate_placeholder(node: ast.Placeholder) -> bool:
     )
 
 
+def _is_null(expr: ast.Expr) -> bool:
+    return isinstance(expr, ast.Constant) and expr.value is None
+
+
+def _binds_a_timestamp(args: list[ast.Expr]) -> bool:
+    return any(
+        isinstance(arg, ast.Alias) and arg.alias == BOUND_TIMESTAMP_KEY and not _is_null(arg.expr) for arg in args
+    )
+
+
+def _skips_dates(node: ast.Placeholder) -> bool:
+    """Whether a filters predicate placeholder opts out of the date range.
+
+    ``{filters(null AS timestamp)}``, ``{filters.native(null)}`` and a bound form with no timestamp
+    binding resolve to no date condition.
+    """
+    expr = node.expr
+    if isinstance(expr, ast.Call):
+        return not _binds_a_timestamp(expr.args)
+    if isinstance(expr, ast.ExprCall) and isinstance(expr.expr, ast.Field):
+        if expr.expr.chain in (["filters", "native"], ["filters", "previous", "native"]):
+            return len(expr.args) != 1 or _is_null(expr.args[0])
+        if expr.expr.chain == ["filters", "previous"]:
+            return not _binds_a_timestamp(expr.args)
+    return False
+
+
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -64,6 +102,9 @@ class FindPlaceholders(TraversingVisitor):
         self.has_predicate_filters = False
         # Predicates and date bounds can constrain the query's range; interval and breakdown values cannot.
         self.has_date_filters = False
+        # Like has_date_filters, but false for the forms that opt out of the date range, such as
+        # {filters(null AS timestamp)}. A date range passed to those forms changes nothing.
+        self.applies_date_range = False
         self.placeholder_fields: list[list[str | int]] = []  # Did we find simple fields
         self.placeholder_expressions: list[ast.Expr] = []  # Did we find complex expressions
 
@@ -78,15 +119,13 @@ class FindPlaceholders(TraversingVisitor):
                 self.placeholder_expressions.append(node.expr)
             return
         self.has_filters = True
-        if is_filters_predicate_placeholder(node):
+        is_predicate = is_filters_predicate_placeholder(node)
+        if is_predicate:
             self.has_predicate_filters = True
-        if is_filters_predicate_placeholder(node) or node.chain in (
-            ["filters", "dateRange", "from"],
-            ["filters", "dateRange", "to"],
-            ["filters", "previous", "dateRange", "from"],
-            ["filters", "previous", "dateRange", "to"],
-        ):
+        if is_predicate or node.chain in _DATE_BOUND_CHAINS:
             self.has_date_filters = True
+            if not (is_predicate and _skips_dates(node)):
+                self.applies_date_range = True
 
     @property
     def has_variables(self) -> bool:

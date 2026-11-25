@@ -184,6 +184,7 @@ class TestMetricRunPreparation(APIBaseTest):
     @parameterized.expand(
         [
             ("new_start_drops_the_stored_end", {"date_from": "-7d"}, {"date_from": "-7d"}),
+            ("end_alone_keeps_the_stored_start", {"date_to": "-1d"}, {"date_from": "-90d", "date_to": "-1d"}),
             ("both_bounds", {"date_from": "-30d", "date_to": "-1d"}, {"date_from": "-30d", "date_to": "-1d"}),
         ]
     )

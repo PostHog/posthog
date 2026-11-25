@@ -30,6 +30,7 @@ from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.placeholders import BOUND_TIMESTAMP_KEY
 from posthog.hogql.property import bound_property_to_expr, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
@@ -46,8 +47,6 @@ DATE_ONLY_REGEX = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
 # live views) where snapping to calendar boundaries would change the window's meaning.
 SUB_DAY_DELTA_KEYS = frozenset(["hours", "minutes", "seconds"])
 
-# Reserved binding key in {filters(...)} that receives the date range instead of a property filter.
-BOUND_TIMESTAMP_KEY = "timestamp"
 BOUND_FILTERS_USAGE = (
     "Each argument of {filters(...)} must bind an expression to a filter key with AS, "
     "e.g. {filters(created_at AS timestamp, account_id AS 'account_id')}. "
