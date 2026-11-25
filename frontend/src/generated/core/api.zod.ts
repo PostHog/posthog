@@ -722,6 +722,8 @@ export const ServiceAccountsDisableCreateBody = /* @__PURE__ */ zod.looseObject(
 
 export const ServiceAccountsEnableCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const ServiceAccountsRestoreCreateBody = /* @__PURE__ */ zod.looseObject({})
+
 /**
  * Create a new password for the sharing configuration.
  */

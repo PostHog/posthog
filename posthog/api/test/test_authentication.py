@@ -2828,6 +2828,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "service_account_delete",
+                "delete",
+                "/api/organizations/@current/service_accounts/00000000-0000-0000-0000-000000000001/",
+            ),
+            (
+                "service_account_restore",
+                "post",
+                "/api/organizations/@current/service_accounts/00000000-0000-0000-0000-000000000001/restore/",
+            ),
             ("service_account_create", "post", "/api/organizations/@current/service_accounts/"),
             (
                 "service_account_disable",
