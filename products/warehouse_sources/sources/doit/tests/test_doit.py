@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import pytest
@@ -101,6 +101,14 @@ def _resolve_report_id() -> str:
     return resolve_report_id(CONFIG, "cost_by_product", None)
 
 
+def _recording_wait(waits: list[float]) -> Callable[[float], bool]:
+    def wait(seconds: float) -> bool:
+        waits.append(seconds)
+        return False
+
+    return wait
+
+
 class TestConcurrencyQuotaWait:
     # The adapter tries a 429 four times in a few seconds. The quota stays exhausted while the other
     # report queries of the account run, which takes minutes, so more 429s come than the adapter takes.
@@ -115,7 +123,7 @@ class TestConcurrencyQuotaWait:
     def test_waits_out_the_quota_and_then_syncs(self, call, ok_response, expected) -> None:
         waits: list[float] = []
         with (
-            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or False),
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
             scripted_network([QUOTA_429] * 10 + [ok_response]),
         ):
             result = call()
@@ -140,7 +148,7 @@ class TestConcurrencyQuotaWait:
     def test_gives_up_with_the_status_and_body(self, response, expected_waits) -> None:
         waits: list[float] = []
         with (
-            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or False),
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
             scripted_network(always(response)),
         ):
             with pytest.raises(Exception, match="failed with status: 429") as error:
@@ -153,7 +161,7 @@ class TestConcurrencyQuotaWait:
         # `get_schemas` runs in synchronous API views, where a wait holds a web worker for minutes.
         waits: list[float] = []
         with (
-            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or False),
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
             scripted_network([QUOTA_429] * 10 + [LIST_OK]),
         ):
             with pytest.raises(Exception, match="failed with status: 429"):
