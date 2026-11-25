@@ -1,7 +1,7 @@
 # Is a downstream effect real or noise?
 
 **Symptom:** a funnel step the feature doesn't touch (e.g. `event page → checkout`) shows a lift,
-often while the step it _does_ touch is flat. The customer suspects a measurement bug.
+often while the step it _does_ touch is flat. The user suspects a measurement bug.
 
 ## Why that leg isn't a clean comparison
 

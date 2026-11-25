@@ -29,14 +29,14 @@ verdict would come from, and exits non-zero on any mismatch:
     verdict          synthetic pure-capture and pure-assignment samples route correctly
 
 Stdlib only (hashlib, csv, math, argparse) — no PostHog install required. distinct_ids are
-often emails; run this customer-side and paste back only the aggregate lines it prints.
+often emails; run this where the export was made and share only the aggregate lines it prints.
 
     ./srm_check.py --selftest
     ./srm_check.py --flag-key my-flag --variants-file variants.json --csv exposures.csv
 
 Prefer --variants-file: save the flag's `filters.multivariate.variants` array to a file and pass
 the path. Variant keys are only charset-validated in the PostHog UI, not by the API, so a key
-reaching you through a ticket can contain shell metacharacters or quotes — keep it out of the
+on a flag you did not create can contain shell metacharacters or quotes — keep it out of the
 command line entirely rather than trying to quote it. --variants is the convenience form for keys
 you have already eyeballed.
 
@@ -255,7 +255,7 @@ def printable(value: str) -> str:
     """Escape anything non-printable in a variant key before it reaches the report.
 
     Variant keys are charset-validated in the PostHog UI but not by the API, and the recorded
-    values come from the customer's own CSV, so neither is trustworthy. Printed verbatim, a key
+    values come from the exported CSV, so neither is trustworthy. Printed verbatim, a key
     carrying a newline can forge a verdict line in a report an operator reads to pick a
     diagnosis, and one carrying an escape sequence can drive their terminal. Printable
     non-ASCII (a legitimately localized key) survives untouched."""
@@ -468,7 +468,7 @@ _CHI2_CASES = [
 # The worked example in pulling-the-data.md: 832 vs 1123 pins down which split is running.
 _SRM_EXAMPLE = [(0.5, 4.66e-11), (0.45, 0.0299), (0.43, 0.693)]
 
-# Untrusted variant keys reach the report from the API and from the customer's CSV. Each case is a
+# Untrusted variant keys reach the report from the API and from the exported CSV. Each case is a
 # forge attempt: a newline injecting a fake verdict line, and an ANSI sequence driving the terminal.
 _PRINTABLE_CASES = [
     ("control", "control"),
