@@ -11,6 +11,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import UserType
 
 from products.access_control.backend.models.role import Role, RoleMembership
 
@@ -482,6 +483,47 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         role.refresh_from_db()
         assert role.name == "RemoveName"
+
+    @parameterized.expand(
+        [
+            ("patch_replace_members", "patch", [{"op": "replace", "path": "members", "value": []}]),
+            ("patch_remove_all_members", "patch", [{"op": "remove", "path": "members"}]),
+            ("patch_remove_by_value", "patch", [{"op": "remove", "path": "members", "value": "SERVICE_ACCOUNT"}]),
+            ("put_without_members", "put", []),
+        ]
+    )
+    def test_group_sync_keeps_service_account_role_membership(self, _name, method, operations):
+        person = User.objects.create_and_join(self.organization, "person@example.com", None)
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@example.com", None, type=UserType.SERVICE_ACCOUNT
+        )
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        for user in (person, service_account):
+            RoleMembership.objects.create(
+                role=role,
+                user=user,
+                organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+            )
+        url = f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}"
+
+        if method == "put":
+            data = {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                "displayName": "TestRole",
+                "members": [],
+            }
+            response = self.client.put(url, data=data, content_type="application/scim+json")
+        else:
+            for operation in operations:
+                if operation.get("value") == "SERVICE_ACCOUNT":
+                    operation["value"] = [{"value": str(service_account.id)}]
+            data = {"schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], "Operations": operations}
+            response = self.client.patch(url, data=data, content_type="application/scim+json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert RoleMembership.objects.filter(role=role, user=service_account).exists()
+        listed = [member["value"] for member in self.client.get(url).json()["members"]]
+        assert str(service_account.id) not in listed
 
     def test_patch_remove_group_members_with_simple_path(self):
         user = User.objects.create_user(

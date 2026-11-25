@@ -13,8 +13,17 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.user import UserType
 
 from products.access_control.backend.models.role import RoleMembership
+
+
+def managed_users() -> QuerySet[User]:
+    """
+    The users an identity provider can see and change through SCIM. Only people: any other account,
+    such as a service account, belongs to the organization and must not be deprovisioned by a sync.
+    """
+    return User.objects.filter(type=UserType.HUMAN)
 
 
 class SCIMUserConflict(Exception):
@@ -191,6 +200,10 @@ class PostHogSCIMUser(SCIMUser):
 
         with transaction.atomic():
             user = EmailLookupHandler.get_user_by_email(email, is_active=None)
+
+            # The address is taken by an account the identity provider does not manage.
+            if user and user.type != UserType.HUMAN:
+                raise SCIMUserConflict()
 
             # Check if already SCIM-provisioned for this IdP config
             if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
@@ -440,4 +453,4 @@ class PostHogSCIMUser(SCIMUser):
 
     @classmethod
     def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[User]:
-        return User.objects.filter(organization_membership__organization=config.organization).order_by("id")
+        return managed_users().filter(organization_membership__organization=config.organization).order_by("id")
