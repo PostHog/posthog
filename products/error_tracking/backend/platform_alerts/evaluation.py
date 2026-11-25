@@ -117,7 +117,10 @@ _TRIGGER_EVENTS: Final[dict[ErrorTrackingPlatformAlertTrigger, str]] = {
 
 # Each trigger's rows, so the read returns only changes the alert can announce.
 _TRIGGER_ROWS: Final[dict[ErrorTrackingPlatformAlertTrigger, Q]] = {
-    ErrorTrackingPlatformAlertTrigger.ISSUE_CREATED: Q(kind=ErrorTrackingIssueChange.Kind.CREATED),
+    # Only ingestion creates a new error. A split's new issues are a person regrouping known errors.
+    ErrorTrackingPlatformAlertTrigger.ISSUE_CREATED: Q(
+        kind=ErrorTrackingIssueChange.Kind.CREATED, actor_type=ErrorTrackingIssueChange.ActorType.INGESTION
+    ),
     ErrorTrackingPlatformAlertTrigger.ISSUE_REOPENED: Q(
         kind=ErrorTrackingIssueChange.Kind.STATUS_CHANGED, snapshot__status="active"
     )
@@ -302,7 +305,10 @@ def _observe_changes(
 
 def _trigger_of(row: ErrorTrackingIssueChange) -> ErrorTrackingPlatformAlertTrigger | None:
     snapshot = row.snapshot or {}
-    if row.kind == ErrorTrackingIssueChange.Kind.CREATED:
+    if (
+        row.kind == ErrorTrackingIssueChange.Kind.CREATED
+        and row.actor_type == ErrorTrackingIssueChange.ActorType.INGESTION
+    ):
         return ErrorTrackingPlatformAlertTrigger.ISSUE_CREATED
     if row.kind == ErrorTrackingIssueChange.Kind.STATUS_CHANGED and snapshot.get("status") == "active":
         if (row.data or {}).get("previous") != "active":

@@ -47,7 +47,9 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
         event_uuid: uuid.UUID | None = None,
         issue_id: uuid.UUID | None = None,
         assignee: dict[str, str] | None = None,
+        actor: str | None = None,
     ) -> str:
+        actor = actor or ("ingestion" if event_uuid or kind == "created" else "user")
         issue_id = issue_id or uuid.uuid4()
         change = ErrorTrackingIssueChange.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -63,8 +65,8 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
             },
             operation_id=uuid.uuid4(),
             bulk=bulk,
-            actor_type="ingestion" if event_uuid else "user",
-            actor_user_id=None if event_uuid else self.user.id,
+            actor_type=actor,
+            actor_user_id=self.user.id if actor == "user" else None,
             event_uuid=event_uuid,
             event_timestamp=at if event_uuid else None,
         )
@@ -122,6 +124,8 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
         self._change("created", at=DUE_AT - dt.timedelta(minutes=5))
         self._change("created", at=DUE_AT - dt.timedelta(seconds=30))
         self._change("created", at=in_window, bulk=True)
+        # A split's new issues are a person regrouping known errors, not a new one.
+        self._change("created", at=in_window, actor="user")
         self._change("status_changed", at=in_window, data={"previous": "resolved"})
 
         fired = self._fired({"condition": {"triggers": ["issue_created"]}})
@@ -159,6 +163,9 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
             ("status_as_displayed", {"key": "status", "value": ["Active"], "operator": "exact"}, True),
             # A manual change has no exception, so a filter on the exception fails closed.
             ("exception_property_without_exception", {"key": "$lib", "value": ["web"], "operator": "exact"}, False),
+            # Negated operators match an empty exception, so these catch an empty one passed for a missing one.
+            ("negated_exception_property", {"key": "$lib", "value": ["web"], "operator": "is_not"}, False),
+            ("exception_property_not_set", {"key": "$lib", "operator": "is_not_set"}, False),
         ]
     )
     def test_filters_decide_which_changes_fire(self, _name: str, property_filter: dict[str, Any], fires: bool) -> None:
