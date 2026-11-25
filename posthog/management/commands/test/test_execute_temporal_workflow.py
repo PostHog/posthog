@@ -41,3 +41,24 @@ def test_execute_temporal_workflow_supports_wa_digest_workflows(workflow_name, i
         assert execute_call.args[1] == WAWeeklyDigestInput(dry_run=False)
     if workflow_name == "wa-weekly-digest-test":
         assert execute_call.args[1] == SendTestDigestInput(team_id=1, email="you@example.com")
+
+
+@pytest.mark.django_db
+def test_execute_temporal_workflow_finds_workflows_a_product_registers():
+    mock_client = MagicMock()
+    mock_client.execute_workflow = AsyncMock(return_value={"ok": True})
+
+    with patch(
+        "posthog.management.commands.execute_temporal_workflow.connect",
+        new=AsyncMock(return_value=mock_client),
+    ):
+        call_command(
+            "execute_temporal_workflow",
+            "data-modeling-execute-dag",
+            '{"team_id": 1, "dag_id": "dag-1"}',
+            "--workflow-id=test-workflow-id",
+        )
+
+    execute_call = mock_client.execute_workflow.await_args
+    assert execute_call.args[0] == "data-modeling-execute-dag"
+    assert execute_call.args[1].dag_id == "dag-1"
