@@ -37,7 +37,7 @@ describe('fileSystemImportFlags', () => {
         },
         { name: 'no hiding flags, own flag off', item: { flag: 'c' }, enabled: [], expected: false },
     ])('shown: $name', ({ item, enabled, expected }) => {
-        expect(isFileSystemImportShown(item, flags(enabled))).toBe(expected)
+        expect(isFileSystemImportShown(item, flags(enabled), false)).toBe(expected)
     })
 
     it.each([

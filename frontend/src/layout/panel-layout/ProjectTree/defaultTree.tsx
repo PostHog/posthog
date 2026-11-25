@@ -647,10 +647,12 @@ export const getDefaultTreeData = (): FileSystemImport[] =>
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export function hiddenProductHrefs(featureFlags: FeatureFlagsSet): Set<string> {
+export function hiddenProductHrefs(featureFlags: FeatureFlagsSet, isOrganizationAdmin = false): Set<string> {
     const items = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
     const shownHrefs = new Set(
-        items.filter((item) => isFileSystemImportShown(item, featureFlags)).map((item) => item.href)
+        items
+            .filter((item) => isFileSystemImportShown(item, featureFlags, isOrganizationAdmin))
+            .map((item) => item.href)
     )
     return new Set(items.flatMap((item) => (item.href && !shownHrefs.has(item.href) ? [item.href] : [])))
 }

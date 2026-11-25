@@ -1814,6 +1814,11 @@
         "params": [],
         "scope": "project"
     },
+    "tagDefinitions": {
+        "template": "/data-management/tags",
+        "params": [],
+        "scope": "project"
+    },
     "taskDetail": {
         "template": "/tasks/{taskId}",
         "params": ["taskId"],

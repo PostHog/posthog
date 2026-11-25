@@ -216,7 +216,7 @@ export interface dataManagementSceneLogicActions {
 export interface dataManagementSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (tab: DataManagementTab) => Breadcrumb[]
-        enabledTabs: (featureFlags: FeatureFlagsSet, canManageTags: any) => DataManagementTab[]
+        enabledTabs: (featureFlags: FeatureFlagsSet, canManageTags: boolean) => DataManagementTab[]
         sidePanelContext: (tab: DataManagementTab) => SidePanelSceneContext | null
     }
 }

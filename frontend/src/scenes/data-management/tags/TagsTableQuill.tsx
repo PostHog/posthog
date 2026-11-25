@@ -34,6 +34,7 @@ export function TagsTableQuill(): JSX.Element {
     const { tagPage, tagPageLoading, search, page, ordering, listError, mutationLoading } = useValues(tagsLogic)
     const { setSearch, setPage, setOrdering, loadTagDefinitions, openRename, openMerge, openDelete } =
         useActions(tagsLogic)
+    const pageCount = Math.max(1, Math.ceil((tagPage?.count ?? 0) / TAG_PAGE_SIZE))
     const columns: ColumnDef<TagDefinitionApi>[] = [
         {
             accessorKey: 'name',
@@ -133,22 +134,33 @@ export function TagsTableQuill(): JSX.Element {
                             setOrdering(`${sorting[0]?.desc ? '-' : ''}${sorting[0]?.id ?? 'name'}` as TagOrdering)
                         }
                         empty={
-                            search
-                                ? 'No tags match your search.'
-                                : 'No tags yet. Add tags to items in PostHog to see them here.'
+                            page > 1
+                                ? 'No tags on this page.'
+                                : search
+                                  ? 'No tags match your search.'
+                                  : 'No tags yet. Add tags to items in PostHog to see them here.'
                         }
                     />
-                    {tagPage.count > TAG_PAGE_SIZE && (
+                    {page > pageCount ? (
+                        <Button
+                            variant="outline"
+                            onClick={() => setPage(page - 1)}
+                            loading={tagPageLoading}
+                            data-attr="tag-management-previous-page"
+                        >
+                            Previous page
+                        </Button>
+                    ) : tagPage.count > TAG_PAGE_SIZE ? (
                         <fieldset disabled={tagPageLoading} className="m-0 min-w-0 border-0 p-0">
                             <QuillTablePagination
                                 currentPage={page}
-                                pageCount={Math.ceil(tagPage.count / TAG_PAGE_SIZE)}
+                                pageCount={pageCount}
                                 pageSize={TAG_PAGE_SIZE}
                                 total={tagPage.count}
                                 onPageChange={setPage}
                             />
                         </fieldset>
-                    )}
+                    ) : null}
                 </>
             )}
             <RenameTagModalQuill />
