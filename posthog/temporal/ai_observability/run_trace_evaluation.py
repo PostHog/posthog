@@ -717,25 +717,38 @@ def run_trace_llm_judge(
 
     def judge(max_chars: int) -> tuple[EvaluationActivityResult, JudgeTranscript]:
         transcript = format_trace_for_judge(trace, max_chars=max_chars)
+        marked: list[JudgeTranscript] = []
+
+        def render_marked(media_marker: MediaMarker) -> str:
+            marked.append(format_trace_for_judge(trace, media_marker, max_chars))
+            return marked[-1].text
+
+        attachment_prompt = build_attachment_prompt(evaluation, transcript.text, render_marked)
+        # The judge receives the marked render when there is one, and it can be cut where the plain
+        # render is not, because image markers take space that dropped image blocks do not.
+        sent = marked[-1] if attachment_prompt is not None else transcript
         result = call_llm_judge(
             evaluation=evaluation,
             system_prompt=system_prompt,
             user_prompt=transcript.text,
             allows_na=allows_na,
             backfill=inputs.backfill_id is not None,
-            attachment_prompt=build_attachment_prompt(
-                evaluation,
-                transcript.text,
-                lambda media_marker: format_trace_for_judge(trace, media_marker, max_chars).text,
-            ),
+            attachment_prompt=attachment_prompt,
         )
-        if transcript.truncated:
+        if sent.truncated:
             result["input_truncated"] = True
-        return result, transcript
+        return result, sent
 
-    result, transcript = judge(JUDGE_TRACE_MAX_CHARS)
-    if result.get("skip_reason") == "context_window_exceeded" and len(transcript.text) > JUDGE_TRACE_FALLBACK_MAX_CHARS:
+    result, sent = judge(JUDGE_TRACE_MAX_CHARS)
+    if result.get("skip_reason") == "context_window_exceeded" and len(sent.text) > JUDGE_TRACE_FALLBACK_MAX_CHARS:
         result, _ = judge(JUDGE_TRACE_FALLBACK_MAX_CHARS)
+        logger.info(
+            "trace_judge_context_window_fallback",
+            evaluation_id=evaluation["id"],
+            team_id=inputs.team_id,
+            first_transcript_chars=len(sent.text),
+            recovered=not result.get("skipped", False),
+        )
     return result
 
 

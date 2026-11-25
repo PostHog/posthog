@@ -969,11 +969,29 @@ class TestExecuteTraceLLMJudgeActivity:
         assert result.get("input_truncated", False) == ("chars truncated" in content)
 
     @pytest.mark.django_db(transaction=True)
-    def test_retries_with_the_fallback_budget_when_the_judge_context_window_rejects_the_transcript(
-        self, setup_data: dict[str, Any], active_key_config: None
+    @pytest.mark.parametrize(
+        "content_length,rejections,expected_calls,expected_skip_reason",
+        [
+            pytest.param(200_000, 1, 2, None, id="long_transcript_recovers_at_the_fallback_budget"),
+            pytest.param(200_000, 2, 2, "context_window_exceeded", id="fallback_rejected_too"),
+            pytest.param(50_000, 1, 1, "context_window_exceeded", id="short_transcript_is_not_sent_again"),
+        ],
+    )
+    def test_context_window_rejection_retries_once_at_the_fallback_budget(
+        self,
+        setup_data: dict[str, Any],
+        active_key_config: None,
+        content_length: int,
+        rejections: int,
+        expected_calls: int,
+        expected_skip_reason: str | None,
     ) -> None:
-        content = "start " + "x" * 100_000 + " critical evidence " + "y" * 100_000 + " end"
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
         trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": content, "$ai_output": "4"})])
+        response = MagicMock()
+        response.parsed = BooleanEvalResult(verdict=True, reasoning="Resolved")
+        response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+        rejection = ContextWindowExceededError("prompt is too long: 70000 tokens > 64000 maximum")
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
             return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
@@ -981,13 +999,7 @@ class TestExecuteTraceLLMJudgeActivity:
             with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
                 mock_client = MagicMock()
                 mock_client_class.return_value = mock_client
-                mock_response = MagicMock()
-                mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Resolved")
-                mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
-                mock_client.complete.side_effect = [
-                    ContextWindowExceededError("prompt is too long: 70000 tokens > 64000 maximum"),
-                    mock_response,
-                ]
+                mock_client.complete.side_effect = [*[rejection] * rejections, response]
 
                 result = execute_trace_llm_judge_activity(
                     ExecuteTraceEvaluationInputs(
@@ -998,13 +1010,17 @@ class TestExecuteTraceLLMJudgeActivity:
                     )
                 )
 
-                full, fallback = (call[0][0].messages[0]["content"] for call in mock_client.complete.call_args_list)
+                prompts = [call[0][0].messages[0]["content"] for call in mock_client.complete.call_args_list]
 
-        assert "critical evidence" in full
-        assert "critical evidence" not in fallback
-        assert len(fallback) <= JUDGE_TRACE_FALLBACK_MAX_CHARS
-        assert result["verdict"] is True
-        assert result["input_truncated"] is True
+        assert len(prompts) == expected_calls
+        assert "critical evidence" in prompts[0]
+        assert result.get("skip_reason") == expected_skip_reason
+        if expected_calls == 2:
+            assert "critical evidence" not in prompts[1]
+            assert len(prompts[1]) <= JUDGE_TRACE_FALLBACK_MAX_CHARS
+        if expected_skip_reason is None:
+            assert result["verdict"] is True
+            assert result["input_truncated"] is True
 
     @pytest.mark.django_db(transaction=True)
     def test_sends_the_trace_images_to_a_judge_with_images(
