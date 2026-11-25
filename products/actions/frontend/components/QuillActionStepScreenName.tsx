@@ -74,6 +74,7 @@ export function QuillActionStepScreenName({
                 onChange={(names) => setFilter(names, operator)}
                 options={[]}
                 allowCustomValues
+                commitOnBlur
                 customValueNoun="screen name"
                 placeholder="e.g. HomeScreen, Settings"
                 disabledReason={disabledReason}

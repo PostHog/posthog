@@ -8,15 +8,25 @@ import { TagsCombobox } from './TagsCombobox'
 
 function StatefulTags({
     initialTags,
-    onParentKeyDown,
+    onParentKeyDown = () => {},
+    options,
+    commitOnBlur,
 }: {
     initialTags: string[]
-    onParentKeyDown: (event: KeyboardEvent) => void
+    onParentKeyDown?: (event: KeyboardEvent) => void
+    options?: string[]
+    commitOnBlur?: boolean
 }): JSX.Element {
     const [tags, setTags] = useState(initialTags)
     return (
         <div onKeyDown={onParentKeyDown}>
-            <TagsCombobox value={tags} onChange={setTags} placeholder="Add tags..." />
+            <TagsCombobox
+                value={tags}
+                onChange={setTags}
+                options={options}
+                commitOnBlur={commitOnBlur}
+                placeholder="Add tags..."
+            />
         </div>
     )
 }
@@ -52,6 +62,40 @@ describe('TagsCombobox', () => {
             expect(onParentKeyDown).toHaveBeenCalledWith(expect.objectContaining({ key: 'Escape' }))
         }
     )
+
+    it.each([
+        ['a click outside adds the typed value with commitOnBlur', true, ['click'], ['existing', 'typed']],
+        ['Tab adds the typed value with commitOnBlur', true, ['{Tab}'], ['existing', 'typed']],
+        ['Escape then a click outside drops the typed value', true, ['{Escape}', 'click'], ['existing']],
+        ['a click outside drops the typed value by default', undefined, ['click'], ['existing']],
+    ])('on leaving the input, %s', async (_, commitOnBlur, leaveSteps, expectedTags) => {
+        render(
+            <>
+                <StatefulTags initialTags={['existing']} commitOnBlur={commitOnBlur} />
+                <button type="button">Save</button>
+            </>
+        )
+        await userEvent.click(screen.getByPlaceholderText('Add tags...'))
+        await userEvent.keyboard('typed')
+
+        for (const step of leaveSteps) {
+            await (step === 'click' ? userEvent.click(screen.getByText('Save')) : userEvent.keyboard(step))
+        }
+        await act(async () => {})
+
+        expect(chipTitles()).toEqual(expectedTags)
+    })
+
+    it('adds only the picked option, not the partly typed text, when commitOnBlur is on', async () => {
+        render(<StatefulTags initialTags={[]} options={['HomeScreen']} commitOnBlur />)
+        await userEvent.click(screen.getByPlaceholderText('Add tags...'))
+        await userEvent.keyboard('Home')
+
+        await userEvent.click(await screen.findByRole('option', { name: 'HomeScreen' }))
+        await act(async () => {})
+
+        expect(chipTitles()).toEqual(['HomeScreen'])
+    })
 
     it('shows a value that starts like the create prefix as its own chip', () => {
         render(<TagsCombobox value={['__create__:paid', 'refunded']} onChange={jest.fn()} />)
