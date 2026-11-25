@@ -16,6 +16,8 @@ CORE_ENDPOINTS = (
     "TicketProjects",
     "PullRequestComments",
     "TicketEvents",
+    "PullRequestEvents",
+    "TicketComments",
 )
 
 # Aggregate report resources under the shared Metrics API host (`https://api.appfireflow.com/`).
@@ -48,6 +50,9 @@ CORE_ENDPOINT_PATHS: dict[str, str] = {
     "TicketProjects": "ticket_projects/",
     "PullRequestComments": "pull_request_comments/",
     "TicketEvents": "ticket_events/",
+    "PullRequestEvents": "pull_request_events/",
+    # Documented without a trailing slash; like `team_membership/`, only the slash form routes to the API.
+    "TicketComments": "ticket_comments/",
 }
 
 # Path of each metrics endpoint under the shared collaboration host.
@@ -99,6 +104,8 @@ TABLE_NAMES: dict[str, str] = {
     "TicketProjects": "ticket_projects",
     "PullRequestComments": "pull_request_comments",
     "TicketEvents": "ticket_events",
+    "PullRequestEvents": "pull_request_events",
+    "TicketComments": "ticket_comments",
     "CodingMetrics": "coding_metrics",
     "CollaborationMetrics": "collaboration_metrics",
     "TicketMetrics": "ticket_metrics",
@@ -122,12 +129,14 @@ PARTITION_KEYS: dict[str, str] = {
     "TicketProjects": "created_at",
     "PullRequestComments": "created_at",
     "TicketEvents": "created_at",
+    "PullRequestEvents": "created_at",
+    "TicketComments": "created_at",
 }
 
 # Only endpoints with a documented `<field>__gte`/`<field>__lt`-filterable timestamp get an entry.
-# Repos, TeamMemberships, PullRequestProjects, TicketProjects, PullRequestComments, TicketEvents and the
-# metrics endpoints are full refresh: the core ones document no date filter, and the metrics endpoints already require an explicit
-# date-range window on every call.
+# Repos, TeamMemberships, PullRequestProjects, TicketProjects, PullRequestComments, TicketEvents,
+# PullRequestEvents, TicketComments and the metrics endpoints are full refresh: the core ones document
+# no date filter, and the metrics endpoints already require an explicit date-range window on every call.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "Users": [incremental_field("last_activity_at", IncrementalFieldType.DateTime)],
     "Teams": [incremental_field("created_at", IncrementalFieldType.DateTime)],

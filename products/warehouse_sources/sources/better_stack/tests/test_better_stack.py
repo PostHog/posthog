@@ -336,6 +336,75 @@ class TestFanout:
         assert resumed.rows == []
         assert resumed.paths == ["/api/v2/monitors"]
 
+    def test_paginated_child_walks_every_page_of_each_parent(self) -> None:
+        second = "https://uptime.betterstack.com/api/v2/status-pages/1/status-reports?page=2&per_page=250"
+        result = _driver().run(
+            "status_page_reports",
+            [
+                _response([{"id": "1", "attributes": {}}]),
+                _response([{"id": "10", "attributes": {"title": "Outage"}}], next_url=second),
+                _response([{"id": "11", "attributes": {"title": "Maintenance"}}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v2/status-pages",
+            "/api/v2/status-pages/1/status-reports",
+            "/api/v2/status-pages/1/status-reports",
+        ]
+        assert result.requests[1].param("per_page") == "250"
+        assert result.urls[2] == second
+        assert result.rows == [
+            {"id": "10", "status_page_id": "1", "title": "Outage"},
+            {"id": "11", "status_page_id": "1", "title": "Maintenance"},
+        ]
+
+
+class TestChainedFanout:
+    def test_report_updates_bind_both_ids_and_skip_a_missing_report(self) -> None:
+        result = _driver().run(
+            "status_page_report_updates",
+            [
+                _response([{"id": "7", "type": "status_page", "attributes": {}}]),
+                _response(
+                    [
+                        {"id": "20", "type": "status_report", "attributes": {"status_page_id": 7}},
+                        {"id": "21", "type": "status_report", "attributes": {"status_page_id": 7}},
+                    ]
+                ),
+                _response(
+                    [
+                        {
+                            "id": "300",
+                            "type": "status_update",
+                            "attributes": {"message": "Investigating", "status_report_id": 20},
+                        }
+                    ]
+                ),
+                # The second report was removed between the reports page and its updates fetch.
+                ScriptedResponse(status=404),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v2/status-pages",
+            "/api/v2/status-pages/7/status-reports",
+            "/api/v2/status-pages/7/status-reports/20/status-updates",
+            "/api/v2/status-pages/7/status-reports/21/status-updates",
+        ]
+        assert result.requests[2].param("per_page") == "250"
+        assert result.rows == [
+            {
+                "id": "300",
+                "type": "status_update",
+                "status_page_id": 7,
+                "message": "Investigating",
+                "status_report_id": 20,
+            }
+        ]
+
 
 class TestProbeCredentialsForFanoutEndpoints:
     @parameterized.expand(
@@ -345,6 +414,8 @@ class TestProbeCredentialsForFanoutEndpoints:
             ("incident_comments", "v3", f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"),
             ("heartbeat_availability", "v3", f"{BETTER_STACK_BASE_URL}/v2/heartbeats?per_page=1"),
             ("status_page_resources", "v3", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
+            # Two levels deep: the middle level is parent-scoped too, so the probe walks to the top.
+            ("status_page_report_updates", "v3", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
             ("on_call_events", "v3", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
             ("on_call_rotations", "v3", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
             ("team_members", "v3", f"{BETTER_STACK_ORG_BASE_URL}/v2/team-members?per_page=1"),

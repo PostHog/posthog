@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .enums import (
+    AgentActivityKind,
     AttributeScope,
     DashboardImportPhase,
     DashboardImportSource,
@@ -514,6 +515,10 @@ class DashboardImportInProgress(DashboardImportError):
     """The user already has a dashboard import that has not finished."""
 
 
+class DashboardImportStorageError(DashboardImportError):
+    """Object storage refused an operation on the import's stored input."""
+
+
 class DashboardImportNotAllowed(DashboardImportError):
     """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
 
@@ -542,6 +547,17 @@ class DashboardImportPanelProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardImportAgentActivity:
+    """The agent's latest action. `seconds` counts from its start, `idle_seconds` from the agent's last log entry."""
+
+    kind: AgentActivityKind
+    seconds: int
+    idle_seconds: int
+    subject: str | None = None
+    panel_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardImportSummary:
     total: int
     imported: int
@@ -560,6 +576,7 @@ class DashboardImportStatus:
     dashboard_name: str
     phase: DashboardImportPhase | None = None
     panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    agent_activity: DashboardImportAgentActivity | None = None
     # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
     layout_rounds: int | None = None
     layout_round: int | None = None
@@ -567,6 +584,17 @@ class DashboardImportStatus:
     error: str | None = None
     summary: DashboardImportSummary | None = None
     panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportInput:
+    """What a failed import read, so the user can retry it. `name` is None when the user gave no name."""
+
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image_base64: str | None = None
+    image_content_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

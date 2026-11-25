@@ -330,6 +330,7 @@ from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_sample,
     suggestions_scout_refusal,
+    suggestions_scout_schedule,
     suggestions_scout_status,
     sync_suggestions_scout,
 )
@@ -5285,6 +5286,20 @@ class SuggestionsSampleSerializer(serializers.Serializer):
     )
 
 
+class SuggestionsScheduleSerializer(serializers.Serializer):
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the project's suggestions scout last checked its workflows. Null before its first check.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the scout checks next. Null before its first check, or when a custom schedule or a "
+        "backoff decides it.",
+    )
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
     scout_status = serializers.ChoiceField(
@@ -5299,6 +5314,12 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
         "while suggestions are on but the scout is not running, or when the workflow has no email step.",
+    )
+    schedule = SuggestionsScheduleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="When the project's suggestions scout last checked and checks next. Null unless the scout is "
+        "running.",
     )
 
 
@@ -7224,7 +7245,7 @@ class HogFlowViewSet(
             hog_flow_id=instance.id,
             evidence=evidence,
             changes=content,
-            live=snapshot_flow_content(instance).get("conversion"),
+            live=snapshot_flow_content(instance),
             base_version=params["base_version"],
             now=django_timezone.now(),
         )
@@ -7417,7 +7438,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
-                live_conversion=snapshot_flow_content(hog_flow).get("conversion"),
+                live=snapshot_flow_content(hog_flow),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
@@ -7510,8 +7531,11 @@ class HogFlowViewSet(
             except Exception as error:
                 # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
                 capture_exception(error)
+        schedule = suggestions_scout_schedule(self.team) if scout_status == SuggestionsScoutStatus.RUNNING else None
         return Response(
-            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": scout_status, "sample": sample, "schedule": schedule}
+            ).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:

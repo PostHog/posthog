@@ -208,8 +208,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'support_ticket:write',
     'survey:read',
     'survey:write',
-    'tagger:read',
-    'tagger:write',
     'ticket:read',
     'ticket:write',
     'task:read',

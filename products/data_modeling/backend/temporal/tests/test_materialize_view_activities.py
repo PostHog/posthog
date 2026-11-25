@@ -2400,12 +2400,21 @@ class TestHogqlTableModifiers:
             ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
             ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            (
+                "Array(Variant(Int64, String))",
+                "arrayMap(x -> accurateCastOrNull(x, %(hogql_val_0)s), person_ids) AS person_ids",
+            ),
+            ("Variant(Int64, String)", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Dynamic", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Tuple(value Variant(Int64, String))", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
             ("Array(String)", None),
             ("Array(Tuple(uuid String))", None),
             ("Array(Array(UUID))", None),
+            ("Tuple(variant String, dynamic String, uuid String)", None),
+            ("Tuple(`variant` String)", None),
         ],
     )
-    async def test_applies_arrow_conversions_to_array_elements(
+    async def test_applies_arrow_conversions(
         self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
@@ -2422,7 +2431,7 @@ class TestHogqlTableModifiers:
 
         assert client.arrow_query is not None
         if expected_conversion is None:
-            assert "arrayMap(" not in client.arrow_query
+            assert client.arrow_query.startswith("SELECT [] AS person_ids FORMAT ArrowStream")
         else:
             assert expected_conversion in client.arrow_query
 
@@ -3102,6 +3111,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
 
         # The workflow gates the person-property child on this field.
         assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is True
 
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix.removeprefix(f"{bucket_name}/"))
         keys = [obj["Key"] for obj in listing.get("Contents", [])]
@@ -3112,6 +3122,27 @@ class TestMaterializeViewStagesPersonPropertyRows:
         # Only the projected columns leave the pipeline — "plan" isn't mapped by this projection.
         assert table.column_names == ["distinct_id"]
         assert table.column("distinct_id").to_pylist() == ["a", "b"]
+
+    @pytest.mark.parametrize("failing_method", ["clear", "stage_chunk"])
+    async def test_staging_failure_marks_the_full_read_incomplete(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, failing_method: str
+    ) -> None:
+        projection = [PersonPropertySourceProjection(key_column="distinct_id", columns=frozenset({"distinct_id"}))]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            self._env(bucket_name, projection),
+            unittest.mock.patch(
+                f"products.data_modeling.backend.temporal.activities.materialize_view."
+                f"PersonPropertyRowSink.{failing_method}",
+                new=unittest.mock.AsyncMock(side_effect=RuntimeError("staging failed")),
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is False
 
     async def test_unmapped_view_stages_nothing_and_leaves_the_flag_off(
         self, activity_environment, ateam, anode, ajob, adag, bucket_name, minio_client
@@ -3124,6 +3155,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
         assert result.person_property_sync_enabled is False
+        assert result.person_property_complete_table_read is False
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
         assert listing.get("Contents", []) == []
 

@@ -603,6 +603,68 @@ class TestProfilesSubscriptionsRoundTrip:
         assert json.loads(rows["P_CONSENTED"]["subscriptions"]) == consented_subscriptions
 
 
+class TestUniversalContent:
+    def test_incremental_run_filters_and_sorts_on_updated_and_follows_the_cursor(self) -> None:
+        next_url = "https://a.klaviyo.com/api/template-universal-content?page[cursor]=next-1&page[size]=100"
+        definition = {
+            "content_type": "block",
+            "type": "button",
+            "data": {"content": "Shop now", "properties": {"href": "https://example.com/shop"}},
+        }
+        pages = {
+            "https://a.klaviyo.com/api/template-universal-content?page[size]=100"
+            "&filter=greater-than(updated,2026-03-04T02:58:14.000Z)&sort=updated": {
+                "data": [
+                    {
+                        "type": "template-universal-content",
+                        "id": "UC1",
+                        "attributes": {
+                            "name": "Footer button",
+                            "definition": definition,
+                            "created": "2026-01-01T00:00:00+00:00",
+                            "updated": "2026-03-05T00:00:00+00:00",
+                            "screenshot_status": "completed",
+                            "screenshot_url": "https://example.com/uc1.png",
+                        },
+                    }
+                ],
+                "links": {"next": next_url},
+            },
+            next_url: {
+                "data": [
+                    {
+                        "type": "template-universal-content",
+                        "id": "UC2",
+                        "attributes": {
+                            "name": "Unsupported block",
+                            "definition": None,
+                            "created": "2026-02-01T00:00:00+00:00",
+                            "updated": "2026-03-06T00:00:00+00:00",
+                            "screenshot_status": "not_renderable",
+                            "screenshot_url": "",
+                        },
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+
+        result = _drive_pages(
+            "universal_content",
+            pages,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated",
+        )
+
+        assert result.raised is None
+        rows = {row["id"]: row for row in _rows(result)}
+        assert set(rows) == {"UC1", "UC2"}
+        assert json.loads(rows["UC1"]["definition"]) == definition
+        assert rows["UC2"]["definition"] is None
+        assert rows["UC2"]["updated"] == "2026-03-06T00:00:00+00:00"
+
+
 class TestValuesReports:
     def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self) -> None:
         # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
@@ -866,6 +928,7 @@ class TestEndpointRequestParams:
             # Klaviyo caps page[size] per endpoint and 400s anything larger, which fails the table.
             ("segments", 10),
             ("templates", 10),
+            ("universal_content", 100),
             ("web_feeds", 20),
             ("tag_groups", 25),
             ("tags", 50),
