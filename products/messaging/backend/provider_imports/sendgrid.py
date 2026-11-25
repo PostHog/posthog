@@ -1269,7 +1269,7 @@ def _read_account(client: SendGridClient) -> _Account:
     doesn't remove another's people."""
     body = client.get("/v3/user/username")
     user_id = body.get("user_id") if isinstance(body, dict) else None
-    if not isinstance(user_id, int):
+    if not isinstance(user_id, int) or isinstance(user_id, bool):
         raise SendGridAPIError("SendGrid sent an unexpected response for /v3/user/username.")
     return _Account(user_id=user_id, username=str(body.get("username") or user_id))
 
