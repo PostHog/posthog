@@ -260,6 +260,22 @@ class KafkaClientTestCase(TestCase):
 _ROUNDTRIP = os.environ.get("KAFKA_ROUNDTRIP_TESTS") == "1"
 
 
+class KafkaProducerInitTestCase(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("data_warehouse_worker", "temporal-worker-data-warehouse-7d9f8b-abcde"),
+            ("other_worker", "temporal-worker-general-purpose-7d9f8b-abcde"),
+            ("no_hostname", ""),
+        ]
+    )
+    def test_init_does_not_walk_the_call_stack(self, _name: str, hostname: str) -> None:
+        with (
+            patch.dict(os.environ, {"HOSTNAME": hostname}),
+            patch("traceback.format_stack", side_effect=AssertionError("format_stack called")),
+        ):
+            _KafkaProducer(test=True)
+
+
 class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
     @parameterized.expand(
         [

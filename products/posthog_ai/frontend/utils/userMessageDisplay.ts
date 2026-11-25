@@ -1,6 +1,6 @@
 import { unescapeXml } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 
-import { stripInjectedBlocks } from 'products/tasks/frontend/spaces/spaceFeedPreview'
+import { stripInjectedBlocks } from 'products/today/frontend/spaces/spaceFeedPreview'
 
 const MENTION_TAG =
     /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="[^"]*")?>[\s\S]*?<\/comment_context>|<skill\s+name="([^"<>]+)"[^<>]*\/>/g

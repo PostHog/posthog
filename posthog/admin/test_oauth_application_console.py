@@ -2,7 +2,8 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthApplication
+from posthog.api.oauth.provisioning_review import PartnerDecisionRefused, decide_partner
+from posthog.models.oauth import OAuthApplication, OAuthRefreshToken
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
@@ -48,25 +49,49 @@ class TestOAuthApplicationConsole(BaseTest):
     @parameterized.expand(
         [
             ("accept_needs_human", ProvisioningReviewStatus.NEEDS_HUMAN, "accept", "Accepted: Staff: Checked the site"),
-            ("block_needs_human", ProvisioningReviewStatus.NEEDS_HUMAN, "block", "Rejected: Staff: Checked the site"),
+            ("block_needs_human", ProvisioningReviewStatus.NEEDS_HUMAN, "block", "Blocked: Staff: Checked the site"),
+            (
+                "decline_needs_human",
+                ProvisioningReviewStatus.NEEDS_HUMAN,
+                "decline",
+                "Declined: Staff: Checked the site",
+            ),
+            (
+                "request_changes_needs_human",
+                ProvisioningReviewStatus.NEEDS_HUMAN,
+                "request-changes",
+                "Changes requested: Staff: Checked the site",
+            ),
             ("accept_pending", ProvisioningReviewStatus.PENDING, "accept", "Accepted: Staff: Checked the site"),
             (
                 "block_accepted",
                 ProvisioningReviewStatus.ACCEPTED,
                 "block",
-                "Changed from Accepted to Rejected: Staff: Checked the site",
+                "Changed from Accepted to Blocked: Staff: Checked the site",
+            ),
+            (
+                "decline_accepted",
+                ProvisioningReviewStatus.ACCEPTED,
+                "decline",
+                "Changed from Accepted to Declined: Staff: Checked the site",
             ),
             (
                 "accept_rejected",
                 ProvisioningReviewStatus.REJECTED,
                 "accept",
-                "Changed from Rejected to Accepted: Staff: Checked the site",
+                "Changed from Blocked to Accepted: Staff: Checked the site",
+            ),
+            (
+                "decline_rejected",
+                ProvisioningReviewStatus.REJECTED,
+                "decline",
+                "Changed from Blocked to Declined: Staff: Checked the site",
             ),
             ("accept_without_review", None, "accept", None),
             ("block_without_review", None, "block", None),
         ]
     )
-    def test_staff_accept_or_block_a_partner(self, _name, review_status, operation, expected_log) -> None:
+    def test_staff_decide_a_partner(self, _name, review_status, operation, expected_log) -> None:
         app = self._app(
             config=ProvisioningConfig(
                 active=review_status == ProvisioningReviewStatus.ACCEPTED,
@@ -84,18 +109,51 @@ class TestOAuthApplicationConsole(BaseTest):
         )
 
         assert response.status_code == 302, response.content
-        accepted = operation == "accept"
+        decision = {
+            "accept": ProvisioningReviewStatus.ACCEPTED,
+            "decline": ProvisioningReviewStatus.DECLINED,
+            "request-changes": ProvisioningReviewStatus.CHANGES_REQUESTED,
+            "block": ProvisioningReviewStatus.REJECTED,
+        }[operation]
         app.refresh_from_db()
-        assert app.provisioning.active is accepted
-        assert app.provisioning.disabled is not accepted
+        assert app.provisioning.active is (decision == ProvisioningReviewStatus.ACCEPTED)
+        assert app.provisioning.disabled is (decision == ProvisioningReviewStatus.REJECTED)
         if review is not None:
             review.refresh_from_db()
-            assert review.status == (
-                ProvisioningReviewStatus.ACCEPTED if accepted else ProvisioningReviewStatus.REJECTED
-            )
+            assert review.status == decision
             assert review.decided_stage == ProvisioningReviewStage.STAFF
             assert review.run_log[-1]["message"] == expected_log
             assert review.partner_message == "Thanks for waiting."
+
+    def test_asking_for_changes_needs_a_message_for_the_partner(self) -> None:
+        app = self._app()
+        review = CIMDProvisioningReview.objects.create(
+            application=app, domain="example.com", status=ProvisioningReviewStatus.NEEDS_HUMAN
+        )
+
+        response = self._post(app, "provisioning/request-changes", {"reason": "Unclear product"})
+
+        assert response.status_code != 302
+        review.refresh_from_db()
+        assert review.status == ProvisioningReviewStatus.NEEDS_HUMAN
+
+    def test_asking_a_partner_blocked_meanwhile_for_changes_keeps_the_block(self) -> None:
+        app = self._app(config=ProvisioningConfig(disabled=True))
+        CIMDProvisioningReview.objects.create(
+            application=app, domain="example.com", status=ProvisioningReviewStatus.REJECTED
+        )
+
+        with self.assertRaises(PartnerDecisionRefused):
+            decide_partner(
+                app,
+                decision=ProvisioningReviewStatus.CHANGES_REQUESTED,
+                reason="Staff: Unclear product",
+                partner_message="Add a homepage.",
+            )
+
+        app.refresh_from_db()
+        assert app.provisioning.disabled is True
+        assert CIMDProvisioningReview.objects.get(application=app).status == ProvisioningReviewStatus.REJECTED
 
     def test_block_reaches_a_partner_left_active_and_disabled(self) -> None:
         app = self._app(config=ProvisioningConfig(active=True, disabled=True))
@@ -108,7 +166,14 @@ class TestOAuthApplicationConsole(BaseTest):
         app.refresh_from_db()
         assert (app.provisioning.active, app.provisioning.disabled) == (False, True)
 
-    @parameterized.expand([("active", True, False, "accept"), ("blocked", False, True, "block")])
+    @parameterized.expand(
+        [
+            ("active", True, False, "accept"),
+            ("blocked", False, True, "block"),
+            ("decline_without_review", False, False, "decline"),
+            ("request_changes_without_review", False, False, "request-changes"),
+        ]
+    )
     def test_the_current_decision_is_not_offered_again(self, _name, active, disabled, operation) -> None:
         app = self._app(config=ProvisioningConfig(active=active, disabled=disabled))
 
@@ -148,13 +213,16 @@ class TestOAuthApplicationConsole(BaseTest):
 
     def test_removing_a_partner_turns_provisioning_off(self) -> None:
         app = self._app(config=ProvisioningConfig(active=True))
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
 
         response = self._post(app, "provisioning/capabilities", {"reason": "No longer a partner"})
 
         assert response.status_code == 302, response.content
         app.refresh_from_db()
+        refresh_token.refresh_from_db()
         assert app.is_provisioning_partner is False
         assert app.provisioning.active is False
+        assert refresh_token.revoked is not None
 
     def test_a_partner_that_already_cannot_sign_stays_editable(self) -> None:
         app = self._app(config=ProvisioningConfig(can_create_accounts=True))

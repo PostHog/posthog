@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -5,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import patch
 
 from parameterized import parameterized
+from posthoganalytics import Client
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -14,10 +16,42 @@ from posthog.models import OrganizationMembership, Team
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.workflows.backend.facade.testing import create_batch_job_for_test, create_workflow_for_test
 
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+
+ORGANIZATION, INSTANCE, PROJECT = 0, 1, 2
+FlagCondition = tuple[int | None, dict[str, object]]
+PROJECT_KEY: FlagCondition = (PROJECT, {"key": "$group_key", "type": "group", "group_type_index": PROJECT})
+ORGANIZATION_KEY: FlagCondition = (
+    ORGANIZATION,
+    {"key": "$group_key", "type": "group", "group_type_index": ORGANIZATION},
+)
+PROJECT_ID: FlagCondition = (PROJECT, {"key": "id", "type": "group", "group_type_index": PROJECT})
+EMAIL: FlagCondition = (None, {"key": "email", "type": "person"})
+
+
+def _email_activity_flag(condition: FlagCondition, value: str) -> dict[str, object]:
+    aggregation, prop = condition
+    return {
+        "id": 1,
+        "key": "workflows-email-activity",
+        "active": True,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [{**prop, "value": [value], "operator": "exact"}],
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": aggregation,
+                }
+            ]
+        },
+    }
 
 
 @time_machine.travel(NOW, tick=False)
@@ -89,6 +123,19 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/workflow_email_log/{suffix}"
 
+    @parameterized.expand([("restricted", True), ("granted", False)])
+    def test_send_log_follows_property_access(self, access: PropertyAccess, blocked: bool) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        run_id = self._run_id(NOW - timedelta(days=1))
+
+        responses = [
+            self.client.get(self._url(), {"workflow_id": self.workflow_id}),
+            self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"}),
+            self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"}),
+        ]
+
+        assert [response.status_code == 403 for response in responses] == [blocked] * 3
+
     def test_lists_each_step_of_a_run_as_its_own_send(self):
         run_started = NOW - timedelta(days=2)
         run_id = self._run_id(run_started)
@@ -146,18 +193,43 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert body["engagement_events_enabled"] is False
 
-    def test_is_not_found_while_the_feature_flag_is_off(self):
+    @parameterized.expand(
+        [
+            ("the_project_uuid_the_app_targets", PROJECT_KEY, lambda t: t.team.uuid, status.HTTP_200_OK),
+            ("the_organization", ORGANIZATION_KEY, lambda t: t.team.organization_id, status.HTTP_200_OK),
+            ("the_users_email", EMAIL, lambda t: t.user.email, status.HTTP_200_OK),
+            ("the_project_id_property", PROJECT_ID, lambda t: t.team.id, status.HTTP_200_OK),
+            ("the_numeric_team_id_as_project_key", PROJECT_KEY, lambda t: t.team.id, status.HTTP_404_NOT_FOUND),
+            ("another_project", PROJECT_KEY, lambda _t: UUIDT(), status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_opens_only_for_what_the_flag_targets(
+        self,
+        _name: str,
+        condition: FlagCondition,
+        targeted: Callable[["TestWorkflowEmailLog"], object],
+        expected: int,
+    ):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._sent(run_id, "welcome", NOW - timedelta(hours=1))
         flush_persons_and_events()
-        self.flag_enabled.return_value = False
+        flags = Client("phc_test", send=False, enable_local_evaluation=False)
+        self.addCleanup(flags.shutdown)
+        flags.group_type_mapping = {
+            str(ORGANIZATION): "organization",
+            str(INSTANCE): "instance",
+            str(PROJECT): "project",
+        }
+        flags.feature_flags = [_email_activity_flag(condition, str(targeted(self)))]
+        self.flag_enabled.side_effect = lambda *args, **kwargs: flags.feature_enabled(
+            *args, **{**kwargs, "only_evaluate_locally": True}
+        )
 
         listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
         detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
         activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
 
-        assert {listed.status_code, detail.status_code, activity.status_code} == {status.HTTP_404_NOT_FOUND}
-        assert self.flag_enabled.call_args.args[0] == "workflows-email-activity"
+        assert {listed.status_code, detail.status_code, activity.status_code} == {expected}
 
     def test_pages_through_sends_logged_at_the_same_moment_without_repeats(self):
         sent_at = NOW - timedelta(hours=1)

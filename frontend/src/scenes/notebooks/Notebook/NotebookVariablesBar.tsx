@@ -7,6 +7,8 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
+import { NotebookVariableListInput } from 'products/notebooks/frontend/NotebookVariableListInput'
+
 import { notebookLogic } from './notebookLogic'
 import {
     MAX_NOTEBOOK_VARIABLES,
@@ -23,6 +25,7 @@ const TYPE_LABELS: Record<NotebookVariableType, string> = {
     number: 'Number',
     boolean: 'Boolean',
     date: 'Date',
+    list: 'List of text',
 }
 
 const DEFAULT_VALUE_BY_TYPE: Record<NotebookVariableType, NotebookVariableValue> = {
@@ -30,6 +33,7 @@ const DEFAULT_VALUE_BY_TYPE: Record<NotebookVariableType, NotebookVariableValue>
     number: 0,
     boolean: false,
     date: '',
+    list: [],
 }
 
 function NotebookVariableValueInput({
@@ -43,6 +47,17 @@ function NotebookVariableValueInput({
     disabled: boolean
     onChange: (value: NotebookVariableValue) => void
 }): JSX.Element {
+    if (variable.type === 'list') {
+        return (
+            <NotebookVariableListInput
+                id={controlId}
+                size="small"
+                value={variable.value}
+                disabled={disabled}
+                onChange={onChange}
+            />
+        )
+    }
     if (variable.type === 'boolean') {
         return (
             <LemonCheckbox id={controlId} checked={variable.value === true} disabled={disabled} onChange={onChange} />
@@ -64,7 +79,7 @@ function NotebookVariableValueInput({
     }
 
     if (variable.type === 'date') {
-        const value = typeof variable.value === 'string' && variable.value ? dayjs(variable.value) : null
+        const value = typeof variable.value === 'string' ? dayjs(variable.value) : null
         return (
             <LemonCalendarSelectInput
                 value={value?.isValid() ? value : null}

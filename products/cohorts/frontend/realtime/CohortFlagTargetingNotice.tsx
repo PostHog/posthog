@@ -3,10 +3,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+import { Item, ItemContent, ItemMedia, Text } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -31,6 +33,7 @@ export function CohortFlagTargetingNotice({
     const { cohortsById } = useValues(cohortsModel)
     const { loadCohortsByIds } = useActions(cohortsModel)
     const { isVisible } = usePageVisibility()
+    const quillSurface = useQuillSurface()
     // Ids can arrive as strings, and a set can name the same cohort twice.
     const cohortIds = [...new Set(properties.filter(isCohortPropertyFilter).map(({ value }) => Number(value)))]
     // The shared model lists cohorts once per session, so a cohort created since, in another tab or by a teammate, is
@@ -56,21 +59,42 @@ export function CohortFlagTargetingNotice({
             name="cohort-flag-targeting-notice-shown"
             properties={{ states: [...new Set(rows.map(({ state }) => state))] }}
         >
-            <div
-                role="status"
-                className={clsx(
-                    'flex items-start gap-2 text-xs p-2 rounded border border-primary bg-surface-secondary text-secondary',
-                    className
-                )}
-                data-attr="cohort-flag-targeting-notice"
-            >
-                <IconInfo className="text-base shrink-0 text-muted mt-0.5" />
-                <div className="flex flex-col gap-2 min-w-0">
-                    {rows.map(({ cohortId }) => (
-                        <CohortFlagTargetingNoticeRow key={cohortId} cohortId={cohortId} />
-                    ))}
+            {quillSurface ? (
+                <Item
+                    variant="outline"
+                    size="sm"
+                    role="status"
+                    className={className}
+                    data-attr="cohort-flag-targeting-notice"
+                >
+                    <ItemMedia variant="icon">
+                        <IconInfo />
+                    </ItemMedia>
+                    <ItemContent>
+                        <Text size="xs" variant="muted" render={<div className="flex flex-col gap-2 min-w-0 m-0" />}>
+                            {rows.map(({ cohortId }) => (
+                                <CohortFlagTargetingNoticeRow key={cohortId} cohortId={cohortId} />
+                            ))}
+                        </Text>
+                    </ItemContent>
+                </Item>
+            ) : (
+                <div
+                    role="status"
+                    className={clsx(
+                        'flex items-start gap-2 text-xs p-2 rounded border border-primary bg-surface-secondary text-secondary',
+                        className
+                    )}
+                    data-attr="cohort-flag-targeting-notice"
+                >
+                    <IconInfo className="text-base shrink-0 text-muted mt-0.5" />
+                    <div className="flex flex-col gap-2 min-w-0">
+                        {rows.map(({ cohortId }) => (
+                            <CohortFlagTargetingNoticeRow key={cohortId} cohortId={cohortId} />
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
         </PostHogCaptureOnViewed>
     )
 }

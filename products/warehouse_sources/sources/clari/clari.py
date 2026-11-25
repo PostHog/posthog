@@ -1,4 +1,3 @@
-import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -14,10 +13,12 @@ from products.warehouse_sources.sources.clari.settings import (
     CLARI_BASE_URL,
 )
 from products.warehouse_sources.sources.sdk import (
+    JobStatus,
     ResumableSourceManager,
     SourceResponse,
     frozen,
     make_tracked_session,
+    poll_until_done,
     retry_with_deadline,
 )
 
@@ -28,7 +29,7 @@ AUDIT_PAGE_LIMIT = 1000
 # Export jobs usually finish in minutes; the per-attempt poll budget is capped
 # so a stuck job surfaces as a retryable error instead of hanging the activity.
 EXPORT_POLL_INTERVAL_SECONDS = 15
-EXPORT_POLL_MAX_ATTEMPTS = 60
+EXPORT_POLL_BUDGET_SECONDS = 15 * 60
 
 
 class ClariRetryableError(Exception):
@@ -175,23 +176,30 @@ def _run_export_job(
         with resumable_source_manager.committing():
             resumable_source_manager.save_state(ClariResumeConfig(job_id=job_id))
 
-    status = None
-    for _attempt in range(EXPORT_POLL_MAX_ATTEMPTS):
+    def check() -> JobStatus[None]:
         job_body = fetch("GET", f"{CLARI_BASE_URL}/export/jobs/{quote(job_id)}").json()
         job = job_body.get("job") if isinstance(job_body.get("job"), dict) else job_body
         status = job["status"]
 
         if status == "DONE":
-            break
+            return JobStatus(done=True)
         if status in ("FAILED", "CANCELLED", "ABORTED"):
             # Don't re-poll a dead job on retry.
             with resumable_source_manager.committing():
                 resumable_source_manager.save_state(ClariResumeConfig(job_id=None))
             raise ValueError(f"Clari export job {job_id} ended with status {status}")
+        return JobStatus(message=str(status))
 
-        time.sleep(EXPORT_POLL_INTERVAL_SECONDS)
-    else:
-        raise ClariRetryableError(f"Clari export job {job_id} still {status} after polling budget")
+    # The job id is committed and no row is fetched yet, so a shutdown can hand the run over here.
+    poll_until_done(
+        check,
+        interval=EXPORT_POLL_INTERVAL_SECONDS,
+        budget_seconds=EXPORT_POLL_BUDGET_SECONDS,
+        safe_point=resumable_source_manager.safe_point,
+        timeout_error=lambda status: ClariRetryableError(
+            f"Clari export job {job_id} still {status.message} after polling budget"
+        ),
+    )
 
     return fetch("GET", f"{CLARI_BASE_URL}/export/jobs/{quote(job_id)}/results").json()
 

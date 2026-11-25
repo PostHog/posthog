@@ -66,6 +66,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_updated": "Unix epoch timestamp of the last change to the insight.",
         },
     },
+    "InsightComments": {
+        "description": (
+            "A comment left on a cost insight, one row per comment. Join to the Insights table on "
+            "`insight_id` to follow the discussion on each piece of cost work."
+        ),
+        "docs_url": "https://docs.cloudzero.com/reference/getcommentsforoneinsight",
+        "columns": {
+            "id": "Identifier of the comment.",
+            "insight_id": "Identifier of the insight the comment is on, joins to the Insights table's `id`.",
+            "message": "Text of the comment.",
+            "author": "Who wrote the comment.",
+            "insight": "Object that holds the `id` of the insight the comment is on.",
+            "created": "Unix epoch timestamp of when the comment was created.",
+            "last_updated": "Unix epoch timestamp of the last change to the comment.",
+        },
+    },
     "Recommendations": {
         "description": (
             "A savings recommendation CloudZero generated for one resource, with the spend it could save "
@@ -115,6 +131,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "effort": "Typical effort to act on this type: `not_set`, `low`, `medium` or `high`.",
             "status": "Whether your organization has the type `enabled` or `disabled`.",
             "stage": "Maturity of the type in CloudZero: `alpha`, `beta`, `stable` or `unknown`.",
+        },
+    },
+    "Views": {
+        "description": (
+            "A saved cost view: the dimension filters, primary grouping, anomaly settings and alert "
+            "recipients that a team in your organization reports on. It holds no cost data."
+        ),
+        "docs_url": "https://docs.cloudzero.com/reference/getviews",
+        "columns": {
+            "id": "Unique identifier for the view.",
+            "name": "Name of the view.",
+            "filter": "Map of dimension name to the values the view includes.",
+            "principal_dimension": "Primary dimension the view groups costs by.",
+            "connections": "Email and Slack connections that receive the view's notifications.",
+            "anomalies": "Anomaly detection settings for the view, such as whether it is on and its threshold.",
+            "notifications": "Whether the weekly and monthly spend trend notifications are on. Absent when CloudZero could not read the settings.",
+            "visibility": "Who sees the view in the CloudZero app: `personal` or `shared`.",
+            "created_by": "Identifier of the user who created the view in the CloudZero app. Null for a view created through the API.",
+            "owner": "Identifier of the user who owns a personal view. Null for a view created through the API.",
+            "source_view_id": "Identifier of the view this one was copied from. Absent when the view is not a copy.",
+            "last_updated": "Unix epoch timestamp of the last change to the view.",
         },
     },
 }

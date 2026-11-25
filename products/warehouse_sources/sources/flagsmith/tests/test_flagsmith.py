@@ -48,6 +48,12 @@ class TestUrlHelpers:
             ("https://flagsmith.example.com/", "https://flagsmith.example.com"),
             ("flagsmith.example.com", "https://flagsmith.example.com"),
             ("http://flagsmith.internal:8000", "http://flagsmith.internal:8000"),
+            ("https://flagsmith.example.com/api/v1", "https://flagsmith.example.com"),
+            ("https://flagsmith.example.com/api/v1/", "https://flagsmith.example.com"),
+            ("https://flagsmith.example.com/API/V1", "https://flagsmith.example.com"),
+            ("https://example.com/flagsmith/api/v1", "https://example.com/flagsmith"),
+            ("https://example.com/flagsmith", "https://example.com/flagsmith"),
+            ("https://example.com/api/v12", "https://example.com/api/v12"),
         ],
     )
     def test_normalize_base_url_valid(self, base_url, expected):

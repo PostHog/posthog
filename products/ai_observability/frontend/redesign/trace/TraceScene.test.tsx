@@ -280,7 +280,7 @@ describe('TraceScene', () => {
 
             await waitFor(() =>
                 expect(
-                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-selected="true"]')?.textContent
                 ).toContain('span-1')
             )
         })
@@ -438,7 +438,7 @@ describe('TraceScene', () => {
             fireEvent.keyDown(input, { key: 'Enter' })
 
             const matchedRow = await treeRow('gen-1')
-            await waitFor(() => expect(matchedRow.getAttribute('aria-current')).toBe('true'))
+            await waitFor(() => expect(matchedRow.getAttribute('aria-selected')).toBe('true'))
             const firstHighlight = await findByText('Is my invoice right?')
             await waitFor(() =>
                 expect(scrollIntoView.mock.contexts).toEqual(expect.arrayContaining([matchedRow, firstHighlight]))
@@ -474,7 +474,7 @@ describe('TraceScene', () => {
 
             await waitFor(() =>
                 expect(
-                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-selected="true"]')?.textContent
                 ).toContain('span-1')
             )
         })
@@ -730,7 +730,7 @@ describe('TraceScene', () => {
             fireEvent.click(getByText('gen-1', { selector: '[data-attr="trace-view-feedback-step-link"]' }))
             await waitFor(() =>
                 expect(
-                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-selected="true"]')?.textContent
                 ).toContain('gen-1')
             )
 

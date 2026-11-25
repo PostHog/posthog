@@ -1,22 +1,33 @@
+import './number-field.css'
+
 import { NumberField as NumberFieldPrimitive } from '@base-ui/react/number-field'
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import './number-field.css'
+import { hasTooltipContent, withDisabledReason } from './with-tooltip'
 
 const NumberFieldRoot = React.forwardRef<
     React.ComponentRef<typeof NumberFieldPrimitive.Root>,
-    NumberFieldPrimitive.Root.Props
->(function NumberFieldRoot({ className, ...props }, ref) {
-    return (
+    NumberFieldPrimitive.Root.Props & {
+        /** Disables the field and says why in a tooltip. The field stays focusable, so the reason is reachable. */
+        disabledReason?: React.ReactNode
+    }
+>(function NumberFieldRoot({ className, disabled, disabledReason, ...props }, ref) {
+    const hasDisabledReason = hasTooltipContent(disabledReason)
+
+    // The root stays hoverable while its input and buttons ignore the pointer, so it is the trigger.
+    return withDisabledReason(
         <NumberFieldPrimitive.Root
             ref={ref}
             data-quill
             data-slot="number-field"
+            disabled={disabled || hasDisabledReason}
             className={cn('flex flex-col gap-1', className)}
             {...props}
-        />
+        />,
+        disabledReason,
+        { target: 'self', focusable: true }
     )
 })
 

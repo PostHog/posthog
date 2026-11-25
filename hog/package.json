@@ -1,6 +1,6 @@
 {
     "name": "hog",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "private": true,
     "description": "hog, the PostHog command line. Successor to posthog-cli in cli/",
     "bin": {
@@ -11,7 +11,8 @@
         "hog": "bun --no-env-file src/index.ts",
         "compile": "pnpm run build:mcp && bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
         "typecheck": "tsc --noEmit",
-        "unit": "bun test",
+        "unit": "pnpm run build:worker && bun test",
+        "build:worker": "cargo build --release --locked --manifest-path worker/Cargo.toml --target-dir worker/target",
         "schema": "bun scripts/write-schema.ts",
         "build:mcp": "pnpm --filter @posthog/mcp build:cli:library"
     },
@@ -22,14 +23,13 @@
         "commander": "15.0.0",
         "diff": "9.0.0",
         "jsonc-parser": "3.3.1",
-        "pako": "2.2.0",
         "yaml": "2.9.1",
         "zod": "^4.3.6"
     },
     "devDependencies": {
         "@types/bun": "1.3.14",
-        "@types/pako": "2.0.4",
-        "typescript": "catalog:"
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:"
     },
     "engines": {
         "bun": ">=1.3.3"

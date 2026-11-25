@@ -54,6 +54,8 @@ describe('AccountViewEditorModal', () => {
         })
         mockUserCustomerAnalyticsConfigRetrieve.mockResolvedValue({
             pinned_properties: [],
+            pinned_properties_source: { kind: 'personal', roles: [] },
+            available_default_pinned_properties: [],
             task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
             account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
         })

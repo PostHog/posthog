@@ -426,6 +426,26 @@ def run_outcome_markers(
     return markers
 
 
+def turn_recorded_in_mode(team_id: int, report_id: str, review_mode: str) -> bool:
+    """Whether an attempt of any turn of the report started in `review_mode`, or failed in it before it started.
+
+    Reads every marker row, because `turn_markers` keeps only the newest row of a run index, and a later
+    attempt reuses the index of a failed one.
+    """
+    started = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(marker_review_mode=KeyTextTransform("review_mode", content_json()))
+        .filter(marker_review_mode=review_mode)
+    )
+    if started.exists():
+        return True
+    return any(
+        marker.stage == RUN_STAGE_REVIEW and marker.outcome == RUN_OUTCOME_FAILED and marker.review_mode == review_mode
+        for marker in run_outcome_markers(team_id, [report_id])[report_id]
+    )
+
+
 def live_turn_markers(
     team_id: int, reports: Sequence[ReviewReport], markers: dict[tuple[str, int], TurnMarker]
 ) -> dict[str, TurnMarker]:

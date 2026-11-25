@@ -5,7 +5,7 @@ import { useActions } from 'kea'
 import { IconBug, IconCode, IconPalette, IconTrending } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import type { NewSessionSuggestionIcon } from 'products/tasks/frontend/spaces/newSessionSuggestionDefaults'
+import type { NewSessionSuggestionIcon } from 'products/today/frontend/spaces/newSessionSuggestionDefaults'
 
 import { todayHomeComposerLogic } from './todayHomeComposerLogic'
 import { TODAY_STARTER_SUGGESTIONS } from './todayStarterSuggestionList'

@@ -4,7 +4,7 @@ import { defineCommand } from '@/core/command'
 import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { absolutePath, storedPath } from '@/core/paths'
+import { absolutePath, confinedWritePath, findGitRoot, isInside, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
 import {
@@ -112,6 +112,7 @@ export default defineCommand({
             )
         }
 
+        const repository = (await findGitRoot(ctx.runtime))?.root ?? root
         const pulled: PulledLanguage[] = []
         const entries: Partial<Record<Language, SchemaLanguage>> = {}
         for (const language of languages) {
@@ -127,10 +128,18 @@ export default defineCommand({
             const sdk = await moduleSdk(ctx, language, flag, saved, folder)
             const savesChoice = LANGUAGE_SDKS[language]?.savesChoice ?? true
             let file: string
+            let target: string | undefined
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
+                target = await confinedOutput(
+                    ctx,
+                    root,
+                    file,
+                    `posthog.json sets the ${moduleInfo(language, sdk).name} module path to ${saved.output_path}, which is outside the project, so hog won't write there.`,
+                    'Change output_path in posthog.json to a path inside the project, or pass --file to choose where hog writes the module.'
+                )
             } else {
                 const info = moduleInfo(language, sdk)
                 const answer = ctx.prompts
@@ -139,6 +148,17 @@ export default defineCommand({
                       })
                     : info.defaultFile
                 file = await chosenFile(ctx, answer || info.defaultFile, language, sdk)
+            }
+            // The repository can plant a link at any path inside it, including one the person typed. A path the person
+            // typed outside the repository is their own choice.
+            if (target === undefined && isInside(repository, file)) {
+                target = await confinedOutput(
+                    ctx,
+                    repository,
+                    file,
+                    `${storedPath(repository, file)} links to a file outside the repository, so hog won't write there.`,
+                    'Remove the link, or pass --file with the path the link points to.'
+                )
             }
 
             const definitions = await fetchDefinitions(ctx, language, sdk)
@@ -152,7 +172,7 @@ export default defineCommand({
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
-                await ctx.runtime.writeFile(file, definitions.content)
+                await ctx.runtime.writeFile(target ?? file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
                     sdk: savesChoice ? sdk : undefined,
@@ -222,6 +242,21 @@ export default defineCommand({
         written: result.languages.filter((pulled) => pulled.status === 'written').length,
     }),
 })
+
+async function confinedOutput(
+    ctx: Context,
+    root: string,
+    file: string,
+    problem: string,
+    hint: string
+): Promise<string> {
+    const target = await confinedWritePath(ctx.runtime, root, file)
+    if (target === undefined) {
+        throw new HogError('unsafe_output_path', problem, hint)
+    }
+
+    return target
+}
 
 // The SDK to generate for: the flag, then what the project says, then the language's own rule for a module
 // that nothing chose an SDK for.

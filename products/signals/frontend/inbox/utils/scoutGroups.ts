@@ -86,6 +86,21 @@ export function scoutPausedByLine(config: SignalScoutConfig): string | null {
     return null
 }
 
+/**
+ * Who last turned this scout on and when, or null while it is off or was never switched. A seeded scout has no
+ * `status_changed_at`, and a resume PostHog made, such as a probe after repeated failures, records no actor, so that
+ * line names no one.
+ */
+export function scoutTurnedOnByLine(config: SignalScoutConfig): string | null {
+    if (!config.enabled || config.status !== 'active' || !config.status_changed_at) {
+        return null
+    }
+    const on = dayjs(config.status_changed_at).format('MMM D, YYYY')
+    const actor = config.status_changed_by
+    const name = actor ? fullName(actor) || actor.email : null
+    return name ? `Turned on by ${name} · ${on}` : `Turned on ${on}`
+}
+
 export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | undefined, now: Date): ScoutGroupKey {
     // Status first: a system pause or warning outranks everything else the scout looks like, and a
     // human pause means "off" no matter what the scout was doing when it stopped.

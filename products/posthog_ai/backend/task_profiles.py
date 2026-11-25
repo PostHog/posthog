@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 from products.tasks.backend.facade.profiles import (
+    AgentPolicy,
     DrivePolicy,
     GithubAccess,
     GithubResolution,
@@ -64,6 +65,7 @@ POSTHOG_AI = TaskProfile(
     max_cost_usd=None,
     task_budget_usd=None,
     finish_in_flight=True,
+    agent_policy=AgentPolicy(pr_thread_link=True, web_client_by_default=True, expects_system_prompt=True),
 )
 
 POSTHOG_AI_INTERNAL = replace(

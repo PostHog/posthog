@@ -1,6 +1,30 @@
 from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
+# The pre-aggregated tables store these columns as String, not Nullable(String), so a missing value is ''.
+# An "is not set" filter compiles to `= NULL`, which matches no row there, so we compare with '' instead.
+EMPTY_WHEN_UNSET_COLUMNS = frozenset(
+    {
+        "host",
+        "device_type",
+        "pathname",
+        "entry_pathname",
+        "end_pathname",
+        "browser",
+        "os",
+        "referring_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "country_code",
+        "city_name",
+        "region_code",
+        "region_name",
+    }
+)
+
 
 class PreAggregatedPropertyTransformer(CloningVisitor):
     """Transforms field chains to reference pre-aggregated table columns."""
@@ -26,6 +50,20 @@ class PreAggregatedPropertyTransformer(CloningVisitor):
             return ast.Field(chain=[self.table_name, self.supported_props_filters[prop_key]])
 
         return super().visit_field(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        transformed = super().visit_compare_operation(node)
+        if (
+            transformed.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+            and isinstance(transformed.right, ast.Constant)
+            and transformed.right.value is None
+            and isinstance(transformed.left, ast.Field)
+            and len(transformed.left.chain) == 2
+            and transformed.left.chain[0] == self.table_name
+            and transformed.left.chain[1] in EMPTY_WHEN_UNSET_COLUMNS
+        ):
+            return ast.CompareOperation(op=transformed.op, left=transformed.left, right=ast.Constant(value=""))
+        return transformed
 
 
 class ChannelTypeReplacer(CloningVisitor):

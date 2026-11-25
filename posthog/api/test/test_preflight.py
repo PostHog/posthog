@@ -108,6 +108,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 "google-oauth2": False,
                 "github": False,
                 "gitlab": False,
+                "chatgpt": False,
             },
             "can_create_org": False,
             "email_service_available": False,
@@ -136,6 +137,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "webmcp_available": False,
             "cimd_verification_token_issuer_url": "",
+            "experiment_exposure_event_cutoff": None,
             "is_test": True,
             **options,
         }
@@ -298,6 +300,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                             "google-oauth2": True,
                             "github": False,
                             "gitlab": False,
+                            "chatgpt": False,
                         },
                         "email_service_available": True,
                         "object_storage": True,

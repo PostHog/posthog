@@ -358,12 +358,18 @@ class ConsoleTool:
 
     key: ClassVar[str]
     title: ClassVar[str]
-    owner: ClassVar[Owner]
+    # None when no team owns the data behind the tool. The console then shows no owner badge.
+    owner: ClassVar[Owner | None]
     group: ClassVar[str]
     description: ClassVar[str] = ""
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError
+
+    def app_page(self, request: "HttpRequest") -> "HttpResponse | None":
+        """A page the product renders itself, such as a React app that blocks cannot express. The console serves it
+        in place of `page` and `operations`, for GET and HEAD only. None for a tool built from blocks."""
+        return None
 
     def operations(self, request: "HttpRequest") -> list[ToolOperation]:
         """The actions the tool page offers. The console runs them; `page` stays read-only."""

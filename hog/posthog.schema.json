@@ -60,7 +60,7 @@
                             "path": {
                                 "type": "string",
                                 "minLength": 1,
-                                "description": "A folder or file to scan, relative to posthog.json."
+                                "description": "A folder or file to scan, relative to posthog.json. It must be inside the project."
                             },
                             "kind": {
                                 "description": "The artifact type. hog detects it from the files when this is not set.",

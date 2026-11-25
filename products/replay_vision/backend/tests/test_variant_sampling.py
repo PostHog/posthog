@@ -166,10 +166,21 @@ class TestVariantSamplingPlanForScope(BaseTest):
     def test_no_scope_gets_no_plan(self) -> None:
         assert self._plan(scope=None, counts={"control": 60.0, "test": 40.0}) is None
 
-    def test_balancing_turned_off_in_the_config_gets_no_plan(self) -> None:
+    def test_balancing_turned_off_in_the_scope_gets_no_plan(self) -> None:
+        # Read from the scope, not `scanner_config["balance_variants"]`, so the answer survives the
+        # migration that strips the scope keys out of the config.
+        plan = self._plan(
+            scope=self._scope(experiment_id=42, variants=["control", "test"], balance=False),
+            counts={"control": 60.0, "test": 40.0},
+        )
+        assert plan is None
+
+    def test_a_config_that_still_says_balance_variants_no_longer_decides(self) -> None:
+        # The config key is the pre-migration store. A row whose scope says balance is balanced
+        # even while the stale key sits in its config, so the two stores cannot disagree.
         plan = self._plan(
             scope=self._scope(experiment_id=42, variants=["control", "test"]),
             counts={"control": 60.0, "test": 40.0},
             scanner_config={"prompt": "p", "balance_variants": False},
         )
-        assert plan is None
+        assert plan is not None and set(plan.rates) == {"control", "test"}

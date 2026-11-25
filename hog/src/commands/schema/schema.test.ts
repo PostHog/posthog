@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { dirname } from 'node:path'
 
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
@@ -54,28 +55,37 @@ const OLD_CONFIG = JSON.stringify({
 })
 
 describe('hog schema', () => {
-    test('pull regenerates the languages a posthog-cli posthog.json lists and keeps the rest of the file', async () => {
-        const result = await runHog(['schema', 'pull'], {
-            env: AGENT,
-            cwd: '/work/app',
-            files: { '/work/posthog.json': OLD_CONFIG, '/work/src/lib/posthog-typed.ts': 'old' },
-            respond: definitions('new'),
-        })
-        expect(result.exitCode).toBe(EXIT_SUCCESS)
-        expect(result.files['/work/src/lib/posthog-typed.ts']).toBe('new')
-        expect(readJson(result.files['/work/posthog.json']!)).toEqual({
-            errorTracking: { release: { name: 'web' } },
-            languages: {
-                typescript: {
-                    output_path: 'src/lib/posthog-typed.ts',
-                    sdk: 'posthog-js',
-                    schema_hash: 'hash-new',
-                    updated_at: '2026-01-01T00:00:00.000Z',
-                    event_count: 3,
+    test.each([
+        ['as posthog-cli wrote it', OLD_CONFIG, 2, ''],
+        ['indented with 4 spaces', `${JSON.stringify(readJson(OLD_CONFIG), null, 4)}\n`, 4, '\n'],
+        ['indented with tabs', JSON.stringify(readJson(OLD_CONFIG), null, '\t'), '\t', ''],
+    ])(
+        'pull regenerates the languages a posthog-cli posthog.json lists and keeps the rest of the file, %s',
+        async (_name, config, indent, newline) => {
+            const result = await runHog(['schema', 'pull'], {
+                env: AGENT,
+                cwd: '/work/app',
+                files: { '/work/posthog.json': config, '/work/src/lib/posthog-typed.ts': 'old' },
+                respond: definitions('new'),
+            })
+
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
+            expect(result.files['/work/src/lib/posthog-typed.ts']).toBe('new')
+            const expected = {
+                errorTracking: { release: { name: 'web' } },
+                languages: {
+                    typescript: {
+                        output_path: 'src/lib/posthog-typed.ts',
+                        sdk: 'posthog-js',
+                        schema_hash: 'hash-new',
+                        updated_at: '2026-01-01T00:00:00.000Z',
+                        event_count: 3,
+                    },
                 },
-            },
-        })
-    })
+            }
+            expect(result.files['/work/posthog.json']).toBe(`${JSON.stringify(expected, null, indent)}${newline}`)
+        }
+    )
 
     test('pull leaves an up-to-date module and posthog.json alone', async () => {
         const config = JSON.stringify({
@@ -104,6 +114,74 @@ describe('hog schema', () => {
             $schema: expect.stringContaining('posthog.schema.json'),
             languages: { typescript: { output_path: stored } },
         })
+    })
+
+    test.each([
+        ['an absolute path', '/home/ana/.bashrc', '/home/ana/.bashrc', {}],
+        ['a path that climbs out of the project', '../outside/typed.ts', '/outside/typed.ts', {}],
+        [
+            'a file that links out of the project',
+            'typed.ts',
+            '/home/ana/.bashrc',
+            { '/work/typed.ts': '/home/ana/.bashrc' },
+        ],
+    ])('pull refuses an output_path in posthog.json that is %s', async (_name, outputPath, outside, links) => {
+        const config = JSON.stringify({
+            languages: { typescript: { output_path: outputPath, schema_hash: 'hash-old' } },
+        })
+
+        const result = await runHog(['schema', 'pull'], {
+            env: AGENT,
+            files: { '/work/posthog.json': config, [outside]: 'keep' },
+            links,
+            respond: definitions('generated'),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
+        expect(result.files[outside]).toBe('keep')
+        expect(result.files['/work/posthog.json']).toBe(config)
+    })
+
+    test.each([
+        ['the default path', [], '/work/posthog-typed.ts', '/work'],
+        ['a --file folder', ['--file', 'src/'], '/work/src/posthog-typed.ts', '/work'],
+        ['a --file path', ['--file', 'src/typed.ts'], '/work/src/typed.ts', '/work'],
+        ['a --file path above the working folder', ['--file', '../gen/typed.ts'], '/work/gen/typed.ts', '/work/app'],
+    ])(
+        'pull refuses a module file inside the repository that links out of it, at %s',
+        async (_name, args, planted, cwd) => {
+            const result = await runHog(['schema', 'pull', '--language', 'typescript', ...args], {
+                env: AGENT,
+                cwd,
+                files: {
+                    '/work/.git/HEAD': '',
+                    [`${cwd}/README.md`]: '',
+                    [`${dirname(planted)}/README.md`]: '',
+                    '/home/ana/.bashrc': 'keep',
+                },
+                links: { [planted]: '/home/ana/.bashrc' },
+                respond: definitions('generated'),
+            })
+
+            expect(result.exitCode).toBe(EXIT_FAILURE)
+            expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
+            expect(result.files['/home/ana/.bashrc']).toBe('keep')
+            expect(result.files[`${cwd}/posthog.json`]).toBeUndefined()
+        }
+    )
+
+    test('pull refuses to write a posthog.json that links out of its folder', async () => {
+        const result = await runHog(['schema', 'pull', '--language', 'typescript'], {
+            env: AGENT,
+            files: { '/work/README.md': '' },
+            links: { '/work/posthog.json': '/home/ana/.bashrc' },
+            respond: definitions('generated'),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_config_path' })
+        expect(result.files['/home/ana/.bashrc']).toBeUndefined()
     })
 
     test('pull asks an agent for --language instead of prompting', async () => {

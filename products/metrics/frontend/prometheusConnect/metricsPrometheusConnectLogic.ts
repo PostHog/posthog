@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import type { DeepPartial } from 'kea-forms/lib'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -8,6 +9,7 @@ import { API_KEY_SCOPE_PRESETS } from 'lib/scopes'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { getBackendHost } from 'lib/utils/oauthClient'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
+import type { EditingKeyFormValues } from 'scenes/settings/user/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const GRAFANA_API_KEY_PRESET = 'grafana'
@@ -48,14 +50,8 @@ export interface metricsPrometheusConnectLogicActions {
     setEditingKeyId: (id: string | null) => {
         id: string | null
     } // personalAPIKeysLogic
-    setEditingKeyValues: (
-        values: import('node_modules/kea-forms/lib').DeepPartial<
-            import('scenes/settings/user/personalAPIKeysLogic').EditingKeyFormValues
-        >
-    ) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<
-            import('scenes/settings/user/personalAPIKeysLogic').EditingKeyFormValues
-        >
+    setEditingKeyValues: (values: DeepPartial<EditingKeyFormValues>) => {
+        values: DeepPartial<EditingKeyFormValues>
     } // personalAPIKeysLogic
     closeConnectModal: () => {
         value: true

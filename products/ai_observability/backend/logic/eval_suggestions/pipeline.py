@@ -56,6 +56,7 @@ from .call_review_queries import (
 )
 from .config import REVIEW_WINDOW, WINDOW, SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
+from .eligibility import suggestions_turned_off
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
 from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
 from .queries import MAX_EXECUTION_TIME_SECONDS
@@ -428,9 +429,13 @@ def measure_stage(
     if run is None:
         return 0
     team = run.team
-    # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
+    # The weekly plan can be days old, so an organization taken off the rollout, or a project that turned
+    # suggestions off, since then gets nothing new.
     if not runs_for_organization(str(team.organization_id)):
         runs.fail_run(team_id, run_id, "The organization is no longer in the eval suggestions rollout")
+        return 0
+    if suggestions_turned_off(team):
+        runs.fail_run(team_id, run_id, "The project turned eval suggestions off")
         return 0
     stages = _Stages()
     end = (now or timezone.now()) - SETTLE
@@ -541,6 +546,9 @@ def _paid_skip(team: Team, include_paid: bool, enabled: bool) -> str | None:
         return "free stages only"
     if not enabled:
         return "switched off"
+    # Measure checked this too, but the project can turn suggestions off while the run works.
+    if suggestions_turned_off(team):
+        return "turned off by the project"
     if not screening.consented(team):
         return "AI data processing not approved"
     return None

@@ -152,6 +152,44 @@ CAPSULE_CRM_ENDPOINTS: dict[str, CapsuleCRMEndpointConfig] = {
         data_key="tags",
         incremental_fields=[],
     ),
+    "party_field_definitions": CapsuleCRMEndpointConfig(
+        name="party_field_definitions",
+        path="/parties/fields/definitions",
+        data_key="definitions",
+        incremental_fields=[],
+    ),
+    "opportunity_field_definitions": CapsuleCRMEndpointConfig(
+        name="opportunity_field_definitions",
+        path="/opportunities/fields/definitions",
+        data_key="definitions",
+        incremental_fields=[],
+    ),
+    "kase_field_definitions": CapsuleCRMEndpointConfig(
+        name="kase_field_definitions",
+        path="/kases/fields/definitions",
+        data_key="definitions",
+        incremental_fields=[],
+    ),
+    "teams": CapsuleCRMEndpointConfig(
+        name="teams",
+        path="/teams",
+        data_key="teams",
+        # Team rows carry no members by default; the memberships are what tie a user to a team.
+        embed="memberships",
+        incremental_fields=[],
+    ),
+    "goals": CapsuleCRMEndpointConfig(
+        name="goals",
+        path="/goals",
+        data_key="goals",
+        incremental_fields=[],
+    ),
+    "track_definitions": CapsuleCRMEndpointConfig(
+        name="track_definitions",
+        path="/trackdefinitions",
+        data_key="trackDefinitions",
+        incremental_fields=[],
+    ),
 }
 
 ENDPOINTS = tuple(CAPSULE_CRM_ENDPOINTS.keys())

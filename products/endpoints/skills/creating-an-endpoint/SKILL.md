@@ -146,14 +146,16 @@ endpoint, remember this also sets the refresh cadence.
 
 See `references/materializing.md` for the full decision tree. Short version:
 
-- **Recommend materialisation** when the endpoint will be called frequently, latency matters,
-  and the user can tolerate staleness equal to the refresh interval (typically 5-15 minutes for
-  scheduled materialisation, or hourly).
-- **Skip materialisation** for low-traffic endpoints, exploratory new endpoints (you don't
-  know yet if it'll get called), and queries where freshness is critical.
+- **Materialise by default** when code will call the endpoint on a schedule or at volume: a
+  backend, a cron job, a dashboard embed, an agent loop. Materialised reads run on dedicated
+  compute and skip the inline query timeout and the inline rate limit, and a materialisation
+  nobody calls for 30 days is turned off automatically, so a wrong guess costs little.
+- **Skip materialisation** when the caller needs data fresher than the refresh interval allows,
+  when a variable takes arbitrary high-cardinality values (per-user IDs), or for a one-off
+  exploration the user will run by hand.
 
-If unsure, create unmaterialised and add `is_materialized: true` later once usage stabilises.
-That avoids paying for materialisation on a query nobody ends up calling.
+If the create call rejects materialisation, create the endpoint unmaterialised, tell the user
+the rejection reason, and offer the fix from the eligibility table in the reference.
 
 ## Workflow
 
@@ -164,7 +166,8 @@ That avoids paying for materialisation on a query nobody ends up calling.
 4. Identify what should be a variable. Show the user the variable declaration syntax.
 5. Pick `data_freshness_seconds` based on the user's freshness requirement (ask if not clear) —
    remembering it also sets the materialisation refresh cadence.
-6. Make the materialisation call. If on the fence, ship without and revisit later.
+6. Make the materialisation call. Default to materialised for anything code will call; ship
+   unmaterialised only for one of the skip reasons above.
 7. Call `endpoint-create` with the agreed config.
 8. Confirm by calling `endpoint-run` with a sample payload to verify the response shape.
 9. Hand off to `consuming-endpoints-from-client-code` if the user is about to wire it up.
@@ -216,9 +219,9 @@ Agent:
   materialisation recommendation with a note to the user about which variables become required.
   (Optional/partial variables on materialised endpoints are a known limitation the PostHog team
   plans to lift — if it's blocking the user, nudge them via the `agent-feedback` tool.)
-- **Don't enable materialisation on a query that isn't eligible.** Use
-  `endpoints-materialization-preview` first to confirm eligibility and see the rejection reason
-  if any.
+- **An ineligible query is rejected, not silently run inline.** On create, the server returns
+  the rejection reason; on an existing endpoint, `endpoints-materialization-preview` shows it
+  before you enable. Either way, fix the query or ship unmaterialised and say why.
 - **Endpoints are not stable forever.** When the user changes the query, a new version is created
   automatically (the old version stays accessible via `?version=N`). `data_freshness_seconds` and
   materialisation are per-version. Adjust as the endpoint evolves.

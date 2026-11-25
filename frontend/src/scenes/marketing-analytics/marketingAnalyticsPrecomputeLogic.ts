@@ -23,6 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { AnyResponseType, RefreshType } from '~/queries/schema/schema-general'
+import type { DataNode, EventsQueryResponse, LogsQueryResponse } from '~/queries/schema/schema-general'
 
 import type {
     ErrorTrackingQueryResponse,
@@ -78,9 +79,9 @@ export interface marketingAnalyticsPrecomputeLogicActions {
     loadData: (
         refresh?: RefreshType | undefined,
         alreadyRunningQueryId?: string | undefined,
-        overrideQuery?: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+        overrideQuery?: DataNode<Record<string, any>> | undefined
     ) => {
-        overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+        overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
         queryId: string
         refresh: RefreshType | undefined
@@ -111,7 +112,7 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | null,
         payload?:
             | {
-                  overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+                  overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
                   refresh: RefreshType | undefined
@@ -119,7 +120,7 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | undefined
     ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
             refresh: RefreshType | undefined
@@ -144,11 +145,13 @@ export interface marketingAnalyticsPrecomputeLogicActions {
     setResponseSuccess: (
         response:
             | ErrorTrackingQueryResponse
+            | EventsQueryResponse
             | HogQLAutocompleteResponse
             | HogQLMetadataResponse
             | HogQLQueryResponse<any[]>
             | HogQueryResponse
             | LogAttributesQueryResponse
+            | LogsQueryResponse
             | LogValuesQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
@@ -156,16 +159,16 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | TraceSpansTreeQueryResponse
-            | import('~/queries/schema/schema-general').EventsQueryResponse
-            | import('~/queries/schema/schema-general').LogsQueryResponse,
+            | TraceSpansTreeQueryResponse,
         payload?:
             | ErrorTrackingQueryResponse
+            | EventsQueryResponse
             | HogQLAutocompleteResponse
             | HogQLMetadataResponse
             | HogQLQueryResponse<any[]>
             | HogQueryResponse
             | LogAttributesQueryResponse
+            | LogsQueryResponse
             | LogValuesQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
@@ -174,17 +177,17 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | import('~/queries/schema/schema-general').EventsQueryResponse
-            | import('~/queries/schema/schema-general').LogsQueryResponse
             | undefined
     ) => {
         payload?:
             | ErrorTrackingQueryResponse
+            | EventsQueryResponse
             | HogQLAutocompleteResponse
             | HogQLMetadataResponse
             | HogQLQueryResponse<any[]>
             | HogQueryResponse
             | LogAttributesQueryResponse
+            | LogsQueryResponse
             | LogValuesQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
@@ -193,15 +196,15 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | import('~/queries/schema/schema-general').EventsQueryResponse
-            | import('~/queries/schema/schema-general').LogsQueryResponse
         response:
             | ErrorTrackingQueryResponse
+            | EventsQueryResponse
             | HogQLAutocompleteResponse
             | HogQLMetadataResponse
             | HogQLQueryResponse<any[]>
             | HogQueryResponse
             | LogAttributesQueryResponse
+            | LogsQueryResponse
             | LogValuesQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
@@ -210,8 +213,6 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | import('~/queries/schema/schema-general').EventsQueryResponse
-            | import('~/queries/schema/schema-general').LogsQueryResponse
     } // dataNodeLogic
     recheck: () => {
         value: true
@@ -235,11 +236,15 @@ export interface marketingAnalyticsPrecomputeLogicMeta {
     key: string
     sharedListeners: {
         handleResponse: (
-            payload: { response: AnyResponseType | null },
+            payload: {
+                response: AnyResponseType | null
+            },
             breakpoint: BreakPointFunction,
             action: {
                 type: string
-                payload: { response: AnyResponseType | null }
+                payload: {
+                    response: AnyResponseType | null
+                }
             },
             previousState: any
         ) => void | Promise<void>

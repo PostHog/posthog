@@ -4,15 +4,17 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, HogQLQuery, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { AnyPropertyFilter } from '../../../../frontend/src/types'
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
 import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
-import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { aiObservabilitySharedLogic, shellListOwnsUrl } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
 import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
@@ -62,6 +64,7 @@ export interface aiObservabilitySessionsViewLogicValues {
         dateFrom: string | null
         dateTo: string | null
     } // aiObservabilitySharedLogic
+    featureFlags: FeatureFlagsSet // aiObservabilitySharedLogic
     propertyFilters: AnyPropertyFilter[] // aiObservabilitySharedLogic
     shouldFilterTestAccounts: boolean // aiObservabilitySharedLogic
     groupsTaxonomicTypes: TaxonomicFilterGroupType[] // groupsModel
@@ -151,7 +154,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
     connect(() => ({
         values: [
             aiObservabilitySharedLogic,
-            ['activeTab', 'dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+            ['activeTab', 'dateFilter', 'shouldFilterTestAccounts', 'propertyFilters', 'featureFlags'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             llmSessionTitleLazyLoaderLogic,
@@ -365,11 +368,18 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
 
     urlToAction(({ actions, values }) => ({
         '/ai-observability/sessions/:id': ({ id }) => {
-            if (id && id !== values.selectedSessionId) {
-                actions.selectSession(id)
+            if (shellListOwnsUrl(values.featureFlags)) {
+                return
+            }
+            const sessionId = tryDecodeURIComponent(id ?? '')
+            if (sessionId && sessionId !== values.selectedSessionId) {
+                actions.selectSession(sessionId)
             }
         },
         '/ai-observability/sessions': () => {
+            if (shellListOwnsUrl(values.featureFlags)) {
+                return
+            }
             if (values.selectedSessionId) {
                 actions.selectSession(null)
             }

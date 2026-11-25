@@ -6,16 +6,32 @@ from typing import Any, Optional
 import requests
 from dateutil import parser
 
-from products.warehouse_sources.sources.paddle.constants import EXPLORE_METRICS_RESOURCE_NAME
-from products.warehouse_sources.sources.paddle.settings import CREDENTIAL_CHECK_ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.paddle.constants import (
+    CUSTOMER_ADDRESS_RESOURCE_NAME,
+    CUSTOMER_BUSINESS_RESOURCE_NAME,
+    EXPLORE_METRICS_RESOURCE_NAME,
+    SUBSCRIPTION_HISTORY_RESOURCE_NAME,
+)
+from products.warehouse_sources.sources.paddle.settings import (
+    CREDENTIAL_CHECK_ENDPOINTS,
+    ENDPOINT_PATHS,
+    ENDPOINTS,
+    FANOUT_ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MANAGED_SCHEMA_ENDPOINTS,
+    PAGE_SIZE,
+    PARTITION_KEYS,
+)
 from products.warehouse_sources.sources.sdk import (
     DEFAULT_RETRY,
     BearerTokenAuth,
+    ClientConfig,
     JSONResponsePaginator,
     RESTAPIConfig,
     RESTClient,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     get_dlt_mapping_for_external_table,
     make_tracked_session,
     rest_api_resource,
@@ -23,7 +39,6 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 PADDLE_BASE_URL = "https://api.paddle.com"
-PAGE_SIZE = 200
 
 EXPLORE_ENTITIES_PATH = "metrics/explore/entities"
 EXPLORE_QUERY_PATH = "metrics/explore"
@@ -32,7 +47,15 @@ EXPLORE_RETRY_BUDGET_SECONDS = 180
 # Finest first. Each query covers one calendar month, so a weekly bucket would straddle two queries.
 EXPLORE_INTERVALS = ("day", "month")
 
-PROBE_PATHS = {EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_ENTITIES_PATH}
+# A fan-out table check reads the child path of the first parent. With no parent, it reads the parent listing.
+PROBE_PATHS = {
+    EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_ENTITIES_PATH,
+    CUSTOMER_ADDRESS_RESOURCE_NAME: "customers",
+    CUSTOMER_BUSINESS_RESOURCE_NAME: "customers",
+    SUBSCRIPTION_HISTORY_RESOURCE_NAME: "subscriptions",
+    **ENDPOINT_PATHS,
+}
+PROBE_TIMEOUT = 10.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,6 +65,10 @@ class PaddleResumeConfig:
     # Explore metrics: the month window and the entity to query next.
     explore_window_start: str = ""
     explore_entity: str = ""
+    # Fan-out tables: the state `build_dependent_resource` saves over the parent listing.
+    fanout_state: Optional[dict[str, Any]] = None
+    # Subscription history: the upper bound of the run, kept so a resumed attempt reads up to the same time.
+    fanout_read_until: str = ""
 
 
 class PaddlePermissionError(Exception):
@@ -259,6 +286,84 @@ def paddle_explore_metrics_source(
     )
 
 
+def _save_fanout_state(
+    manager: ResumableSourceManager[PaddleResumeConfig], state: Optional[dict[str, Any]], read_until: str
+) -> None:
+    if state:
+        manager.save_state(PaddleResumeConfig(fanout_state=state, fanout_read_until=read_until))
+
+
+def paddle_fanout_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
+    should_use_incremental_field: bool = False,
+) -> SourceResponse:
+    config = FANOUT_ENDPOINTS[endpoint]
+    if config.fanout is None:
+        raise ValueError(f"Paddle endpoint {endpoint} is not a fan-out endpoint")
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    child_params_extra: dict[str, Any] = {}
+    read_until = ""
+    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    if incremental_field_config:
+        field_name = incremental_field_config[0]["field"]
+        # The run reads one parent at a time, and the watermark is the largest value read anywhere. Without this cap,
+        # an entry written to an already-read parent before a newer entry read later would fall below the watermark.
+        read_until = (resume.fanout_read_until if resume else "") or _format_paddle_datetime_query_value(
+            datetime.now(UTC)
+        )
+        child_params_extra[f"{field_name}[LTE]"] = read_until
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            # Paddle offers only [GTE] here. The rows on the watermark come back again, and the merge dedupes them.
+            child_params_extra[f"{field_name}[GTE]"] = _format_paddle_datetime_query_value(
+                db_incremental_field_last_value
+            )
+
+    client_config: ClientConfig = {
+        "base_url": PADDLE_BASE_URL,
+        "headers": {"Content-Type": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": PaddlePaginator(next_url_path="meta.pagination.next"),
+    }
+
+    child = build_dependent_resource(
+        endpoint_configs=FANOUT_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="per_page",
+        child_params_extra=child_params_extra or None,
+        parent_endpoint_extra={"data_selector": "data"},
+        child_endpoint_extra={"data_selector": "data"},
+        resume_hook=lambda state: _save_fanout_state(resumable_source_manager, state, read_until),
+        initial_paginator_state=resume.fanout_state if resume else None,
+        resume_parent_pagination=True,
+    )
+
+    return SourceResponse(
+        items=lambda: child,
+        primary_keys=config.primary_keys,
+        name=endpoint,
+        # Rows arrive one parent at a time, so they are not in one order.
+        sort_mode=None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_count=1,
+        partition_size=1,
+        partition_format="month" if config.partition_key else None,
+    )
+
+
 def paddle_source(
     api_key: str,
     endpoint: str,
@@ -268,6 +373,9 @@ def paddle_source(
     db_incremental_field_last_value: Optional[Any] = None,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
+    if endpoint not in ENDPOINTS:
+        raise ValueError(f"Unknown Paddle endpoint: {endpoint}")
+
     if endpoint == EXPLORE_METRICS_RESOURCE_NAME:
         return paddle_explore_metrics_source(
             api_key,
@@ -276,11 +384,26 @@ def paddle_source(
             should_use_incremental_field=should_use_incremental_field,
         )
 
-    column_mapping = get_dlt_mapping_for_external_table(f"paddle_{endpoint.lower()}")
-    column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
+    fanout_config = FANOUT_ENDPOINTS.get(endpoint)
+    if fanout_config is not None and fanout_config.fanout is not None:
+        return paddle_fanout_source(
+            api_key,
+            endpoint,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+
+    column_hints: Optional[dict[str, Any]] = None
+    if endpoint in MANAGED_SCHEMA_ENDPOINTS:
+        column_mapping = get_dlt_mapping_for_external_table(f"paddle_{endpoint.lower()}")
+        column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
+    partition_key = incremental_field_name or PARTITION_KEYS.get(endpoint)
 
     params: dict[str, Any] = {"per_page": PAGE_SIZE}
     params["order_by"] = f"{incremental_field_name}[ASC]" if incremental_field_name else "id[ASC]"
@@ -302,7 +425,7 @@ def paddle_source(
             {
                 "name": endpoint,
                 "endpoint": {
-                    "path": endpoint,
+                    "path": ENDPOINT_PATHS.get(endpoint, endpoint),
                     "params": params,
                     "data_selector": "data",
                 },
@@ -340,12 +463,42 @@ def paddle_source(
         name=endpoint,
         column_hints=column_hints,
         sort_mode="asc",
-        partition_keys=[incremental_field_name] if incremental_field_name else None,
-        partition_mode="datetime" if incremental_field_name else None,
+        partition_keys=[partition_key] if partition_key else None,
+        partition_mode="datetime" if partition_key else None,
         partition_count=1,
         partition_size=1,
-        partition_format="week" if incremental_field_name else None,
+        partition_format="week" if partition_key else None,
     )
+
+
+def _first_parent_id(api_key: str, endpoint: str) -> Optional[str]:
+    fanout = FANOUT_ENDPOINTS[endpoint].fanout
+    if fanout is None:
+        return None
+    try:
+        response = _get_paddle_session(api_key).get(
+            f"{PADDLE_BASE_URL}/{FANOUT_ENDPOINTS[fanout.parent_name].path}",
+            params={**fanout.parent_params, "per_page": 1},
+            timeout=PROBE_TIMEOUT,
+        )
+        data = response.json().get("data") if response.status_code == 200 else None
+    except Exception:
+        # The parent probe that follows reports the failure.
+        return None
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict) or not data[0].get("id"):
+        return None
+    return str(data[0]["id"])
+
+
+def _probe_url(api_key: str, endpoint: str) -> str:
+    config = FANOUT_ENDPOINTS.get(endpoint)
+    if config is not None and config.fanout is not None:
+        # The child endpoints have their own permissions, so the parent listing alone does not prove access.
+        parent_id = _first_parent_id(api_key, endpoint)
+        if parent_id is not None:
+            child_path = config.path.replace(f"{{{config.fanout.resolve_param}}}", parent_id)
+            return f"{PADDLE_BASE_URL}/{child_path}?per_page=1"
+    return f"{PADDLE_BASE_URL}/{PROBE_PATHS.get(endpoint, endpoint)}"
 
 
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
@@ -354,7 +507,8 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     for endpoint in endpoints_to_check:
         ok, status = validate_via_probe(
             lambda: _get_paddle_session(api_key),
-            f"{PADDLE_BASE_URL}/{PROBE_PATHS.get(endpoint, endpoint)}",
+            _probe_url(api_key, endpoint),
+            timeout=PROBE_TIMEOUT,
         )
         if status == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")

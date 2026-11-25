@@ -96,6 +96,19 @@ class TestIncrementalRequestShaping:
                 datetime(2026, 1, 2, 3, 4, 5),
                 {"updatedFromDate": "2026-01-02T03:04:05+00:00", "includeDeletedWorklogs": "true", "Q": None},
             ),
+            (
+                "ticket_metrics",
+                "lastModifiedOn",
+                "2026-01-02T03:04:05Z",
+                {"Q": 'lastmodifiedon:{"from":"2026-01-02T03:04:05.000Z"}', "OrderBy": "createdOn"},
+            ),
+            # The knowledge base documents a camelCase `Q` field.
+            (
+                "kb_articles",
+                "lastModifiedOn",
+                "2026-01-02T03:04:05Z",
+                {"Q": 'lastModifiedOn:{"from":"2026-01-02T03:04:05.000Z"}', "OrderBy": "articleId"},
+            ),
             # The first incremental sync has no watermark, so it reads every row.
             ("ticket_updates", "updatedOn", None, {"Q": None, "OrderBy": "ticketUpdateId asc"}),
         ],

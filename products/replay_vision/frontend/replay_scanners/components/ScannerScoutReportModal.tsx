@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 import { ReportChartCard } from 'products/signals/frontend/inbox/components/detail/ReportChart'
 import { resolveChartPlacements } from 'products/signals/frontend/inbox/utils/chartPlacement'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { scoutNameForSkill, scoutNamesBySkill } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { scannerScoutLogic } from '../scannerScoutLogic'
 
@@ -27,7 +27,7 @@ export function ScannerScoutReportModal({
     scannerName: string
 }): JSX.Element | null {
     const logic = scannerScoutLogic({ scannerId, scannerName })
-    const { openReportId, openedReport, openedReportLoading } = useValues(logic)
+    const { openReportId, openedReport, openedReportLoading, scoutConfigs } = useValues(logic)
     const { closeReport } = useActions(logic)
 
     if (!openReportId) {
@@ -64,7 +64,7 @@ export function ScannerScoutReportModal({
             description={
                 loading ? undefined : (
                     <span>
-                        {prettifyScoutSkillName(openedReport?.skill_name ?? '')} · filed{' '}
+                        {scoutNameForSkill(scoutNamesBySkill(scoutConfigs), openedReport?.skill_name ?? '')} · filed{' '}
                         <TZLabel time={openedReport?.filed_at ?? ''} formatDate="MMM D, YYYY" formatTime="HH:mm" />
                     </span>
                 )

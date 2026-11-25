@@ -6,10 +6,11 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { TaskPullRequest } from './taskPullRequests'
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
+import type { TodayRailPane } from './todayShellLogic'
 import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
 
 /** What a session row's hover card says, built once per row so the shared card gets a stable payload. */
@@ -69,7 +70,13 @@ export interface TodayExplainerPreview extends SidebarProductMeta {
     icon: JSX.Element
 }
 
+export interface TodayRailPreview {
+    kind: 'rail'
+    pane: TodayRailPane
+}
+
 export type TodayPreviewPayload =
+    | TodayRailPreview
     | TodaySessionPreview
     | TodayChatPreview
     | TodayObjectPreview

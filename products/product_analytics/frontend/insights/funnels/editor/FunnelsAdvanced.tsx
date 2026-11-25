@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { Noun } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'

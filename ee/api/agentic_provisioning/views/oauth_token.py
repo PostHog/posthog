@@ -30,17 +30,19 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import extract_client_credentials, verify_client_secret
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, ProvisioningSigning
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthRefreshToken,
+    ProvisioningSigning,
+    lock_oauth_connection,
+)
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.scopes.ceilings import narrow_scopes_to_ceiling, scopes_within_ceiling
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
-from ee.api.agentic_provisioning.constants import (
-    ACCESS_TOKEN_EXPIRY_SECONDS,
-    AUTH_CODE_CACHE_PREFIX,
-    PARTNER_TOKEN_EXPIRY_SECONDS,
-)
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_TOKEN_EXPIRY_SECONDS
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.tokens import (
@@ -255,12 +257,6 @@ class OAuthTokenView(ProvisioningAPIView):
                 raise ProvisioningError("invalid_scope", "Requested scopes exceed the application's allowed scopes")
             scope_str = " ".join(requested_scopes)
 
-            token_expiry = (
-                PARTNER_TOKEN_EXPIRY_SECONDS
-                if oauth_app and oauth_app.is_provisioning_partner
-                else ACCESS_TOKEN_EXPIRY_SECONDS
-            )
-
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, team_id)
             # A partner token carries its restriction in scoped_teams alone, and the standard
             # OAuth permission check treats an empty scoped_teams as unrestricted (permissions.py).
@@ -276,7 +272,7 @@ class OAuthTokenView(ProvisioningAPIView):
                 application=oauth_app,
                 token=access_token_value,
                 user=user,
-                expires=timezone.now() + timedelta(seconds=token_expiry),
+                expires=timezone.now() + timedelta(seconds=PARTNER_TOKEN_EXPIRY_SECONDS),
                 scope=scope_str,
                 scoped_teams=scoped_teams,
             )
@@ -310,7 +306,7 @@ class OAuthTokenView(ProvisioningAPIView):
                 "token_type": "bearer",
                 "access_token": access_token_value,
                 "refresh_token": refresh_token_value,
-                "expires_in": token_expiry,
+                "expires_in": PARTNER_TOKEN_EXPIRY_SECONDS,
                 "account": {
                     "id": account_id,
                     "payment_credentials": "orchestrator",
@@ -330,24 +326,27 @@ class OAuthTokenView(ProvisioningAPIView):
         # keeps that work out of the row lock taken below, where it would serialize every
         # concurrent refresh for the partner. Resolving the app unlocked is safe because only
         # its registration state is read, which the lock does not protect anyway.
-        application_id = (
+        token_owner = (
             OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
-            .values_list("application_id", flat=True)
+            .values_list("application_id", "user_id")
             .first()
         )
+        application_id, user_id = token_owner if token_owner else (None, None)
+
         signing_tag: str | None = None
         if application_id:
             unlocked_app = OAuthApplication.objects.filter(id=application_id).first()
             if unlocked_app is not None:
                 signing_tag = _require_client_authentication(request, unlocked_app, "refresh_token")
 
-        # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
-        # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
-        # the revoke: either we hold the lock and our new tokens land before its sweep, or it
-        # committed first and we see the token already revoked (or the stamp) and reject. Looking
-        # the app up by id first (without locking the token row) keeps the lock order app→token,
-        # matching the revoke, so the two can't deadlock.
+        # Re-read the refresh token under the connection lock (taken by revoke_oauth_session) and
+        # the app row lock (taken by revoke_application_sessions), so the rotate-and-mint
+        # serializes with both revokes: either our new tokens land before the revoke's sweep, or
+        # the revoke committed first and we see the token gone or revoked (or the stamp) and
+        # reject. The connection lock goes first, before any row lock, as lock_oauth_connection requires.
         with transaction.atomic():
+            if application_id and user_id:
+                lock_oauth_connection(user_id=user_id, application_id=application_id)
             locked_app = lock_application(application_id) if application_id else None
             old_refresh = (
                 OAuthRefreshToken.objects.select_related("user", "access_token")
@@ -357,6 +356,12 @@ class OAuthTokenView(ProvisioningAPIView):
             if old_refresh is None:
                 capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "Invalid or revoked refresh token")
+
+            if locked_app is None or not locked_app.is_provisioning_partner:
+                capture_provisioning_event("token_exchange", "not_provisioning_partner", grant_type="refresh_token")
+                raise ProvisioningError(
+                    "invalid_grant", "This refresh token's application is not a provisioning partner"
+                )
 
             oauth_app = locked_app
             user = old_refresh.user
@@ -392,7 +397,7 @@ class OAuthTokenView(ProvisioningAPIView):
             # token gets an empty scope rather than inheriting anything implicit.
             old_scope = old_refresh.access_token.scope if old_refresh.access_token else ""
 
-            sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+            sessions_revoked_at = oauth_app.sessions_revoked_at
             if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
                 capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "Application sessions were revoked; re-authorize.")
@@ -401,7 +406,7 @@ class OAuthTokenView(ProvisioningAPIView):
             # token rows — a since-tightened ceiling must drop the removed scopes, and a
             # token now fully outside the ceiling has to re-authorize rather than refresh.
             # Done up front so a rejected refresh never revokes the caller's only token.
-            app_scopes = oauth_app.ceiling_scopes if oauth_app else []
+            app_scopes = oauth_app.ceiling_scopes
             narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
             if narrowed_scopes is None:
                 capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
@@ -411,10 +416,7 @@ class OAuthTokenView(ProvisioningAPIView):
                 )
             new_scope = " ".join(narrowed_scopes)
 
-            # Not is_provisioning_partner: an admin clearing that flag to disable a partner
-            # leaves its outstanding refresh tokens working, and they must stay throttled.
-            if oauth_app and oauth_app.carries_provisioning_config:
-                self.charge_rate_limit(request, oauth_app, endpoint="token_refreshes")
+            self.charge_rate_limit(request, oauth_app, endpoint="token_refreshes")
 
             old_access = old_refresh.access_token
             old_refresh.access_token = None
@@ -424,18 +426,12 @@ class OAuthTokenView(ProvisioningAPIView):
             if old_access:
                 old_access.delete()
 
-            token_expiry = (
-                PARTNER_TOKEN_EXPIRY_SECONDS
-                if oauth_app and oauth_app.is_provisioning_partner
-                else ACCESS_TOKEN_EXPIRY_SECONDS
-            )
-
             new_access_value = generate_random_oauth_access_token(None)
             new_access = OAuthAccessToken.objects.create(
                 application=oauth_app,
                 token=new_access_value,
                 user=user,
-                expires=timezone.now() + timedelta(seconds=token_expiry),
+                expires=timezone.now() + timedelta(seconds=PARTNER_TOKEN_EXPIRY_SECONDS),
                 scope=new_scope,
                 scoped_teams=scoped_teams,
             )
@@ -465,6 +461,6 @@ class OAuthTokenView(ProvisioningAPIView):
                 "token_type": "bearer",
                 "access_token": new_access_value,
                 "refresh_token": new_refresh_value,
-                "expires_in": token_expiry,
+                "expires_in": PARTNER_TOKEN_EXPIRY_SECONDS,
             }
         )

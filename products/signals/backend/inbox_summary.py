@@ -150,10 +150,14 @@ def github_for_generated_pull_request(
 
 
 def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: int) -> None:
+    # Resolve the row by its unique identity first. Combined with `.first()`, the provenance EXISTS can make
+    # Postgres walk the primary key and evaluate the EXISTS for every pull request of the team.
     pr = (
-        generated_pull_requests(team_id).filter(repository=repository.lower(), number=pr_number, state="merged").first()
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=repository.lower(), number=pr_number, state="merged")
+        .first()
     )
-    if pr is None:
+    if pr is None or not generated_pull_requests(team_id).filter(id=pr.id).exists():
         return
     github = github_for_generated_pull_request(
         team_id=team_id, repository=pr.repository, pr_number=pr.number, pr_url=pr.url

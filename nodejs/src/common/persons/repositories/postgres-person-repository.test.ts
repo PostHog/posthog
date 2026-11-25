@@ -958,15 +958,6 @@ describe('PostgresPersonRepository', () => {
             it('deletePerson tombstones the row at the exact death version with scrubbed properties', async () => {
                 const person = await createTestPerson(team.id, 'ts-delete-did', { secret: 'x' })
                 await tombstoneDistinctId(team.id, 'ts-delete-did')
-                await postgres.query(
-                    PostgresUse.PERSONS_WRITE,
-                    `UPDATE posthog_person
-                     SET properties_last_updated_at = '{"secret": "2024-01-01T00:00:00Z"}',
-                         properties_last_operation = '{"secret": "set"}'
-                     WHERE team_id = $1 AND id = $2`,
-                    [team.id, person.id],
-                    'seedPersonMeta'
-                )
 
                 const messages = await repository.deletePerson(person)
 
@@ -976,7 +967,7 @@ describe('PostgresPersonRepository', () => {
 
                 const { rows } = await postgres.query(
                     PostgresUse.PERSONS_WRITE,
-                    `SELECT is_deleted, version, properties, properties_last_updated_at, properties_last_operation
+                    `SELECT is_deleted, version, properties
                      FROM posthog_person WHERE team_id = $1 AND id = $2`,
                     [team.id, person.id],
                     'fetchTombstonedPerson'
@@ -984,8 +975,6 @@ describe('PostgresPersonRepository', () => {
                 expect(rows[0].is_deleted).toBe(true)
                 expect(Number(rows[0].version)).toBe(1)
                 expect(rows[0].properties).toEqual({})
-                expect(rows[0].properties_last_updated_at).toBeNull()
-                expect(rows[0].properties_last_operation).toBeNull()
             })
 
             it('deletePerson refuses while live distinct ids still point at the person', async () => {

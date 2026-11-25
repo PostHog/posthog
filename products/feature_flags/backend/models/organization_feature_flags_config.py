@@ -37,6 +37,13 @@ class OrganizationFeatureFlagsConfig(models.Model):
         db_default=FlagEvaluationsMode.EVENTS.value,
     )
 
+    # Only FLAG_EVALUATIONS_ONLY reads this. Ingestion then keeps writing $feature_flag_called to events, so the
+    # readers behave as on FLAG_EVALUATIONS_ONLY while events stays a complete copy.
+    keep_writing_flag_calls_to_events = models.BooleanField(
+        default=False,
+        db_default=False,
+    )
+
     class Meta:
         # Django checks choices only in full_clean(). ORM saves, QuerySet.update(), and raw SQL writes
         # skip full_clean(). This CHECK makes the database reject any mode that FlagEvaluationsMode

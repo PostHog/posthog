@@ -124,12 +124,16 @@ def variant_sampling_plan_for_scope(
     Judged on the scope rather than the scanner type, so a scanner narrowed only by the `scope`
     column is balanced too. That also ends the carve-out legacy column-targeted scanners had: they
     now balance where before they kept plain sampling.
+
+    `balance` is read from the scope rather than from `scanner_config["balance_variants"]`, so the
+    answer survives the migration that strips the scope keys out of the config. `config_experiment_scope`
+    carries the config's value across, and both default to balancing, so a row reads the same
+    before and after it migrates.
     """
     if scope is None:
         return None
     experiment_id = scope.settings.experiment_id
-    config = scanner_config if isinstance(scanner_config, dict) else {}
-    if config.get("balance_variants") is False:
+    if not scope.settings.balance:
         return None
     # `scope_for` has already folded a legacy singular `variant` into a one-item list, so an
     # unset `variants` here means every variant rather than an unread narrowing.

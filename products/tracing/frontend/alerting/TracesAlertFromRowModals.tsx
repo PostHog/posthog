@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { TracesAlertCreateModal } from './TracesAlertCreateModal'
 import { TracesAlertEditModal } from './TracesAlertEditModal'
+import { tracesAlertFormLogic } from './tracesAlertFormLogic'
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 import { TracesAlertFormType } from './tracesAlertUtils'
 
@@ -17,18 +18,23 @@ interface TracesAlertFromRowModalsProps {
  */
 export function TracesAlertFromRowModals({ initialForm, onDone }: TracesAlertFromRowModalsProps): JSX.Element {
     const [creating, setCreating] = useState(true)
+    const closeCreate = useCallback((): void => setCreating(false), [])
     const { editingAlert } = useValues(tracesAlertsLogic)
     const { closeEditAlertModal } = useActions(tracesAlertsLogic)
+    // The same props the create modal passes, so this mount keeps a save going after Escape closes it.
+    const { isAlertFormSubmitting } = useValues(
+        tracesAlertFormLogic({ alert: null, initialForm, onSubmitSuccess: closeCreate })
+    )
 
     useEffect(() => {
-        if (!creating && editingAlert === null) {
+        if (!creating && !isAlertFormSubmitting && editingAlert === null) {
             onDone()
         }
-    }, [creating, editingAlert, onDone])
+    }, [creating, isAlertFormSubmitting, editingAlert, onDone])
 
     return (
         <>
-            <TracesAlertCreateModal isOpen={creating} onClose={() => setCreating(false)} initialForm={initialForm} />
+            <TracesAlertCreateModal isOpen={creating} onClose={closeCreate} initialForm={initialForm} />
             <TracesAlertEditModal alert={editingAlert} onClose={closeEditAlertModal} />
         </>
     )

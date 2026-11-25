@@ -20,6 +20,8 @@ export interface ProposedRow {
     outcome: string
     matchedMetricId: string | null
     complexity: number
+    /** The scan's rank score. 0 on scans before the score, which then rank by complexity first. */
+    priority: number
     people: number
     built: number
     viewed: number
@@ -47,6 +49,7 @@ function proposalRow(proposal: ProposedMetricApi): ProposedRow {
         outcome: 'uncovered',
         matchedMetricId: null,
         complexity: proposal.complexity,
+        priority: proposal.priority,
         people: proposal.people,
         built: proposal.built,
         viewed: proposal.views,
@@ -57,7 +60,7 @@ function proposalRow(proposal: ProposedMetricApi): ProposedRow {
     }
 }
 
-/** One row per proposal, then one per remaining measure the catalog does not cover, ranked by complexity, then people, built and views. */
+/** One row per proposal, then one per remaining measure the catalog does not cover, ranked by priority, then complexity, people, built and views. */
 export function buildProposedRows(payload: UsageSnapshotPayloadApi): ProposedRow[] {
     const proposals = payload.proposed_metrics ?? []
     const proposalNames = new Set(proposals.map((proposal) => proposal.name))
@@ -81,6 +84,7 @@ export function buildProposedRows(payload: UsageSnapshotPayloadApi): ProposedRow
             outcome: group.outcome,
             matchedMetricId: group.matched_metric_id,
             complexity: group.complexity,
+            priority: group.priority,
             people: group.distinct_people,
             built: group.built,
             viewed: group.views,
@@ -93,6 +97,7 @@ export function buildProposedRows(payload: UsageSnapshotPayloadApi): ProposedRow
     return rows
         .sort(
             (a, b) =>
+                b.priority - a.priority ||
                 b.complexity - a.complexity ||
                 b.people - a.people ||
                 b.built - a.built ||

@@ -9,21 +9,17 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    membershipLevelToName,
-    organizationMembershipLevelIntegers,
-} from 'lib/utils/permissioning'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
@@ -33,11 +29,13 @@ import { userLogic } from 'scenes/userLogic'
 import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
+import { changeMemberLevelWithConfirmation, memberActionOptions, memberLevelChangeLabel } from './memberActions'
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingModal } from './MemberOffboardingModal'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
+import { QuillMembers } from './QuillMembers'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -50,21 +48,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
         return null
     }
 
-    const currentMembershipLevel = currentOrganization?.membership_level ?? -1
-
-    const allowDeletion =
-        // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
-            member.user.uuid === user.uuid) &&
-        // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
-
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
-
-    const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-    )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+    const { allowDeletion, allowedLevels, disallowedReason } = memberActionOptions(user, currentOrganization, member)
 
     return (
         <More
@@ -87,34 +71,11 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     if (!user) {
                                         throw Error
                                     }
-                                    if (listLevel === OrganizationMembershipLevel.Owner) {
-                                        LemonDialog.open({
-                                            title: `Add additional owner to ${user.organization?.name}?`,
-                                            description: `Please confirm that you would like to make ${fullName(
-                                                member.user
-                                            )} an owner of ${user.organization?.name}.`,
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: `Make ${fullName(member.user)} an owner`,
-                                                onClick: () => changeMemberAccessLevel(member, listLevel),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    } else {
-                                        changeMemberAccessLevel(member, listLevel)
-                                    }
+                                    changeMemberLevelWithConfirmation(user, member, listLevel, changeMemberAccessLevel)
                                 }}
                                 data-test-level={listLevel}
                             >
-                                {listLevel === OrganizationMembershipLevel.Owner ? (
-                                    <>Make owner</>
-                                ) : listLevel > member.level ? (
-                                    <>Upgrade to {membershipLevelToName.get(listLevel)}</>
-                                ) : (
-                                    <>Downgrade to {membershipLevelToName.get(listLevel)}</>
-                                )}
+                                {memberLevelChangeLabel(member, listLevel)}
                             </LemonButton>
                         ))}
                     {allowDeletion && (
@@ -202,7 +163,13 @@ export function Members(): JSX.Element | null {
         !!members?.length &&
         members.length < currentOrganization.member_count
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     useOnMountEffect(ensureAllMembersLoaded)
+
+    if (todayRailNav) {
+        return <QuillMembers />
+    }
 
     if (!user) {
         return null

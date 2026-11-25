@@ -402,8 +402,8 @@ class TestPostmarkImport(BaseTest):
 
         assert run.status == "completed"
         domains = run.progress["domains"]
-        assert domains["counts"] == {"needs_account_token": 1}
-        assert "account token" in domains["warnings"][0]
+        assert "counts" not in domains
+        assert domains["warnings"][0].startswith("Skipped, because a server token")
         assert not {r["path"] for r in self.fake.requests} & {"/domains", "/senders", "/servers"}
 
     def test_domains_and_senders_list_dns_notes_and_write_nothing(self) -> None:
@@ -424,7 +424,8 @@ class TestPostmarkImport(BaseTest):
             assert secret not in stored
         assert run.temporary_api_key is None
         items = {item["label"]: item for item in run.progress["webhooks"]["items"]}
-        assert "Open, Bounce" in items["Production: outbound to hooks.example.com"]["notes"][0]
+        assert "Open, Bounce" in items["Production: outbound to hooks.example.com (1 of 2)"]["notes"][0]
+        assert "Delivery" in items["Production: outbound to hooks.example.com (2 of 2)"]["notes"][0]
 
     @parameterized.expand(
         [

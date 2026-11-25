@@ -44,7 +44,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind, ToolPreset
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_VALUES, ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
     DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalReport,
@@ -52,6 +52,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScratchpadRevision,
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
@@ -1020,6 +1021,51 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
 # --- Memory ---------------------------------------------------------------
 
 
+class ScratchpadRevisionSerializer(serializers.Serializer):
+    """The state a scratchpad entry held before one write replaced or deleted it."""
+
+    content = serializers.CharField(help_text="The entry's content before the change.")
+    expires_at = serializers.CharField(
+        allow_null=True, help_text="The entry's ISO-8601 expiry before the change, or null if it was durable."
+    )
+    change = serializers.ChoiceField(
+        choices=SignalScratchpadRevision.Change.choices,
+        help_text=(
+            "`overwrite` when a `remember` or the daily report-pointer sweep replaced this state, "
+            "`forget` when a delete removed it."
+        ),
+    )
+    changed_at = serializers.CharField(help_text="ISO-8601 time of the change.")
+    changed_by_run_id = serializers.CharField(
+        allow_null=True, help_text="Scout run that made the change, or null when a pipeline stage or a person did."
+    )
+    changed_by_skill = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Who made the change: the skill name of the scout run, the report-pipeline stage "
+            "(`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the "
+            "daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry."
+        ),
+    )
+    changed_by_run_url = serializers.CharField(
+        allow_null=True, help_text="Relative Tasks UI deep-link to the run that made the change, or null."
+    )
+
+
+class ScratchpadRevivedExpirySerializer(serializers.Serializer):
+    """The expiry a `remember` overruled when it wrote onto an expired entry."""
+
+    expires_at = serializers.CharField(help_text="ISO-8601 expiry the entry had before this write replaced it.")
+    set_by_skill = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. "
+            "Null when the entry was created with the expiry or no saved version shows who set it."
+        ),
+    )
+    set_at = serializers.CharField(allow_null=True, help_text="ISO-8601 time the expiry was set, or null.")
+
+
 class ScratchpadEntrySerializer(serializers.Serializer):
     """`SignalScratchpad` projection used by `search-memory` and `remember`."""
 
@@ -1056,6 +1102,49 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         required=False,
         help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
     )
+    revisions = ScratchpadRevisionSerializer(
+        many=True,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. "
+            "For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest "
+            "revision is the deleted state."
+        ),
+    )
+    expired = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. "
+            "Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` "
+            "and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry."
+        ),
+    )
+    last_changed_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, "
+            "a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the "
+            "expiry. Null when no saved version shows a writer, and on every other search."
+        ),
+    )
+    last_changed_at = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when "
+            "no saved version records one."
+        ),
+    )
+    revived_expiry = ScratchpadRevivedExpirySerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write "
+            "succeeded and replaced that expiry. Null otherwise."
+        ),
+    )
 
 
 # pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
@@ -1078,7 +1167,17 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         help_text=(
             "Exact key match — returns the single entry with this key, or nothing. Use this to "
             "re-read a known entry; `text` searches key *and* content, so it can push the row you "
-            "asked for past the limit."
+            "asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` "
+            "and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`."
+        ),
+    )
+    key_prefix = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` "
+            "matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike "
+            "`text`, it ignores what entry bodies say. Combines with every other filter."
         ),
     )
     skill_name = serializers.CharField(
@@ -1125,6 +1224,15 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "full body. Ignored when `keys_only=true`."
         ),
     )
+    include_revisions = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed "
+            "it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two "
+            "weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1141,6 +1249,11 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
                 "To read one known entry, pass `key` instead."
             )
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("include_revisions") and not attrs.get("key"):
+            raise serializers.ValidationError({"include_revisions": "Pass `key` to read one entry's revisions."})
+        return attrs
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1181,6 +1294,17 @@ class _BestEffortUUIDField(serializers.UUIDField):
             return super().run_validation(data)
         except serializers.ValidationError:
             return None
+
+
+@extend_schema_field(OpenApiTypes.STR)
+class _PreconditionDateTimeField(serializers.DateTimeField):
+    """A `DateTimeField` that presents as a plain string and rejects a value it cannot parse.
+
+    The plain string keeps the generated MCP client from refusing the value before the request is
+    sent, for the reason `_BestEffortDateTimeField` gives. Unlike that field, an unparseable value
+    fails the request. A precondition dropped as best-effort turns a guarded write into an
+    unguarded one, which is the overwrite the caller asked to prevent.
+    """
 
 
 class RememberRequestSerializer(serializers.Serializer):
@@ -1226,12 +1350,34 @@ class RememberRequestSerializer(serializers.Serializer):
         ),
     )
 
+    if_updated_at = _PreconditionDateTimeField(
+        required=False,
+        error_messages={
+            "invalid": "`if_updated_at` must be the `updated_at` value that `scout-scratchpad-search` returned, sent back unchanged."
+        },
+        help_text=(
+            "Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, "
+            "sent back unchanged. The write happens only when the stored entry still has this `updated_at`. "
+            "When the entry changed since you read it, or no entry has this key, nothing is written and the "
+            "call returns 409 with the entry's current `updated_at`. Read the entry again and decide. "
+            "Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped."
+        ),
+    )
+
     def validate_expires_at(self, value: datetime | None) -> datetime | None:
         # A past expiry would make the row invisible the moment it lands. Drop it rather than
         # rejecting the whole write — the content is the memory worth keeping, the expiry is not.
         if value is not None and value <= timezone.now():
             return None
         return value
+
+
+class RememberConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why nothing was written.")
+    updated_at = serializers.CharField(
+        allow_null=True,
+        help_text="The stored entry's current ISO-8601 `updated_at`, or null when no entry has this key.",
+    )
 
 
 class ForgetRequestSerializer(serializers.Serializer):
@@ -1841,18 +1987,30 @@ QUALITY_HINTS_HELP_TEXT = (
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
-        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+        help_text=(
+            "The authored report's id (null only when a preflight gate skipped the call). Returned even when "
+            "suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the "
+            "open report that already names the issue: edit that report."
+        ),
     )
     report_status = serializers.CharField(
         allow_null=True,
-        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+        help_text=(
+            "Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With "
+            "`source_issue_already_reported`, the current status of the open report."
+        ),
     )
     emitted = serializers.BooleanField(
         help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+        help_text=(
+            "`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` "
+            "| `source_issue_already_reported` | null when a report was authored. "
+            "`source_issue_already_reported` means an open report already names one of your `source_issues`, so "
+            "no report was created: add your findings to the report in `report_id` with edit-report."
+        ),
     )
     safety_explanation = serializers.CharField(
         allow_null=True,
@@ -3309,6 +3467,19 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
         ),
     )
 
+    source_product = serializers.CharField(
+        required=False,
+        help_text=(
+            "Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for "
+            "Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet."
+        ),
+    )
+
+    def validate_source_product(self, value: str) -> str:
+        if value not in SIGNAL_SOURCE_PRODUCT_VALUES:
+            raise serializers.ValidationError(f"`{value}` is not a source product.")
+        return value
+
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
         if not tags:
@@ -3615,8 +3786,8 @@ GRANTABLE_REPORT_ACTIONS: list[str] = sorted(kind.value for kind in SCOUT_GRANTA
 
 _REPORT_ACTIONS_HELP = (
     "Report actions this scout may start on inbox reports, from "
-    f"{', '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default, so every start is "
-    "refused. A scout cannot send its own message with an action. Each action starts an agent run with "
+    f"{' and '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default. A scout "
+    "cannot send its own message with an action. Each action starts an agent run with "
     "the full access of the person the scout's runs act as, so only that person can add one. A project "
     "admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds "
     "the grant. Applies from the scout's next run."
@@ -3885,7 +4056,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     precheck_query_source = serializers.SerializerMethodField(
         help_text=(
             "Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), "
-            "`skill_default` (the default its skill ships), or `off` (no pre-check runs)."
+            "`skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` "
+            "with a null `effective_precheck_query` means the scout runs a built-in check in code."
         ),
     )
     last_run_at = serializers.DateTimeField(

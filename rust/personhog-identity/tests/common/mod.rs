@@ -119,40 +119,6 @@ impl TestContext {
         person_id
     }
 
-    pub async fn seed_retired_person_meta(&self, person_id: i64) {
-        let sql = format!(
-            r#"
-            UPDATE {}
-            SET properties_last_updated_at = '{{"email": "2026-01-01T00:00:00Z"}}'::jsonb,
-                properties_last_operation = '{{"email": "set"}}'::jsonb
-            WHERE team_id = $1 AND id = $2
-            "#,
-            self.tables.person
-        );
-        sqlx::query(&sql)
-            .bind(self.team_id as i32)
-            .bind(person_id)
-            .execute(&self.pool)
-            .await
-            .expect("Failed to seed person meta");
-    }
-
-    pub async fn retired_person_meta(&self, person_id: i64) -> (Option<String>, Option<String>) {
-        let sql = format!(
-            r#"
-            SELECT properties_last_updated_at::text, properties_last_operation::text
-            FROM {} WHERE team_id = $1 AND id = $2
-            "#,
-            self.tables.person
-        );
-        sqlx::query_as(&sql)
-            .bind(self.team_id as i32)
-            .bind(person_id)
-            .fetch_one(&self.pool)
-            .await
-            .expect("Failed to read person meta")
-    }
-
     /// An engine over this context's pool, tuned for tests: a short poll
     /// so contention tests run in milliseconds, and a lease long enough
     /// that a live test's op never looks expired to the suite's single
@@ -552,6 +518,15 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     > {
         panic!("not exercised by this test")
     }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        _attaches: &[personhog_identity::storage::PersonAttach],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>>,
+    > {
+        panic!("not exercised by this test")
+    }
 }
 
 /// Wraps the real storage to inject the target-establishment races that
@@ -671,5 +646,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
         self.inner
             .attach_distinct_ids(team_id, person_id, distinct_ids)
             .await
+    }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        attaches: &[personhog_identity::storage::PersonAttach],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>>,
+    > {
+        self.inner.attach_distinct_ids_batch(attaches).await
     }
 }

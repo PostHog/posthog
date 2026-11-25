@@ -43,14 +43,21 @@ class CursorEndpointConfig:
     # Analytics API endpoints take their params in the query string and their dates as YYYY-MM-DD;
     # the Admin API takes a JSON body with epoch-ms dates.
     query_params: bool = False
-    date_param_format: Literal["epoch_ms", "iso_date"] = "epoch_ms"
+    # `iso_datetime` is RFC 3339 with a UTC `Z`, as the v2 Admin API takes it.
+    date_param_format: Literal["epoch_ms", "iso_date", "iso_datetime"] = "epoch_ms"
     date_param_names: tuple[str, str] = ("startDate", "endDate")
+    # The range end is exclusive, so a window's last millisecond is sent as the end plus one.
+    exclusive_end: bool = False
     # Fixed query params the endpoint requires on every request.
     extra_params: dict[str, str] = field(default_factory=dict)
     # Response `data` is an object keyed by user email instead of a list of rows.
     by_user: bool = False
     paginated: bool = True
+    # `page` sends a 1-based page number; `cursor` passes `pagination.nextCursor` back as `cursor`.
+    pagination: Literal["page", "cursor"] = "page"
     page_size: int = 100
+    # Rows of an incremental run arrive in ascending order of the incremental field.
+    rows_ascending: bool = True
     partition_key: Optional[str] = None  # Stable datetime field to partition by
     description: Optional[str] = None
     should_sync_default: bool = True
@@ -354,6 +361,77 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         incremental_fields=[_datetime_field("date")],
         should_sync_default=False,
         description="Daily team conversation counts by intent, complexity, category, guidance level, and work type. Needs a Cursor Enterprise plan with Conversation Insights turned on. Only syncs the last 365 days on initial sync",
+    ),
+    "ask_mode": CursorEndpointConfig(
+        name="ask_mode",
+        path="/analytics/team/ask-mode",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One row per day per model the team used in Ask mode.
+        primary_keys=["event_date", "model"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team Ask mode usage, with a count for each model. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "plans": CursorEndpointConfig(
+        name="plans",
+        path="/analytics/team/plans",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One row per day per model the team used to generate plans.
+        primary_keys=["event_date", "model"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team Plan mode usage, with a count for each model. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "mcp": CursorEndpointConfig(
+        name="mcp",
+        path="/analytics/team/mcp",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        # One row per day per MCP tool; tool names are only unique within their server.
+        primary_keys=["event_date", "mcp_server_name", "tool_name"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="event_date",
+        incremental_fields=[_datetime_field("event_date")],
+        should_sync_default=False,
+        description="Daily team MCP tool usage, with a count for each tool and MCP server. Needs a Cursor Enterprise plan. Only syncs the last 365 days on initial sync",
+    ),
+    "billing_items": CursorEndpointConfig(
+        name="billing_items",
+        path="/v2/teams/billing-items",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_datetime",
+        date_param_names=("startTime", "endTime"),
+        exclusive_end=True,
+        data_key="data",
+        primary_keys=["billingItemId"],
+        windowed=True,
+        pagination="cursor",
+        page_size=500,
+        # Each window lists newest first, so the run as a whole is not ascending.
+        rows_ascending=False,
+        partition_key="eventTime",
+        incremental_fields=[_datetime_field("eventTime")],
+        should_sync_default=False,
+        description="Itemized billing: one row per usage event, credit, or adjustment, with the product, model, usage amounts, and cost. Needs an API key with read access. Only syncs the last 365 days on initial sync",
     ),
 }
 

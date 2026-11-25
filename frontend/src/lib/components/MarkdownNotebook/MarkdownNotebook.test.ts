@@ -2963,21 +2963,29 @@ Intro paragraph
     })
 
     it('scrolls to and flashes the comment thread when its ref highlight is clicked', () => {
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: withNotebookTitle(
-                    '<Comment ref="banana" replies={[]} />\n\nNumbers <ref id="banana">look off</ref> here'
-                ),
-            })
-        )
-        const refSpan = container.querySelector('[data-notebook-ref="banana"]') as HTMLElement
-        expect(refSpan).toBeInstanceOf(HTMLElement)
+        const width = jest.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(1200)
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(
+                        '<Comment ref="banana" replies={[]} />\n\nNumbers <ref id="banana">look off</ref> here'
+                    ),
+                })
+            )
+            const refSpan = container.querySelector('[data-notebook-ref="banana"]') as HTMLElement
+            expect(refSpan).toBeInstanceOf(HTMLElement)
 
-        fireEvent.click(refSpan)
+            const thread = container.querySelector<HTMLElement>(
+                '.MarkdownNotebook__row--margin-comment .MarkdownNotebook__component-shell'
+            )!
+            thread.scrollIntoView = jest.fn()
+            fireEvent.click(refSpan)
 
-        const flashedShell = container.querySelector('.MarkdownNotebook__component-shell--comment-flash')
-        expect(flashedShell).toBeInstanceOf(HTMLElement)
-        expect(flashedShell?.closest('.MarkdownNotebook__row--margin-comment')).toBeInstanceOf(HTMLElement)
+            expect(thread.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+            expect(thread.classList.contains('MarkdownNotebook__component-shell--comment-flash')).toBe(true)
+        } finally {
+            width.mockRestore()
+        }
     })
 
     it('renders the source button inside the first text group when comments are present', () => {

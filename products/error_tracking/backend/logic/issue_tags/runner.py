@@ -2,6 +2,8 @@ from collections.abc import Callable, Collection
 from enum import StrEnum
 from uuid import UUID
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.dataclasses import frozen
@@ -18,7 +20,8 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 
 logger = structlog.get_logger(__name__)
 
-TAGGERS: tuple[Tagger, ...] = (RuleTagger(), JevTagger())
+RULE_TAGGER = RuleTagger()
+TAGGERS: tuple[Tagger, ...] = (RULE_TAGGER, JevTagger())
 
 
 class IssueTaggingSkipReason(StrEnum):
@@ -48,18 +51,44 @@ def run_issue_taggers(
     A tagger that raises does not stop the others. Its run carries the error, and the caller decides whether to retry.
     `load_event_properties` runs only when a tagger applies, so a team without one reads no event.
     """
+    return _run_issue_taggers(
+        team_id, TAGGERS if taggers is None else taggers, Q(id=issue_id), load_event_properties, keys=keys
+    )
+
+
+def run_rule_tagger_on_merge_target(
+    team_id: int, fingerprint: str, load_event_properties: Callable[[Team], dict[str, object]]
+) -> tuple[TaggerRun, ...] | IssueTaggingSkipReason:
+    """Run the rules on an exception that merged into an existing issue at creation, and label that issue.
+
+    The merge moved the fingerprint onto the target issue, so the fingerprint finds it. Jev does not run, because Jev
+    answers from an issue's first event and the target issue has its own. A team without rules reads no issue and no
+    event.
+    """
+    issue_filter = Q(fingerprints__team_id=team_id, fingerprints__fingerprint=fingerprint)
+    return _run_issue_taggers(team_id, (RULE_TAGGER,), issue_filter, load_event_properties)
+
+
+def _run_issue_taggers(
+    team_id: int,
+    taggers: tuple[Tagger, ...],
+    issue_filter: Q,
+    load_event_properties: Callable[[Team], dict[str, object]],
+    *,
+    keys: Collection[str] | None = None,
+) -> tuple[TaggerRun, ...] | IssueTaggingSkipReason:
     if not issue_tags_enabled(team_id):
         return IssueTaggingSkipReason.DISABLED
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         return IssueTaggingSkipReason.TEAM_MISSING
-    applicable = applicable_taggers(team_id, TAGGERS if taggers is None else taggers, keys)
+    applicable = applicable_taggers(team_id, taggers, keys)
     if not applicable:
         return IssueTaggingSkipReason.NO_TAGGER
 
     try:
-        issue = ErrorTrackingIssue.objects.get(team_id=team_id, id=issue_id)
+        issue = ErrorTrackingIssue.objects.get(issue_filter, team_id=team_id)
         context = TagContext(issue=issue, event_properties=load_event_properties(team))
         return tuple(_run_tagger(context, tagger, definitions) for tagger, definitions in applicable)
     except ErrorTrackingIssue.DoesNotExist:
