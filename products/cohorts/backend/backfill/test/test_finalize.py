@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.event_usage import groups
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 
 from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
@@ -134,6 +135,9 @@ class TestBackfillFinalizer(BaseTest):
             Cohort.objects.filter(id=cohort.id).update(
                 last_backfill_events_at=now, last_backfill_person_properties_at=now
             )
+        elif outcome == "completed_malformed_definition":
+            rows.update(reconcile_completed_at=now)
+            Cohort.objects.filter(id=cohort.id).update(filters={"properties": {"type": "AND", "values": 3}})
         elif outcome == "shortfall":
             rows.update(error="markers short, retryable")
         elif outcome == "missing_outcome":
@@ -185,6 +189,12 @@ class TestBackfillFinalizer(BaseTest):
             ("missing_outcome_holds", ["missing_outcome"], CohortBackfillRunStatus.RECONCILING, []),
             ("mixed_held_still_stamps", ["completed", "shortfall"], CohortBackfillRunStatus.RECONCILING, [0]),
             ("ratifies_a_stamp_already_set", ["completed_already_ready"], CohortBackfillRunStatus.COMPLETED, [0]),
+            (
+                "malformed_definition_supersedes",
+                ["completed_malformed_definition"],
+                CohortBackfillRunStatus.SUPERSEDED,
+                [],
+            ),
         ]
     )
     def test_outcome_matrix(
@@ -334,15 +344,18 @@ class TestBackfillFinalizer(BaseTest):
 
         cohort.refresh_from_db()
         assert cohort.last_backfill_events_at is not None and cohort.realtime_enabled_at is not None
-        expected = [
-            {
+        expected = mock.call(
+            distinct_id=str(self.team.uuid),
+            event="cohort realtime ready",
+            properties={
                 "cohort_id": cohort.pk,
                 "trigger_kind": CohortBackfillTrigger.COHORT_CREATED,
                 "seconds_since_run_created": (cohort.last_backfill_events_at - run.created_at).total_seconds(),
                 "seconds_since_turn_on": (cohort.last_backfill_events_at - cohort.realtime_enabled_at).total_seconds(),
-            }
-        ]
-        self.assertEqual(self._ready_events(), expected if reports else [])
+            },
+            groups=groups(team=self.team),
+        )
+        self.assertEqual(self.capture.call_args_list, [expected] if reports else [])
 
     @parameterized.expand(
         [
@@ -353,11 +366,15 @@ class TestBackfillFinalizer(BaseTest):
     def test_a_failing_ready_event_keeps_the_stamp(self, _name: str, target: str) -> None:
         run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
 
-        with mock.patch(target, side_effect=RuntimeError("unavailable")):
+        with (
+            mock.patch(target, side_effect=RuntimeError("unavailable")),
+            mock.patch("products.cohorts.backend.backfill.finalize.logger") as mock_logger,
+        ):
             result = finalize_backfill_runs()
 
         run.refresh_from_db()
         cohort.refresh_from_db()
+        mock_logger.exception.assert_called_once_with("cohort_backfill_finalizer_ready_event_failed", cohorts=1)
         self.assertEqual(result.errored, 0)
         self.assertEqual(run.status, CohortBackfillRunStatus.COMPLETED)
         self.assertIsNotNone(cohort.last_backfill_events_at)

@@ -265,12 +265,14 @@ def finalize_backfill_runs() -> FinalizerPass:
 def _report_ready_cohorts(ready_cohorts: Sequence[_ReadyCohort]) -> None:
     if not ready_cohorts:
         return
-    teams = Team.objects.only("uuid", "organization_id").in_bulk({each.team_id for each in ready_cohorts})
+    team_ids = {each.team_id for each in ready_cohorts}
+    teams = Team.objects.only("uuid", "organization_id").in_bulk(team_ids)
+    cohorts = Cohort.objects.filter(team_id__in=team_ids).in_bulk([each.cohort_id for each in ready_cohorts])
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
         for each in ready_cohorts:
             team = teams.get(each.team_id)
-            cohort = Cohort.objects.filter(id=each.cohort_id, team_id=each.team_id).first()
-            ready_at = cohort.realtime_ready_at if cohort is not None else None
+            cohort = cohorts.get(each.cohort_id)
+            ready_at = cohort.realtime_ready_at if cohort is not None and cohort.team_id == each.team_id else None
             if team is None or cohort is None or ready_at is None:
                 continue
             properties: dict[str, Any] = {
@@ -307,7 +309,11 @@ def _stamp_completes_readiness(team_id: int, cohort_id: int, kind: str) -> bool:
     )
     if cohort is None:
         return False
-    return {each for each, stamp in cohort._required_backfill_stamps().items() if stamp is None} == {kind}
+    try:
+        return cohort.pending_backfill_kinds() == {kind}
+    except Exception:
+        # Raising would roll back the run on every pass; the stamp below supersedes a malformed definition instead.
+        return False
 
 
 def _finalize_one_run(

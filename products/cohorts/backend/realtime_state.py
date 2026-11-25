@@ -241,7 +241,7 @@ def _pending_backfill_kinds(cohort: Cohort) -> set[str]:
     A cohort can still be participating in an active run for a kind its filters no longer use, and
     that run decides nothing about it.
     """
-    return {kind for kind, stamp in cohort._required_backfill_stamps().items() if stamp is None}
+    return cohort.pending_backfill_kinds()
 
 
 def _percent_complete(chunks: Mapping[str, Any] | None) -> int | None:
