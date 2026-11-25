@@ -421,6 +421,7 @@ class _LineShape:
     legend: Optional[str]
     target_format: Optional[QueryBatchTargetFormat]
     frames: bool
+    timezone: Optional[str] = None
 
 
 def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) -> str:
@@ -438,7 +439,12 @@ def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) ->
     return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: ResultFormat) -> _LineShape:
+def _line_shape(
+    item: QueryBatchInput,
+    resolved: Optional[ResolvedQuery],
+    result_format: ResultFormat,
+    timezone: Optional[str] = None,
+) -> _LineShape:
     return _LineShape(
         language=item.target.language,
         query=resolved.query if resolved is not None else {},
@@ -446,6 +452,7 @@ def _line_shape(item: QueryBatchInput, resolved: Optional[ResolvedQuery], result
         legend=item.target.legend,
         target_format=item.target.format,
         frames=result_format == ResultFormat.FRAMES,
+        timezone=timezone,
     )
 
 
@@ -495,7 +502,12 @@ def _result_line(
     if shape.frames:
         try:
             frames = frames_for(
-                shape.language, shape.query, result, legend=shape.legend, target_format=shape.target_format
+                shape.language,
+                shape.query,
+                result,
+                legend=shape.legend,
+                target_format=shape.target_format,
+                timezone=shape.timezone,
             )
         except Exception as e:
             # A result the converter cannot read is still an answer, so it goes back as the runner returned it.
@@ -771,7 +783,7 @@ class QueryBatch:
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
                 continue
-            self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
+            self._shapes[index] = _line_shape(item, resolved[index], self._result_format, self._team.timezone)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
         if logql:
             try:
@@ -836,7 +848,7 @@ class QueryBatch:
         for index, item in enumerate(inputs):
             if item.target.language != QueryBatchLanguage.LOGQL:
                 continue
-            self._shapes[index] = _line_shape(item, None, self._result_format)
+            self._shapes[index] = _line_shape(item, None, self._result_format, self._team.timezone)
             if item.cache_only:
                 self._add_ready(_miss_line(index, None, self._shapes[index]))
             else:
