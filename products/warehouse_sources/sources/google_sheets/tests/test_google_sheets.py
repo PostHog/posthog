@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.google_sheets._config import GoogleSheet
 from products.warehouse_sources.sources.google_sheets.google_sheets import (
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
+    GoogleSheetsRowsMovedError,
     GoogleSheetsServiceAccountKeyInvalidError,
     _assert_unique_normalized_column_names,
     _get_worksheet,
@@ -370,28 +371,33 @@ def _read_sheet(
     locale: str = "en_US",
     first_column_formats: list[tuple[str, float | None]] | None = None,
     time_zone: str = "Etc/UTC",
-    date_read_texts: list[str] | None = None,
     date_read_error: gspread.exceptions.APIError | None = None,
+    moved_date_reads: int = 0,
 ) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     # Shaped like a `spreadsheets.get` response: the first row is the header, which has no format.
-    texts = date_read_texts or [row[0] for row in data_rows]
-    row_data: list[dict[str, Any]] = [{"values": [{"formattedValue": header_row[0]}]}]
-    for (number_format_type, serial), text in zip(first_column_formats or [], texts):
-        cell: dict[str, Any] = {"effectiveFormat": {"numberFormat": {"type": number_format_type}}}
-        if text:
-            cell["formattedValue"] = text
-        if serial is not None:
-            cell["effectiveValue"] = {"numberValue": serial}
-        row_data.append({"values": [cell]})
+    def date_read(texts: list[str]) -> dict[str, Any]:
+        row_data: list[dict[str, Any]] = [{"values": [{"formattedValue": header_row[0]}]}]
+        for (number_format_type, serial), text in zip(first_column_formats or [], texts):
+            cell: dict[str, Any] = {"effectiveFormat": {"numberFormat": {"type": number_format_type}}}
+            if text:
+                cell["formattedValue"] = text
+            if serial is not None:
+                cell["effectiveValue"] = {"numberValue": serial}
+            row_data.append({"values": [cell]})
+        return {"sheets": [{"data": [{"rowData": row_data}]}]}
+
+    texts = [row[0] for row in data_rows]
+    # The first `moved_date_reads` date reads see a row inserted above the data.
+    date_reads = [date_read(["inserted", *texts[:-1]])] * moved_date_reads
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.spreadsheet.locale = locale
     mock_worksheet.spreadsheet.timezone = time_zone
-    mock_worksheet.spreadsheet.fetch_sheet_metadata.return_value = {"sheets": [{"data": [{"rowData": row_data}]}]}
-    if date_read_error is not None:
-        mock_worksheet.spreadsheet.fetch_sheet_metadata.side_effect = date_read_error
+    mock_worksheet.spreadsheet.fetch_sheet_metadata.side_effect = date_read_error or (
+        lambda params: date_reads.pop(0) if date_reads else date_read(texts)
+    )
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -584,7 +590,6 @@ def test_google_sheets_source_reads_date_cells_as_the_date_they_hold(cells, form
             200_000,
             id="date_read_fails",
         ),
-        pytest.param({"date_read_texts": ["14-10", "13-10"]}, 200_000, id="rows_moved_between_the_two_reads"),
         pytest.param({}, 2, id="grid_too_large_for_the_date_read"),
     ],
 )
@@ -602,13 +607,31 @@ def test_google_sheets_source_keeps_display_text_when_the_date_read_is_unusable(
     assert tables[0].column("value").to_pylist() == ["13-10", "14-10"]
 
 
-def test_google_sheets_source_fails_the_sync_when_the_date_read_keeps_hitting_transient_errors():
-    with pytest.raises(gspread.exceptions.APIError):
+def test_google_sheets_source_reads_the_worksheet_again_when_rows_move_during_the_read():
+    tables = _read_sheet(
+        ["value"],
+        [["13-10"], ["14-10"]],
+        first_column_formats=[("DATE", _SERIAL_2026_10_13), ("DATE", _SERIAL_2026_10_13 + 1)],
+        moved_date_reads=1,
+    )
+
+    assert tables[0].column("value").to_pylist() == [datetime.date(2026, 10, 13), datetime.date(2026, 10, 14)]
+
+
+@pytest.mark.parametrize(
+    "read_sheet_kwargs,expected_error",
+    [
+        pytest.param({"date_read_error": _api_error(503)}, gspread.exceptions.APIError, id="transient_api_errors"),
+        pytest.param({"moved_date_reads": 3}, GoogleSheetsRowsMovedError, id="rows_keep_moving"),
+    ],
+)
+def test_google_sheets_source_fails_the_sync_when_the_date_read_stays_unreliable(read_sheet_kwargs, expected_error):
+    with pytest.raises(expected_error):
         _read_sheet(
             ["value"],
-            [["13-10"]],
-            first_column_formats=[("DATE", _SERIAL_2026_10_13)],
-            date_read_error=_api_error(503),
+            [["13-10"], ["14-10"]],
+            first_column_formats=[("DATE", _SERIAL_2026_10_13), ("DATE", _SERIAL_2026_10_13 + 1)],
+            **read_sheet_kwargs,
         )
 
 

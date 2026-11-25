@@ -267,6 +267,22 @@ _DATE_CELLS_MAX_GRID_CELLS = 200_000
 # Sheets names a time zone that has no IANA name by its offset, for example "GMT-07:00".
 _GMT_OFFSET_TIME_ZONE_RE = re.compile(r"GMT([+-])(\d{1,2}):(\d{2})")
 
+_GRID_READ_ATTEMPTS = 3
+_GRID_READ_RETRY_SECONDS = 5
+
+
+class GoogleSheetsRowsMovedError(Exception):
+    """Rows moved between the values read and the date read, so the two grids do not line up.
+
+    Retryable: the move comes from an edit while the sync runs. Display text in place of the dates
+    would change the type of each date column, and an incremental table rejects that change."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Rows in the worksheet moved while PostHog read it, for example because someone inserted, "
+            "deleted or sorted rows. The sync will try again."
+        )
+
 
 @frozen
 class _CellPosition:
@@ -338,10 +354,9 @@ def _read_date_cells(worksheet: gspread.Worksheet, grid: list[list[str]]) -> dic
                     position = _CellPosition(row=start_row + row_offset, column=start_column + column_offset)
                     # A row inserted, deleted or sorted between the values read and this read moves
                     # the cells of one grid against the other. A date cell whose text differs from
-                    # the grid at its position shows that move, and then no position is reliable.
+                    # the grid at its position shows that move.
                     if cell.get("formattedValue", "") != _grid_text(grid, position):
-                        logger.warning("google_sheets_date_cells_moved", worksheet_id=worksheet.id)
-                        return {}
+                        raise GoogleSheetsRowsMovedError()
                     dates[position] = value
     return dates
 
@@ -727,6 +742,44 @@ def _incremental_fields_from_rows(rows: list[list[Any]]) -> list[IncrementalFiel
     return []
 
 
+def _read_grid(worksheet: gspread.Worksheet) -> list[list[str]]:
+    # Read the raw grid and build the records ourselves rather than calling
+    # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
+    # what `get_all_records` asks for, so every row is the same width as the widest one.
+    # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
+    # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
+    try:
+        return cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+    except gspread.exceptions.APIError as e:
+        # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
+        # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
+        # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
+        # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
+        if e.code == 400 and "Invalid range" in str(e):
+            return []
+        raise
+
+
+@frozen
+class _WorksheetCells:
+    grid: list[list[str]]
+    date_cells: dict[_CellPosition, datetime.date]
+
+
+def _read_worksheet_cells(worksheet: gspread.Worksheet) -> _WorksheetCells:
+    attempt = 1
+    while True:
+        grid = _read_grid(worksheet)
+        try:
+            return _WorksheetCells(grid=grid, date_cells=_date_cells(worksheet, grid))
+        except GoogleSheetsRowsMovedError:
+            if attempt >= _GRID_READ_ATTEMPTS:
+                raise
+            logger.info("google_sheets_rows_moved_during_read", worksheet_id=worksheet.id, attempt=attempt)
+            time.sleep(_GRID_READ_RETRY_SECONDS * attempt)
+            attempt += 1
+
+
 def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
@@ -766,25 +819,9 @@ def google_sheets_source(
     # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
-
-        # Read the raw grid and build the records ourselves rather than calling
-        # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
-        # what `get_all_records` asks for, so every row is the same width as the widest one.
-        # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
-        # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
-        try:
-            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
-        except gspread.exceptions.APIError as e:
-            # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
-            # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
-            # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
-            # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
-            if e.code == 400 and "Invalid range" in str(e):
-                grid = []
-            else:
-                raise
+        cells = _read_worksheet_cells(worksheet)
         values = _records_from_grid(
-            grid, _spreadsheet_locale(worksheet), _date_cells(worksheet, grid), _spreadsheet_time_zone(worksheet)
+            cells.grid, _spreadsheet_locale(worksheet), cells.date_cells, _spreadsheet_time_zone(worksheet)
         )
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
