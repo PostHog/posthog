@@ -126,12 +126,10 @@ describe('<ProjectSecretAPIKeys />', () => {
     })
 
     it('offers AI observability, dataset, and evaluation scopes on project keys', () => {
-        for (const key of ['ai_observability', 'dataset', 'evaluation']) {
+        for (const key of ['llm_analytics', 'dataset', 'evaluation']) {
             expect(logic.values.filteredScopes.find((row) => row.key === key)).toMatchObject({ disabledActions: [] })
         }
-        expect(logic.values.filteredScopes.find((row) => row.key === 'ai_observability')?.label).toBe(
-            'AI observability'
-        )
+        expect(logic.values.filteredScopes.find((row) => row.key === 'llm_analytics')?.label).toBe('AI observability')
         expect(logic.values.filteredScopes.find((row) => row.key === 'dataset')?.info).toBe(
             'Datasets, their items, revisions, and retention.'
         )

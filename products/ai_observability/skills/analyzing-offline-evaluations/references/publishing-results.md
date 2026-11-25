@@ -55,7 +55,6 @@ batch. Treat 403 as a permission problem rather than retrying with a broader cre
 Ingestion requires `offline_evaluation_ingestion:write`; it grants neither payload
 reads nor scorer administration. With ingestion access alone, include every pinned
 input when calculating a composite score. To reuse stored inputs, including on
-retries, grant `evaluation:read` plus `ai_observability:read` for project keys
-or `llm_analytics:read` for personal keys and OAuth.
+retries, grant `evaluation:read` and `llm_analytics:read`.
 An agent can upload results without being able to read them back, so acknowledgments
 are the source of truth for upload success.

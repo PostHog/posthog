@@ -111,10 +111,10 @@ class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
         [
             ("dataset:read", "llm_analytics", "none", False),
             ("dataset:write", "llm_analytics", "viewer", False),
-            ("ai_observability:write", "llm_analytics", "viewer", False),
+            ("llm_analytics:write", "llm_analytics", "viewer", False),
             ("evaluation:read", "evaluation", "none", False),
             ("evaluation:write", "evaluation", "viewer", False),
-            ("ai_observability:read", "llm_analytics", "viewer", True),
+            ("llm_analytics:read", "llm_analytics", "viewer", True),
             ("evaluation:write", "evaluation", "editor", True),
         ]
     )
@@ -133,7 +133,7 @@ class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
         key.refresh_from_db()
         if not allowed:
             assert key.scopes == ["endpoint:read"]
-            key.scopes = [scope.replace("ai_observability:", "llm_analytics:")]
+            key.scopes = [scope]
             key.save(update_fields=["scopes"])
         roll = self.client.post(f"{key_url}roll/")
         assert roll.status_code == (200 if allowed else 403), roll.data
@@ -304,7 +304,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
                 "person:write",
                 "dataset:read",
                 "evaluation:write",
-                "ai_observability:write",
+                "llm_analytics:write",
             ]
             for mirrors_legacy_token, expected_status in [(True, 400), (False, 200)]
         ]
@@ -326,7 +326,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         key.refresh_from_db()
-        assert (scope.replace("ai_observability:", "llm_analytics:") in key.scopes) == (expected_status == 200)
+        assert (scope in key.scopes) == (expected_status == 200)
 
     @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
     def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
@@ -766,8 +766,8 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
                 ["account:read", "loop:write"],
             ),
             ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
-            ("grants_ai_observability", ["project:write", "llm_analytics:write"], ["ai_observability:read"], []),
-            ("lacks_ai_observability", ["project:write"], ["ai_observability:write"], ["llm_analytics:write"]),
+            ("grants_ai_observability", ["project:write", "llm_analytics:write"], ["llm_analytics:read"], []),
+            ("lacks_ai_observability", ["project:write"], ["llm_analytics:write"], ["llm_analytics:write"]),
             ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
             ("wildcard", ["*"], ["account:read", "loop:write"], []),
         ]

@@ -29,8 +29,8 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key['value']}")
 
     def test_scorer_and_trace_score_share_project_grants(self) -> None:
-        writer = self._issue("Review writer", ["ai_observability:write"])
-        reader = self._issue("Review reader", ["ai_observability:read"])
+        writer = self._issue("Review writer", ["llm_analytics:write"])
+        reader = self._issue("Review reader", ["llm_analytics:read"])
         self._use(writer)
         scorers = f"{self.project_url}/llm_analytics/score_definitions/"
         reviews = f"{self.project_url}/llm_analytics/trace_reviews/"
@@ -75,7 +75,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         assert rendered.data["review"]["reviewedBy"] == f"Project key · {writer['id'][-8:]}"
         denied = self.client.delete(url)
         assert denied.status_code == 403
-        assert "ai_observability:write" in denied.data["detail"]
+        assert "llm_analytics:write" in denied.data["detail"]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         assert self.client.get(f"/api/projects/{other_team.id}/llm_analytics/trace_reviews/").status_code == 403
         assert self.client.get(f"{self.project_url}/ai_observability/offline_experiments/").status_code == 403
@@ -94,7 +94,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         ]
 
     def test_project_key_scorer_edits_attribute_metadata_and_immutable_versions(self) -> None:
-        key = self._issue("Scorer editor", ["ai_observability:write"])
+        key = self._issue("Scorer editor", ["llm_analytics:write"])
         scorers = f"{self.project_url}/llm_analytics/score_definitions/"
         config = {"true_label": "Yes", "false_label": "No"}
         original = self.client.post(scorers, {"name": "Relevant", "kind": "boolean", "config": config}, format="json")
@@ -129,7 +129,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         assert human.data["updated_by_project_key_id"] is None
 
     def test_project_key_delete_and_recreate_records_the_displaced_reviewer(self) -> None:
-        key = self._issue("Review writer", ["ai_observability:write"])
+        key = self._issue("Review writer", ["llm_analytics:write"])
         reviews = f"{self.project_url}/llm_analytics/trace_reviews/"
         original = self.client.post(reviews, {"trace_id": "replacement"}, format="json")
         assert original.status_code == 201
@@ -146,7 +146,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         assert audit.get(item_id=replacement.data["id"], activity="created").is_system is False
 
     def test_project_key_edits_preserve_the_human_reviewer_on_retries_and_audit_real_changes(self) -> None:
-        key = self._issue("Review editor", ["ai_observability:write"])
+        key = self._issue("Review editor", ["llm_analytics:write"])
         scorer = self.client.post(
             f"{self.project_url}/llm_analytics/score_definitions/",
             {"name": "Resolved", "kind": "boolean", "config": {"true_label": "Yes", "false_label": "No"}},

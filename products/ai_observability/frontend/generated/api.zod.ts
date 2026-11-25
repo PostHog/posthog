@@ -394,7 +394,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .boolean()
                     .optional()
                     .describe(
-                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and scorer read access (ai_observability:read for project keys, llm_analytics:read for personal keys and OAuth). For reported scorers, omit this flag or set false and supply the result."
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and llm_analytics:read. For reported scorers, omit this flag or set false and supply the result."
                     ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])

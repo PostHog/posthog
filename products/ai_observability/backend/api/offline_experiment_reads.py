@@ -17,8 +17,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.pagination import page_link
 from posthog.api.statement_timeout import statement_timeout
 from posthog.exceptions import InsufficientScope
-from posthog.permissions import get_authenticator_scopes, is_service_auth
-from posthog.scopes.project_secret_api_key import project_key_scope_name
+from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
@@ -114,10 +113,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
             {"*", "llm_analytics:read", "llm_analytics:write"}.intersection(scopes)
         )
         if query is not None and (query.scorer_definition_id or query.scorer_version_ids) and not can_read_scores:
-            scope = (
-                project_key_scope_name("llm_analytics:read") if is_service_auth(self.request) else "llm_analytics:read"
-            )
-            raise InsufficientScope([scope], detail=f"Scorer filters require {scope}.")
+            raise InsufficientScope(["llm_analytics:read"], detail="Scorer filters require llm_analytics:read.")
         return OfflineEvaluationReadService(
             team_id=self.team_id, user_access_control=self.reference_access_control, can_read_scores=can_read_scores
         )

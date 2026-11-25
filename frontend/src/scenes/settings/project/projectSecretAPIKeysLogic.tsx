@@ -40,7 +40,7 @@ const GATEWAY_SCOPE = 'llm_gateway:read'
 const PROJECT_SECRET_SCOPE_ROWS: Record<string, { label: string; info?: string }> = {
     dataset: { label: 'Dataset', info: 'Datasets, their items, revisions, and retention.' },
     evaluation: { label: 'Evaluation', info: 'Offline experiments, their items, and results.' },
-    ai_observability: { label: 'AI observability', info: 'Scorers, offline evaluation scores, and trace reviews.' },
+    llm_analytics: { label: 'AI observability', info: 'Scorers, offline evaluation scores, and trace reviews.' },
     llm_gateway: { label: 'AI gateway' },
     messaging_preference: {
         label: 'Recipient preference',
