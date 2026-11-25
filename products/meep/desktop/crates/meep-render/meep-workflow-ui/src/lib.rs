@@ -84,8 +84,6 @@ struct Call {
 #[derive(Clone)]
 struct Row {
     key: String,
-    // Steps represented by this row when the outline combines multiple calls.
-    represented_steps: Vec<String>,
     title: String,
     tile: Tile,
     /// Short facts under the title, in order.
@@ -115,7 +113,6 @@ impl Row {
     fn new(key: impl Into<String>, title: impl Into<String>, tile: Tile) -> Self {
         Self {
             key: key.into(),
-            represented_steps: vec![],
             title: title.into(),
             tile,
             meta: vec![],
@@ -134,16 +131,6 @@ impl Row {
             data_row: false,
             error: None,
         }
-    }
-
-    fn represents(&self, step: &str) -> bool {
-        self.key == step || self.represented_steps.iter().any(|id| id == step)
-    }
-
-    fn include_steps(&mut self, row: &Self) {
-        self.represented_steps.push(row.key.clone());
-        self.represented_steps
-            .extend(row.represented_steps.iter().cloned());
     }
 }
 
@@ -345,32 +332,6 @@ impl Outline {
             self.scroll.scroll_to_item(index);
         }
         cx.notify();
-    }
-    pub fn reveal_step(&mut self, step: &str, cx: &mut Context<Self>) {
-        let Some((target, child)) = self.model.rows.iter().find_map(|row| {
-            let child = row.children.iter().find(|child| child.represents(step));
-            (row.represents(step) || child.is_some()).then_some((row, child))
-        }) else {
-            return;
-        };
-        self.show_data |= target.data_row || child.is_some_and(|child| child.data_row);
-        let mut index = 0;
-        for row in &self.model.rows {
-            if std::ptr::eq(row, target) {
-                self.expanded = Some(child.unwrap_or(row).key.clone());
-                self.scroll
-                    .scroll_to_item(index + usize::from(child.is_some()));
-                cx.notify();
-                return;
-            }
-            if self.show_data || !row.data_row {
-                index += 1 + usize::from(
-                    row.children
-                        .iter()
-                        .any(|child| self.show_data || !child.data_row),
-                );
-            }
-        }
     }
 
     /// Whether a run is in progress, and how long it has been going.

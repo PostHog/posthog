@@ -6,8 +6,80 @@ use meep_ui::gpui_kit::component::{
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
 };
 
-const TOPIC_ROW_HEIGHT: f32 = 34.;
-const TOPIC_ICON_SIZE: f32 = 22.;
+pub(super) const TOPIC_SIDEBAR_WIDTH: f32 = 276.;
+const TOPIC_ROW_HEIGHT: f32 = 52.;
+const TOPIC_ROW_RADIUS: f32 = 10.;
+const TOPIC_ROW_TRAILING: f32 = 8.;
+const TOPIC_ROW_GAP: f32 = 4.;
+
+fn row_gap(key: &str) -> f32 {
+    if key.starts_with("topic:") {
+        TOPIC_ROW_GAP
+    } else {
+        ui::nav::GAP
+    }
+}
+
+fn topic_row_text(state: &TopicState, group: &SharedString) -> Div {
+    let messages = state
+        .threads
+        .iter()
+        .filter(|thread| !thread.source_material && !state.archived_threads.contains(&thread.id))
+        .flat_map(|thread| {
+            thread
+                .messages
+                .iter()
+                .map(|message| (message.at, message.text.as_str()))
+        });
+    let results = state
+        .tasks
+        .iter()
+        .filter_map(|task| task.result.as_deref().map(|text| (task.updated_at, text)));
+    let latest = messages
+        .chain(results)
+        .filter(|(_, text)| !text.trim().is_empty())
+        .max_by_key(|(at, _)| *at);
+    let (at, preview) = latest.unwrap_or((state.topic.created_at, ""));
+    let at = at.with_timezone(&chrono::Local);
+    let days_ago = (chrono::Local::now().date_naive() - at.date_naive()).num_days();
+    let date = match days_ago {
+        0 => at.format("%H:%M").to_string(),
+        1 => "Yesterday".to_owned(),
+        2..=6 => at.format("%a").to_string(),
+        _ => at.format("%b %-d").to_string(),
+    };
+    let preview = super::pages::plain_line(preview);
+
+    ui::column()
+        .flex_1()
+        .gap(px(1.))
+        .child(
+            ui::row()
+                .gap(px(6.))
+                .child(
+                    ui::nav::title(state.topic.name.clone())
+                        .text_size(px(15.))
+                        .line_height(px(20.)),
+                )
+                .child(
+                    ui::caption(date)
+                        .flex_none()
+                        .relative()
+                        .top(px(1.))
+                        .text_size(px(12.))
+                        .line_height(px(20.))
+                        .group_hover(group.clone(), |style| style.opacity(0.)),
+                ),
+        )
+        .when(!preview.is_empty(), |column| {
+            column.child(
+                ui::caption(preview)
+                    .truncate()
+                    .text_size(px(13.))
+                    .line_height(px(18.)),
+            )
+        })
+}
 
 impl Desktop {
     /// New routine, in the New view pattern: describe it, or start from a template.
@@ -333,8 +405,10 @@ impl Desktop {
             }
             (true, "n") => self.open_sheet(Sheet::New, w, cx),
             (true, ",") => self.go(Page::Settings, w, cx),
-            (true, "\\") if matches!(self.page, Page::Topic(..)) => {
-                self.overview_hidden = !self.overview_hidden;
+            (true, "\\") => {
+                if let Page::Topic(id, ..) = self.page {
+                    self.toggle_overview(id, w)
+                }
             }
             (true, "[") => {
                 if let Some(p) = self.back.pop() {
@@ -545,85 +619,86 @@ impl Desktop {
         };
         let lifted = cx.has_active_drag() && self.drag_source.as_deref() == Some(key.as_str());
         let (hover_key, title) = (key.clone(), name.clone());
-        nav_line(
-            format!("topic-{tid}"),
-            self.topic_id() == Some(tid) && self.sheet != Some(Sheet::New),
-        )
-        .h(px(TOPIC_ROW_HEIGHT))
-        .relative()
-        .group(gname.clone())
-        .when(lifted, |r| r.opacity(0.35))
-        .child(super::topic_icon::tile(
-            &s.topic.display_icon(),
-            TOPIC_ICON_SIZE,
-        ))
-        .child(ui::nav::title(name.clone()))
-        .when(problem, |row| {
-            // Steps aside for the row's actions on hover, like the decision dot.
-            row.child(
+        let selected = self.topic_id() == Some(tid) && self.sheet != Some(Sheet::New);
+        let decision = !problem && cnt > 0;
+        let badge = if decision { 10. } else { 14. };
+        nav_line(format!("topic-{tid}"), selected)
+            .h(px(TOPIC_ROW_HEIGHT))
+            .relative()
+            .group(gname.clone())
+            .when(lifted, |r| r.opacity(0.35))
+            .pr(px(TOPIC_ROW_TRAILING))
+            .rounded(px(TOPIC_ROW_RADIUS))
+            .child(
                 div()
+                    .relative()
                     .flex_none()
-                    .group_hover(gname.clone(), |s| s.opacity(0.))
-                    .child(
-                        Icon::new(Glyph::TriangleAlert)
-                            .size(px(12.))
-                            .text_color(rgb(ui::theme::color(0xc2610c))),
+                    .child(super::topic_icon::sidebar_tile(&s.topic.display_icon()))
+                    .when(
+                        problem || cnt > 0 || super::desktop::topic_working(s),
+                        |tile| {
+                            tile.child(
+                                div()
+                                    .absolute()
+                                    .top(px(if decision { -1. } else { -2. }))
+                                    .right(px(if decision { -1. } else { -2. }))
+                                    .size(px(badge))
+                                    .rounded_full()
+                                    .bg(rgb(ui::theme::get(if selected { 7 } else { 6 })))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(if problem {
+                                        Icon::new(Glyph::TriangleAlert)
+                                            .size(px(12.))
+                                            .text_color(rgb(ui::theme::color(0xc2610c)))
+                                            .into_any_element()
+                                    } else if cnt > 0 {
+                                        ui::nav::decision_dot().into_any_element()
+                                    } else {
+                                        self.sidebar_activity.clone().into_any_element()
+                                    }),
+                            )
+                        },
                     ),
             )
-        })
-        .when(cnt > 0 && !problem, |el| {
-            // One marker per row: a broken connection outranks the dot.
-            el.child(ui::nav::decision().group_hover(gname.clone(), |s| s.opacity(0.)))
-        })
-        .when(
-            cnt == 0 && !problem && super::desktop::topic_working(s),
-            |el| {
-                // Then that its agent is working, as View's sidebar shows it.
-                el.child(
-                    ui::nav::activity(self.sidebar_activity.clone().into_any_element())
-                        .group_hover(gname.clone(), |s| s.opacity(0.)),
-                )
-            },
-        )
-        .child(
-            // The popover lays its trigger out in its own slot, so the slot is
-            // positioned, not the button: an absolute button inside it would
-            // leave the slot empty and miss clicks.
-            div()
-                .id(SharedString::from(format!("topic-slot-{tid}")))
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .right(px(ui::nav::TRAIL))
-                .flex()
-                .items_center()
-                .child(
-                    row_actions(format!("topic-actions-{tid}"), &name, gname.clone())
-                        .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
-                ),
-        )
-        .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
-            cx.new(|_| super::sidebar::Lifted {
-                glyph: Glyph::AtSign,
-                title: title.clone(),
-                trailing: None,
+            .child(topic_row_text(s, &gname))
+            .child(
+                // The popover lays its trigger out in its own slot, so the slot is
+                // positioned, not the button: an absolute button inside it would
+                // leave the slot empty and miss clicks.
+                div()
+                    .id(SharedString::from(format!("topic-slot-{tid}")))
+                    .absolute()
+                    .top(px(6.5))
+                    .right(px(TOPIC_ROW_TRAILING))
+                    .child(
+                        row_actions(format!("topic-actions-{tid}"), &name, gname.clone())
+                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
+                    ),
+            )
+            .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
+                cx.new(|_| super::sidebar::Lifted {
+                    glyph: Glyph::AtSign,
+                    title: title.clone(),
+                    trailing: None,
+                })
             })
-        })
-        .on_drag_move(cx.listener(move |s, e: &DragMoveEvent<Drag>, _, cx| {
-            if let Drag::Item(source) = e.drag(cx).clone() {
-                s.hover_item_row(&hover_key, &source, e.bounds, e.event.position, cx)
-            }
-        }))
-        .on_hover(
-            cx.listener(move |s, hovered: &bool, _, cx| s.hover_topic_card(tid, *hovered, cx)),
-        )
-        .children(self.topic_card(s, cx))
-        .on_click(cx.listener(move |s, _, w, cx| {
-            s.dismiss_topic_card(cx);
-            s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
-        }))
-        .context_menu(menu)
-        .into_any_element()
+            .on_drag_move(cx.listener(move |s, e: &DragMoveEvent<Drag>, _, cx| {
+                if let Drag::Item(source) = e.drag(cx).clone() {
+                    s.hover_item_row(&hover_key, &source, e.bounds, e.event.position, cx)
+                }
+            }))
+            .on_hover(
+                cx.listener(move |s, hovered: &bool, _, cx| s.hover_topic_card(tid, *hovered, cx)),
+            )
+            .children(self.topic_card(s, cx))
+            .on_click(cx.listener(move |s, _, w, cx| {
+                s.dismiss_topic_card(cx);
+                s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
+            }))
+            .context_menu(menu)
+            .into_any_element()
     }
     /// A view's sidebar row.
     fn view_row(&self, v: &meep_wire::views::View, cx: &mut Context<Self>) -> AnyElement {
@@ -670,7 +745,7 @@ impl Desktop {
                     .items_center()
                     .child(
                         row_actions(format!("view-actions-{vid}"), &title, gname)
-                            .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
                     ),
             )
             .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
@@ -705,7 +780,7 @@ impl Desktop {
         const PITCH: f32 = ui::nav::PITCH;
         let item_pitch = |key: &str| {
             if key.starts_with("topic:") {
-                TOPIC_ROW_HEIGHT + ui::nav::GAP
+                TOPIC_ROW_HEIGHT + TOPIC_ROW_GAP
             } else {
                 PITCH
             }
@@ -734,7 +809,7 @@ impl Desktop {
         for key in &arrangement.loose {
             if let Some(row) = self.sidebar_row(key, cx) {
                 loose_tops.push(y);
-                list = list.child(div().pb(px(ui::nav::GAP)).child(row));
+                list = list.child(div().pb(px(row_gap(key))).child(row));
                 y += item_pitch(key);
             }
         }
@@ -779,7 +854,7 @@ impl Desktop {
             for key in &section.items {
                 if let Some(row) = self.sidebar_row(key, cx) {
                     tops.push(y + open);
-                    body = body.child(div().pb(px(ui::nav::GAP)).child(row));
+                    body = body.child(div().pb(px(row_gap(key))).child(row));
                     open += item_pitch(key);
                 }
             }
@@ -1012,7 +1087,7 @@ impl Desktop {
                     .child(
                         row_actions(format!("section-actions-{id}"), &section.name, group)
                             .tooltip("Section actions")
-                            .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
+                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
                     ),
             )
             .context_menu(menu)
@@ -1134,6 +1209,7 @@ impl Desktop {
                         )
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.archived_open = !s.archived_open;
+                            s.folds.toggled("archived", s.archived_open, cx);
                             if let Err(e) = s
                                 .client()
                                 .set_preference("sidebar-archived-open", &s.archived_open)
@@ -1145,9 +1221,10 @@ impl Desktop {
                 );
             // The open archived topic stays in view even while the group is folded.
             let current = self.topic_id();
+            let folding = self.folds.progress("archived", open, cx) > 0.;
             for s in archived
                 .into_iter()
-                .filter(|s| open || current == Some(s.topic.id))
+                .filter(|s| folding || current == Some(s.topic.id))
             {
                 let tid = s.topic.id;
                 let name = s.topic.name.clone();
@@ -1158,33 +1235,44 @@ impl Desktop {
                         topic_menu(m, owner.clone(), tid, w, cx)
                     }
                 };
-                group = group.child(
-                    nav_line(format!("archived-{tid}"), self.topic_id() == Some(tid))
-                        .h(px(TOPIC_ROW_HEIGHT))
-                        .group(gname.clone())
-                        .child(
-                            div()
-                                .flex()
-                                .flex_1()
-                                .min_w_0()
-                                .gap(px(8.))
-                                .items_center()
-                                .opacity(0.7)
-                                .child(super::topic_icon::tile(
-                                    &s.topic.display_icon(),
-                                    TOPIC_ICON_SIZE,
-                                ))
-                                .child(ui::nav::title(name.clone())),
-                        )
-                        .child(
-                            row_actions(format!("topic-actions-{tid}"), &name, gname)
-                                .dropdown_menu_with_anchor(gpui::Anchor::TopRight, menu.clone()),
-                        )
-                        .on_click(cx.listener(move |s, _, w, cx| {
-                            s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
-                        }))
-                        .context_menu(menu),
-                );
+                let row = nav_line(format!("archived-{tid}"), self.topic_id() == Some(tid))
+                    .h(px(TOPIC_ROW_HEIGHT))
+                    .mt(px(TOPIC_ROW_GAP - ui::nav::GAP))
+                    .pr(px(TOPIC_ROW_TRAILING))
+                    .rounded(px(TOPIC_ROW_RADIUS))
+                    .relative()
+                    .group(gname.clone())
+                    .child(super::topic_icon::sidebar_tile(&s.topic.display_icon()).opacity(0.7))
+                    .child(topic_row_text(s, &gname).opacity(0.7))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("archived-topic-slot-{tid}")))
+                            .absolute()
+                            .top(px(6.5))
+                            .right(px(TOPIC_ROW_TRAILING))
+                            .child(
+                                row_actions(format!("topic-actions-{tid}"), &name, gname)
+                                    .dropdown_menu_with_anchor(
+                                        gpui::Anchor::LeftCenter,
+                                        menu.clone(),
+                                    ),
+                            ),
+                    )
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
+                    }))
+                    .context_menu(menu);
+                group = if current == Some(tid) {
+                    group.child(row)
+                } else {
+                    group.children(self.folds.reveal_as(
+                        "archived",
+                        &format!("archived-{tid}"),
+                        open,
+                        cx,
+                        || row.into_any_element(),
+                    ))
+                };
             }
             tree = tree.child(group);
         }
@@ -1240,6 +1328,7 @@ impl Desktop {
             None,
             footer.into_any_element(),
         )
+        .w(px(TOPIC_SIDEBAR_WIDTH))
         .child(
             meep_shell::titlebar::button("plus", Glyph::Plus, "New topic, view or section")
                 .absolute()
@@ -1454,7 +1543,7 @@ impl Desktop {
                     .child(ideas),
             )
     }
-    fn sheet_view(&self, sheet: &Sheet, w: &Window, cx: &Context<Self>) -> Div {
+    fn sheet_view(&self, sheet: &Sheet, progress: f32, w: &Window, cx: &Context<Self>) -> Div {
         let title = match sheet {
             Sheet::New => "New topic",
             Sheet::Bind => "Bind a PostHog workflow",
@@ -1738,7 +1827,8 @@ impl Desktop {
                 0x00000030
             }))
             .occlude()
-            .child(body)
+            .opacity(progress)
+            .child(body.relative().top(px(ui::motion::travel(progress, 8.))))
     }
     pub(super) fn task_drag(
         &self,
@@ -2135,6 +2225,9 @@ impl Render for Desktop {
                 .rows
                 .iter()
                 .any(|v| super::desktop::view_working(v));
+        if self.folds.moving(cx) {
+            w.request_animation_frame();
+        }
         let reduced = cx.reduce_motion();
         self.sidebar_activity
             .update(cx, |a, cx| a.set_active(working, reduced, cx));
@@ -2382,32 +2475,47 @@ impl Render for Desktop {
         };
         let overview_presence =
             ui::motion::presence("topic-overview-pane", overview_topic.is_some(), w, cx);
-        let overview_pane =
-            (overview_presence.should_render() && overview_topic.is_some()).then(|| {
-                let topic = overview_topic.unwrap();
-                let state = self
-                    .states
-                    .iter()
-                    .find(|s| s.topic.id == topic)
-                    .cloned()
-                    .unwrap();
-                let full = super::overview::WIDTH;
-                let p = overview_presence.progress.clamp(0., 1.);
-                div()
-                    .id("topic-overview-slot")
-                    .h_full()
-                    .py(px(meep_shell::GUTTER))
-                    .overflow_hidden()
-                    .flex_shrink_0()
-                    .w(px((full + meep_shell::GUTTER) * p))
-                    .child(
-                        meep_shell::pane(self.overview(&state, cx))
-                            .h_full()
-                            .mr(px(meep_shell::GUTTER))
-                            .opacity((p * 1.6).clamp(0., 1.))
-                            .w(px(full)),
-                    )
-            });
+        if overview_topic.is_some() {
+            self.overview_leaving = overview_topic;
+        } else if !overview_presence.should_render() {
+            self.overview_leaving = None;
+        }
+        let overview_state = overview_presence
+            .should_render()
+            .then(|| overview_topic.or(self.overview_leaving))
+            .flatten()
+            .and_then(|topic| self.states.iter().find(|s| s.topic.id == topic).cloned());
+        let overview_pane = overview_state.map(|state| {
+            let full = super::overview::WIDTH;
+            let p = overview_presence.progress.clamp(0., 1.);
+            div()
+                .id("topic-overview-slot")
+                .h_full()
+                .py(px(meep_shell::GUTTER))
+                .overflow_hidden()
+                .flex_shrink_0()
+                .w(px((full + meep_shell::GUTTER) * p))
+                .child(
+                    meep_shell::pane(self.overview(&state, cx))
+                        .h_full()
+                        .mr(px(meep_shell::GUTTER))
+                        .opacity((p * 1.6).clamp(0., 1.))
+                        .w(px(full)),
+                )
+        });
+        let sheet_open = self.sheet.clone().filter(|s| !matches!(s, Sheet::New));
+        let sheet_presence = ui::motion::presence("sheet", sheet_open.is_some(), w, cx);
+        if sheet_open.is_some() {
+            self.sheet_leaving = sheet_open.clone();
+        } else if !sheet_presence.should_render() {
+            self.sheet_leaving = None;
+        }
+        let sheet_progress = sheet_presence.progress.clamp(0., 1.);
+        let sheet_leaving = sheet_open.is_none();
+        let sheet_shown = sheet_presence
+            .should_render()
+            .then(|| sheet_open.or(self.sheet_leaving.clone()))
+            .flatten();
         let root = meep_shell::root();
         #[cfg(feature = "demo-driver")]
         let root = root.children(super::demo_driver::cursor());
@@ -2425,7 +2533,10 @@ impl Render for Desktop {
                 meep_shell::window_layout(rail)
                     .items_stretch()
                     .when_some(rail_list, |l, list| {
-                        l.child(meep_shell::sidebar_slot(rail).child(list))
+                        let slot = meep_shell::sidebar_slot(rail).when(!settings_open, |slot| {
+                            slot.w(px(TOPIC_SIDEBAR_WIDTH * rail))
+                        });
+                        l.child(slot.child(list))
                     })
                     .child(
                         meep_shell::pane(main.when(settings_open, |m| {
@@ -2470,10 +2581,14 @@ impl Render for Desktop {
                     )),
                 )
             })
-            .when_some(
-                self.sheet.as_ref().filter(|s| !matches!(s, Sheet::New)),
-                |el, sh| el.child(self.sheet_view(sh, w, cx)),
-            )
+            .when_some(sheet_shown, |el, sh| {
+                el.child(
+                    self.sheet_view(&sh, sheet_progress, w, cx)
+                        .when(sheet_leaving, |d| {
+                            d.child(div().absolute().inset_0().occlude())
+                        }),
+                )
+            })
     }
 }
 
@@ -2499,7 +2614,6 @@ fn topic_menu(
     w: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
-    let open = owner.clone();
     let chat = owner.clone();
     let rename = owner.clone();
     let archive = owner.clone();
@@ -2515,12 +2629,7 @@ fn topic_menu(
         })
         .unwrap_or(false);
     let m = m
-        .min_w(px(200.))
-        .item(
-            menu_item(Glyph::ArrowUpRight, "Open").on_click(move |_, w, cx| {
-                let _ = open.update(cx, |s, cx| s.go(Page::Topic(tid, Tab::Chat, None), w, cx));
-            }),
-        )
+        .min_w(px(168.))
         .item(
             menu_item(Glyph::MessageCircle, "Chat with topic").on_click(move |_, w, cx| {
                 let _ = chat.update(cx, |s, cx| {
@@ -2580,7 +2689,7 @@ fn view_menu(
     let settings = owner.clone();
     let delete = owner.clone();
     let mut m = m
-        .min_w(px(200.))
+        .min_w(px(168.))
         .item(
             menu_item(Glyph::ArrowUpRight, "Open").on_click(move |_, w, cx| {
                 let _ = open.update(cx, |s, cx| s.go(Page::View(vid), w, cx));

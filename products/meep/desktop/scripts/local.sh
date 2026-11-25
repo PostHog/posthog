@@ -1,6 +1,8 @@
 #!/bin/sh
 # Run the native desktop against the Meep API in this PostHog checkout.
 set -eu
+[ ! -x "${HOME}/.cargo/bin/rustup" ] || PATH="${HOME}/.cargo/bin:$PATH"
+export PATH
 cd "$(dirname "$0")/.."
 export MEEP_DEV_DIR="${MEEP_DEV_DIR:-$PWD/.local/meep-dev}"
 export MEEP_POSTHOG_LOCAL=1

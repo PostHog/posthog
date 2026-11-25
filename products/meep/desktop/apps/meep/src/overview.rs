@@ -17,9 +17,16 @@ const DOCK_MIN: f32 = 980.;
 impl Desktop {
     /// Whether the Overview sits beside the topic right now.
     pub(super) fn overview_docked(&self, w: &Window) -> bool {
-        matches!(self.page, Page::Topic(..))
-            && !self.overview_hidden
+        matches!(self.page, Page::Topic(id, ..) if self.overview_shown.contains(&id))
             && w.viewport_size().width > px(DOCK_MIN)
+    }
+
+    pub(super) fn toggle_overview(&mut self, topic: TopicId, w: &Window) {
+        if w.viewport_size().width <= px(DOCK_MIN) {
+            self.overview_overlay = !self.overview_overlay;
+        } else if !self.overview_shown.remove(&topic) {
+            self.overview_shown.insert(topic);
+        }
     }
 
     fn overview_open(&self, topic: TopicId, tab: Tab) -> bool {
@@ -47,11 +54,11 @@ impl Desktop {
             .child(
                 ui::icon_button("hide-overview", Glyph::PanelRight, "Hide overview")
                     .tooltip("Hide · ⌘\\")
-                    .on_click(cx.listener(|s, _, _, cx| {
+                    .on_click(cx.listener(move |s, _, _, cx| {
                         if s.overview_overlay {
                             s.overview_overlay = false;
                         } else {
-                            s.overview_hidden = true;
+                            s.overview_shown.remove(&id);
                         }
                         cx.notify()
                     })),
@@ -121,21 +128,26 @@ impl Desktop {
                     // The row opens and folds its section in place; "View all" inside
                     // goes to the section itself.
                     .on_click(cx.listener(move |s, _, _, cx| {
-                        if !s.overview_open.remove(&(id, tab)) {
+                        let open = !s.overview_open.remove(&(id, tab));
+                        if open {
                             s.overview_open.insert((id, tab));
                         }
+                        s.folds.toggled(format!("overview:{id}:{tab:?}"), open, cx);
                         cx.notify()
                     })),
             );
-            if open {
-                list = list.child(ui::column().px(px(8.)).pb(px(8.)).child(self.overview_body(
-                    state,
-                    tab,
-                    page_tab,
-                    page_detail.as_ref(),
-                    cx,
-                )));
-            }
+            list = list.children(self.folds.reveal(
+                &format!("overview:{id}:{tab:?}"),
+                open,
+                cx,
+                || {
+                    ui::column()
+                        .px(px(8.))
+                        .pb(px(8.))
+                        .child(self.overview_body(state, tab, page_tab, page_detail.as_ref(), cx))
+                        .into_any_element()
+                },
+            ));
         }
         if first {
             list = list.child(

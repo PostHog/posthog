@@ -29,8 +29,5 @@ pub fn title_line(text: &str) -> String {
     format!("{}…", cut.trim_end_matches([',', ';', ':', '.', ' ']))
 }
 
-#[cfg(feature = "fixtures")]
-pub mod fixtures;
-
 #[cfg(test)]
 mod tests;

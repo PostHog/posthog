@@ -405,27 +405,6 @@ impl Engine {
         }
         Ok(())
     }
-
-    /// Whether this run is the topic's conversation.
-    pub fn is_session_run(&self, topic: TopicId, run: &RunHandle) -> bool {
-        self.slot(topic).is_ok_and(|slot| {
-            let s = slot.saved.read();
-            session_task(&s).is_some_and(|t| s.runs.get(&t) == Some(&Work::Poll(run.clone())))
-        })
-    }
-
-    /// Whether the conversation is waiting on the person's answer to a permission prompt.
-    pub fn session_prompt_open(&self, topic: TopicId) -> bool {
-        self.slot(topic).is_ok_and(|slot| {
-            let s = slot.saved.read();
-            session_task(&s).is_some_and(|id| {
-                s.state
-                    .tasks
-                    .iter()
-                    .any(|t| t.id == id && t.column == Column::NeedsYou && t.action.is_some())
-            })
-        })
-    }
 }
 
 /// Mark the person's message as handed to the conversation.

@@ -10,7 +10,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-ui-previews = []
 # Replays input from MEEP_DEMO_SOCKET into the window, for recording demos.
 demo-driver = []
 # Hot patching through `dx serve --hot-patch`; see scripts/dev.sh. Debug builds only.
@@ -41,20 +40,3 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 sha2 = "0.10"
 tempfile = "3"
-
-[dev-dependencies]
-gpui = { package = "gpui-pre", version = "=0.3.11", features = ["test-support"] }
-gpui-platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["test-support"] }
-meep-server = { path = "../../crates/meep-server", features = ["fixture-host"] }
-meep-ai = { path = "../../crates/meep-ai" }
-axum = "0.8"
-meep-engine = { path = "../../crates/meep-engine" }
-meep-connectors = { path = "../../crates/meep-connectors" }
-meep-store = { path = "../../crates/meep-store" }
-meep-ingest = { path = "../../crates/meep-ingest" }
-
-[[test]]
-name = "previews"
-path = "tests/previews.rs"
-harness = false
-required-features = ["ui-previews"]

@@ -151,12 +151,6 @@ impl Regions {
             self.remove(&child);
         }
     }
-    #[cfg(feature = "ui-tests")]
-    pub(super) fn keys(&self) -> Vec<String> {
-        let mut keys: Vec<String> = self.views.keys().map(|k| k.replace('\u{1}', "/")).collect();
-        keys.sort();
-        keys
-    }
 }
 
 /// One region: renders its node with the view's `Build`.
@@ -169,16 +163,6 @@ pub(super) struct Region {
     rendered: Option<u64>,
 }
 
-#[cfg(feature = "ui-tests")]
-thread_local! {
-    static DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-/// Tests compare layouts with and without regions.
-#[cfg(feature = "ui-tests")]
-pub fn set_enabled(enabled: bool) {
-    DISABLED.with(|d| d.set(!enabled));
-}
-
 /// The region element for `node`, or `None` to build it inline.
 pub(super) fn embed(
     build: &Build,
@@ -186,10 +170,6 @@ pub(super) fn embed(
     _window: &mut Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    #[cfg(feature = "ui-tests")]
-    if DISABLED.with(|d| d.get()) {
-        return None;
-    }
     if !node.region
         || build
             .region_root

@@ -151,14 +151,6 @@ impl ViewWorkspace {
             mount: None,
         }
     }
-    #[cfg(all(test, feature = "ui-previews"))]
-    pub fn inspected_rows(&self, cx: &App) -> u64 {
-        self.mount
-            .as_ref()
-            .and_then(|m| m.result.as_ref().ok())
-            .and_then(|m| m.inspect(cx)["count"].as_u64())
-            .unwrap_or(0)
-    }
     pub fn leave(&mut self) {
         self.mount = None;
         self.panel = false;
@@ -755,7 +747,7 @@ impl Desktop {
                 if self.sidebar_hidden {
                     0.
                 } else {
-                    meep_ui::design::current().sidebar
+                    super::navigation::TOPIC_SIDEBAR_WIDTH
                 },
                 None,
             )))

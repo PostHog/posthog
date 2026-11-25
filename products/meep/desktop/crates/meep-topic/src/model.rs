@@ -14,6 +14,9 @@ pub struct Topic {
     pub name: String,
     /// Description of the topic's responsibility.
     pub mission: String,
+    /// The topic's saved appearance. Older snapshots use the topic identity for their default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<TopicIcon>,
     /// Objectives in presentation order.
     pub goals: Vec<Goal>,
     /// Policy in order of increasing precedence.
@@ -35,6 +38,48 @@ pub struct Topic {
     pub routines: Vec<RoutineInfo>,
     /// Time the topic was created.
     pub created_at: DateTime<Utc>,
+}
+
+/// A bundled hedgehog and a background from the Views palette.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicIcon {
+    /// Slug in the bundled PostHog art collection.
+    pub hedgehog: String,
+    /// Name of the tile background palette.
+    pub color: String,
+}
+
+macro_rules! hedgehogs {
+    ($($slug:literal => $label:literal, $terms:literal;)*) => {
+        &[$($slug),*]
+    };
+}
+const HEDGEHOGS: &[&str] = include!("hedgehogs.in");
+// Keep the first 16 in order for snapshots written before icons were stored.
+const LEGACY_HEDGEHOG_COUNT: usize = 16;
+
+impl TopicIcon {
+    /// Keep this order stable so previously saved topics retain their default.
+    pub const COLORS: [&str; 7] = ["ink", "orange", "teal", "plum", "mustard", "moss", "brick"];
+
+    fn for_topic(id: TopicId, legacy: bool) -> Self {
+        // A topic's random UUID makes the choice replayable across replicas.
+        let bytes = id.0.as_bytes();
+        let hedgehog = if legacy {
+            usize::from(bytes[0]) % LEGACY_HEDGEHOG_COUNT
+        } else {
+            usize::from(u16::from_be_bytes([bytes[0], bytes[3]])) % HEDGEHOGS.len()
+        };
+        let color = usize::from(u16::from_be_bytes([bytes[1], bytes[2]])) % Self::COLORS.len();
+        Self {
+            hedgehog: HEDGEHOGS[hedgehog].into(),
+            color: Self::COLORS[color].into(),
+        }
+    }
+
+    pub(crate) fn is_supported(&self) -> bool {
+        HEDGEHOGS.contains(&self.hedgehog.as_str()) && Self::COLORS.contains(&self.color.as_str())
+    }
 }
 
 /// Preferred topic-local ID for the built-in inbox sorter.
@@ -98,6 +143,13 @@ impl RoutineInfo {
 }
 
 impl Topic {
+    /// Resolves icons for snapshots written before icons were stored.
+    pub fn display_icon(&self) -> TopicIcon {
+        self.icon
+            .clone()
+            .unwrap_or_else(|| TopicIcon::for_topic(self.id, true))
+    }
+
     /// Whether the configured fixed stage is running.
     pub fn stage_enabled(&self, key: &str) -> bool {
         match key {
@@ -137,6 +189,7 @@ impl Topic {
             fallback: RoutineInfo::sort_inbox(SORT_INBOX_ID.into()),
             settings: TopicSettings::default(),
             name: name.into(),
+            icon: Some(TopicIcon::for_topic(id, false)),
             default_sort: None,
             mission: String::new(),
             goals: vec![],

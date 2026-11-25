@@ -357,16 +357,6 @@ impl Engine {
         )
         .await
     }
-    /// Review binding a workflow that is already active at the provider.
-    pub async fn request_active_binding(
-        &self,
-        topic: TopicId,
-        binding: RoutineBinding,
-    ) -> Result<Task> {
-        self.review_active_binding(topic, binding, WorkflowReview::Request(id()))
-            .await
-    }
-
     /// Request a binding on the originating work.
     pub async fn review_active_binding(
         &self,

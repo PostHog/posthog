@@ -48,8 +48,6 @@ A native-only host can use the [shell](../../crates/meep-shell/) and [widgets](.
 | --- | --- |
 | `cargo run --locked -p meep-render --example counter` | Minimal native host with a single script and source |
 | `cargo run --locked -p meep-workflows --example in_memory` | Successful, denied and cancelled runs using an in-memory workflow host |
-| `cargo run --locked -p meep-desktop --example window_lease` | Claim, contention and release for a temporary Unix workspace |
-| `cargo run --locked -p meep-ipc --example roundtrip` | Authenticated Unix socket request using a protocol record and a private temporary directory |
 
 ### A workflow calls a native capability
 

@@ -8,8 +8,6 @@ pub mod chat;
 pub mod mcp;
 #[cfg(feature = "oauth")]
 pub mod oauth;
-#[cfg(feature = "signals")]
-pub mod signals;
 #[cfg(feature = "tasks")]
 pub mod tasks;
 #[cfg(feature = "workflows")]

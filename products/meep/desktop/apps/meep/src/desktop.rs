@@ -199,9 +199,10 @@ pub(super) struct Desktop {
     /// The section being renamed in place, and its name field.
     pub renaming_section: Option<Uuid>,
     pub section_name: Entity<InputState>,
-    /// The Overview beside a topic: whether it is tucked away, and which of
-    /// its sections are folded open.
-    pub overview_hidden: bool,
+    pub overview_shown: BTreeSet<TopicId>,
+    pub overview_leaving: Option<TopicId>,
+    pub sheet_leaving: Option<Sheet>,
+    pub folds: super::folds::Folds,
     /// In a narrow window, whether the Overview is shown over the page.
     pub overview_overlay: bool,
     pub overview_open: BTreeSet<(TopicId, Tab)>,
@@ -249,6 +250,7 @@ pub(super) struct Desktop {
     pub search_scroll: ScrollHandle,
     /// Vertical viewport for topic rows.
     pub content_scroll: ScrollHandle,
+    pub attention_scroll: ScrollHandle,
     /// Horizontal viewport for task columns.
     pub board_scroll: ScrollHandle,
     /// Rendered bounds of the selected inbox row, card or routine.
@@ -554,7 +556,10 @@ impl Desktop {
             drag_source: None,
             renaming_section: None,
             section_name,
-            overview_hidden: false,
+            overview_shown: BTreeSet::new(),
+            overview_leaving: None,
+            sheet_leaving: None,
+            folds: Default::default(),
             overview_overlay: false,
             overview_open: BTreeSet::new(),
             briefing_dismissed: BTreeSet::new(),
@@ -583,6 +588,7 @@ impl Desktop {
             search_index: 0,
             search_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
+            attention_scroll: ScrollHandle::new(),
             board_scroll: ScrollHandle::new(),
             selection_bounds: ScrollHandle::new(),
             reveal_selection: false,

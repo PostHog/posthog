@@ -36,6 +36,11 @@ pub enum Command {
         /// Name.
         name: String,
     },
+    /// Replicate a person's topic icon choice.
+    SetTopicIcon {
+        /// The completed icon and background pair.
+        icon: TopicIcon,
+    },
     /// Pause the topic and hide it from the active workspace.
     ArchiveTopic,
     /// Return an archived topic to the workspace.
@@ -458,11 +463,25 @@ impl TopicState {
                         | Command::ArchiveTopic
                         | Command::DeleteTopic
                         | Command::RenameTopic { .. }
+                        | Command::SetTopicIcon { .. }
                 ))
         {
             return Err(TopicError::InactiveTopic);
         }
         let mut changes = match envelope.command.clone() {
+            Command::SetTopicIcon { icon } => {
+                if !icon.is_supported() {
+                    return Err(TopicError::InvalidTopicIcon);
+                }
+                self.topic.icon = Some(icon);
+                Ok(self.record(
+                    now,
+                    Actor::User,
+                    Ref::Topic,
+                    "Changed topic icon.".into(),
+                    [ChangeKind::TopicUpdated(envelope.topic)],
+                ))
+            }
             Command::RenameTopic { name } => {
                 let name = name.trim();
                 if name.is_empty() {

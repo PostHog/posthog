@@ -44,8 +44,19 @@ fn the_last_matching_action_rule_decides_and_reports_its_own_id() {
 
 #[test]
 fn connection_and_channel_select_candidates_in_reverse_precedence_order() {
-    let mut state = fixtures::new_web().unwrap();
-    let mut message = state.threads.remove(0).messages.remove(0);
+    let source = Source::Connection {
+        connection: "slack".into(),
+        channel: "#new-web".into(),
+    };
+    let mut message = Message {
+        id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
+        producer: Producer::System,
+        origin: Some(source.into_origin(String::new(), NOW, None)),
+        author: String::new(),
+        at: NOW,
+        text: String::new(),
+        external_id: None,
+    };
     let matcher = Matcher {
         connection: Some("slack".into()),
         channel: Some("#new-web".into()),
@@ -62,7 +73,7 @@ fn connection_and_channel_select_candidates_in_reverse_precedence_order() {
     );
     for source in [
         Source::User,
-        Source::Topic(state.topic.id),
+        Source::Topic("00000000-0000-0000-0000-000000000002".parse().unwrap()),
         Source::Connection {
             connection: "github".into(),
             channel: "#new-web".into(),

@@ -616,9 +616,9 @@ pub(crate) fn sort_error_reason(error: &anyhow::Error) -> String {
     }
 }
 
-#[cfg(any(test, feature = "fixtures"))]
+#[cfg(test)]
 mod fixture;
-#[cfg(any(test, feature = "fixtures"))]
+#[cfg(test)]
 pub use fixture::FixtureSorter;
 
 #[cfg(test)]

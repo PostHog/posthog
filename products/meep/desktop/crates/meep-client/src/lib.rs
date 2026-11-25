@@ -15,9 +15,7 @@ pub use transport::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use meep_store::Connection;
-use meep_topic::{
-    Changes, Command, CommandId, Envelope, FactId, RuleId, TaskId, ThreadId, TopicId, TopicState,
-};
+use meep_topic::{Changes, Command, CommandId, Envelope, TaskId, ThreadId, TopicId, TopicState};
 use meep_wire::{ConnectionGrant, ConnectionInfo, Connections, NeedsYou, SearchResults};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -349,10 +347,6 @@ impl Client {
                 .await,
         )
     }
-    /// Release a queued task to the worker with its saved run preferences.
-    pub fn start_task(&self, topic: TopicId, task: TaskId) -> Result<Changes> {
-        self.issue(topic, Command::StartTask { task })
-    }
     /// Queue cancellation of this investigation.
     pub fn cancel_run(&self, topic: TopicId, task: TaskId) -> Result<Changes> {
         self.issue(topic, Command::CancelRun { task })
@@ -392,16 +386,6 @@ impl Client {
         self.issue(topic, Command::DeleteFile { path })
     }
 
-    /// Restore a removed fact.
-    pub fn restore_fact(&self, topic: TopicId, fact: FactId) -> Result<Changes> {
-        self.issue(topic, Command::RestoreFact { fact })
-    }
-
-    /// Restore a recently removed rule at its former precedence.
-    pub fn restore_rule(&self, topic: TopicId, rule: RuleId) -> Result<Changes> {
-        self.issue(topic, Command::RestoreRule { rule })
-    }
-
     /// Creates a topic offline and durably requests access to its selected account.
     pub fn create_topic(
         &self,
@@ -413,21 +397,6 @@ impl Client {
         self.issue_with_access(
             topic,
             Command::CreateTopic { name, mission },
-            Some(connection),
-        )
-    }
-
-    /// Create a topic offline with automatic inbox sorting disabled.
-    pub fn create_topic_without_sort(
-        &self,
-        topic: TopicId,
-        name: String,
-        mission: String,
-        connection: &str,
-    ) -> Result<Changes> {
-        self.issue_with_access(
-            topic,
-            Command::CreateTopicWithoutSort { name, mission },
             Some(connection),
         )
     }
@@ -520,18 +489,6 @@ impl Client {
         model: Option<&str>,
     ) -> Result<meep_wire::ChatModels> {
         self.observe(self.0.transport.set_chat_model(topic, model).await)
-    }
-
-    /// Last source catalog returned by this server, including while offline.
-    pub fn cached_sources(&self) -> Result<Option<Vec<meep_wire::WatchableSource>>> {
-        meep_store::get(&self.0.reader.lock(), "client/discovery", "sources")
-    }
-
-    /// Discover the account's watchable resources and save the result for offline selection.
-    pub async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>> {
-        let sources = self.observe(self.0.transport.sources().await)?;
-        meep_store::put(&self.0.db.lock(), "client/discovery", "sources", &sources)?;
-        Ok(sources)
     }
 
     /// Reads the last known file list, including files already cached by this device.

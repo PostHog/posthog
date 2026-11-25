@@ -31,19 +31,39 @@ pub fn badge_text(value: serde_json::Value) -> Option<String> {
 /// the older blue-accented palette: it stays as the lookup table that maps the
 /// SDK's color constants to palette slots.
 pub const LIGHT: [u32; 14] = [
-    0x1d1d1f, 0x55555a, 0x6e6e73, 0xffffff, 0xf6f6f7, 0xe8e8ea, 0xf7f7f8, 0xececee, 0xb3403a,
+    0x1d1d1f, 0x55555a, 0x6e6e73, 0xffffff, 0xf5f5f6, 0xe6e6e8, 0xf5f5f6, 0xe7e7e9, 0xb3403a,
     0x3f7d57, 0x2c2c30, 0xa9682a, 0x6f5a9c, 0xffffff,
 ];
 /// The Graphite theme: View's neutral dark, and what the web preview shows
 /// when the visitor's system is in dark mode.
 pub const GRAPHITE: [u32; 14] = [
-    0xececee, 0xb4b4ba, 0x8a8a92, 0x1a1a1c, 0x222225, 0x2e2e32, 0x141415, 0x2c2c30, 0xe5786d,
+    0xececee, 0xb4b4ba, 0x8a8a92, 0x1b1b1d, 0x222225, 0x2d2d31, 0x141415, 0x222225, 0xe5786d,
     0x7fc39a, 0xe4e4e7, 0xd9a868, 0xa99bd6, 0x18181a,
 ];
-/// Earlier Light and Graphite palettes, whose tertiary text was too faint to read.
-const RETIRED: [([u32; 3], [u32; 14]); 2] = [
-    ([0x1d1d1f, 0x6e6e73, 0x9a9aa0], LIGHT),
-    ([0xececee, 0xa1a1a8, 0x6f6f77], GRAPHITE),
+const EARLIER_LIGHT_SURFACES: [u32; 5] = [0xffffff, 0xf6f6f7, 0xe8e8ea, 0xf7f7f8, 0xececee];
+const EARLIER_GRAPHITE_SURFACES: [u32; 5] = [0x1a1a1c, 0x222225, 0x2e2e32, 0x141415, 0x2c2c30];
+/// Earlier Light and Graphite palettes: text colors, surfaces, and the palette they became.
+const RETIRED: [([u32; 3], [u32; 5], [u32; 14]); 4] = [
+    (
+        [0x1d1d1f, 0x6e6e73, 0x9a9aa0],
+        EARLIER_LIGHT_SURFACES,
+        LIGHT,
+    ),
+    (
+        [0x1d1d1f, 0x55555a, 0x6e6e73],
+        EARLIER_LIGHT_SURFACES,
+        LIGHT,
+    ),
+    (
+        [0xececee, 0xa1a1a8, 0x6f6f77],
+        EARLIER_GRAPHITE_SURFACES,
+        GRAPHITE,
+    ),
+    (
+        [0xececee, 0xb4b4ba, 0x8a8a92],
+        EARLIER_GRAPHITE_SURFACES,
+        GRAPHITE,
+    ),
 ];
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -95,8 +115,10 @@ impl Tokens {
             self.palette = LIGHT;
         }
         // Settings saved with an earlier Light or Graphite follow the current one.
-        for (text, current) in RETIRED {
-            if self.palette[..3] == text && self.palette[3..] == current[3..] {
+        for (text, surfaces, current) in RETIRED {
+            let surfaces_match =
+                self.palette[3..8] == surfaces || self.palette[3..8] == current[3..8];
+            if self.palette[..3] == text && surfaces_match && self.palette[8..] == current[8..] {
                 self.palette = current;
             }
         }
@@ -158,14 +180,17 @@ mod tests {
         assert_eq!(tokens.body, 14.);
     }
     #[test]
-    fn earlier_light_and_graphite_follow_the_current_text_colors() {
-        for (text, current) in RETIRED {
-            let mut tokens = Tokens {
-                palette: current,
-                ..Tokens::default()
-            };
-            tokens.palette[..3].copy_from_slice(&text);
-            assert_eq!(tokens.normalized().palette, current);
+    fn earlier_light_and_graphite_follow_the_current_palette() {
+        for (text, surfaces, current) in RETIRED {
+            for earlier in [surfaces, current[3..8].try_into().unwrap()] {
+                let mut tokens = Tokens {
+                    palette: current,
+                    ..Tokens::default()
+                };
+                tokens.palette[..3].copy_from_slice(&text);
+                tokens.palette[3..8].copy_from_slice(&earlier);
+                assert_eq!(tokens.normalized().palette, current);
+            }
         }
     }
     #[test]

@@ -2,7 +2,7 @@ mod support;
 
 use anyhow::{Context, Result};
 use meep_client::{Client, Event, Status, TransportError};
-use meep_topic::{Column, Command, TaskId, ThreadId, TopicId};
+use meep_topic::{Column, Command, TaskId, ThreadId, TopicIcon, TopicId};
 use meep_wire::{ConnectionGrant, NeedsYouItem};
 use std::{sync::atomic::Ordering::SeqCst, time::Duration};
 use support::Server;
@@ -882,12 +882,20 @@ async fn offline_create_without_sort_survives_restart_and_syncs_dependent_edits(
         },
     )?;
     add(&client, topic, "Offline task")?;
+    let icon = TopicIcon {
+        hedgehog: "chef".into(),
+        color: "plum".into(),
+    };
+    client.issue(topic, Command::SetTopicIcon { icon: icon.clone() })?;
     drop(client);
     let client = server.client(&dir.path().join("replica.sqlite"))?;
-    assert!(client.topic(topic)?.is_some());
+    assert_eq!(client.topic(topic)?.unwrap().topic.display_icon(), icon);
     server.app.offline.store(false, SeqCst);
     client.sync_once().await?;
     assert_eq!(server.app.engine.topic(topic)?.tasks.len(), 1);
+    let other = server.client(&dir.path().join("second.sqlite"))?;
+    other.sync_once().await?;
+    assert_eq!(other.topic(topic)?.unwrap().topic.display_icon(), icon);
     Ok(())
 }
 

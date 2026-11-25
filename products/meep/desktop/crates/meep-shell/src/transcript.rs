@@ -7,9 +7,6 @@ use gpui_kit::component::{
 use meep_protocol::sessions::*;
 use std::collections::HashSet;
 
-/// Background of the native conversation pane.
-pub const BACKGROUND: u32 = PAPER;
-
 /// Stable identity and position for a conversation row in either a list or a full pane.
 pub struct TranscriptRow<'a> {
     /// Turn to render.

@@ -86,48 +86,6 @@ async fn workers_poll_progress_revise_and_obey_ask_allow_and_refuse() -> Result<
     Ok(())
 }
 
-#[cfg(feature = "fixtures")]
-#[tokio::test]
-async fn demo_replays_the_four_missed_messages_then_quill_submits_pr_2318_at_nine_seconds()
--> Result<()> {
-    let clock = Arc::new(ManualClock::new("2025-11-20T15:20:00Z".parse()?));
-    let e = fixtures::demo_with_clock(clock.clone()).await?;
-    assert_eq!(e.topics().len(), 6);
-    let state = e
-        .topics()
-        .into_iter()
-        .find(|s| s.topic.name == "New web")
-        .expect("prototype topic");
-    let web = state.topic.id;
-    let stats = state.digest(clock.now());
-    assert_eq!(e.needs_you()?.len(), 4);
-    e.reconnect("slack").await?;
-    e.sort_pending(web).await?;
-    let state = e.topic(web)?;
-    assert_eq!(state.digest(clock.now()).messages - stats.messages, 4);
-    assert_eq!(state.digest(clock.now()).facts - stats.facts, 1);
-    assert_eq!(state.digest(clock.now()).skips - stats.skips, 2);
-    assert_eq!(
-        state
-            .threads
-            .iter()
-            .find(|t| t.subject == "Pushback on five rail items")
-            .expect("pushback")
-            .messages
-            .len(),
-        4
-    );
-    assert_eq!(e.search("Settings moves")?.len(), 1);
-    assert!(
-        e.topic(web)?
-            .topic
-            .routines
-            .iter()
-            .any(|r| r.binding.backend == "posthog" && r.binding.id == "finish-migration")
-    );
-    Ok(())
-}
-
 #[tokio::test]
 async fn rate_limits_survive_reopen_and_a_terminal_failure_requires_an_explicit_retry() -> Result<()>
 {

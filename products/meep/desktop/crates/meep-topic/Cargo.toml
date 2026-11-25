@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2024"
 description = "Pure domain model and transitions for a working topic"
 
-[features]
-fixtures = []
-
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
 serde = { version = "1", features = ["derive"] }

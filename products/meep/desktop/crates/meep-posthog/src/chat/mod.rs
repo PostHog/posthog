@@ -62,18 +62,6 @@ impl Turn {
             },
         }
     }
-    /// A partial assistant row can gain earlier blocks after backfilling a split turn.
-    pub fn extends_front_of(&self, suffix: &Self) -> bool {
-        match (self.source, suffix.source) {
-            (Some((run, start, end)), Some((old_run, old_start, old_end))) => {
-                run == old_run
-                    && self.speaker == suffix.speaker
-                    && start < old_start
-                    && end >= old_end
-            }
-            _ => false,
-        }
-    }
 }
 
 /// Incremental transcript and control state for one run.
@@ -101,69 +89,6 @@ pub fn timestamp(value: Option<&str>) -> Option<DateTime<Utc>> {
     value
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|t| t.to_utc())
-}
-
-/// Project a wire event to the data used by this transcript. In particular, a
-/// pasted image stays a typed attachment rather than an in-memory base64 string.
-pub fn transcript_event(mut entry: Value) -> Value {
-    let method = entry
-        .pointer("/notification/method")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let Some(params) = entry.pointer("/notification/params") else {
-        return Value::Null;
-    };
-    match method {
-        "_posthog/run_started"
-        | "_posthog/turn_complete"
-        | "_posthog/user_message"
-        | "_posthog/permission_request"
-        | "_posthog/permission_resolved"
-        | "session/prompt" => {}
-        "session/update"
-            if matches!(
-                params
-                    .pointer("/update/sessionUpdate")
-                    .and_then(Value::as_str),
-                Some(
-                    "tool_call"
-                        | "tool_call_update"
-                        | "agent_thought_chunk"
-                        | "agent_message"
-                        | "agent_message_chunk"
-                        | "user_message"
-                        | "user_message_chunk"
-                        | "config_option_update"
-                )
-            ) => {}
-        _ => return Value::Null,
-    }
-    if let Some(update) = entry
-        .pointer_mut("/notification/params/update")
-        .and_then(Value::as_object_mut)
-    {
-        update.remove("_meta");
-    }
-    fn omit_media(value: &mut Value) {
-        match value {
-            Value::Array(items) => items.iter_mut().for_each(omit_media),
-            Value::Object(map) => {
-                if matches!(
-                    map.get("type").and_then(Value::as_str),
-                    Some("image" | "audio")
-                ) {
-                    map.remove("data");
-                }
-                if map.contains_key("mimeType") && map.contains_key("uri") {
-                    map.remove("blob");
-                }
-                map.values_mut().for_each(omit_media);
-            }
-            _ => {}
-        }
-    }
-    omit_media(&mut entry);
-    entry
 }
 
 fn visible_part(part: &Value) -> bool {

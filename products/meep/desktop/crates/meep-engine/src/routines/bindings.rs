@@ -110,7 +110,6 @@ impl Engine {
                     }
                 }
                 s.default_sort_removed = true;
-                s.default_flow = None;
             }
             Ok(changes)
         })
@@ -507,49 +506,6 @@ impl Engine {
             .backend(&binding.backend)?
             .status(RoutineContext { topic, binding }, invocation)
             .await?)
-    }
-
-    /// Poll unfinished remote runs and save their observed status across restarts.
-    pub async fn poll_routine_runs(&self, topic: TopicId, routine: &str) -> Result<()> {
-        let slot = self.slot(topic)?;
-        let (secret, pending) = {
-            let saved = slot.saved.read();
-            let binding = saved
-                .routines
-                .get(routine)
-                .ok_or_else(|| Error::UnknownRoutine(routine.into()))?;
-            let pending = binding
-                .invocations
-                .iter()
-                .filter(|(_, status)| {
-                    InvocationStatus::from_provider(status) == InvocationStatus::Pending
-                })
-                .map(|(id, status)| (*id, status.clone()))
-                .collect::<Vec<_>>();
-            (binding.secret, pending)
-        };
-        for (id, previous) in pending {
-            let latest = self.routine_status(topic, routine, id).await?;
-            if latest.status != previous {
-                self.update(topic, &Default::default(), |s, now| {
-                    if s.routines.get(routine).is_some_and(|r| {
-                        r.secret == secret && r.invocations.get(&id) == Some(&previous)
-                    }) {
-                        s.record_invocation(routine, &latest, now);
-                        for receipt in s
-                            .dispatches
-                            .values_mut()
-                            .filter(|receipt| receipt.invocation_id == id)
-                        {
-                            receipt.status.clone_from(&latest.status);
-                        }
-                    }
-                    Ok(vec![])
-                })
-                .await?;
-            }
-        }
-        Ok(())
     }
 
     /// Refresh the health displayed in the replicated routine list.

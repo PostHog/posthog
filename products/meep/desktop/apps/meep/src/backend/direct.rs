@@ -50,7 +50,7 @@ pub(super) async fn connect(root: PathBuf, region: Region) -> Result<Backend> {
     client.set_preference("posthog-project", &identity)?;
     client.set_preference("signed-in", &true)?;
     Ok(Backend {
-        direct: Some(account),
+        account,
         client,
         server: format!("{}/api/projects/{project}/meep", region.origin()),
         root,

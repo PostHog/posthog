@@ -5,6 +5,7 @@ mod demo_driver;
 mod desktop;
 mod details;
 mod files;
+mod folds;
 mod mcp_settings;
 mod navigation;
 mod overview;
@@ -13,9 +14,8 @@ mod preferences;
 mod sidebar;
 mod tables;
 mod tasks_view;
-#[cfg(test)]
-pub(crate) mod tests;
 mod topic_card;
+mod topic_icon;
 mod views;
 
 use anyhow::Result;

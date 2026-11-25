@@ -555,10 +555,6 @@ impl Engine {
         )
         .await
     }
-    /// Import PostHog Scout reports into this topic: `None` off, empty for all, or a search.
-    pub async fn set_scout_feed(&self, topic: TopicId, feed: Option<String>) -> Result<Changes> {
-        self.command(topic, Command::SetScoutFeed { feed }).await
-    }
     /// Append a new goal to the topic.
     pub async fn add_goal(&self, topic: TopicId, goal: Goal) -> Result<Changes> {
         self.command(topic, Command::AddGoal { goal }).await

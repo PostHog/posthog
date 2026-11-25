@@ -74,7 +74,6 @@ impl Server {
             stream_cursor: watch::channel(None).0,
         });
         let router = Router::new()
-            .route("/v1/health", get(|| async { Json(serde_json::json!({"owner_id": uuid::Uuid::nil(), "version": "test", "cursor": 0, "posthog": false})) }))
             .route("/v1/commands", post(commands))
             .route("/v1/changes", get(changes))
             .route(

@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2024"
 description = "Persistent topic inboxes, agent workers and routines"
 
-[features]
-fixtures = ["meep-topic/fixtures", "meep-ingest/fixtures"]
-posthog = ["dep:meep-posthog"]
-
 [dependencies]
 meep-ai = { path = "../meep-ai" }
 anyhow = "1"
@@ -20,7 +16,6 @@ meep-policy = { path = "../meep-policy" }
 meep-store = { path = "../meep-store" }
 meep-connections = { path = "../meep-connections" }
 meep-ingest = { path = "../meep-ingest" }
-meep-posthog = { path = "../meep-posthog", features = ["tasks", "chat", "workflows"], optional = true }
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

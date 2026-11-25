@@ -263,20 +263,6 @@ impl Tasks {
             .context("PostHog offers no Claude model")
     }
 
-    /// Start a topic run with its selected runtime and billing preferences.
-    pub async fn start_configured(
-        &self,
-        token: &str,
-        task: Uuid,
-        model: &Model,
-        mcp: Option<(&str, &str)>,
-        effort: Option<&str>,
-        billing: Option<&str>,
-    ) -> Result<Started> {
-        self.start_with_optional_model(token, task, Some(model), mcp, effort, billing)
-            .await
-    }
-
     /// Start a topic run, allowing PostHog to choose its model when none is configured.
     pub async fn start_with_optional_model(
         &self,
@@ -326,19 +312,6 @@ impl Tasks {
     /// Start a new interactive run with the service defaults.
     pub async fn start(&self, token: &str, task: Uuid) -> Result<Started> {
         self.start_turn(token, task, NewTurn::default()).await
-    }
-    /// Start a new interactive run with a specific model.
-    pub async fn start_with_model(&self, token: &str, task: Uuid, model: &str) -> Result<Started> {
-        ensure!(!model.trim().is_empty(), "Model ID is empty");
-        self.start_turn(
-            token,
-            task,
-            NewTurn {
-                model: Some(model),
-                ..Default::default()
-            },
-        )
-        .await
     }
     /// Start or resume an interactive run, optionally attaching staged artifacts.
     pub async fn start_turn(&self, token: &str, task: Uuid, turn: NewTurn<'_>) -> Result<Started> {
@@ -652,34 +625,11 @@ fn imported_mcp(name: &str, url: &str, bearer: &str) -> Value {
     json!({"type":"http","name":name,"url":url,"headers":[{"name":"Authorization","value":format!("Bearer {bearer}")}]})
 }
 
-/// ACP text from a cloud run. A final message may repeat all previous chunks.
-pub enum AssistantText<'a> {
-    /// Incremental text to append to the current answer.
-    Chunk(&'a str),
-    /// Complete answer text from a final message.
-    Final(&'a str),
-}
-
 /// A topic agent works without a person at the keyboard: its runs must not stop on
 /// tool permission prompts that nobody answers. Meep's own approval for external actions
 /// (`propose_action`) still applies. Codex runtimes already default to `auto`.
 fn unattended(body: &mut Value, runtime_adapter: Option<&str>) {
     if runtime_adapter != Some("codex") {
         body["initial_permission_mode"] = json!("bypassPermissions");
-    }
-}
-
-/// Extract assistant text from a session update event.
-pub fn assistant_text(entry: &Value) -> Option<AssistantText<'_>> {
-    let notify = entry.get("notification")?;
-    if notify.get("method")?.as_str()? != "session/update" {
-        return None;
-    }
-    let update = notify.pointer("/params/update")?;
-    let text = update.pointer("/content/text")?.as_str()?;
-    match update.get("sessionUpdate")?.as_str()? {
-        "agent_message_chunk" => Some(AssistantText::Chunk(text)),
-        "agent_message" => Some(AssistantText::Final(text)),
-        _ => None,
     }
 }

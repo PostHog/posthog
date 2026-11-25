@@ -85,7 +85,7 @@ impl Identity {
 
 #[derive(Clone)]
 pub(super) struct Backend {
-    pub(super) direct: Option<Arc<direct::Account>>,
+    account: Arc<direct::Account>,
     pub client: Client,
     pub server: String,
     pub root: PathBuf,
@@ -164,11 +164,7 @@ async fn posthog_user(http: &reqwest::Client, origin: &str, token: &str) -> Resu
 
 impl Backend {
     pub(super) async fn login(&self, region: Region) -> Result<Identity> {
-        let account = self
-            .direct
-            .as_ref()
-            .context("Sign-in requires a PostHog account")?;
-        let identity = account.login(&self.root, region).await?;
+        let identity = self.account.login(&self.root, region).await?;
         self.client.set_preference("posthog-project", &identity)?;
         self.client.set_preference("signed-in", &true)?;
         self.client.sync_now();
@@ -176,11 +172,7 @@ impl Backend {
     }
 
     pub(super) async fn sign_out(&self) -> Result<()> {
-        let account = self
-            .direct
-            .as_ref()
-            .context("Sign-out requires a PostHog account")?;
-        account.sign_out().await?;
+        self.account.sign_out().await?;
         self.client.set_preference("signed-in", &false)?;
         Ok(())
     }

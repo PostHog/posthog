@@ -24,11 +24,7 @@
 //! | `PUT` | `/v1/connections/{id}?preserve_grants=true` | [`ConnectionGrant`] | credentials updated with existing project grants |
 //! | `PUT` | `/v1/connections/{id}/topics/{topic}` | none | [`ConnectionInfo`] |
 //! | `GET` / `PUT` | `/v1/routines/{topic}/{routine}` | none / [`WorkflowSwitch`] | [`WorkflowDetails`] |
-//! | `POST` | `/v1/routines/{topic}/{routine}/callback` | [`RoutineCallback`] | [`CallbackResult`] |
-//! | `POST` | `/v1/ingest/{connection}` | connector-specific JSON | `204` |
-//! | `GET` | `/v1/health` | none | [`ServerHealth`] |
 //!
-//! Requests other than routine callbacks and ingest carry `Authorization: Bearer <device token>`.
 //! Errors use a non-2xx status with an [`ApiError`] body.
 #![deny(missing_docs)]
 mod needs_you;
@@ -105,13 +101,6 @@ pub struct TopicRevision {
     pub topic: TopicId,
     /// Revision committed at this cursor.
     pub revision: u64,
-}
-
-/// Reachable HTTPS origin and optional path prefix used for new cloud callbacks.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PublicAddress {
-    /// Public server address.
-    pub public_base_url: String,
 }
 
 /// Authoritative state of one topic.
@@ -411,15 +400,6 @@ pub struct ConnectionGrant {
     pub grants: Vec<TopicId>,
 }
 
-/// A routine running elsewhere (for example in PostHog) changing its topic.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct RoutineCallback {
-    /// Per-routine secret issued when the routine was bound.
-    pub secret: String,
-    /// Operation to perform, in the engine's `RoutineOp` JSON form.
-    pub op: serde_json::Value,
-}
-
 /// A server-provided workflow definition ready to instantiate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoutineTemplate {
@@ -455,35 +435,6 @@ impl std::fmt::Debug for ConnectionGrant {
             .field("grants", &self.grants)
             .finish_non_exhaustive()
     }
-}
-
-impl std::fmt::Debug for RoutineCallback {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RoutineCallback").finish_non_exhaustive()
-    }
-}
-
-/// Result of a routine callback.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CallbackResult {
-    /// Topic revision after the operation.
-    pub revision: u64,
-}
-
-/// Stable identity of a private user namespace on the server.
-pub type OwnerId = uuid::Uuid;
-
-/// Server status for the client's connection indicator.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ServerHealth {
-    /// Private namespace of the authenticated device.
-    pub owner_id: OwnerId,
-    /// Build version.
-    pub version: String,
-    /// Current stream cursor.
-    pub cursor: u64,
-    /// Whether the server holds working PostHog credentials.
-    pub posthog: bool,
 }
 
 /// Error body for any non-2xx response.
@@ -683,19 +634,11 @@ mod credential_tests {
         let grant: ConnectionGrant = serde_json::from_value(
             serde_json::json!({"kind":"posthog","label":"Work","secrets":{"access_token":"private-value"}}),
         )?;
-        let callback = RoutineCallback {
-            secret: "private-value".into(),
-            op: serde_json::Value::Null,
-        };
         assert_eq!(
             serde_json::from_slice::<ConnectionGrant>(&serde_json::to_vec(&grant)?)?,
             grant
         );
-        assert_eq!(
-            serde_json::from_slice::<RoutineCallback>(&serde_json::to_vec(&callback)?)?,
-            callback
-        );
-        assert!(!format!("{grant:?} {callback:#?}").contains("private-value"));
+        assert!(!format!("{grant:?} {grant:#?}").contains("private-value"));
         Ok(())
     }
 }

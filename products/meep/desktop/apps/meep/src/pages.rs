@@ -88,8 +88,7 @@ pub(super) fn attention_groups(needs: &[NeedsYouItem], state: &TopicState) -> Ve
     let mut groups: Vec<AttentionGroup> = vec![];
     for a in needs.iter().filter_map(|n| attention(n, state)) {
         let same = |g: &&mut AttentionGroup| {
-            false
-                && a.task.is_some()
+            a.task.is_some()
                 && g.latest.task.is_some()
                 && g.latest.kind == a.kind
                 && g.latest.title.trim().eq_ignore_ascii_case(a.title.trim())
@@ -660,6 +659,7 @@ fn run_color(status: &str) -> u32 {
 }
 /// The goal line's height, read-only and while editing.
 const GOAL_HEIGHT: f32 = 44.;
+const ATTENTION_HEADING_HEIGHT: f32 = 30.;
 /// Mail's unread blue: the one chromatic mark in a list.
 pub(super) const UNREAD: u32 = 0x2f7cf6;
 
@@ -880,14 +880,8 @@ impl Desktop {
         };
         // One readable column, centred: an item's words and its action stay
         // close at any width.
-        const MEASURE: f32 = 760.;
-        let mut body = ui::column()
-            .w_full()
-            .max_w(px(MEASURE))
-            .mx_auto()
-            .gap(px(28.))
-            .pt(px(20.))
-            .pb(px(40.));
+        const MEASURE: f32 = 680.;
+        let mut items: Vec<(Option<(&TopicState, usize)>, AnyElement)> = vec![];
         for (i, item) in self.needs.iter().enumerate() {
             if let NeedsYouItem::Problem {
                 topics,
@@ -897,7 +891,11 @@ impl Desktop {
             } = item
             {
                 tally_one("Problem");
-                body = body.child(self.problem_card(i, topics, connection, title, detail, cx));
+                items.push((
+                    None,
+                    self.problem_card(i, topics, connection, title, detail, cx)
+                        .into_any_element(),
+                ));
             }
         }
         for state in &self.states {
@@ -922,42 +920,7 @@ impl Desktop {
                 continue;
             }
             let waiting = rows.len();
-            // The topic's name, how many of its items wait, and the way in.
-            let heading = ui::row()
-                .px(px(2.))
-                .pb(px(8.))
-                .gap(px(8.))
-                .child(ui::nav::glyph(Glyph::AtSign, false))
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(state.topic.name.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                        .child(waiting.to_string()),
-                )
-                .child(div().flex_1())
-                .child(
-                    ui::row()
-                        .id(SharedString::from(format!("attention-topic-{id}")))
-                        .role(Role::Link)
-                        .flex_none()
-                        .gap(px(2.))
-                        .cursor_pointer()
-                        .text_size(px(12.))
-                        .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                        .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
-                        .child("Open topic")
-                        .child(Icon::new(Glyph::ChevronRight).size(px(12.)))
-                        .on_click(cx.listener(move |s, _, w, cx| {
-                            s.go(Page::Topic(id, Tab::Chat, None), w, cx)
-                        })),
-                );
+            let heading = self.attention_heading(state, waiting, false, cx);
             // A topic's items sit together on one card under its name.
             let mut section = ui::column().gap_0().flex_none().mx(px(-12.));
             for (i, group) in rows.iter().enumerate() {
@@ -969,7 +932,14 @@ impl Desktop {
                 showed_approval = true;
                 section = section.child(self.after_approval(state, task, cx))
             }
-            body = body.child(ui::column().gap_0().child(heading).child(section));
+            items.push((
+                Some((state, waiting)),
+                ui::column()
+                    .gap_0()
+                    .child(heading)
+                    .child(section)
+                    .into_any_element(),
+            ));
         }
         // "1 failed run · 3 decisions · across 3 topics": what is broken first.
         tally.sort_by_key(|(kind, _)| attention_rank(kind));
@@ -985,28 +955,139 @@ impl Desktop {
         }
         let summary = parts.join(" · ");
         if n == 0 && !showed_approval {
-            body = body.child(all_clear(
-                "Decisions, approvals and broken connections from your topics land here. \
-                 Everything else they get done on their own.",
+            items.push((
+                None,
+                all_clear(
+                    "Decisions, approvals and broken connections from your topics land here. \
+                     Everything else they get done on their own.",
+                )
+                .into_any_element(),
             ))
         }
-        ui::column().size_full().child(
-            scroll("attention-items").w_full().child(
-                ui::column()
-                    .w_full()
-                    .max_w(px(MEASURE))
-                    .mx_auto()
+        let measure = || ui::column().w_full().max_w(px(MEASURE)).mx_auto();
+        let list = &self.attention_scroll;
+        let viewport = list.bounds().top();
+        let offset = list.offset().y.max(-list.max_offset().y);
+        let current = (0..items.len()).rev().find(|&i| {
+            list.bounds_for_item(i)
+                .is_some_and(|b| b.top() + offset < viewport)
+        });
+        let stuck = current.and_then(|i| {
+            let (state, waiting) = items[i].0?;
+            let own = list.bounds_for_item(i)?;
+            let limit = list
+                .bounds_for_item(i + 1)
+                .map_or(own.bottom(), |next| next.top())
+                + offset;
+            (limit > viewport).then(|| {
+                let push = (limit - viewport - px(ATTENTION_HEADING_HEIGHT)).min(px(0.));
+                div()
+                    .absolute()
+                    .top(push)
+                    .left_0()
+                    .right_0()
+                    .block_mouse_except_scroll()
+                    .bg(rgb(ui::theme::color(ui::CANVAS)))
                     .child(
-                        self.header_row(cx).child(
-                            ui::column()
-                                .gap(px(2.))
-                                .child(ui::heading("needs-title", "Needs you"))
-                                .when(n > 0, |c| c.child(ui::caption(summary))),
-                        ),
+                        measure()
+                            .border_b_1()
+                            .border_color(ui::ink(0x0f))
+                            .child(self.attention_heading(state, waiting, true, cx)),
                     )
-                    .child(body),
-            ),
-        )
+            })
+        });
+        ui::column()
+            .size_full()
+            .child(
+                measure().flex_none().pb(px(12.)).child(
+                    ui::row().child(
+                        ui::column()
+                            .gap(px(2.))
+                            .child(ui::heading("needs-title", "Needs you"))
+                            .when(n > 0, |c| c.child(ui::caption(summary))),
+                    ),
+                ),
+            )
+            .child(
+                ui::column()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        scroll("attention-items")
+                            .track_scroll(list)
+                            .w_full()
+                            .gap(px(20.))
+                            .pt(px(8.))
+                            .pb(px(40.))
+                            .children(items.into_iter().map(|(_, item)| {
+                                div().w_full().flex_none().child(measure().child(item))
+                            })),
+                    )
+                    .children(stuck),
+            )
+    }
+    fn attention_heading(
+        &self,
+        state: &TopicState,
+        waiting: usize,
+        stuck: bool,
+        cx: &Context<Self>,
+    ) -> Div {
+        let id = state.topic.id;
+        let link = if stuck {
+            format!("attention-topic-stuck-{id}")
+        } else {
+            format!("attention-topic-{id}")
+        };
+        let group = SharedString::from(format!("{link}-group"));
+        ui::row()
+            .h(px(ATTENTION_HEADING_HEIGHT))
+            .flex_none()
+            .pb(px(6.))
+            .child(
+                ui::row()
+                    .id(SharedString::from(link))
+                    .group(group.clone())
+                    .role(Role::Link)
+                    .aria_label(format!("Open {}", state.topic.name))
+                    .min_w_0()
+                    .gap(px(10.))
+                    .cursor_pointer()
+                    .child(
+                        super::topic_icon::small_sidebar_tile(&state.topic.display_icon(), 20.)
+                            .ml(px(-2.)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(state.topic.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(12.))
+                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                            .child(waiting.to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .ml(px(-4.))
+                            .opacity(0.)
+                            .group_hover(group, |s| s.opacity(1.))
+                            .child(
+                                Icon::new(Glyph::ChevronRight)
+                                    .size(px(12.))
+                                    .text_color(rgb(ui::theme::color(ui::TERTIARY))),
+                            ),
+                    )
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.go(Page::Topic(id, Tab::Chat, None), w, cx)
+                    })),
+            )
     }
     pub(super) fn topic_view(
         &self,
@@ -1017,6 +1098,12 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) -> Div {
         let topic = &state.topic;
+        let overlay = ui::motion::presence(
+            "topic-overview-overlay",
+            self.overview_overlay && !self.overview_docked(w),
+            w,
+            cx,
+        );
         let id = topic.id;
         let topic_id = id;
         let topic_archived = state.archived;
@@ -1288,13 +1375,15 @@ impl Desktop {
             })
             .child(body)
             .relative()
-            .when(self.overview_overlay && !self.overview_docked(w), |c| {
+            .when(overlay.should_render(), |c| {
+                let p = overlay.progress.clamp(0., 1.);
                 c.child(
                     div()
                         .absolute()
                         .top_0()
-                        .right_0()
+                        .right(px(-ui::motion::travel(p, super::overview::WIDTH)))
                         .bottom_0()
+                        .opacity(p)
                         .w(px(super::overview::WIDTH))
                         .border_l_1()
                         .border_color(ui::ink(0x12))
@@ -1311,7 +1400,7 @@ impl Desktop {
             - if self.sidebar_hidden {
                 px(0.)
             } else {
-                px(meep_ui::design::current().sidebar)
+                px(super::navigation::TOPIC_SIDEBAR_WIDTH)
             }
             - if self.overview_docked(w) {
                 px(super::overview::WIDTH + meep_shell::GUTTER)
@@ -1419,6 +1508,8 @@ impl Desktop {
         // Resolved and dismissed reports wait behind a quiet line at the end.
         let closed = all.iter().filter(|t| !report_open(t)).count();
         let open = all.len() - closed;
+        let closed_fold = format!("inbox-closed-{id}");
+        let mut rows: [Vec<AnyElement>; 2] = [vec![], vec![]];
         for (index, t) in all.into_iter().enumerate() {
             if index == open {
                 if skipped_height > 0. {
@@ -1446,12 +1537,13 @@ impl Desktop {
                             }),
                         ))
                         .child(format!("{closed} resolved or dismissed"))
-                        .on_click(cx.listener(|s, _, _, cx| {
+                        .on_click(cx.listener(move |s, _, _, cx| {
                             s.skipped = !s.skipped;
+                            s.folds.toggled(format!("inbox-closed-{id}"), s.skipped, cx);
                             cx.notify()
                         })),
                 );
-                if !self.skipped {
+                if self.folds.progress(&closed_fold, self.skipped, cx) <= 0. {
                     break;
                 }
             }
@@ -1461,7 +1553,8 @@ impl Desktop {
                 continue;
             }
             if skipped_height > 0. {
-                list = list.child(div().h(px(skipped_height)).flex_none());
+                rows[usize::from(index >= open)]
+                    .push(div().h(px(skipped_height)).flex_none().into_any_element());
                 skipped_height = 0.;
             }
             let page = Page::Topic(id, Tab::Inbox, Some(Detail::Thread(t.id)));
@@ -1516,7 +1609,7 @@ impl Desktop {
                     cx.notify()
                 }))
             };
-            list = list.child(
+            rows[usize::from(index >= open)].push(
                 line(format!("thread-{}", t.id), self.page == page)
                     .group(group.clone())
                     .h(px(ROW_HEIGHT))
@@ -1640,11 +1733,23 @@ impl Desktop {
                                 )
                             }),
                     )
-                    .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx))),
+                    .on_click(cx.listener(move |s, _, w, cx| s.go(page.clone(), w, cx)))
+                    .into_any_element(),
             );
         }
         if skipped_height > 0. {
-            list = list.child(div().h(px(skipped_height)).flex_none());
+            rows[usize::from(closed > 0)]
+                .push(div().h(px(skipped_height)).flex_none().into_any_element());
+        }
+        let [open_rows, closed_rows] = rows;
+        let mut list = list.children(open_rows);
+        if !closed_rows.is_empty() {
+            list = list.children(self.folds.reveal(&closed_fold, self.skipped, cx, || {
+                ui::column()
+                    .gap_0()
+                    .children(closed_rows)
+                    .into_any_element()
+            }));
         }
         list
     }
@@ -3380,13 +3485,34 @@ impl Desktop {
                     cx.notify()
                 }))
         });
+        let detail = plain_line(
+            a.detail
+                .split("\n\n")
+                .find(|p| !p.trim().is_empty())
+                .unwrap_or_default(),
+        );
+        let mut lead = !detail.is_empty();
         let mut meta = ui::row()
             .flex_wrap()
-            .gap(px(6.))
-            .text_size(px(12.))
-            .text_color(quiet);
+            .gap_x(px(6.))
+            .text_size(px(13.))
+            .line_height(relative(1.45))
+            .text_color(quiet)
+            .when(lead, |m| {
+                m.child(
+                    div()
+                        .min_w_0()
+                        .line_clamp(2)
+                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                        .child(detail),
+                )
+            });
         if let Some(at) = a.since {
             let waited = Utc::now() - at;
+            if lead {
+                meta = meta.child("·");
+            }
+            lead = true;
             meta = meta.child(
                 div()
                     .when(waited > chrono::Duration::days(1), |d| {
@@ -3400,7 +3526,7 @@ impl Desktop {
             let mut runs: Vec<&Attention> = group.earlier.iter().collect();
             runs.reverse();
             runs.push(a);
-            if a.since.is_some() {
+            if lead {
                 meta = meta.child("·");
             }
             if tries > 1 {
@@ -3430,7 +3556,7 @@ impl Desktop {
                         .accessibility_label(format!("Open run from {when}"))
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(px(13.))
                                 .underline()
                                 .text_color(rgb(ui::theme::color(ui::SECONDARY)))
                                 .child(when),
@@ -3442,16 +3568,10 @@ impl Desktop {
                 );
             }
         }
-        let detail = plain_line(
-            a.detail
-                .split("\n\n")
-                .find(|p| !p.trim().is_empty())
-                .unwrap_or_default(),
-        );
         line(format!("attention-row-{key}"), false)
             .items_start()
             .px(px(12.))
-            .py(px(12.))
+            .py(px(9.))
             .gap(px(12.))
             .rounded(px(8.))
             .when(!first, |r| r.mt(px(2.)))
@@ -3467,7 +3587,7 @@ impl Desktop {
                 ui::column()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(4.))
+                    .gap(px(2.))
                     .child(
                         div()
                             .min_w_0()
@@ -3477,16 +3597,6 @@ impl Desktop {
                             .line_clamp(2)
                             .child(short_subject(&a.title)),
                     )
-                    .when(!detail.is_empty(), |c| {
-                        c.child(
-                            div()
-                                .text_size(px(13.))
-                                .line_height(relative(1.45))
-                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                                .line_clamp(2)
-                                .child(detail),
-                        )
-                    })
                     .child(meta),
             )
             .child(

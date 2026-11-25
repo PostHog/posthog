@@ -206,6 +206,7 @@ impl Desktop {
             return div();
         };
         let key = format!("chat-tasks-folded-{}", first.id);
+        let fold = key.clone();
         let grouped = tasks.len() > 1;
         let open = !grouped || !self.expanded.contains(&key);
         let now = Utc::now();
@@ -278,16 +279,16 @@ impl Desktop {
                     )
                     .on_click(cx.listener(move |s, _, _, cx| {
                         cx.stop_propagation();
-                        if !s.expanded.remove(&key) {
+                        let open = s.expanded.remove(&key);
+                        if !open {
                             s.expanded.insert(key.clone());
                         }
+                        s.folds.toggled(key.clone(), open, cx);
                         cx.notify()
                     })),
             );
         }
-        if !open {
-            return card;
-        }
+        let mut rows = ui::column().gap(px(1.));
         for task in tasks {
             let id = task.id;
             let elapsed = task.elapsed(now);
@@ -299,7 +300,7 @@ impl Desktop {
                 Column::NeedsYou => task.tone(),
                 _ => ui::theme::color(ui::SECONDARY),
             };
-            card = card.child(
+            rows = rows.child(
                 Button::new(SharedString::from(format!("chat-task-{id}")))
                     .ghost()
                     .w_full()
@@ -359,7 +360,10 @@ impl Desktop {
                     })),
             );
         }
-        card
+        card.children(
+            self.folds
+                .reveal(&fold, open, cx, || rows.into_any_element()),
+        )
     }
 
     fn tick_running_chat_tasks(&self, linked: &[Vec<ChatTask>], cx: &mut Context<Self>) {
@@ -540,6 +544,7 @@ impl Desktop {
         cx: &Context<Desktop>,
     ) -> Div {
         let open = self.expanded.contains(&key);
+        let fold = key.clone();
         ui::column()
             .gap(px(4.))
             .pt(px(2.))
@@ -563,21 +568,22 @@ impl Desktop {
                         "Show details"
                     }))
                     .on_click(cx.listener(move |s, _, _, cx| {
-                        if !s.expanded.remove(&key) {
+                        let open = !s.expanded.remove(&key);
+                        if open {
                             s.expanded.insert(key.clone());
                         }
+                        s.folds.toggled(key.clone(), open, cx);
                         cx.notify()
                     })),
             )
-            .when(open, |el| {
-                el.child(
-                    div()
-                        .text_size(px(12.))
-                        .line_height(relative(1.45))
-                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                        .child(text),
-                )
-            })
+            .children(self.folds.reveal(&fold, open, cx, || {
+                div()
+                    .text_size(px(12.))
+                    .line_height(relative(1.45))
+                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                    .child(text)
+                    .into_any_element()
+            }))
     }
 
     pub(super) fn after_approval(
@@ -1144,9 +1150,11 @@ impl Desktop {
             .small()
             .icon(Glyph::FileText)
             .on_click(cx.listener(move |s, _, _, cx| {
-                if !s.toggled_groups.remove(&key) {
+                let open = !s.toggled_groups.remove(&key);
+                if open {
                     s.toggled_groups.insert(key.clone());
                 }
+                s.folds.toggled(key.clone(), open, cx);
                 cx.notify()
             }))
         });
@@ -1211,12 +1219,13 @@ impl Desktop {
             );
         }
         // The write-up under the lead, flat in the page's own type.
-        if full && !rest.is_empty() {
-            headline = headline.child(
+        if !rest.is_empty() {
+            headline = headline.children(self.folds.reveal(&full_key, full, cx, || {
                 meep_shell::transcript::chat_markdown(format!("report-rest-{thread}").into(), rest)
                     .text_size(px(15.))
-                    .line_height(relative(1.55)),
-            );
+                    .line_height(relative(1.55))
+                    .into_any_element()
+            }));
         }
         body = body.child(headline);
 
@@ -1366,11 +1375,8 @@ impl Desktop {
             let all = self.toggled_groups.contains(&all_key);
             let total = items.len();
             let mut list = ui::column().gap_0();
-            for (i, e) in items
-                .into_iter()
-                .take(if all { total } else { 3 })
-                .enumerate()
-            {
+            let mut more = ui::column().gap_0();
+            for (i, e) in items.into_iter().enumerate() {
                 let (text, kind, at) = (e.description, e.kind, e.at);
                 let source = Some(e.source_id).filter(|s| !s.is_empty());
                 let link = source
@@ -1385,60 +1391,66 @@ impl Desktop {
                         local.format("%b %e").to_string()
                     }
                 });
-                // The finding first; its kind and date trail it, as in Scout.
-                list = list.child(
-                    ui::row()
-                        .id(SharedString::from(format!("report-source-{i}")))
-                        .items_start()
-                        .gap(px(12.))
-                        .py(px(7.))
-                        .text_size(px(14.))
-                        .when_some(link.clone(), |r, url| {
-                            r.cursor_pointer()
-                                .on_click(move |_, _, cx| cx.open_url(&url))
-                        })
-                        .child(
-                            ui::column()
-                                .flex_1()
-                                .min_w_0()
-                                .gap(px(2.))
-                                .child(div().line_height(relative(1.5)).line_clamp(2).child(text))
-                                .children(
-                                    source
-                                        .filter(|_| link.is_none())
-                                        .map(|s| ui::caption(s).truncate()),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex_none()
-                                .w(px(16.))
-                                .pt(px(3.))
-                                .flex()
-                                .justify_center()
-                                .child(
-                                    Icon::new(if link.is_some() && kind.is_none() {
-                                        Glyph::ExternalLink
-                                    } else {
-                                        super::pages::evidence_glyph(kind.as_deref())
-                                    })
-                                    .size(px(14.))
-                                    .text_color(rgb(ui::theme::color(ui::SECONDARY))),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex_none()
-                                .w(px(52.))
-                                .pt(px(1.))
-                                .text_right()
-                                .text_size(px(13.))
-                                .line_height(px(21.))
-                                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                                .children(when),
-                        ),
-                );
+                let row = ui::row()
+                    .id(SharedString::from(format!("report-source-{i}")))
+                    .items_start()
+                    .gap(px(12.))
+                    .py(px(7.))
+                    .text_size(px(14.))
+                    .when_some(link.clone(), |r, url| {
+                        r.cursor_pointer()
+                            .on_click(move |_, _, cx| cx.open_url(&url))
+                    })
+                    .child(
+                        ui::column()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(div().line_height(relative(1.5)).line_clamp(2).child(text))
+                            .children(
+                                source
+                                    .filter(|_| link.is_none())
+                                    .map(|s| ui::caption(s).truncate()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(16.))
+                            .pt(px(3.))
+                            .flex()
+                            .justify_center()
+                            .child(
+                                Icon::new(if link.is_some() && kind.is_none() {
+                                    Glyph::ExternalLink
+                                } else {
+                                    super::pages::evidence_glyph(kind.as_deref())
+                                })
+                                .size(px(14.))
+                                .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(px(52.))
+                            .pt(px(1.))
+                            .text_right()
+                            .text_size(px(13.))
+                            .line_height(px(21.))
+                            .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                            .children(when),
+                    );
+                if i < 3 {
+                    list = list.child(row);
+                } else {
+                    more = more.child(row);
+                }
             }
+            let list = list.children(
+                self.folds
+                    .reveal(&all_key, all, cx, || more.into_any_element()),
+            );
             let toggle = (total > 3).then(|| {
                 let key = all_key.clone();
                 ui::row()
@@ -1454,9 +1466,11 @@ impl Desktop {
                         format!("See all {total}")
                     })
                     .on_click(cx.listener(move |s, _, _, cx| {
-                        if !s.toggled_groups.remove(&key) {
+                        let open = !s.toggled_groups.remove(&key);
+                        if open {
                             s.toggled_groups.insert(key.clone());
                         }
+                        s.folds.toggled(key.clone(), open, cx);
                         cx.notify()
                     }))
             });
@@ -2653,11 +2667,8 @@ impl Desktop {
             ui::icon_button("show-overview", Glyph::PanelRight, "Show overview")
                 .tooltip("Overview · ⌘\\")
                 .on_click(cx.listener(|s, _, w, cx| {
-                    // Narrow windows show it over the page instead of beside it.
-                    if w.viewport_size().width > px(980.) {
-                        s.overview_hidden = false;
-                    } else {
-                        s.overview_overlay = !s.overview_overlay;
+                    if let Page::Topic(id, ..) = s.page {
+                        s.toggle_overview(id, w)
                     }
                     cx.notify()
                 }))

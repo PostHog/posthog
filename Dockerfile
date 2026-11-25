@@ -227,7 +227,6 @@ COPY products/meep/domain/ domain/
 COPY products/meep/desktop/crates/meep-topic/ desktop/crates/meep-topic/
 COPY products/meep/desktop/crates/meep-views/ desktop/crates/meep-views/
 COPY products/meep/desktop/crates/meep-protocol/ desktop/crates/meep-protocol/
-COPY products/meep/desktop/crates/meep-render/meep-workflows/ desktop/crates/meep-render/meep-workflows/
 COPY products/meep/desktop/crates/meep-render/meep-script/ desktop/crates/meep-render/meep-script/
 RUN cargo build --release --locked --manifest-path domain/Cargo.toml
 

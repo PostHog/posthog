@@ -8,8 +8,6 @@ mod build;
 mod components;
 #[path = "script_view/images.rs"]
 mod images;
-#[cfg(all(not(target_family = "wasm"), feature = "ui-tests"))]
-pub use images::seed_preview_image;
 #[cfg(not(target_family = "wasm"))]
 pub use images::{forget_file_images, forget_remote_images};
 #[path = "script_view/inputs.rs"]
@@ -21,13 +19,11 @@ mod props;
 use crate::script_contract::COMPONENTS;
 #[path = "script_view/interact.rs"]
 mod interact;
-#[path = "script_view/regions.rs"]
-mod regions;
-#[cfg(feature = "ui-tests")]
-pub use regions::set_enabled as set_regions_enabled;
 #[cfg(not(target_family = "wasm"))]
 #[path = "script_view/native.rs"]
 mod native;
+#[path = "script_view/regions.rs"]
+mod regions;
 #[path = "script_view/scene_view.rs"]
 mod scene_view;
 #[path = "script_view/selectable.rs"]
@@ -342,23 +338,6 @@ fn key_name(keystroke: &Keystroke) -> String {
 }
 
 impl ScriptView {
-    #[cfg(feature = "ui-tests")]
-    pub fn preview_no_tree(&mut self, cx: &mut Context<Self>) {
-        self.tree = None;
-        self.stale = false;
-        cx.notify();
-    }
-    /// The keys of the subtrees rendering as cached regions.
-    #[cfg(feature = "ui-tests")]
-    pub fn region_keys(&self) -> Vec<String> {
-        self.shared.regions.borrow().keys()
-    }
-    /// Render the script again on the next frame, as a state change does.
-    #[cfg(feature = "ui-tests")]
-    pub fn mark_stale(&mut self, cx: &mut Context<Self>) {
-        self.stale = true;
-        cx.notify();
-    }
     fn report(&mut self, result: Result<(), String>) {
         if let Err(error) = result {
             self.shared
@@ -368,23 +347,6 @@ impl ScriptView {
                 .push_back(format!("error: {error}"));
             self.error = Some(error);
         }
-    }
-    #[cfg(feature = "ui-tests")]
-    pub fn insert_scene(&mut self, name: &str, scene: crate::scene::Scene, cx: &mut Context<Self>) {
-        self.shared
-            .engine
-            .scenes
-            .borrow_mut()
-            .scenes
-            .insert(name.into(), Rc::new(scene));
-        self.stale = true;
-        cx.notify();
-    }
-    /// Replaces the datasets even when the view changed them since its last save.
-    #[cfg(feature = "ui-tests")]
-    pub fn replace_datasets(&mut self, value: Value) {
-        self.shared.engine.data.borrow_mut().load(value);
-        self.stale = true;
     }
     /// An imported view's needs, from the broker's mount reply.
     #[cfg(not(target_family = "wasm"))]
@@ -497,10 +459,6 @@ impl ScriptView {
     #[cfg(not(target_family = "wasm"))]
     fn perf(&self) -> Value {
         serde_json::to_value(&*self.shared.perf.borrow()).unwrap_or_default()
-    }
-    #[cfg(not(target_family = "wasm"))]
-    pub fn performance_snapshot(&self) -> Perf {
-        self.shared.perf.borrow().clone()
     }
 }
 
@@ -650,20 +608,6 @@ impl Render for ScriptView {
     }
 }
 
-/// The block editor with this id in a mounted script view (previews, tests).
-#[cfg(feature = "ui-tests")]
-pub fn block_editor(
-    view: &AnyView,
-    id: &str,
-    cx: &App,
-) -> Option<Entity<crate::block_editor::BlockEditor>> {
-    let view = view.clone().downcast::<ScriptView>().ok()?;
-    match &view.read(cx).inputs.get(id)?.editor {
-        Editor::Blocks(editor) => Some(editor.clone()),
-        _ => None,
-    }
-}
-
 /// Stage a new generation from the latest checkpoint before replacing the old
 /// one. Both broker-delivered edits and browser replay edits take this path.
 /// A mount error leaves the existing entity and generation untouched.
@@ -685,16 +629,9 @@ pub fn prepare_revision<T, E>(
 }
 
 impl ScriptView {
-    #[cfg(any(target_family = "wasm", feature = "ui-tests"))]
+    #[cfg(target_family = "wasm")]
     pub fn sidebar_badge(&self) -> Option<String> {
-        #[cfg(target_family = "wasm")]
-        {
-            self.web_badge.clone()
-        }
-        #[cfg(not(target_family = "wasm"))]
-        {
-            self.shared.engine.sidebar_metadata().0
-        }
+        self.web_badge.clone()
     }
     /// The badge object behind the sidebar hover card (browser preview).
     #[cfg(target_family = "wasm")]

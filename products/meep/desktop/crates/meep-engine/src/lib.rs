@@ -11,7 +11,7 @@ mod effects;
 pub use effects::WorkflowReview;
 mod event_routines;
 mod files;
-#[cfg(any(test, feature = "fixtures"))]
+#[cfg(test)]
 mod fixture_flows;
 mod intake;
 mod memory;
@@ -20,8 +20,6 @@ mod store;
 pub use backend::*;
 pub use blobs::*;
 pub use store::*;
-#[cfg(feature = "fixtures")]
-pub mod fixtures;
 mod replication;
 mod routines;
 mod session;
@@ -30,12 +28,6 @@ pub use routines::{RoutineAsk, RoutineOp, RoutineReports, RoutineSortContext};
 pub use setup::SETUP_TITLE;
 mod sorter;
 mod worker;
-#[cfg(feature = "fixtures")]
-pub use fixtures::demo;
-#[cfg(feature = "posthog")]
-mod posthog;
-#[cfg(feature = "posthog")]
-pub use posthog::{MEEP_SKILL, PostHogAgent, RUN_CONTEXT_HEADING, TASK_ORIGIN_ENV, TaskSubject};
 
 pub use agent::*;
 pub use clock::*;
@@ -193,11 +185,7 @@ pub struct StoredTopic {
     #[serde(default)]
     default_sort_removed: bool,
     #[serde(default)]
-    default_create_claimed: bool,
-    #[serde(default)]
     dispatch_keys: BTreeMap<Uuid, chrono::NaiveDate>,
-    #[serde(default)]
-    default_flow: Option<String>,
     #[serde(default)]
     observations: Vec<observations::Observation>,
     /// Public revision of this record.
@@ -534,26 +522,6 @@ impl Engine {
             .collect())
     }
 
-    /// Link a file to the task whose active run wrote it. A run that no longer owns
-    /// a task, such as a chat answer or delivery, links nothing.
-    pub async fn record_run_file(
-        &self,
-        topic: TopicId,
-        run: &RunHandle,
-        path: String,
-    ) -> Result<()> {
-        self.update(topic, &Default::default(), |s, now| {
-            let Some(task) = s.runs.iter().find_map(|(task, work)| {
-                matches!(work, Work::Poll(h) | Work::Approved(h) if h == run).then_some(*task)
-            }) else {
-                return Ok(vec![]);
-            };
-            Ok(s.state.record_file(task, path, now)?)
-        })
-        .await?;
-        Ok(())
-    }
-
     /// Count one System One request, including calls that later fail.
     pub async fn record_system_one(&self, topic: TopicId) -> Result<()> {
         self.update(topic, &Default::default(), |s, now| {
@@ -570,12 +538,6 @@ impl Engine {
         })
         .await?;
         Ok(())
-    }
-
-    /// Whether this topic currently accepts new work.
-    pub fn topic_active(&self, topic: TopicId) -> bool {
-        self.slot(topic)
-            .is_ok_and(|slot| !slot.saved.read().state.archived)
     }
 
     /// Expire replicated undo records even for topics without incoming edits.
@@ -766,9 +728,7 @@ impl Engine {
             default_sort_removed: command
                 .as_ref()
                 .is_some_and(|c| matches!(c.command, Command::CreateTopicWithoutSort { .. })),
-            default_create_claimed: false,
             dispatch_keys: Default::default(),
-            default_flow: None,
             default_sort_request: None,
             observations: vec![],
             revision: 1,

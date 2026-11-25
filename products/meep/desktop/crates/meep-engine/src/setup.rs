@@ -123,86 +123,6 @@ impl StoredTopic {
 }
 
 impl Engine {
-    /// Select the system sorter when a host cannot create remote workflows.
-    pub async fn builtin_sorter(
-        &self,
-        topic: TopicId,
-        watches: Option<Vec<Watch>>,
-    ) -> Result<RoutineInfo> {
-        if let Some(watches) = watches {
-            self.update(topic, &Default::default(), |s, now| {
-                Ok(s.state.set_routine_watches(
-                    &s.state.topic.fallback.binding.id.clone(),
-                    watches,
-                    now,
-                )?)
-            })
-            .await?;
-        }
-        self.read_topic(topic, |s| s.topic.fallback.clone())
-    }
-    /// Remote draft recovered or created during this topic's setup.
-    pub fn default_flow(&self, topic: TopicId) -> Result<Option<String>> {
-        Ok(self.slot(topic)?.saved.read().default_flow.clone())
-    }
-    /// Remember which draft setup owns before binding or updating it.
-    pub async fn remember_default_flow(&self, topic: TopicId, flow: &str) -> Result<()> {
-        self.update(topic, &Default::default(), |s, _| {
-            if s.default_flow
-                .as_ref()
-                .is_some_and(|previous| previous != flow)
-            {
-                return Err(anyhow::anyhow!("Default workflow changed during setup").into());
-            }
-            s.default_flow = Some(flow.into());
-            Ok(vec![])
-        })
-        .await?;
-        Ok(())
-    }
-
-    /// Reserve the remote create before sending. A resumed attempt must locate the existing draft.
-    pub async fn claim_default_create(&self, topic: TopicId) -> Result<bool> {
-        if self.slot(topic)?.saved.read().default_create_claimed {
-            return Ok(false);
-        }
-        let mut acquired = false;
-        self.update(topic, &Default::default(), |s, _| {
-            acquired = !s.default_create_claimed && s.default_sort_request.is_some();
-            s.default_create_claimed = true;
-            Ok(vec![])
-        })
-        .await?;
-        Ok(acquired)
-    }
-    /// Retry a remote create after a definite rejection or connection failure before sending.
-    pub async fn release_default_create(&self, topic: TopicId) -> Result<()> {
-        self.update(topic, &Default::default(), |s, _| {
-            s.default_create_claimed = false;
-            Ok(vec![])
-        })
-        .await?;
-        Ok(())
-    }
-
-    /// A prepared default graph can resume activation without resetting the remote flow to draft.
-    pub fn prepared_default_sort(&self, topic: TopicId) -> Result<Option<RoutineBinding>> {
-        let slot = self.slot(topic)?;
-        let s = slot.saved.read();
-        Ok(s.state
-            .topic
-            .routines
-            .iter()
-            .find(|r| {
-                r.binding.id == "default:sort-inbox"
-                    && s.default_flow.as_ref() == Some(&r.binding.external_id)
-                    && s.routines
-                        .get(&r.binding.id)
-                        .is_some_and(|r| r.observation_only)
-            })
-            .map(|r| r.binding.clone()))
-    }
-
     /// Whether this topic was created with a pending hosted inbox workflow.
     pub fn default_sort_pending(&self, topic: TopicId) -> Result<bool> {
         Ok(self
@@ -211,36 +131,5 @@ impl Engine {
             .read()
             .default_sort_request
             .is_some())
-    }
-
-    /// Request activation once and transfer subscriptions after confirmed delivery.
-    pub async fn activate_default_sort(
-        &self,
-        topic: TopicId,
-        binding: &RoutineBinding,
-    ) -> Result<()> {
-        let Some(request) = self.slot(topic)?.saved.read().default_sort_request else {
-            return Ok(());
-        };
-        let activated = match self
-            .request_routine_activation(topic, binding, request, Some(vec![]))
-            .await
-        {
-            Ok(task) => task.result.as_deref() == Some("Activated Sort inbox."),
-            Err(Error::Topic(TopicError::ActionDenied(_))) => false,
-            Err(e) => return Err(e),
-        };
-        if activated {
-            self.update(topic, &Default::default(), |s, now| {
-                if s.default_sort_request.take().is_none() {
-                    return Ok(vec![]);
-                }
-                let changes = s.state.install_default_sort(&binding.id, now)?;
-                s.release_default_observations(&binding.id, now)?;
-                Ok(changes)
-            })
-            .await?;
-        }
-        Ok(())
     }
 }

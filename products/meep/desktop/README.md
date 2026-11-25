@@ -24,16 +24,10 @@ An agent-authored workflow can supply the data for a view through a host-selecte
 | [meep-workflows](crates/meep-render/meep-workflows/) | Workflow definitions and an optional interpreter. The host supplies persistence and external effects. | None |
 | [meep-workflow-ui](crates/meep-render/meep-workflow-ui/) | Native step outline, timings, visual form and JSON or expression editor | meep-ui, meep-workflows (native editor) |
 | [meep-ingest](crates/meep-ingest/) | Normalize connector events, group messages, route watches and deduplicate replays | meep-topic, meep-store |
-| [meep-engine](crates/meep-engine/) | Run topic inboxes, task workers and workflows, persist changes and search across topics | meep-ai, meep-topic, meep-ingest, meep-policy, meep-wire, meep-connections, meep-store, meep-workflows, optional meep-posthog |
-| [meep-topics](crates/meep-topics/) | Save a subject, question, or idea with a stable ID, a description, metadata, and its own files | None |
+| [meep-engine](crates/meep-engine/) | Run topic inboxes, task workers and workflows, persist changes and search across topics | meep-ai, meep-topic, meep-ingest, meep-policy, meep-wire, meep-connections, meep-store |
 | [meep-store](crates/meep-store/) | Typed, revisioned SQLite records and atomic transactions on a host-owned connection | None |
-| [meep-protocol](crates/meep-protocol/) | Serializable session, notification and local RPC records | meep-workflows with its interpreter disabled |
-| [meep-ipc](crates/meep-ipc/) | User-owned Unix sockets, request framing and host/session admission. The host supplies authorization and dispatch. | meep-protocol |
-| [meep-desktop](crates/meep-desktop/) | Unix single-window leases, macOS Dock integration and optional bundled Sparkle updates | None |
-| [meep-machines](crates/meep-machines/) | Keep authenticated SSH connections online, observe state, reconnect and stop | None |
+| [meep-protocol](crates/meep-protocol/) | Serializable agent session and transcript records | None |
 | [meep-notifications](crates/meep-notifications/) | Scoped system notification delivery, scheduling, cancellation and an in-memory backend | None |
-| [meep-native-stores](crates/meep-native-stores/) | Independently selectable Calendar and Reminders, Contacts and Mail readers | None |
-| [meep-native-actions](crates/meep-native-actions/) | Host-approved desktop actions, file panels, clipboard, app links and calendar or reminder creation | None |
 | [meep-posthog](crates/meep-posthog/) | Project-scoped HTTP (`api`, always available) with optional `oauth`, `tasks`, `chat`, `mcp` and `workflows` features | meep-protocol (`chat`) |
 
 Use a Cargo path dependency or pin a Git dependency to a commit in this repository. When copying files, keep each package's path dependency layout. Copying `crates/meep-render/` includes its script engine, workflow runner, widgets and assets. For the shell, copy its dependency directories too. The PostHog adapters can run in a headless host.

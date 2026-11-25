@@ -47,3 +47,40 @@ pub(super) fn render(path: &str, bytes: &[u8]) -> Div {
             e.child(ui::caption("Showing the first 200 rows."))
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::read;
+    use anyhow::Result;
+    use core::prelude::v1::test;
+    #[test]
+    fn quoted_csv_keeps_commas_and_newlines_inside_cells() -> Result<()> {
+        let table = read("results.csv", b"Name,Note\nRail,\"One, two\nand three\"\n")?;
+        assert_eq!(table.columns, ["Name", "Note"]);
+        assert_eq!(table.rows[0], ["Rail", "One, two\nand three"]);
+        Ok(())
+    }
+    #[test]
+    fn sparse_json_records_share_one_ordered_header() -> Result<()> {
+        let t = read("results.json", br#"[{"a":1},{"b":2}]"#)?;
+        assert_eq!(t.columns, ["a", "b"]);
+        assert_eq!(t.rows, [["1", ""], ["", "2"]]);
+        Ok(())
+    }
+    #[test]
+    fn declared_columns_align_short_rows_and_reject_cells_without_a_header() -> Result<()> {
+        let t = read(
+            "grid.json",
+            br#"{"columns":["State","Added by"],"rows":[["Done"],[]]}"#,
+        )?;
+        assert_eq!(t.rows, [["Done", ""], ["", ""]]);
+        assert!(
+            read(
+                "bad.json",
+                br#"{"columns":["State"],"rows":[["Done","Inbox"]]}"#
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+}

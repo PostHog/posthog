@@ -27,6 +27,6 @@ assert_eq!(state.tasks[0].title, "Review the pinned menu");
 # }
 ```
 
-`Envelope::create` builds the initial state for a `CreateTopic` request. The `fixtures` feature supplies the New web inbox and board through `fixtures::new_web`.
+`Envelope::create` builds the initial state for a `CreateTopic` request.
 
 Chat enters Sorting during optimistic apply. Model decisions arrive as server revisions. Skip matchers carry optional connection and channel IDs, and the rule text describes its meaning.

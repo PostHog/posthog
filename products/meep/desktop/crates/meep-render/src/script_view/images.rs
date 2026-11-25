@@ -38,8 +38,6 @@ impl Build {
     }
 }
 
-#[cfg(all(not(target_family = "wasm"), feature = "ui-tests"))]
-pub use native::seed_preview_image;
 #[cfg(not(target_family = "wasm"))]
 pub(super) use native::{Cache, Spec};
 #[cfg(not(target_family = "wasm"))]
@@ -446,42 +444,6 @@ mod native {
                 );
             });
         }
-    }
-
-    #[cfg(feature = "ui-tests")]
-    pub fn seed_preview_image(
-        view: &AnyView,
-        source: &Value,
-        file: Option<Vec<u8>>,
-        waiting_for_approval: bool,
-        cx: &mut App,
-    ) -> anyhow::Result<()> {
-        let source = Rc::new(ImageSource::parse(source)?);
-        let state = match file {
-            Some(bytes) => State::Ready(decode_bytes(bytes).map_err(anyhow::Error::msg)?),
-            None => State::NeedsApproval,
-        };
-        let view = view.clone().downcast::<ScriptView>().ok().unwrap();
-        view.update(cx, |view, cx| {
-            let mut cache = view.shared.images.borrow_mut();
-            if let State::Ready(image) = &state {
-                cache.bytes += image.as_bytes(0).map_or(0, <[u8]>::len);
-            }
-            if waiting_for_approval && let Some(domain) = source.domain() {
-                cache.approvals.insert(domain.to_owned());
-            }
-            cache.entries.insert(
-                source,
-                Entry {
-                    request: 0,
-                    state,
-                    touched: Instant::now(),
-                    viewers: HashSet::new(),
-                },
-            );
-            cx.notify();
-        });
-        Ok(())
     }
 
     fn decode(value: &Value) -> Result<Arc<RenderImage>, &'static str> {

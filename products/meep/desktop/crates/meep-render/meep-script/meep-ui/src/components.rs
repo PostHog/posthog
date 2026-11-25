@@ -182,42 +182,6 @@ pub fn field(
         .when(!description.is_empty(), |el| el.child(caption(description)))
 }
 
-/// Read-only technical values scroll in a full-width region instead of squeezing
-/// a settings label beside a long path. Copying preserves the exact value.
-#[track_caller]
-pub fn value_block(
-    id: impl Into<ElementId>,
-    title: impl Into<SharedString>,
-    value: impl Into<SharedString>,
-) -> Div {
-    let id = id.into();
-    let title = title.into();
-    let value = value.into();
-    let copy = value.to_string();
-    let content_id = ElementId::NamedChild(id.clone().into(), "value".into());
-    column()
-        .w_full()
-        .gap(px(6.))
-        .py(px(12.))
-        .child(
-            row()
-                .w_full()
-                .child(caption(title.clone()).flex_1())
-                .child(copy_button(id, format!("Copy {title}"), copy.clone())),
-        )
-        .child(
-            mono(value.clone())
-                .id(content_id)
-                .role(Role::Label)
-                .aria_label(value)
-                .text_color(rgb(crate::components::theme::color(INK)))
-                .w_full()
-                .min_w_0()
-                .whitespace_nowrap()
-                .overflow_x_scroll()
-                .pb(px(4.)),
-        )
-}
 #[track_caller]
 pub fn list_row(
     id: impl Into<ElementId>,
@@ -511,38 +475,6 @@ pub fn loading() -> Div {
 #[track_caller]
 pub fn error(detail: impl Into<SharedString>) -> Div {
     notice("Couldn’t refresh", detail)
-}
-/// Shared preference row. Text yields before trailing controls; long copy wraps.
-#[track_caller]
-pub fn form_row(
-    title: impl Into<SharedString>,
-    description: impl Into<SharedString>,
-    control: impl IntoElement,
-) -> Div {
-    let description = description.into();
-    row()
-        .flex_wrap()
-        .min_h(px(48.))
-        .gap(px(12.))
-        .py(px(12.))
-        .px(px(0.))
-        .border_b_1()
-        .border_color(rgb(crate::components::theme::color(RULE)))
-        .child(
-            column()
-                .flex_1()
-                .min_w(px(100.))
-                .gap(px(3.))
-                .child(
-                    div()
-                        .text_size(px(BODY))
-                        .font_weight(FontWeight::MEDIUM)
-                        .line_height(relative(1.4))
-                        .child(title.into()),
-                )
-                .when(!description.is_empty(), |el| el.child(caption(description))),
-        )
-        .child(div().flex_shrink_0().child(control))
 }
 
 /// An opaque reading surface inside native glass chrome.

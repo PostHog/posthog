@@ -646,16 +646,21 @@ impl Desktop {
                         if !s.toggled_groups.remove(&toggle) {
                             s.toggled_groups.insert(toggle.clone());
                         }
+                        let open = !s.group_collapsed(&toggle);
+                        s.folds
+                            .toggled(format!("task-group-{id}-{toggle}"), open, cx);
                         cx.notify()
                     })),
             );
             y += TASK_GROUP_HEIGHT;
-            if collapsed {
+            let fold = format!("task-group-{id}-{key}");
+            if collapsed && self.folds.progress(&fold, false, cx) <= 0. {
                 continue;
             }
+            let mut body = ui::column().gap_0();
             if tasks.is_empty() {
                 y += TASK_EMPTY_HEIGHT;
-                list = list.child(
+                body = body.child(
                     div()
                         .h(px(TASK_EMPTY_HEIGHT))
                         .pl(px(24. + TASK_INDENT + 10.))
@@ -677,7 +682,7 @@ impl Desktop {
                     continue;
                 }
                 if skipped > 0 {
-                    list = list.child(div().h(px(TASK_ROW_HEIGHT * skipped as f32)).flex_none());
+                    body = body.child(div().h(px(TASK_ROW_HEIGHT * skipped as f32)).flex_none());
                     skipped = 0;
                 }
                 let row = line(format!("card-{}", t.id), selected)
@@ -721,11 +726,15 @@ impl Desktop {
                     )
                     .child(self.task_row_end(state, t, cx))
                     .on_click(cx.listener(move |s, _, w, cx| s.go(dest.clone(), w, cx)));
-                list = list.child(self.task_drag(row, id, t));
+                body = body.child(self.task_drag(row, id, t));
             }
             if skipped > 0 {
-                list = list.child(div().h(px(TASK_ROW_HEIGHT * skipped as f32)).flex_none());
+                body = body.child(div().h(px(TASK_ROW_HEIGHT * skipped as f32)).flex_none());
             }
+            list = list.children(
+                self.folds
+                    .reveal(&fold, !collapsed, cx, || body.into_any_element()),
+            );
         }
         list
     }

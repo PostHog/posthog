@@ -416,12 +416,28 @@ impl Desktop {
                     .child(badge(child.count))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         s.toggle_folder(id, &toggle);
+                        let open = s.folder_open(id, &toggle);
+                        s.folds.toggled(format!("folder-{id}-{toggle}"), open, cx);
                         cx.notify()
                     }))
                     .into_any_element(),
             );
-            if open {
-                self.tree_rows(state, child, &path, depth + 1, entries, chosen, rows, cx);
+            let fold = format!("folder-{id}-{path}");
+            if open || self.folds.progress(&fold, open, cx) > 0. {
+                let mut inner = vec![];
+                self.tree_rows(
+                    state,
+                    child,
+                    &path,
+                    depth + 1,
+                    entries,
+                    chosen,
+                    &mut inner,
+                    cx,
+                );
+                rows.extend(self.folds.reveal(&fold, open, cx, || {
+                    ui::column().gap(px(1.)).children(inner).into_any_element()
+                }));
             }
         }
         let mut files: Vec<_> = folder.files.iter().collect();

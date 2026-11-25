@@ -212,7 +212,7 @@ pub(super) fn section_menu_items(
         w,
         cx,
         move |mut sub, _, _| {
-            sub = sub.min_w(px(200.));
+            sub = sub.min_w(px(168.));
             for (i, choice) in choices.iter().enumerate() {
                 if i == moves && moves > 0 {
                     sub = sub.separator();
@@ -253,7 +253,7 @@ fn section_item(choice: &SectionChoice, owner: &WeakEntity<Desktop>, key: &str) 
 /// A section header's menu: name it, or let its items go.
 pub(super) fn section_menu(m: PopupMenu, owner: WeakEntity<Desktop>, id: Uuid) -> PopupMenu {
     let rename = owner.clone();
-    m.min_w(px(200.))
+    m.min_w(px(168.))
         .item(
             PopupMenuItem::new("Rename section…")
                 .icon(Icon::new(Glyph::Pencil))
@@ -549,7 +549,9 @@ impl Render for Lifted {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         ui::row()
             .h(px(ui::nav::ROW))
-            .w(px(meep_ui::design::current().sidebar - 2. * ui::nav::INSET))
+            .w(px(
+                super::navigation::TOPIC_SIDEBAR_WIDTH - 2. * ui::nav::INSET
+            ))
             .px(px(ui::nav::PAD))
             .gap(px(8.))
             .rounded(px(ui::nav::RADIUS))

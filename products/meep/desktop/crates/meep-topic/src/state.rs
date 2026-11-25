@@ -81,6 +81,9 @@ pub enum ChangeKind {
 /// A rejected operation. The state is unchanged.
 #[derive(Clone, Debug, Eq, PartialEq, Error, Serialize, Deserialize)]
 pub enum TopicError {
+    /// Icon choices are restricted to bundled artwork and palette colors.
+    #[error("Choose a supported topic icon and color")]
+    InvalidTopicIcon,
     /// Only published reports can create a report-linked task.
     #[error("This item is not an agent report")]
     NotAgentReport,
@@ -229,18 +232,6 @@ impl TopicUsage {
             .get(&now.date_naive())
             .copied()
             .unwrap_or_default()
-    }
-    /// Calls since Monday at 00:00 UTC.
-    pub fn this_week(&self, now: DateTime<Utc>) -> CallCounts {
-        let day = now.date_naive();
-        let monday = day.week(chrono::Weekday::Mon).first_day();
-        self.days
-            .range(monday..=day)
-            .fold(CallCounts::default(), |mut total, (_, v)| {
-                total.system_one += v.system_one;
-                total.routine_dispatches += v.routine_dispatches;
-                total
-            })
     }
 }
 

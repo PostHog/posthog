@@ -519,6 +519,12 @@ fn a_failed_compound_command_preserves_every_byte_including_history() {
             name: "Other".into(),
             mission: String::new(),
         },
+        Command::SetTopicIcon {
+            icon: TopicIcon {
+                hedgehog: "unknown".into(),
+                color: "ink".into(),
+            },
+        },
     ] {
         assert!(s.apply(&envelope(44, command)).is_err());
         assert_eq!(serde_json::to_vec(&s).unwrap(), original);
@@ -534,6 +540,43 @@ fn a_failed_compound_command_preserves_every_byte_including_history() {
     };
     assert_eq!(s.apply(&wrong), Err(TopicError::WrongTopic(id(80))));
     assert_eq!(serde_json::to_vec(&s).unwrap(), original);
+}
+
+#[test]
+fn topic_icon_survives_replication_and_legacy_snapshots_keep_their_default() {
+    let mut creation = envelope(
+        44,
+        Command::CreateTopic {
+            name: "Navigation".into(),
+            mission: "Find usability issues".into(),
+        },
+    );
+    creation.topic = id(32 << 96);
+    let (mut state, _) = creation.create().unwrap();
+    let (server, _) = creation.create_at(NOW + TimeDelta::seconds(1)).unwrap();
+    let default = state.topic.display_icon();
+    assert_eq!(server.topic.display_icon(), default);
+    assert_eq!(state.topic.icon.as_ref(), Some(&default));
+
+    let mut legacy = serde_json::to_value(&state).unwrap();
+    legacy["topic"].as_object_mut().unwrap().remove("icon");
+    let legacy: TopicState = serde_json::from_value(legacy).unwrap();
+    assert_eq!(legacy.topic.display_icon().hedgehog, "wizard-1");
+    assert_ne!(legacy.topic.display_icon().hedgehog, default.hedgehog);
+
+    let icon = TopicIcon {
+        hedgehog: "banana".into(),
+        color: "plum".into(),
+    };
+    let command = Envelope {
+        topic: creation.topic,
+        ..envelope(45, Command::SetTopicIcon { icon: icon.clone() })
+    };
+    let replicated = serde_json::from_value(serde_json::to_value(command).unwrap()).unwrap();
+    state.apply(&replicated).unwrap();
+    let snapshot: TopicState =
+        serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+    assert_eq!(snapshot.topic.display_icon(), icon);
 }
 
 #[test]

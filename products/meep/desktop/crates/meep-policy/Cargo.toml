@@ -10,5 +10,4 @@ meep-topic = { path = "../meep-topic" }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-meep-topic = { path = "../meep-topic", features = ["fixtures"] }
 serde_json = "1"

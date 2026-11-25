@@ -252,19 +252,6 @@ fn authenticates(expected: Uuid, presented: Option<Uuid>) -> bool {
 }
 
 impl Engine {
-    /// Read compact classification context for one pending source delivery.
-    pub fn routine_sort_context(
-        &self,
-        topic: TopicId,
-        routine: &str,
-        secret: &str,
-        observation: Uuid,
-    ) -> Result<String> {
-        Ok(self
-            .routine_sort_input(topic, routine, secret, observation)?
-            .context)
-    }
-
     /// Read classification context and its source-specific skip guard.
     pub fn routine_sort_input(
         &self,

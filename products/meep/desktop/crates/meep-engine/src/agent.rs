@@ -185,9 +185,9 @@ impl Agent for NoAgent {
     }
 }
 
-#[cfg(any(test, feature = "fixtures"))]
+#[cfg(test)]
 pub use scripted::{FixtureAgent, Script};
-#[cfg(any(test, feature = "fixtures"))]
+#[cfg(test)]
 mod scripted {
     use super::*;
     use chrono::TimeDelta;

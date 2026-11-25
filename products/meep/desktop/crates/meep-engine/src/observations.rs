@@ -201,58 +201,6 @@ impl StoredTopic {
             .ok_or(Error::UnavailableObservation(key))
     }
 
-    pub(super) fn release_default_observations(
-        &mut self,
-        routine: &str,
-        now: DateTime<Utc>,
-    ) -> Result<()> {
-        let binding = self
-            .state
-            .topic
-            .routines
-            .iter()
-            .find(|r| r.binding.id == routine)
-            .context("Missing activated default")?
-            .binding
-            .clone();
-        let generation = self.routines.get(routine).and_then(|r| r.bound_by);
-        let mut moved = vec![];
-        let mut removed = vec![];
-        for obs in self.observations.iter_mut().filter(|o| o.awaiting_default) {
-            obs.awaiting_default = false;
-            if !binding
-                .watches
-                .iter()
-                .any(|watch| obs.event.matches_watch(watch))
-            {
-                removed.push(obs.report.key);
-                continue;
-            }
-            obs.binding = binding.clone();
-            obs.generation = generation;
-            obs.defer_sort = true;
-            moved.push(obs.report.clone());
-        }
-        for key in removed {
-            self.transition(
-                key,
-                ObservationOutcome::Finished {
-                    reason: "Source removed before workflow activation".into(),
-                },
-                now,
-            )?;
-        }
-        for report in moved {
-            self.state
-                .topic
-                .fallback
-                .observations
-                .retain(|o| o.key != report.key);
-            self.publish_observation(routine, &report);
-        }
-        Ok(())
-    }
-
     pub(super) fn observation_deadlines(&self) -> impl Iterator<Item = (Uuid, DateTime<Utc>)> + '_ {
         self.observations
             .iter()

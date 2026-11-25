@@ -7,6 +7,8 @@
 # Edits to render code apply to the open window. Structural changes such as new
 # types, fields or functions need a rebuild: press r in this terminal.
 set -eu
+[ ! -x "${HOME}/.cargo/bin/rustup" ] || PATH="${HOME}/.cargo/bin:$PATH"
+export PATH
 cd "$(dirname "$0")/.."
 
 if ! command -v dx >/dev/null 2>&1; then
@@ -25,5 +27,6 @@ if [ "${1:-}" = "--local" ]; then
         printf '%s\n' 'Local PostHog is not answering at http://localhost:8010.' >&2
 fi
 
+unset RUSTC_WRAPPER
 exec dx serve --hot-patch -p meep --bin meep --platform macos \
     --features hot-reload "$@"

@@ -9,7 +9,6 @@ oauth = ["dep:subtle", "dep:oauth2", "dep:tempfile", "serde/derive", "dep:tokio"
 tasks = ["dep:mime_guess", "reqwest/multipart", "serde/derive", "tokio/fs", "dep:tokio", "url/serde", "dep:uuid"]
 chat = ["tasks", "dep:chrono", "chrono/serde", "dep:meep-protocol"]
 mcp = ["dep:toon-format", "serde/derive", "dep:uuid", "dep:futures-util", "dep:sse-stream"]
-signals = ["serde/derive"]
 workflows = ["serde/derive", "dep:uuid", "dep:chrono", "chrono/serde", "dep:futures-util"]
 
 [dependencies]

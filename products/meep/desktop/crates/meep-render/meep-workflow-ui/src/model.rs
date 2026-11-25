@@ -268,10 +268,6 @@ impl Builder<'_> {
                         let first = &then[0];
                         let mut row = self.action(first, ctx, at);
                         row.key = id.clone();
-                        row.represented_steps.extend(
-                            then.iter()
-                                .filter_map(|s| s["id"].as_str().map(str::to_owned)),
-                        );
                         row.title = title.trim_end_matches(" only").to_owned();
                         row.tile = Tile::Glyph(Glyph::Database);
                         row.meta = vec![format!("{} writes", then.len()), "conditional".into()];
@@ -370,10 +366,6 @@ impl Builder<'_> {
                         if visible.len() == 1 {
                             // A loop around one step reads as that step, done for each item.
                             let only = group.children.remove(visible[0]);
-                            group.include_steps(&only);
-                            group
-                                .represented_steps
-                                .extend(group.children.iter().map(|child| child.key.clone()));
                             group.tile = only.tile.clone();
                             group.uses = only.uses.clone();
                             group.meta = only
@@ -458,7 +450,6 @@ impl Builder<'_> {
                             && r.recovery == row.recovery
                             && ctx.iterations.is_none()
                     }) {
-                        last.include_steps(&row);
                         let writes = last.calls.len().max(1) + 1;
                         if last.calls.is_empty() {
                             last.calls.push(Call {
@@ -586,9 +577,6 @@ impl Builder<'_> {
             .map(|r| r.title.clone())
             .collect();
         row.edit = visible.first().and_then(|r| r.edit.clone());
-        for child in &sub {
-            row.include_steps(child);
-        }
         row
     }
 }
