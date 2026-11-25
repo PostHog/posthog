@@ -1327,6 +1327,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # The base scan can't split out WebMCP events because that needs `$mcp_interface` from `properties`.
     parent_subtractions = dict(ai_sub_sdk_metric_counts.parent_subtractions)
     # web_events counts duplicate rows, so subtract raw WebMCP rows rather than the deduplicated metric.
+    # The raw rows always come from `events`. When the base scan reads `events_json`, the two tables can
+    # collapse duplicates differently, so this subtraction is approximate. Keep both scans on one table if
+    # the MCP query moves.
     if web_mcp_rows := dict(mcp_analytics_counts_by_metric.pop(WEB_MCP_RAW_EVENT_ROWS)):
         parent_subtractions["web_events"] = web_mcp_rows
     # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
