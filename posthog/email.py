@@ -1070,7 +1070,6 @@ class EmailMessage:
         """
         if not self.to:
             if self._skipped_generated_recipient:
-                # Every recipient was a service account, so the caller did add recipients and there is nothing to send.
                 return []
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
