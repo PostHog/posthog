@@ -83,6 +83,7 @@ export const Card = z
         measure: z.array(Named).default([]),
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
+        pair: z.boolean().optional(),
     })
     .strict()
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {

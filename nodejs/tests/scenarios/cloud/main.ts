@@ -1,3 +1,4 @@
+import { durationMs } from '../duration'
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
@@ -5,7 +6,7 @@ import { isCardId, runCardOf } from './card'
 import { awaitCard, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -56,6 +57,9 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
             `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
         )
     }
+    if (card.pair) {
+        refuseUnfitPair(profile, cardId, card.pair)
+    }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
@@ -86,6 +90,20 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         stopListening()
     }
     return await report(controller, loaded, manifest, { exitCode: outcome, reasons, teardownClean })
+}
+
+function refuseUnfitPair(
+    profile: CloudProfile,
+    cardId: string,
+    { drive, convergeWithin }: { drive: string; convergeWithin: string }
+): void {
+    const { teardownAllowance } = profile.admission
+    const workMs = durationMs(`${TTL_HOURS * 60}m`) - durationMs(teardownAllowance)
+    if (2 * (durationMs(drive) + durationMs(convergeWithin)) > workMs) {
+        throw new Error(
+            `${cardId} runs paired, so it needs two drives of ${drive} and their ${convergeWithin} to converge, and they do not fit the ${TTL_HOURS} h lease less its ${teardownAllowance} teardown allowance.`
+        )
+    }
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {

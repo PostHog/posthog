@@ -4,6 +4,7 @@ import { parse } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import type { PairRole } from '../runner/pair'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
 import { PROFILE } from './fixtures'
@@ -49,6 +50,7 @@ type Card = {
     exitCode: number
     reportsDone: boolean
     stopTimeoutMs: number
+    paired: boolean
 }
 
 export type ReaderMinute = { minute: number; max?: number; avg?: number }
@@ -123,6 +125,8 @@ export type FakeCloudOptions = {
         runnerStatus?: string
         runnerStatusReason?: unknown
         journalsIntent?: boolean
+        pairRoles?: PairRole[]
+        controlStatus?: string
     }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
@@ -502,10 +506,13 @@ export class FakeCloud implements Aws {
         }
         const uploaded = !this.options.card?.uploadFails
         if (uploaded) {
-            const runnerRunId = randomUUID()
-            const files = {
-                'card.log': `exit ${exitCode}\n`,
-                [`run/${runnerRunId}/scorecard.json`]: this.runnerScorecard(card, runnerRunId, exitCode),
+            const roles: (PairRole | undefined)[] = card.paired
+                ? (this.options.card?.pairRoles ?? ['control', 'faulted'])
+                : [undefined]
+            const files: Record<string, string> = { 'card.log': `exit ${exitCode}\n` }
+            for (const role of roles) {
+                const runnerRunId = randomUUID()
+                files[`run/${runnerRunId}/scorecard.json`] = this.runnerScorecard(card, runnerRunId, exitCode, role)
             }
             const sums = Object.keys(files)
                 .map((file) => `${'0'.repeat(64)}  ./${file}`)
@@ -518,8 +525,11 @@ export class FakeCloud implements Aws {
         this.objects.set(`runs/${card.runId}/host/done`, JSON.stringify({ exitCode, uploaded }))
     }
 
-    private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
-        const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
+    private runnerScorecard(card: Card, runnerRunId: string, exitCode: number, role?: PairRole): string {
+        const status =
+            role === 'control'
+                ? (this.options.card?.controlStatus ?? 'passed')
+                : (this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid')
         const statusReason =
             this.options.card && 'runnerStatusReason' in this.options.card
                 ? this.options.card.runnerStatusReason
@@ -564,6 +574,7 @@ export class FakeCloud implements Aws {
                 m_writer_recovery_s: 42,
                 valve_timeline: timeline,
                 evidence_dir: `/opt/scenario/cache/posthog-scenarios/${runnerRunId}`,
+                ...(role && { pair_role: role, pair_attribution: 'fault' }),
             },
         })
     }
@@ -652,7 +663,9 @@ export class FakeCloud implements Aws {
         const timeoutMs = Number(executionTimeout[0]) * 1000
         const runId = /SCENARIO_RUN_ID='?([\w-]+)/.exec(script)?.[1]
         const manifest = runId ? this.objects.get(`runs/${runId}/input/manifest.json`) : undefined
-        const cardId = manifest ? String((parseJSON(manifest) as { card?: unknown }).card ?? '') : ''
+        const { card: cardId = '', pair: paired = false } = manifest
+            ? (parseJSON(manifest) as { card?: string; pair?: boolean })
+            : {}
         const command: Command = {
             id: randomUUID(),
             instanceId,
@@ -694,6 +707,7 @@ export class FakeCloud implements Aws {
                           exitCode,
                           reportsDone: true,
                           stopTimeoutMs,
+                          paired,
                       }
                     : {
                           id: cardId,
@@ -704,6 +718,7 @@ export class FakeCloud implements Aws {
                           exitCode: EXIT_INVALID,
                           reportsDone: false,
                           stopTimeoutMs,
+                          paired,
                       }
         } else if (script.includes('systemctl is-active')) {
             command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt

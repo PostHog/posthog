@@ -164,6 +164,20 @@ describe('host-run-card.sh', () => {
         )
     })
 
+    it.each<[string, object, string]>([
+        ['asks for the pair', { card: 'cyclotron-scale', pair: true }, ' --pair'],
+        ['names only the card', { card: 'cyclotron-scale' }, ''],
+    ])('runs the card paired only when the run manifest %s', async (_story, manifest, pairFlag) => {
+        const runner =
+            '#!/usr/bin/env bash\nmkdir -p "$XDG_CACHE_HOME"\nprintf \'%s\' "$*" >"$XDG_CACHE_HOME/runner-args"\n'
+
+        await exited(start({}, manifest, runner))
+
+        expect(readFileSync(path.join(dir, 'host', 'cache', 'runner-args'), 'utf8')).toMatch(
+            new RegExp(`tests/scenarios/main\\.ts run cyclotron-scale --profile \\S+${pairFlag}$`)
+        )
+    })
+
     it('hands the runner the URLs of the poolers in front of the run cluster', async () => {
         await exited(start({}))
 

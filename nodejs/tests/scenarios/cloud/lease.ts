@@ -161,6 +161,7 @@ export async function lease(
         card: card.id,
         readerIdleMaxAcu: profile.readerAcu.idleMax,
         readerMinAcu: profile.readerAcu.min,
+        ...(card.pair && { pair: true }),
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)

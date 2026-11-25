@@ -75,9 +75,11 @@ trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
 card_id=$(jq -r '.card // empty' "$SCENARIO_RUN_MANIFEST") && [[ $card_id =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit
+pair=()
+[ "$(jq -r '.pair // false' "$SCENARIO_RUN_MANIFEST")" = true ] && pair=(--pair)
 SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
-(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
+(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml" "${pair[@]}") >"$evidence/card.log" 2>&1 &
 card=$!
 bash "$repo/nodejs/tests/scenarios/cloud/host-live-copy.sh" "$XDG_CACHE_HOME/posthog-scenarios/$SCENARIO_RUN_ID/live.jsonl" "$prefix/live.jsonl" "$card" "$$" &
 live=$!

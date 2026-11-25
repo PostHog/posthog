@@ -48,15 +48,24 @@ const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
 
+type HostScorecard = z.infer<typeof HostScorecard>
+
 async function hostScorecardOf(
     evidence: ReturnType<typeof evidenceOf>,
-    runId: string
-): Promise<z.infer<typeof HostScorecard>> {
+    runId: string,
+    paired: boolean
+): Promise<{ host: HostScorecard; exitsOfSaved: number[] }> {
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    if (keys.length !== 1) {
-        throw new Error(`the host uploaded ${keys.length} runner scorecards, not one`)
+    if (keys.length !== (paired ? 2 : 1)) {
+        throw new Error(`the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}`)
     }
-    return HostScorecard.parse(parseJSON(await evidence.get(keys[0])))
+    const saved = await Promise.all(keys.map(async (key) => HostScorecard.parse(parseJSON(await evidence.get(key)))))
+    const host = paired ? saved.find(({ event }) => event.pair_role === 'faulted') : saved[0]
+    if (host === undefined) {
+        throw new Error('the host uploaded no scorecard of the faulted run')
+    }
+    const worst = Math.max(...saved.map(({ event }) => EXIT_CODE[event.status]))
+    return { host, exitsOfSaved: [worst, EXIT_CODE.writeFailed] }
 }
 
 async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
@@ -230,10 +239,12 @@ export async function report(
     const from = Date.parse(manifest.createdAt)
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
-    const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
-    const exitsOfSaved: number[] = host ? [EXIT_CODE[host.event.status], EXIT_CODE.writeFailed] : []
-    if (host && !exitsOfSaved.includes(end.exitCode)) {
-        reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
+    const saved = await attempt(reasons, 'could not read the runner scorecard', () =>
+        hostScorecardOf(evidence, runId, manifest.pair === true)
+    )
+    const host = saved?.host
+    if (saved && !saved.exitsOfSaved.includes(end.exitCode)) {
+        reasons.push(`the runner exited ${end.exitCode} after it saved a ${saved.host.event.status} scorecard`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (card.failsOver && host?.event.status === 'passed' && !t0) {

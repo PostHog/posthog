@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { stringify } from 'yaml'
+import { parse, stringify } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -34,6 +34,20 @@ type Setup = {
     arrange?: (cloud: FakeCloud) => void
     env?: NodeJS.ProcessEnv
     uncommitted?: string
+    cards?: Record<string, string>
+}
+
+const PAIRED_CARD = 'paired-destination-errors'
+
+const pairedCard = (driveFor = '60s'): string => {
+    const card = parse(readFileSync(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'), 'utf8'))
+    return stringify({
+        ...card,
+        id: PAIRED_CARD,
+        pair: true,
+        drive: { ...card.drive, for: driveFor },
+        invariants: [...card.invariants, { name: 'no_loss' }],
+    })
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
@@ -68,6 +82,7 @@ describe('cloud controller', () => {
         arrange = () => undefined,
         env = {},
         uncommitted,
+        cards = {},
     }: Setup = {}): {
         controller: Controller
     } {
@@ -81,6 +96,9 @@ describe('cloud controller', () => {
                 head: () => COMMIT,
                 onMaster: (commit) => Promise.resolve(onMaster && commit === COMMIT),
                 cardAt: (commit, id) => {
+                    if (commit === COMMIT && id in cards) {
+                        return cards[id]
+                    }
                     if (commit !== COMMIT || id === uncommitted) {
                         throw new Error(
                             `fatal: path 'nodejs/tests/scenarios/cards/${id}.yaml' does not exist in '${commit}'`
@@ -263,6 +281,47 @@ describe('cloud controller', () => {
         })
     })
 
+    it.each([
+        ['passed', 1],
+        ['invalid', 2],
+    ])(
+        'runs a paired card as its control and then the card under one lease, and reports the faulted run when the control %s',
+        async (controlStatus, exitCode) => {
+            const { controller } = prepare({
+                cards: { [PAIRED_CARD]: pairedCard() },
+                cloud: { card: { exitCode, runnerStatus: 'failed', controlStatus } },
+                env: api.credentials,
+            })
+
+            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(exitCode)
+
+            const [runId] = [...cloud.objects.keys()].flatMap(
+                (key) => /^runs\/([\w-]+)\/manifest\.json$/.exec(key)?.[1] ?? []
+            )
+            expect(parseJSON(cloud.objects.get(`runs/${runId}/input/manifest.json`)!)).toMatchObject({ pair: true })
+            expect(published()).toMatchObject({
+                card_id: PAIRED_CARD,
+                status: 'failed',
+                status_reason: 'the card ended failed',
+                pair_role: 'faulted',
+                pair_attribution: 'fault',
+            })
+        }
+    )
+
+    it('calls a paired run invalid when the host uploaded the scorecard of its control alone', async () => {
+        const { controller } = prepare({
+            cards: { [PAIRED_CARD]: pairedCard() },
+            cloud: { card: { exitCode: 2, pairRoles: ['control'] } },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
+
+        expect(published()).toMatchObject({ card_id: PAIRED_CARD, status: 'invalid' })
+        expect(published().status_reason).toContain('the host uploaded 1 runner scorecards, not two')
+    })
+
     it('calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps', async () => {
         const { controller } = prepare({
             profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
@@ -297,6 +356,26 @@ describe('cloud controller', () => {
             { profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }) },
         ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
+        [
+            'a paired card whose control and faulted run do not both fit before the teardown',
+            PAIRED_CARD,
+            `${PAIRED_CARD} runs paired, so it needs two drives of 200m and their 2m to converge`,
+            { cards: { [PAIRED_CARD]: pairedCard('200m') } },
+        ],
+        [
+            'a paired card that judges no no_loss',
+            PAIRED_CARD,
+            `${PAIRED_CARD}: --pair needs a card that applies valves and judges no_loss`,
+            {
+                cards: {
+                    [PAIRED_CARD]: stringify({
+                        ...parse(readFileSync(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'), 'utf8')),
+                        id: PAIRED_CARD,
+                        pair: true,
+                    }),
+                },
+            },
+        ],
         [
             'a given run id that is not a UUID',
             FAILOVER_CARD,
