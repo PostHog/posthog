@@ -227,7 +227,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
-    organization_task_sessions_s3_prefix,
+    task_sessions_s3_prefix,
     team_task_artifacts_s3_prefix,
 )
 from products.tasks.backend.pr_urls import (
@@ -423,8 +423,10 @@ __all__ = [
     "delete_organization_task_storage",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "delete_task_session_storage",
     "delete_team_task_storage",
     "ensure_personal_channel_id",
+    "list_team_task_ids_by_organization",
     "ensure_sandbox_custom_image_builder_task",
     "edit_task_run_living_artifact",
     "enqueue_comment_activity_retry",
@@ -3152,6 +3154,18 @@ def delete_team_task_storage(team_id: int, *, should_stop: Callable[[], bool]) -
     return storage_deletion.delete_team_storage(team_id, should_stop=should_stop)
 
 
+def list_team_task_ids_by_organization(
+    team_ids: list[int], *, after_task_id: str | None, limit: int
+) -> dict[str, list[str]]:
+    return storage_deletion.list_team_task_ids_by_organization(team_ids, after_task_id=after_task_id, limit=limit)
+
+
+def delete_task_session_storage(
+    organization_id: UUID | str, task_ids: list[str], *, should_stop: Callable[[], bool]
+) -> int:
+    return storage_deletion.delete_task_session_storage(organization_id, task_ids, should_stop=should_stop)
+
+
 def delete_organization_task_storage(organization_id: UUID | str, *, should_stop: Callable[[], bool]) -> int:
     return storage_deletion.delete_organization_storage(organization_id, should_stop=should_stop)
 
@@ -4888,7 +4902,7 @@ def sync_task_run_session(
 
     content_sha256 = hashlib.sha256(content).hexdigest()
     object_storage_key = (
-        f"{organization_task_sessions_s3_prefix(visible_run.task.team.organization_id)}{visible_run.task_id}/"
+        f"{task_sessions_s3_prefix(visible_run.task.team.organization_id, visible_run.task_id)}"
         f"{visible_run.active_task_session_id}/{uuid4()}.jsonl"
     )
     object_storage.write(object_storage_key, content)

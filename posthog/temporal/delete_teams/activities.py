@@ -12,6 +12,9 @@ from posthog.temporal.delete_teams.types import (
     OrganizationRecordInputs,
     ProjectEmailInputs,
     ProjectRecordInputs,
+    TaskIdsPage,
+    TaskIdsPageInputs,
+    TaskSessionStorageInputs,
     TeamDataActivityInputs,
 )
 
@@ -20,6 +23,8 @@ LOGGER = structlog.get_logger(__name__)
 # The delete_team_records attempt from which a statement timeout fails the deletion. Earlier attempts retry it,
 # because lock contention can also push a statement past its timeout.
 STATEMENT_TIMEOUT_TERMINAL_ATTEMPT = 5
+
+TASK_IDS_PAGE_LIMIT = 5000
 
 
 def _resolve_deleted_by(user_id: int) -> str:
@@ -191,6 +196,40 @@ def _enqueue_clickhouse_deletion(team_ids: list[int], user_id: int) -> None:
 async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         await database_sync_to_async_pool(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
+
+
+@temporalio.activity.defn
+async def list_task_ids_activity(inputs: TaskIdsPageInputs) -> TaskIdsPage:
+    async with Heartbeater():
+        from products.tasks.backend.facade.api import list_team_task_ids_by_organization
+
+        task_ids_by_organization = await database_sync_to_async_pool(list_team_task_ids_by_organization)(
+            inputs.team_ids, after_task_id=inputs.after_task_id, limit=TASK_IDS_PAGE_LIMIT
+        )
+        task_ids = [task_id for task_ids in task_ids_by_organization.values() for task_id in task_ids]
+        assert len(task_ids) <= TASK_IDS_PAGE_LIMIT
+        next_after_task_id = max(task_ids) if len(task_ids) == TASK_IDS_PAGE_LIMIT else None
+        return TaskIdsPage(task_ids_by_organization=task_ids_by_organization, next_after_task_id=next_after_task_id)
+
+
+@temporalio.activity.defn
+async def delete_task_session_storage_activity(inputs: TaskSessionStorageInputs) -> None:
+    async with Heartbeater() as heartbeater:
+        from products.tasks.backend.facade.api import delete_task_session_storage
+
+        for organization_id, task_ids in inputs.task_ids_by_organization.items():
+            heartbeater.details = (organization_id,)
+            try:
+                await database_sync_to_async_pool(delete_task_session_storage)(
+                    organization_id, task_ids, should_stop=temporalio.activity.is_cancelled
+                )
+            except Exception:
+                LOGGER.exception(
+                    "delete_teams.task_session_storage_deletion_failed",
+                    organization_id=organization_id,
+                    team_ids=inputs.team_ids,
+                )
+                raise
 
 
 @temporalio.activity.defn

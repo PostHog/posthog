@@ -109,6 +109,10 @@ def organization_task_sessions_s3_prefix(organization_id: uuid.UUID | str) -> st
     return f"task-sessions/{uuid.UUID(str(organization_id))}/"
 
 
+def task_sessions_s3_prefix(organization_id: uuid.UUID | str, task_id: uuid.UUID | str) -> str:
+    return f"{organization_task_sessions_s3_prefix(organization_id)}{uuid.UUID(str(task_id))}/"
+
+
 def execute_after_commit(callback: Callable[[], object]) -> None:
     """Run commit side effects immediately in tests, where TestCase never commits its wrapper transaction."""
     if settings.TEST:
@@ -3481,6 +3485,9 @@ class TaskRun(models.Model):
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
+            return
+        if not TaskRun.objects.filter(pk=self.pk).exists():
+            logger.info("task_run.append_log_skipped_run_deleted", task_run_id=str(self.pk), team_id=self.team_id)
             return
 
         append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)

@@ -339,6 +339,7 @@ def _persist_slug(
     stored: dict[str, StoredObjectSummary],
     counts: MemorySyncCounts,
     checkpoint: Callable[[dict[str, BaselineFile]], None],
+    team_exists: Callable[[], bool],
 ) -> dict[str, BaselineFile] | None:
     """Upload what changed in one slug since the baseline. Returns the slug's new baseline.
 
@@ -397,6 +398,10 @@ def _persist_slug(
     for filename, content in changed.items():
         if _matches_stored(content, stored.get(filename)):
             continue
+        if not team_exists():
+            logger.info("agent_memory.persist_skipped_team_deleted", team_id=team_id, user_id=user_id)
+            counts.skip("team_deleted")
+            return None
         object_storage.write(memory_object_key(team_id, user_id, slug, filename), content)
         counts.files_written += 1
         progress[filename] = new_base[filename]
@@ -426,7 +431,9 @@ def _checkpoint_slug(sandbox: SandboxBase, baseline: Baseline, slug: str, files:
     _checkpoint(sandbox, baseline)
 
 
-def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) -> MemorySyncCounts:
+def persist_sandbox_memory(
+    sandbox: SandboxBase, *, team_id: int, user_id: int, team_exists: Callable[[], bool]
+) -> MemorySyncCounts:
     """Upload the memory the agent changed since the baseline.
 
     A slug with no change against the baseline is not touched in storage. A stored file is deleted
@@ -472,6 +479,7 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
             stored=stored.slugs.get(slug, {}),
             counts=counts,
             checkpoint=partial(_checkpoint_slug, sandbox, baseline, slug),
+            team_exists=team_exists,
         )
         if new_base is not None and new_base != baseline.get(slug, {}):
             _checkpoint_slug(sandbox, baseline, slug, new_base)

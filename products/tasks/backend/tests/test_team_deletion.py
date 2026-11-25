@@ -3,14 +3,19 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team, User
 from posthog.storage import object_storage
 
-from products.tasks.backend.facade.api import delete_organization_task_storage, delete_team_task_storage
+from products.tasks.backend.facade.api import (
+    delete_organization_task_storage,
+    delete_task_session_storage,
+    delete_team_task_storage,
+    list_team_task_ids_by_organization,
+)
 from products.tasks.backend.logic.services import storage_deletion
 from products.tasks.backend.models import Task, TaskRun
 
@@ -121,7 +126,7 @@ class TestCancelTaskWorkflowsOnTeamDelete(TestCase):
         self.assertFalse(TaskRun.objects.filter(id=run.id).exists())
 
 
-class TestDeleteTaskStorage(SimpleTestCase):
+class TestDeleteTaskStorage(TestCase):
     def setUp(self):
         self.team_id = 10_000_001
         self.neighbour_team_id = 100_000_012
@@ -150,9 +155,10 @@ class TestDeleteTaskStorage(SimpleTestCase):
             ]
         )
 
-    def _write_organization_objects(self, organization_id: str) -> list[str]:
+    def _write_organization_objects(self, organization_id: str, task_id: str | None = None) -> list[str]:
+        task_id = task_id or str(uuid.uuid4())
         return self._write(
-            [f"task-sessions/{organization_id}/{uuid.uuid4()}/{uuid.uuid4()}/{part}.jsonl" for part in range(3)]
+            [f"task-sessions/{organization_id}/{task_id}/{uuid.uuid4()}/{part}.jsonl" for part in range(3)]
         )
 
     def _existing(self, keys: list[str]) -> list[str]:
@@ -184,3 +190,29 @@ class TestDeleteTaskStorage(SimpleTestCase):
         with patch.object(object_storage, "delete_objects", side_effect=lambda keys: keys[:1]):
             with self.assertRaises(storage_deletion.TaskStorageDeletionError):
                 delete_team_task_storage(self.team_id, should_stop=lambda: False)
+
+    def test_deletes_the_session_transcripts_of_the_teams_tasks_and_keeps_other_teams_in_the_organization(self):
+        organization = Organization.objects.create(name="Shared Org")
+        user = User.objects.create_user(email="tasks-session-sweep@example.com", first_name="Owner", password="pw")
+        task_ids = {}
+        for name in ("deleted", "kept"):
+            team = Team.objects.create(organization=organization, name=name)
+            task = Task.objects.create(
+                team=team,
+                created_by=user,
+                title=name,
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            TaskRun.objects.create(task=task, team=team)
+            task_ids[name] = (team.pk, str(task.id))
+        deleted_keys = self._write_organization_objects(str(organization.id), task_ids["deleted"][1])
+        kept_keys = self._write_organization_objects(str(organization.id), task_ids["kept"][1])
+
+        for organization_id, team_task_ids in list_team_task_ids_by_organization(
+            [task_ids["deleted"][0]], after_task_id=None, limit=10
+        ).items():
+            delete_task_session_storage(organization_id, team_task_ids, should_stop=lambda: False)
+
+        self.assertEqual(self._existing(deleted_keys), [])
+        self.assertEqual(self._existing(kept_keys), kept_keys)

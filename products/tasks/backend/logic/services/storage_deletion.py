@@ -8,7 +8,9 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.logic.services.agent_memory import team_memory_prefix
 from products.tasks.backend.models import (
+    Task,
     organization_task_sessions_s3_prefix,
+    task_sessions_s3_prefix,
     team_task_artifacts_s3_prefix,
     team_task_logs_s3_prefix,
 )
@@ -22,6 +24,27 @@ class TaskStorageDeletionError(Exception):
 
 def delete_team_storage(team_id: int, *, should_stop: Callable[[], bool]) -> int:
     prefixes = (team_task_logs_s3_prefix(team_id), team_task_artifacts_s3_prefix(team_id), team_memory_prefix(team_id))
+    return _delete_prefixes(prefixes, should_stop=should_stop)
+
+
+def list_team_task_ids_by_organization(
+    team_ids: list[int], *, after_task_id: str | None, limit: int
+) -> dict[str, list[str]]:
+    assert limit > 0
+    tasks = Task.objects.filter(team_id__in=team_ids, runs__isnull=False)
+    if after_task_id is not None:
+        tasks = tasks.filter(id__gt=after_task_id)
+    task_ids_by_organization: dict[str, list[str]] = {}
+    rows = tasks.values_list("team__organization_id", "id").distinct().order_by("id")[:limit]
+    for organization_id, task_id in rows:
+        task_ids_by_organization.setdefault(str(organization_id), []).append(str(task_id))
+    return task_ids_by_organization
+
+
+def delete_task_session_storage(
+    organization_id: UUID | str, task_ids: list[str], *, should_stop: Callable[[], bool]
+) -> int:
+    prefixes = (task_sessions_s3_prefix(organization_id, task_id) for task_id in task_ids)
     return _delete_prefixes(prefixes, should_stop=should_stop)
 
 
