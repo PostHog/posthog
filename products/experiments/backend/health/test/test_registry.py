@@ -612,6 +612,19 @@ class TestEvaluate(TestCase):
                 {Value.FLAG_CALLED: False},
             ),
             (
+                "new_flag_reads_nothing_when_the_warehouse_holds_the_exposures",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {
+                    **DRAFT,
+                    "flag_called": False,
+                    "team_has_active_flag": True,
+                    "warehouse_native_exposures": True,
+                    "exposure_events": None,
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
                 "flag_state_after_the_end_reads_the_last_call",
                 Key.FLAG_STATE,
                 {
