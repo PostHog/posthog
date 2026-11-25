@@ -134,7 +134,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
                 "$current_url": "https://example.com/a",
             },
         )
-        create_person(team=self.team, distinct_ids=["d-s1"], properties={"email": "person@example.com"})
+        self.person = create_person(team=self.team, distinct_ids=["d-s1"], properties={"email": "person@example.com"})
         flush_persons_and_events()
         self.destination = ExportDestination(role_arn=ROLE_ARN, bucket="customer", region="us-east-1", prefix="exports")
         self.s3 = FakeS3()
@@ -292,7 +292,10 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         header = json.loads(header_line)
         assert magic == b"PHREC1"
         assert (header["session_id"], header["block_count"], header["distinct_id"]) == ("s1", 2, "d-s1")
-        assert header["person"]["properties"] == {"email": "person@example.com"}
+        assert (header["person"]["id"], header["person"]["properties"]) == (
+            str(self.person.uuid),
+            {"email": "person@example.com"},
+        )
         assert [(v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
             ("1280", "720", "https://example.com/a")
         ]
