@@ -5,6 +5,11 @@ import type {
 
 import { buildDeliverySteps } from './emailDeliverySteps'
 
+function fromOlderApi(detail: TransactionalEmailLogDetailApi): TransactionalEmailLogDetailApi {
+    const { tracked: _tracked, ...older } = detail
+    return older as TransactionalEmailLogDetailApi
+}
+
 function email(
     status: TransactionalEmailLogDetailApi['status'],
     kinds: TransactionalEmailLogEventApi['kind'][],
@@ -75,7 +80,7 @@ describe('buildDeliverySteps', () => {
         ],
         [
             'response from an API without the tracked field',
-            { ...email('delivered', ['queued', 'sent', 'delivered']), tracked: undefined as unknown as boolean },
+            fromOlderApi(email('delivered', ['queued', 'sent', 'delivered'])),
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
         ],
         [
