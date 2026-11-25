@@ -215,6 +215,8 @@ pub(super) async fn resolve_work_item(
 
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
     record_reroute_depth("exhausted", attempts_used);
+    // A last attempt that ran into the deadline is a deadline failure, not an unavailable pool.
+    remaining_deadline(deadline)?;
     Err(UnhandledError::ResolutionIncomplete {
         code: RESOLUTION_UNAVAILABLE,
         message: format!(

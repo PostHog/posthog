@@ -11,7 +11,7 @@ use common_ingestion_warnings::WarningType;
 use reqwest::StatusCode;
 use uuid::Uuid;
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, value::RawValue, Map, Value};
 use tracing::{debug, error, warn};
 
 use crate::{
@@ -138,12 +138,14 @@ pub async fn process_events(
             .into_response());
     }
 
-    let Json(bodies) = Json::<Vec<Value>>::from_request(request, &()).await?;
+    // A raw event is not parsed here, so an event that only its own parse rejects, such as one
+    // nested past the recursion limit, fails alone.
+    let Json(bodies) = Json::<Vec<Box<RawValue>>>::from_request(request, &()).await?;
     let request_items = bodies.len();
     let mut malformed = Vec::with_capacity(request_items);
     let mut events = Vec::with_capacity(request_items);
     for body in bodies {
-        match serde_json::from_value::<AnyEvent>(body) {
+        match serde_json::from_str::<AnyEvent>(body.get()) {
             Ok(event) => {
                 malformed.push(None);
                 events.push(event);

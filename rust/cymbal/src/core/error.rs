@@ -270,11 +270,17 @@ pub fn contain_failure<T>(
         Ok(value) => Ok(Ok(value)),
         Err(err) if err.is_item_failure() => {
             metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => operator).increment(1);
-            tracing::warn!(operator, error = %err, "event processing failed");
             let (code, retriable) = match &err {
                 UnhandledError::ResolutionIncomplete { code, .. } => (*code, true),
                 _ => (codes::INVALID_INPUT, false),
             };
+            if retriable {
+                // An overloaded pool leaves many events unresolved at once, and a warning for
+                // each one would add synchronous log writes to that overload.
+                tracing::debug!(operator, error = %err, "event processing did not complete");
+            } else {
+                tracing::warn!(operator, error = %err, "event processing failed");
+            }
             Ok(Err(EventError::ProcessingFailed {
                 code,
                 message: err.to_string(),

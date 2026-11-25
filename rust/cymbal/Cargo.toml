@@ -30,7 +30,7 @@ posthog-symbol-data = { path = "../common/symbol_data" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"

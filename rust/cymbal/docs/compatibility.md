@@ -19,7 +19,7 @@ A cymbal version that does not know the header answers with the array described 
 
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
-When the resolution pool resolves no event of the request, the request fails with a 500 and no event answers `retry`.
+When no event of the request resolved and at least one would answer `retry`, the request fails with a 500 and no event answers `retry`.
 Any other failure that can come from a dependency, such as a database or Kafka error, also fails the whole request with a 500, as the contract requires.
 
 ## `/process` request and response

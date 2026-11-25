@@ -882,15 +882,22 @@ async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(d
     let (status, _) = harness.post_body(false, body.clone(), |_| {}).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
-    let (status, response) = harness.post_body(true, body, |_| {}).await;
+    // serde_json rejects a value nested past its recursion limit, which is a parse failure
+    // of that event only.
+    let mut nested = make_event(vec![make_exception("Error", "boom")]);
+    nested.properties["nested"] = (0..200).fold(json!(1), |value, _| json!([value]));
 
-    assert!(status.is_success(), "Expected success, got {status:?}");
-    let results = response["results"].as_array().unwrap();
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0]["result"], json!("fail"));
-    assert_eq!(results[0]["error"]["code"], json!("invalid_input"));
-    assert_eq!(results[1]["result"], json!("ok"));
-    assert_eq!(results[1]["value"]["uuid"], json!(valid.uuid));
+    for body in [body, json!([nested, valid])] {
+        let (status, response) = harness.post_body(true, body, |_| {}).await;
+
+        assert!(status.is_success(), "Expected success, got {status:?}");
+        let results = response["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["result"], json!("fail"));
+        assert_eq!(results[0]["error"]["code"], json!("invalid_input"));
+        assert_eq!(results[1]["result"], json!("ok"));
+        assert_eq!(results[1]["value"]["uuid"], json!(valid.uuid));
+    }
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -940,6 +947,28 @@ async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn unresolved_event_asks_for_a_retry_only_for_a_caller_that_takes_item_results(db: PgPool) {
     assert_one_event_ends_alone(db, ErrorKind::Overloaded, "retry", "resolution_unavailable").await;
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_fail_the_whole_request_when_no_event_resolved(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+    // One event is poison and the other finds no pod, so answering per event would send the
+    // second one to the dead letter queue for a failure of the pool.
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::ErrorThenError {
+        first: ErrorKind::Poison,
+        rest: ErrorKind::Overloaded,
+    })
+    .await;
+
+    let (status, _) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 async fn assert_one_event_ends_alone(db: PgPool, kind: ErrorKind, result: &str, code: &str) {
