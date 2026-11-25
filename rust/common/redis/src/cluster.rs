@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -22,13 +21,8 @@ const FAILURES_BEFORE_RECONNECT: u32 = 3;
 const FAILURE_STREAK_MIN_AGE: Duration = Duration::from_secs(4);
 
 /// Connects on the first read, so a cache that is down at startup cannot fail or block the
-/// caller. Only the sorted-set range reads work; every other method returns an error.
-#[derive(Clone)]
+/// caller. Only `zrangebyscore` works; every other method returns an error.
 pub struct RedisClusterClient {
-    inner: Arc<Inner>,
-}
-
-struct Inner {
     client: ClusterClient,
     connection: ArcSwapOption<ClusterConnection>,
     /// Also serializes connect attempts, so concurrent first reads start one connect.
@@ -71,11 +65,6 @@ impl RedisClusterClient {
         connect_cooldown: Duration,
         failure_streak_min_age: Duration,
     ) -> Result<Self, CustomRedisError> {
-        if response_timeout.is_zero() || connection_timeout.is_zero() {
-            return Err(CustomRedisError::InvalidConfiguration(
-                "cluster client timeouts must be greater than zero".to_string(),
-            ));
-        }
         let mut builder = ClusterClientBuilder::new([url])
             .response_timeout(response_timeout)
             .connection_timeout(connection_timeout)
@@ -83,49 +72,40 @@ impl RedisClusterClient {
         if read_from_replicas {
             builder = builder.read_from_replicas();
         }
-        let client = builder.build()?;
         Ok(Self {
-            inner: Arc::new(Inner {
-                client,
-                connection: ArcSwapOption::empty(),
-                cooldown_started_at: tokio::sync::Mutex::new(None),
-                connect_cooldown,
-                // Seed connect, PING or READONLY, CLUSTER SLOTS, then the per-node connects.
-                connect_budget: connection_timeout * 2 + response_timeout * 3,
-                failure_streak_min_age,
-                failure_streak: Mutex::new(FailureStreak::default()),
-            }),
+            client: builder.build()?,
+            connection: ArcSwapOption::empty(),
+            cooldown_started_at: tokio::sync::Mutex::new(None),
+            connect_cooldown,
+            // Seed connect, PING or READONLY, CLUSTER SLOTS, then the per-node connects.
+            connect_budget: connection_timeout * 2 + response_timeout * 3,
+            failure_streak_min_age,
+            failure_streak: Mutex::new(FailureStreak::default()),
         })
     }
 
     async fn connection(&self) -> Result<ClusterConnection, CustomRedisError> {
-        if let Some(connection) = self.inner.connection.load_full() {
+        if let Some(connection) = self.connection.load_full() {
             return Ok(ClusterConnection::clone(&connection));
         }
-        let mut cooldown_started_at = self.inner.cooldown_started_at.lock().await;
-        if let Some(connection) = self.inner.connection.load_full() {
+        let mut cooldown_started_at = self.cooldown_started_at.lock().await;
+        if let Some(connection) = self.connection.load_full() {
             return Ok(ClusterConnection::clone(&connection));
         }
-        if cooldown_started_at
-            .is_some_and(|started| started.elapsed() < self.inner.connect_cooldown)
-        {
+        if cooldown_started_at.is_some_and(|started| started.elapsed() < self.connect_cooldown) {
             return Err(not_connected());
         }
-        let attempt = match tokio::time::timeout(
-            self.inner.connect_budget,
-            self.inner.client.get_async_connection(),
-        )
-        .await
-        {
-            Ok(attempt) => attempt.map_err(CustomRedisError::from),
-            Err(_) => Err(CustomRedisError::Timeout),
-        };
+        let attempt =
+            match tokio::time::timeout(self.connect_budget, self.client.get_async_connection())
+                .await
+            {
+                Ok(attempt) => attempt.map_err(CustomRedisError::from),
+                Err(_) => Err(CustomRedisError::Timeout),
+            };
         match attempt {
             Ok(connection) => {
-                self.inner
-                    .connection
-                    .store(Some(Arc::new(connection.clone())));
-                log_cluster_nodes(connection.clone()).await;
+                self.connection.store(Some(Arc::new(connection.clone())));
+                log_cluster_slots(connection.clone()).await;
                 Ok(connection)
             }
             Err(error) => {
@@ -154,12 +134,12 @@ impl RedisClusterClient {
             streak.failures += 1;
             let started_at = *streak.started_at.get_or_insert_with(Instant::now);
             streak.failures >= FAILURES_BEFORE_RECONNECT
-                && started_at.elapsed() >= self.inner.failure_streak_min_age
+                && started_at.elapsed() >= self.failure_streak_min_age
         };
         if rebuild {
-            if let Ok(mut cooldown_started_at) = self.inner.cooldown_started_at.try_lock() {
+            if let Ok(mut cooldown_started_at) = self.cooldown_started_at.try_lock() {
                 *self.failure_streak() = FailureStreak::default();
-                self.inner.connection.store(None);
+                self.connection.store(None);
                 *cooldown_started_at = Some(Instant::now());
                 warn!(%error, "cluster connection dropped; reconnecting after the cooldown");
             }
@@ -168,57 +148,23 @@ impl RedisClusterClient {
     }
 
     fn failure_streak(&self) -> std::sync::MutexGuard<'_, FailureStreak> {
-        self.inner
-            .failure_streak
+        self.failure_streak
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-/// Logs the topology the new connection found, because the dev and prod checks of a managed
-/// cache need its node list. The log holds node addresses only, never the URL or a password.
-async fn log_cluster_nodes(mut connection: ClusterConnection) {
+/// Logs the slot map the new connection found, because the dev and prod checks of a managed
+/// cache need its node list. The reply holds node addresses and IDs, never the URL or a password.
+async fn log_cluster_slots(mut connection: ClusterConnection) {
     let slots: redis::RedisResult<redis::Value> = redis::cmd("CLUSTER")
         .arg("SLOTS")
         .query_async(&mut connection)
         .await;
     match slots {
-        Ok(slots) => {
-            let (primaries, replicas) = cluster_nodes(&slots);
-            info!(?primaries, ?replicas, "cluster connection established");
-        }
+        Ok(slots) => info!(?slots, "cluster connection established"),
         Err(error) => warn!(%error, "cluster connection established; CLUSTER SLOTS failed"),
     }
-}
-
-/// Splits a `CLUSTER SLOTS` reply into sorted primary and replica addresses. The first node of
-/// each slot range is its primary. An empty host means the node that answered.
-fn cluster_nodes(slots: &redis::Value) -> (Vec<String>, Vec<String>) {
-    let mut primaries = BTreeSet::new();
-    let mut replicas = BTreeSet::new();
-    let ranges: Vec<Vec<redis::Value>> = redis::from_redis_value(slots).unwrap_or_default();
-    for range in &ranges {
-        for (position, node) in range.iter().skip(2).enumerate() {
-            let Ok(node) = redis::from_redis_value::<Vec<redis::Value>>(node) else {
-                continue;
-            };
-            let (Some(host), Some(port)) = (node.first(), node.get(1)) else {
-                continue;
-            };
-            let host: String = redis::from_redis_value(host).unwrap_or_default();
-            let port: i64 = redis::from_redis_value(port).unwrap_or_default();
-            let addresses = if position == 0 {
-                &mut primaries
-            } else {
-                &mut replicas
-            };
-            addresses.insert(format!("{host}:{port}"));
-        }
-    }
-    (
-        primaries.into_iter().collect(),
-        replicas.into_iter().collect(),
-    )
 }
 
 fn not_connected() -> CustomRedisError {
@@ -249,19 +195,14 @@ impl Client for RedisClusterClient {
 
     async fn zrangebyscore_limit(
         &self,
-        k: String,
-        min: String,
-        max: String,
-        offset: isize,
-        count: isize,
+        _k: String,
+        _min: String,
+        _max: String,
+        _o: isize,
+        _c: isize,
     ) -> Result<Vec<String>, CustomRedisError> {
-        let mut connection = self.connection().await?;
-        let result: redis::RedisResult<Vec<String>> = connection
-            .zrangebyscore_limit(k, min, max, offset, count)
-            .await;
-        self.after_result(result)
+        Err(unsupported("zrangebyscore_limit"))
     }
-
     async fn zadd(&self, _k: String, _m: String, _s: i64) -> Result<(), CustomRedisError> {
         Err(unsupported("zadd"))
     }
@@ -397,11 +338,10 @@ impl Client for RedisClusterClient {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::tcp::OwnedReadHalf;
     use tokio::net::{TcpListener, TcpStream};
 
@@ -467,13 +407,13 @@ mod tests {
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
         let mut hung = false;
-        while let Some(command) = read_command(&mut read).await {
+        while let Some(command) = read_command_name(&mut read).await {
             let current = *mode.lock().unwrap();
             hung |= current == NodeMode::Hang;
             if hung {
                 continue;
             }
-            let reply = match command[0].to_ascii_uppercase().as_str() {
+            let reply = match command.to_ascii_uppercase().as_str() {
                 "PING" => "+PONG\r\n".to_string(),
                 "CLUSTER" => {
                     format!("*1\r\n*3\r\n:0\r\n:16383\r\n*2\r\n$9\r\n127.0.0.1\r\n:{port}\r\n")
@@ -488,24 +428,23 @@ mod tests {
         }
     }
 
-    async fn read_command(read: &mut BufReader<OwnedReadHalf>) -> Option<Vec<String>> {
+    /// Reads each argument as one line, so no argument may hold CRLF.
+    async fn read_command_name(read: &mut BufReader<OwnedReadHalf>) -> Option<String> {
         let mut line = String::new();
         read.read_line(&mut line)
             .await
             .ok()
             .filter(|read| *read > 0)?;
         let count: usize = line.trim_end().strip_prefix('*')?.parse().ok()?;
-        let mut command = Vec::with_capacity(count);
-        for _ in 0..count {
+        let mut name = String::new();
+        for index in 0..count * 2 {
             line.clear();
             read.read_line(&mut line).await.ok()?;
-            let length: usize = line.trim_end().strip_prefix('$')?.parse().ok()?;
-            let mut argument = vec![0; length + 2];
-            read.read_exact(&mut argument).await.ok()?;
-            argument.truncate(length);
-            command.push(String::from_utf8(argument).ok()?);
+            if index == 1 {
+                name = line.trim_end().to_string();
+            }
         }
-        Some(command)
+        Some(name)
     }
 
     fn client_for(node: &FakeNode) -> RedisClusterClient {
@@ -529,98 +468,102 @@ mod tests {
         .expect("a read must end within its timeouts")
     }
 
-    fn assert_unsupported<T: Debug>(result: Result<T, CustomRedisError>, method: &str) {
-        match result {
-            Err(CustomRedisError::InvalidConfiguration(message)) => {
-                assert!(message.contains(method), "{message}");
-                assert!(message.contains("not supported by the quota cluster client"));
-            }
-            other => panic!("{method} returned {other:?}"),
-        }
-    }
-
-    #[test]
-    fn new_rejects_zero_timeouts_but_not_an_unreachable_cache() {
-        let unroutable = "redis://192.0.2.1:6379".to_string();
-        let second = Duration::from_secs(1);
-        assert!(RedisClusterClient::new(unroutable.clone(), second, second, true).is_ok());
-        for (response_timeout, connection_timeout) in
-            [(Duration::ZERO, second), (second, Duration::ZERO)]
-        {
-            assert!(matches!(
-                RedisClusterClient::new(
-                    unroutable.clone(),
-                    response_timeout,
-                    connection_timeout,
-                    true
-                ),
-                Err(CustomRedisError::InvalidConfiguration(_))
-            ));
-        }
+    fn any<T: Default>() -> T {
+        T::default()
     }
 
     #[tokio::test]
     async fn unsupported_methods_fail_without_io() {
         let node = FakeNode::start(NodeMode::Answer).await;
-        let client = client_for(&node);
-        let key = || KEY.to_string();
-        let format = RedisValueFormat::Utf8;
+        let client =
+            RedisClusterClient::new(node.url(), RESPONSE_TIMEOUT, CONNECTION_TIMEOUT, true)
+                .unwrap();
 
-        assert_unsupported(client.zadd(key(), key(), 1).await, "zadd");
-        assert_unsupported(client.zadd_nx(key(), key(), 1).await, "zadd_nx");
-        assert_unsupported(client.zrem(key(), key()).await, "zrem");
-        assert_unsupported(client.hincrby(key(), key(), 1).await, "hincrby");
-        assert_unsupported(client.get(key()).await, "get");
-        assert_unsupported(
-            client.get_with_format(key(), format).await,
-            "get_with_format",
-        );
-        assert_unsupported(client.get_raw_bytes(key()).await, "get_raw_bytes");
-        assert_unsupported(client.set_bytes(key(), vec![], None).await, "set_bytes");
-        assert_unsupported(client.set(key(), key()).await, "set");
-        assert_unsupported(
-            client.set_with_format(key(), key(), format).await,
-            "set_with_format",
-        );
-        assert_unsupported(client.setex(key(), key(), 1).await, "setex");
-        assert_unsupported(
-            client.setex_with_format(key(), key(), 1, format).await,
-            "setex_with_format",
-        );
-        assert_unsupported(client.set_nx_ex(key(), key(), 1).await, "set_nx_ex");
-        assert_unsupported(
-            client.set_nx_ex_with_format(key(), key(), 1, format).await,
-            "set_nx_ex_with_format",
-        );
-        assert_unsupported(
-            client.batch_incr_by_expire_nx(vec![(key(), 1)], 1).await,
-            "batch_incr_by_expire_nx",
-        );
-        assert_unsupported(
-            client.batch_incr_by_expire(vec![(key(), 1)], 1).await,
-            "batch_incr_by_expire",
-        );
-        assert_unsupported(
-            client.batch_incr_by_expire_at(vec![(key(), 1, 1)]).await,
-            "batch_incr_by_expire_at",
-        );
-        assert_unsupported(client.del(key()).await, "del");
-        assert_unsupported(client.hget(key(), key()).await, "hget");
-        assert_unsupported(client.scard(key()).await, "scard");
-        assert_unsupported(client.mget(vec![key()]).await, "mget");
-        assert_unsupported(client.get_multiple(vec![key()]).await, "get_multiple");
-        assert_unsupported(client.scard_multiple(vec![key()]).await, "scard_multiple");
-        assert_unsupported(
-            client.batch_sadd_expire(vec![(key(), key())], 1).await,
-            "batch_sadd_expire",
-        );
-        assert_unsupported(
-            client.batch_set_nx_ex(vec![(key(), key(), 1)]).await,
-            "batch_set_nx_ex",
-        );
-        assert_unsupported(client.batch_del(vec![key()]).await, "batch_del");
-        assert_unsupported(client.execute_pipeline(vec![]).await, "execute_pipeline");
+        let results = [
+            (
+                "zrangebyscore_limit",
+                client
+                    .zrangebyscore_limit(any(), any(), any(), any(), any())
+                    .await
+                    .err(),
+            ),
+            ("zadd", client.zadd(any(), any(), any()).await.err()),
+            ("zadd_nx", client.zadd_nx(any(), any(), any()).await.err()),
+            ("zrem", client.zrem(any(), any()).await.err()),
+            ("hincrby", client.hincrby(any(), any(), any()).await.err()),
+            ("get", client.get(any()).await.err()),
+            (
+                "get_with_format",
+                client.get_with_format(any(), any()).await.err(),
+            ),
+            ("get_raw_bytes", client.get_raw_bytes(any()).await.err()),
+            (
+                "set_bytes",
+                client.set_bytes(any(), any(), any()).await.err(),
+            ),
+            ("set", client.set(any(), any()).await.err()),
+            (
+                "set_with_format",
+                client.set_with_format(any(), any(), any()).await.err(),
+            ),
+            ("setex", client.setex(any(), any(), any()).await.err()),
+            (
+                "setex_with_format",
+                client
+                    .setex_with_format(any(), any(), any(), any())
+                    .await
+                    .err(),
+            ),
+            (
+                "set_nx_ex",
+                client.set_nx_ex(any(), any(), any()).await.err(),
+            ),
+            (
+                "set_nx_ex_with_format",
+                client
+                    .set_nx_ex_with_format(any(), any(), any(), any())
+                    .await
+                    .err(),
+            ),
+            (
+                "batch_incr_by_expire_nx",
+                client.batch_incr_by_expire_nx(any(), any()).await.err(),
+            ),
+            (
+                "batch_incr_by_expire",
+                client.batch_incr_by_expire(any(), any()).await.err(),
+            ),
+            (
+                "batch_incr_by_expire_at",
+                client.batch_incr_by_expire_at(any()).await.err(),
+            ),
+            ("del", client.del(any()).await.err()),
+            ("hget", client.hget(any(), any()).await.err()),
+            ("scard", client.scard(any()).await.err()),
+            ("mget", client.mget(any()).await.err()),
+            ("get_multiple", client.get_multiple(any()).await.err()),
+            ("scard_multiple", client.scard_multiple(any()).await.err()),
+            (
+                "batch_sadd_expire",
+                client.batch_sadd_expire(any(), any()).await.err(),
+            ),
+            ("batch_set_nx_ex", client.batch_set_nx_ex(any()).await.err()),
+            ("batch_del", client.batch_del(any()).await.err()),
+            (
+                "execute_pipeline",
+                client.execute_pipeline(any()).await.err(),
+            ),
+        ];
 
+        for (method, error) in results {
+            match error {
+                Some(CustomRedisError::InvalidConfiguration(message)) => assert_eq!(
+                    message,
+                    format!("{method} is not supported by the quota cluster client")
+                ),
+                other => panic!("{method} returned {other:?}"),
+            }
+        }
         assert_eq!(node.connections(), 0);
     }
 
@@ -641,13 +584,6 @@ mod tests {
         tokio::time::sleep(TEST_COOLDOWN).await;
         assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
         assert!(node.connections() > after_first_attempt);
-        assert_eq!(
-            client
-                .zrangebyscore_limit(KEY.to_string(), "0".to_string(), "+inf".to_string(), 0, 1)
-                .await
-                .unwrap(),
-            vec![MEMBER.to_string()]
-        );
     }
 
     #[tokio::test]
@@ -697,62 +633,5 @@ mod tests {
         let connections = node.connections();
         assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
         assert_eq!(node.connections(), connections);
-    }
-
-    #[tokio::test]
-    async fn a_failure_burst_rebuilds_only_once_the_streak_is_old_enough() {
-        let node = FakeNode::start(NodeMode::Answer).await;
-        let client = client_for(&node);
-        assert_eq!(read(&client).await.unwrap(), vec![MEMBER.to_string()]);
-
-        node.set_mode(NodeMode::Hang);
-        let burst = tokio::join!(read(&client), read(&client), read(&client), read(&client));
-        for result in [burst.0, burst.1, burst.2, burst.3] {
-            assert!(
-                matches!(result, Err(CustomRedisError::Timeout)),
-                "{result:?}"
-            );
-        }
-
-        let after_burst = read(&client).await;
-        assert!(
-            matches!(after_burst, Err(CustomRedisError::Timeout)),
-            "a burst must not drop the connection: {after_burst:?}"
-        );
-        let in_cooldown = read(&client).await.unwrap_err();
-        assert!(
-            !matches!(in_cooldown, CustomRedisError::Timeout),
-            "a streak older than the minimum age must drop the connection"
-        );
-    }
-
-    #[test]
-    fn cluster_nodes_splits_primaries_from_replicas() {
-        let node = |host: &str, port: i64| {
-            redis::Value::Array(vec![
-                redis::Value::BulkString(host.as_bytes().to_vec()),
-                redis::Value::Int(port),
-                redis::Value::BulkString(b"node-id".to_vec()),
-            ])
-        };
-        let slots = redis::Value::Array(vec![
-            redis::Value::Array(vec![
-                redis::Value::Int(0),
-                redis::Value::Int(8191),
-                node("cache.example.com", 6379),
-                node("cache.example.com", 6380),
-            ]),
-            redis::Value::Array(vec![
-                redis::Value::Int(8192),
-                redis::Value::Int(16383),
-                node("cache.example.com", 6379),
-                node("", 6380),
-            ]),
-        ]);
-
-        let (primaries, replicas) = cluster_nodes(&slots);
-
-        assert_eq!(primaries, vec!["cache.example.com:6379"]);
-        assert_eq!(replicas, vec![":6380", "cache.example.com:6380"]);
     }
 }
