@@ -2,7 +2,6 @@ import { quoteUntrusted } from './quote-untrusted'
 
 const TEMPLATE_TAG = /\{[{%]/
 
-/** Whether Liquid fills the value, or a part of it, when the message is sent. */
 export function describeVariables(text: string): string {
     if (/^\s*\{\{(?:(?!\}\}).)*\}\}\s*$/s.test(text)) {
         return ' [a variable, filled when it is sent]'
@@ -10,12 +9,7 @@ export function describeVariables(text: string): string {
     return TEMPLATE_TAG.test(text) ? ' [has variables, filled when it is sent]' : ''
 }
 
-/**
- * Says where a link leads, from the URL parser and not from how the link looks.
- *
- * The host of a link with variables is known only when the fixed text ends the host before the first variable,
- * because a variable right after it can extend it or turn it into a username.
- */
+// A variable right after the host can extend it or turn it into a username, so the host counts only once it has ended.
 export function describeLinkTarget(link: string): string {
     const firstTag = link.search(TEMPLATE_TAG)
     const fixed = firstTag === -1 ? link : link.slice(0, firstTag)
