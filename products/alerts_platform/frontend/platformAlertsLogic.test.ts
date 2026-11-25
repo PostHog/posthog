@@ -106,63 +106,94 @@ describe('platformAlertsLogic', () => {
 })
 
 describe('platformAlertsLogic', () => {
+    const SNOOZED = { ...ALERT, id: 'alert-2', snooze_until: dayjs().add(1, 'day').toISOString() }
+
     let logic: ReturnType<typeof platformAlertsLogic.build>
+    let stored: Map<string, PlatformAlertConfigurationApi>
+
+    const save = (id: string, changes: Partial<PlatformAlertConfigurationApi>): PlatformAlertConfigurationApi => {
+        const saved = { ...stored.get(id)!, ...changes }
+        stored.set(id, saved)
+        return saved
+    }
+    const listed = (id: string): PlatformAlertConfigurationApi | undefined =>
+        logic.values.configurationsPage?.results.find((configuration) => configuration.id === id)
 
     beforeEach(async () => {
         initKeaTests()
         jest.clearAllMocks()
-        mockList.mockResolvedValue({ results: [ALERT], count: 1 } as Awaited<ReturnType<typeof platformAlertsList>>)
-        mockPartialUpdate.mockResolvedValue(ALERT)
-        mockSnooze.mockResolvedValue(ALERT)
+        stored = new Map([
+            [ALERT.id, ALERT],
+            [SNOOZED.id, SNOOZED],
+        ])
+        mockList.mockImplementation(async () => page([...stored.values()]))
+        mockSnooze.mockImplementation(async (_, id, { snooze_until }) => save(id, { snooze_until }))
+        mockPartialUpdate.mockImplementation(async (_, id, changes) => {
+            if (!changes?.source_kind) {
+                throw { detail: 'source_kind is required' }
+            }
+            return save(id, changes as Partial<PlatformAlertConfigurationApi>)
+        })
         logic = platformAlertsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        mockList.mockClear()
     })
 
-    it('snoozes the alert for the given hours and reloads the list', async () => {
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('snoozes the alert for the given hours and shows it in the reloaded list', async () => {
         const before = Date.now()
         logic.actions.snoozeAlert(ALERT, 4)
         await expectLogic(logic).toFinishAllListeners()
 
-        const [, id, body] = mockSnooze.mock.calls[0]
-        expect(id).toEqual(ALERT.id)
-        const snoozedFor = new Date(body.snooze_until as string).getTime() - before
+        const snoozedFor = new Date(listed(ALERT.id)?.snooze_until as string).getTime() - before
         expect(snoozedFor).toBeGreaterThanOrEqual(4 * 3600 * 1000)
         expect(snoozedFor).toBeLessThan(4 * 3600 * 1000 + 60 * 1000)
-        expect(mockList).toHaveBeenCalledTimes(1)
     })
 
-    it('unsnoozes the alert with a null snooze', async () => {
-        logic.actions.unsnoozeAlert(ALERT)
+    it('unsnoozes the alert and shows it in the reloaded list', async () => {
+        expect(listed(SNOOZED.id)?.snooze_until).toEqual(SNOOZED.snooze_until)
+
+        logic.actions.unsnoozeAlert(SNOOZED)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockSnooze).toHaveBeenCalledWith(expect.any(String), ALERT.id, { snooze_until: null })
-        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(listed(SNOOZED.id)?.snooze_until).toBeNull()
+    })
+
+    it('disables the alert and shows it in the reloaded list', async () => {
+        logic.actions.setAlertEnabled(ALERT, false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listed(ALERT.id)?.enabled).toBe(false)
     })
 
     it('keeps a row marked as updating while a second row settles, and skips the reload on failure', async () => {
         let rejectUpdate: (error: Error) => void = () => {}
-        mockPartialUpdate.mockReturnValue(new Promise((_, reject) => (rejectUpdate = reject)))
-        let resolveSnooze: (alert: PlatformAlertConfigurationApi) => void = () => {}
-        mockSnooze.mockReturnValue(new Promise((resolve) => (resolveSnooze = resolve)))
+        mockPartialUpdate.mockReturnValueOnce(new Promise((_, reject) => (rejectUpdate = reject)))
+        let releaseSnooze: () => void = () => {}
+        const released = new Promise<void>((resolve) => (releaseSnooze = resolve))
+        mockSnooze.mockImplementationOnce(async (_, id, { snooze_until }) => {
+            await released
+            return save(id, { snooze_until })
+        })
+        const pageBefore = logic.values.configurationsPage
 
         logic.actions.setAlertEnabled(ALERT, false)
-        logic.actions.unsnoozeAlert({ ...ALERT, id: 'alert-2' })
-        expect(logic.values.updatingAlertIds).toEqual(new Set([ALERT.id, 'alert-2']))
-        expect(mockPartialUpdate).toHaveBeenCalledWith(expect.any(String), ALERT.id, {
-            source_kind: 'logs',
-            enabled: false,
-        })
+        logic.actions.unsnoozeAlert(SNOOZED)
+        expect(logic.values.updatingAlertIds).toEqual(new Set([ALERT.id, SNOOZED.id]))
 
         rejectUpdate(new Error('boom'))
         await expectLogic(logic).toDispatchActions([logic.actionCreators.setUpdatingAlertId(ALERT.id, false)])
-        expect(logic.values.updatingAlertIds).toEqual(new Set(['alert-2']))
-        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.updatingAlertIds).toEqual(new Set([SNOOZED.id]))
+        expect(logic.values.configurationsPageLoading).toBe(false)
+        expect(logic.values.configurationsPage).toBe(pageBefore)
 
-        resolveSnooze(ALERT)
+        releaseSnooze()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.updatingAlertIds).toEqual(new Set())
-        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(listed(SNOOZED.id)?.snooze_until).toBeNull()
+        expect(listed(ALERT.id)?.enabled).toBe(true)
     })
 })
