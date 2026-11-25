@@ -21,12 +21,13 @@ describe('TransactionalEmailDeliveryStep', () => {
         cleanup()
     })
 
-    it('lets a keyboard user reach the not tracked label', async () => {
+    it('opens the not tracked explanation when a keyboard user tabs to it', async () => {
         renderUntrackedStep()
 
         await userEvent.setup().tab()
 
         expect(document.activeElement).toBe(screen.getByText('Not tracked'))
+        expect(await screen.findByText(EXPLANATION)).toBeTruthy()
     })
 
     it('opens the not tracked explanation on a tap', async () => {
