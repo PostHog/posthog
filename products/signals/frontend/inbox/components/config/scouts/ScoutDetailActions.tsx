@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
+import { IconExternal, IconRefresh, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -56,9 +56,18 @@ function ScoutRunNoteForm({ configId }: { configId: string }): JSX.Element {
 
 export function ScoutDetailActions({ config }: { config: SignalScoutConfig }): JSX.Element {
     const logic = scoutDetailActionsLogic({ skillName: config.skill_name })
-    const { running, updating, publishing, publishDisabledReason, canPublish, runNoteDisabledReason, runNoteOpen } =
-        useValues(logic)
-    const { setRunNoteOpen, runNow, publish, skillOpened } = useActions(logic)
+    const {
+        running,
+        updating,
+        deleting,
+        canDelete,
+        publishing,
+        publishDisabledReason,
+        canPublish,
+        runNoteDisabledReason,
+        runNoteOpen,
+    } = useValues(logic)
+    const { setRunNoteOpen, runNow, publish, confirmDelete, skillOpened } = useActions(logic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     return (
@@ -119,6 +128,20 @@ export function ScoutDetailActions({ config }: { config: SignalScoutConfig }): J
                 </Tooltip>
             </span>
             <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
+            {canDelete && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    status="danger"
+                    icon={<IconTrash />}
+                    loading={deleting}
+                    disabledReason={deleting ? 'Deleting…' : undefined}
+                    tooltip="Delete scout"
+                    aria-label="Delete scout"
+                    data-attr="scout-detail-delete"
+                    onClick={confirmDelete}
+                />
+            )}
         </>
     )
 }
