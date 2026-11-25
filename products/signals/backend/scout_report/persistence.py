@@ -93,7 +93,7 @@ from products.signals.backend.report_tags import set_report_tags
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, contains_reviewer
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
-from products.signals.backend.source_issues import append_source_issues
+from products.signals.backend.source_issues import append_source_issues, lock_source_issues, reported_source_issue
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
 from products.signals.backend.trial.funding import direct_report_funding_snapshot
@@ -152,6 +152,18 @@ class ScoutReportAlreadyEmittedError(Exception):
 
     def __init__(self, existing: ExistingScoutReport) -> None:
         super().__init__(f"report {existing.report_id} already holds this idempotency key")
+        self.existing = existing
+
+
+class SourceIssueAlreadyReportedError(Exception):
+    """`create_scout_report` was called with a source issue that an open report already names.
+
+    The emit path turns this into a refusal that hands the scout the open report, so the scout adds
+    its findings to that report instead of opening a second one for the same issue."""
+
+    def __init__(self, issue: SourceIssue, existing: ExistingScoutReport) -> None:
+        super().__init__(f"report {existing.report_id} already names {issue.url}")
+        self.issue = issue
         self.existing = existing
 
 
@@ -255,7 +267,11 @@ def create_scout_report(
 
     `source_issues`, when supplied, become the report's `source_issue` rows in the same transaction.
     A report born READY then comments a link on each issue after commit, when the team opted into
-    the GitHub writeback (`source_issues.append_source_issues`).
+    the GitHub writeback (`source_issues.append_source_issues`). When an open report already names
+    one of the issues, the call raises `SourceIssueAlreadyReportedError` carrying that report and
+    writes nothing, unless `links` links that report as separate work
+    (`source_issues.SEPARATE_REPORT_LINK_KINDS`). The check holds a lock per issue until commit, so
+    two concurrent calls for one issue cannot both create a report.
 
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
@@ -294,6 +310,10 @@ def create_scout_report(
     source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
     try:
         with transaction.atomic():
+            if source_issues:
+                _refuse_reported_source_issues(
+                    team_id=team_id, source_issues=source_issues, links=links, idempotency_key=idempotency_key
+                )
             report = SignalReport(
                 id=report_id,
                 team_id=team_id,
@@ -503,6 +523,26 @@ def scout_report_tags_in_use(*, team_id: int) -> list[str]:
     hidden = {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
     counts = Counter(tag for status, tags in rows if status not in hidden for tag in tags if slugify_tag(tag) == tag)
     return sorted(counts, key=lambda tag: (-counts[tag], tag))[:MAX_TAGS_IN_USE]
+
+
+def _refuse_reported_source_issues(
+    *, team_id: int, source_issues: Sequence[SourceIssue], links: Sequence[ReportLink], idempotency_key: str | None
+) -> None:
+    """Raise when an open report already names one of the issues. Runs inside the report transaction.
+
+    The key is checked again under the lock: a retry that waited for the first call's commit finds the
+    report its own emission authored, and that report names the same issues."""
+    lock_source_issues(team_id=team_id, issues=source_issues)
+    if idempotency_key is not None:
+        existing = find_scout_report_by_idempotency_key(team_id=team_id, idempotency_key=idempotency_key)
+        if existing is not None:
+            raise ScoutReportAlreadyEmittedError(existing)
+    reported = reported_source_issue(team_id=team_id, issues=source_issues, links=links)
+    if reported is not None:
+        issue, report = reported
+        raise SourceIssueAlreadyReportedError(
+            issue, ExistingScoutReport(report_id=str(report.id), status=SignalReport.Status(report.status))
+        )
 
 
 def find_scout_report_by_idempotency_key(*, team_id: int, idempotency_key: str) -> ExistingScoutReport | None:

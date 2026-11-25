@@ -65,27 +65,5 @@ export const AUTOMATE_PANE: TodayProductPaneConfig = {
     lead: { id: 'products', rowDataAttr: 'automate-sidebar-product', specs: automateSpecs },
     sections: [],
     recentTypes: TODAY_AUTOMATE_RECENT_TYPES,
-    recentTypeInfo: {
-        workflow: {
-            iconType: 'workflows',
-            label: 'Workflow',
-            description: 'A workflow. Open it to see its steps, runs, and metrics.',
-        },
-        'hog_function/destination': {
-            iconType: 'data_pipeline',
-            label: 'Destination',
-            description: 'A destination. Open it to see its configuration and the events it sent.',
-        },
-        subscription: {
-            iconType: 'team_activity',
-            label: 'Subscription',
-            description: 'A subscription. Open it to see its schedule and delivery history.',
-        },
-        scout: {
-            iconType: 'inbox',
-            label: 'Scout',
-            description: 'A scout. Open it to see its runs, reports, and what it has learned.',
-        },
-    },
     loadRecentHistory: loadViewedDestinations,
 }

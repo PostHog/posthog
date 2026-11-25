@@ -23,6 +23,10 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
@@ -833,20 +837,28 @@ class TestSourceClassValidateCredentials:
         assert msg == GENERIC_CONNECTION_ERROR
 
     @pytest.mark.parametrize(
-        "raw_error,expected",
+        "ssh_error,expected",
         [
-            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
             (
-                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
                 "Could not connect to your SSH tunnel",
             ),
             (
-                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                BaseSSHTunnelForwarderError(
+                    "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds"
+                ),
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                BaseSSHTunnelForwarderError(
+                    "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000"
+                ),
                 "SSH tunnel settings",
             ),
+            (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE),
         ],
     )
-    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+    def test_ssh_tunnel_errors_return_user_facing_message(self, ssh_error, expected):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
 
         source = source_module.ClickHouseSource()
@@ -857,7 +869,7 @@ class TestSourceClassValidateCredentials:
 
         with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
             with patch.object(source, "is_database_host_valid", return_value=(True, None)):
-                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                with patch.object(source, "get_schemas", side_effect=ssh_error):
                     with patch.object(source_module, "capture_exception"):
                         valid, msg = source.validate_credentials(config, team_id=1)
 

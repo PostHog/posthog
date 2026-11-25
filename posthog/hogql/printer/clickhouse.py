@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -9,7 +10,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import HogQLDialect, cap_flag_call_memory_settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -506,6 +507,8 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            if self.context.cap_flag_call_memory:
+                cap_flag_call_memory_settings(merged)
             # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
             # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
             # the global settings, not the table's required settings, so a query printed without settings keeps its
@@ -1129,6 +1132,17 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
+        # Direct property reads keep their stored strings here even when metadata reports a different type.
+        if (
+            node.name in ("toFloatOrZero", "toIntOrZero")
+            and node.args
+            and node.args[0].type is not None
+            and not isinstance(node.args[0].type, ast.PropertyType)
+        ):
+            first_type = node.args[0].type.resolve_constant_type(self.context)
+            if not isinstance(first_type, (ast.StringType, ast.UnknownType)):
+                # OrZero parsers require String inputs even when a projection exposes another scalar type.
+                node = dataclasses.replace(node, args=[ast.Call(name="toString", args=[node.args[0]]), *node.args[1:]])
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized

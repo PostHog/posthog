@@ -36,6 +36,7 @@ env:
     SECURE_COOKIES: 0
     OPT_OUT_CAPTURE: 0
     E2E_TESTING: 1
+    MCP_CATALOG_SYNC_ON_WORKER_READY: 0
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
     SITE_URL: http://localhost:8000
@@ -71,6 +72,8 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
+    # Jobs here that skip .github/actions/setup-pnpm still run turbo, so opt them out of its telemetry.
+    TURBO_TELEMETRY_DISABLED: '1'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -924,6 +927,7 @@ jobs:
                       ${{ needs.changes.outputs.schema_prefix_key }}
 
             - name: Prime posthog_e2e_test from cached schema
+              id: prime-schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
               # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db and restores the
               # schema. The migrate step below layers any newer migrations on top and
@@ -940,12 +944,16 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-schema-fresh; then
+                  if ./bin/hogli db:restore-schema-fresh; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
                   fi
 
             - parallel:
                   - name: Apply postgres and clickhouse migrations and setup dev
+                    env:
+                        SCHEMA_RESTORED: ${{ steps.prime-schema.outputs.restored }}
                     run: |
                         # --skip-checks on each manage.py call below: the Django system-check
                         # pass costs about 24s of wall clock per invocation here, and this step
@@ -955,8 +963,24 @@ jobs:
                         # The multinode migration smoke and hogli's migrate already pass the
                         # flag for the same reason.
 
-                        # Postgres migrations must run first — ClickHouse migration 0026
-                        # depends on the posthog_instancesetting table in Postgres.
+                        # ClickHouse migration 0026 reads the posthog_instancesetting table in
+                        # Postgres. A restored schema dump already has that table, so the
+                        # ClickHouse migrations start now and run alongside the Django top-up.
+                        # Without a restored dump the table only exists after the Django
+                        # migrate, so the ClickHouse migrations wait for it below.
+                        # posthog_instancesetting is the only Postgres table they read, and a
+                        # missing row falls back to the setting's default, so the rows the Django
+                        # top-up seeds do not change their result. Their log goes to a file so
+                        # the two outputs do not interleave, and the file is printed once they finish.
+                        ch_log=/tmp/migrate-clickhouse.log
+                        if [ "$SCHEMA_RESTORED" = 'true' ]; then
+                            (
+                                TIMEFORMAT='ClickHouse migrations (alongside Django): %3R seconds'
+                                time python manage.py migrate_clickhouse --skip-checks
+                            ) > "$ch_log" 2>&1 &
+                            ch_pid=$!
+                        fi
+
                         # On cache hit this is near no-op; on cache miss it's a full migrate.
                         # Either way, any PR-added migrations get applied here.
                         TIMEFORMAT='Django migrations: %3R seconds'
@@ -980,8 +1004,19 @@ jobs:
                             sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
                         }
 
-                        TIMEFORMAT='ClickHouse migrations: %3R seconds'
-                        time python manage.py migrate_clickhouse --skip-checks 2>&1
+                        if [ -n "${ch_pid:-}" ]; then
+                            ch_status=0
+                            TIMEFORMAT='Wait for ClickHouse migrations: %3R seconds'
+                            time wait "$ch_pid" || ch_status=$?
+                            cat "$ch_log"
+                            if [ "$ch_status" -ne 0 ]; then
+                                echo "::error::ClickHouse migrations failed with exit code ${ch_status}"
+                                exit "$ch_status"
+                            fi
+                        else
+                            TIMEFORMAT='ClickHouse migrations: %3R seconds'
+                            time python manage.py migrate_clickhouse --skip-checks 2>&1
+                        fi
 
                         # Person/group reads go through personhog (no ORM fallback), so the replica
                         # and router must be running before setup_dev creates demo persons.

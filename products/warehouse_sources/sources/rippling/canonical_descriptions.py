@@ -277,6 +277,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             comment="The comment for the accrual.",
         ),
     },
+    "leave_types": {
+        "description": "A leave type (time off policy type) defined for the company.",
+        "docs_url": "https://developer.rippling.com/documentation/rest-api/reference/list-leave-types",
+        "columns": _columns(
+            type="The type of leave.",
+            name="The name of the leave type.",
+            description="The description of the leave type.",
+            is_paid="Whether the leave is paid.",
+            is_managed_by_external_system="Whether the leave is managed by an external system.",
+        ),
+    },
+    "job_codes": {
+        "description": "A job code in a job dimension, used to tag time entries and job assignments.",
+        "docs_url": "https://developer.rippling.com/documentation/rest-api/reference/list-job-codes",
+        "columns": _columns(
+            name="The name of the job code.",
+            job_dimension_id="ID of the job dimension this job code belongs to.",
+            external_id="The unique identifier of the job code in a third-party system.",
+            group_id="ID of the dimension roster group.",
+            custom_location="Custom location address for the job code.",
+            work_location_id="ID of the work location associated with the job code.",
+            department_id="ID of the department associated with the job code.",
+            pay_rate="The pay rate for the job code, when the job dimension includes the PAY_RATE attribute.",
+            pay_rate_exceptions_id="IDs of the pay rate exceptions configured for the job code.",
+            is_archived="Whether the job code is archived.",
+        ),
+    },
+    "job_assignments": {
+        "description": "The assignment of a job code to a worker, with the pay rate for that job.",
+        "docs_url": "https://developer.rippling.com/documentation/rest-api/reference/list-job-assignments",
+        "columns": _columns(
+            worker_id="ID of the worker the job is assigned to.",
+            job_code_id="ID of the job code assigned to the worker.",
+            base_pay_rate="Base compensation rate of the worker.",
+            job_pay_rate="The pay rate for the job assigned to the worker. Can differ from the job's standard pay rate.",
+            job_pay_rate_exceptions_id="IDs of the pay rate exceptions for the job assignment.",
+        ),
+    },
+    "time_cards": {
+        "description": "A time card: the summary of a worker's time entries for one pay period.",
+        "docs_url": "https://developer.rippling.com/documentation/rest-api/reference/list-time-cards",
+        "columns": _columns(
+            worker_id="ID of the worker the time card belongs to.",
+            pay_period="The pay period of the time card, with start date, end date and pay schedule ID.",
+            summary="The totals for the pay period, such as approved, paid, regular and overtime hours and earnings.",
+        ),
+    },
     "worker_changes": {
         "description": "An HR profile change event for a worker, such as a hire, field change, scheduled change or offboarding.",
         "docs_url": "https://developer.rippling.com/documentation/rest-api/guides/worker-changes",

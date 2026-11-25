@@ -12,6 +12,10 @@ import pyarrow as pa
 import pymssql
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
@@ -912,6 +916,19 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_ssh_gateway_closed_before_banner_returns_actionable_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=SSHGatewayClosedBeforeBannerError())
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
         capture.assert_not_called()
 
     def test_lock_timeout_returns_actionable_message_without_capturing(self, source, mocker):

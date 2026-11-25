@@ -7,6 +7,7 @@ import type { TodayPaneGroup, TodayPaneProduct, TodayProductPaneKey } from '~/la
 import { TodayPinnedRecentSections } from '~/layout/today/TodayPinnedRecentSections'
 import { TodayRecentRow } from '~/layout/today/TodayRecentRow'
 import { recentRowKey } from '~/layout/today/todayRecents'
+import { todayRecordType } from '~/layout/today/todayRecordTypes'
 
 import { TodayPaneProductRow } from '../TodayPaneProductRow'
 import { todayProductPaneLogic } from './todayProductPaneLogic'
@@ -37,8 +38,8 @@ export function TodayProductPaneSidebar({ pane }: { pane: TodayProductPaneKey })
     const renderRecent = (recent: { type: string; name: string; href: string }, dataAttr: string): JSX.Element => (
         <TodayRecentRow
             recent={recent}
-            icon={iconForType(config.recentTypeInfo[recent.type].iconType)}
-            typeCopy={config.recentTypeInfo[recent.type]}
+            icon={iconForType(todayRecordType(recent.type).iconType)}
+            typeCopy={todayRecordType(recent.type)}
             active={activeRow === recentRowKey(recent.href)}
             dataAttr={dataAttr}
         />

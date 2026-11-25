@@ -1459,7 +1459,8 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
 
     One row per (report, issue). The row is the claim: it is taken before the comment goes out, so a
     re-notified report cannot post a second comment on the same issue, and it records which issues
-    already heard back.
+    already heard back. A claim also blocks the team's other open reports from commenting on that
+    issue, so an issue gets one comment at a time.
     """
 
     all_teams = models.Manager()  # noqa: DJ012
@@ -4790,7 +4791,7 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
-    """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
+    """The trained detector artifacts of one insight and model profile of the anomaly scoring tick.
 
     A train step fits one artifact per series and writes them as one blob to object storage. A score
     step fetches only the newest buckets and scores them with the stored artifacts. See
@@ -4803,6 +4804,7 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Not a foreign key: insights belong to another product. A deleted insight leaves a small row behind.
     insight_id = models.BigIntegerField()
+    # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
     # The insight as the state was built for it. A change to any of them makes the next visit train.
     interval = models.CharField(max_length=16)

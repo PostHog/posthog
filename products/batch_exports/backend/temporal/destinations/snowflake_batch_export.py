@@ -1370,7 +1370,7 @@ def snowflake_default_fields() -> list[BatchExportField]:
     batch_export_fields = default_fields()
     batch_export_fields.append(
         {
-            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "expression": "ip",
             "alias": "ip",
         }
     )

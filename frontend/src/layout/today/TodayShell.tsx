@@ -34,6 +34,7 @@ import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 import { TodayTour } from './TodayTour'
+import { useTodayPaneTransition } from './useTodayPaneTransition'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -49,6 +50,11 @@ const TodayProductPaneSidebar = lazyWithRetry(() =>
 const TodayMonitorSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="monitor" />
 const TodayAutomateSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="automate" />
 const TodayDataSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="data" />
+const TodayHomeSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/home/TodayHomeSidebar').then((m) => ({
+        default: m.TodayHomeSidebar,
+    }))
+)
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -61,7 +67,8 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
-const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+const PANE_SIDEBARS: Record<TodayRailPane, { Sidebar: ComponentType; previews?: boolean }> = {
+    home: { Sidebar: TodayHomeSidebar, previews: true },
     spaces: { Sidebar: TodaySpacesPane },
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
@@ -79,9 +86,12 @@ const NewSpaceDialog = lazyWithRetry(() =>
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+    const { activePane, mobileLayout, paneHasSidebar, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    const paneRef = useRef<HTMLDivElement>(null)
+    // The phone drawer has its own motion, and a hidden pane has nothing to show.
+    useTodayPaneTransition(activePane, paneRef, { animatePane: sidebarVisible && !phoneLayout })
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
     useMountedLogic(todayRecentsLogic)
     useShortcut({
@@ -128,7 +138,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
-    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
+    const paneSidebar = paneHasSidebar ? PANE_SIDEBARS[activePane] : null
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {paneSidebar &&
@@ -144,7 +154,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
     const pane = (
-        <div className="TodayShell__pane">
+        <div ref={paneRef} className="TodayShell__pane">
             <QuillSceneHeader
                 // Transparent, not removed: the scene header keeps its border inside the same height, so both headers
                 // center their buttons on the same line.

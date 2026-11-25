@@ -1,4 +1,4 @@
-"""Seed, repair, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
+"""Seed, repair, adopt renders, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
 
 import re
 import time
@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Count, Exists, OuterRef, Q
@@ -74,7 +75,7 @@ def _add_repo_arguments(parser: CommandParser) -> None:
 
 
 class Command(BaseCommand):
-    help = "Seed, repair, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
+    help = "Seed, repair, adopt renders, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
 
     def add_arguments(self, parser: CommandParser) -> None:
         subcommands = parser.add_subparsers(dest="subcommand", required=True)
@@ -102,6 +103,25 @@ class Command(BaseCommand):
         _add_repo_arguments(repair)
         repair.add_argument("--run-type", type=str, required=True)
         repair.add_argument("--apply", action="store_true", help="Write the entries. Without it, only print the plan.")
+
+        adopt_renders = subcommands.add_parser(
+            "adopt-renders",
+            help="Set the ledger to what a full default-branch run rendered, for the named identifiers. "
+            "Ledger mode only.",
+        )
+        _add_repo_arguments(adopt_renders)
+        adopt_renders.add_argument("--run-type", type=str, required=True)
+        adopt_renders.add_argument("--run", type=UUID, required=True, dest="run_id", help="ID of the run to take from.")
+        adopt_renders.add_argument(
+            "--identifier",
+            action="append",
+            dest="identifiers",
+            required=True,
+            help="Snapshot identifier to adopt the render of. Repeat for more.",
+        )
+        adopt_renders.add_argument(
+            "--apply", action="store_true", help="Write the entries. Without it, only print the plan."
+        )
 
         export = subcommands.add_parser("export", help="Print the signed baseline file for the ledger's newest commit.")
         _add_repo_arguments(export)
@@ -142,8 +162,14 @@ class Command(BaseCommand):
         recheck.add_argument(
             "--setup-check",
             default="",
-            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it. "
-            "Needs exactly one --run-type. --apply needs it.",
+            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it "
+            "and the --report-check job succeeded. Needs exactly one --run-type. --apply needs it.",
+        )
+        recheck.add_argument(
+            "--report-check",
+            default="",
+            help="Name of the CI job of this run type that reports a commit needs no run. A head without a run "
+            "passes only when it succeeded. Needs exactly one --run-type. --apply needs it.",
         )
         recheck.add_argument(
             "--pause",
@@ -166,6 +192,8 @@ class Command(BaseCommand):
                     self._seed(repo, options)
                 case "repair":
                     self._repair(repo, options["run_type"], options["apply"])
+                case "adopt-renders":
+                    self._adopt_renders(repo, options)
                 case "export":
                     self._export(repo, options["run_type"], options.get("output"))
                 case "mode":
@@ -268,6 +296,34 @@ class Command(BaseCommand):
             self.stdout.write(f"Wrote {len(plan.entries)} entries.")
             return
         self.stdout.write("Dry run, nothing written. Pass --apply to write.")
+
+    def _print_adoption_plan(self, plan: contracts.BaselineLedgerAdoption) -> None:
+        self.stdout.write(
+            f"{plan.run_type}: adopt renders at position {plan.cursor_position}, commit {plan.cursor_sha}, "
+            f"from run {plan.run_id} at position {plan.run_position}"
+        )
+        rows = [("Identifier", "Ledger", "Render", "Action", "Open approvals")]
+        for item in plan.items:
+            action = "already matches" if item.already_matches else "append"
+            rows.append(
+                (item.identifier, item.ledger_hash or "absent", item.render_hash, action, str(item.open_approvals))
+            )
+        widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+        for row in rows:
+            self.stdout.write("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+
+    def _adopt_renders(self, repo: Repo, options: dict[str, Any]) -> None:
+        apply = options["apply"]
+        try:
+            adopt = api.adopt_ledger_renders if apply else api.plan_ledger_adoption
+            plan = adopt(repo.id, repo.team_id, options["run_type"], options["run_id"], options["identifiers"])
+        except api.BaselineAdoptionError as e:
+            raise CommandError(str(e)) from e
+        self._print_adoption_plan(plan)
+        if apply:
+            self.stdout.write(f"Wrote {len(plan.to_append)} entries.")
+            return
+        self.stdout.write("Dry run, nothing was written. Pass --apply to write.")
 
     def _export(self, repo: Repo, run_type: str, output: str | None) -> None:
         head = ledger.cursor(repo.id)
@@ -445,7 +501,9 @@ class Command(BaseCommand):
             pull_requests_by_commit=pull_requests_by_commit,
         )
 
-    def _show_verdicts(self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str) -> None:
+    def _show_verdicts(
+        self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str, report_check: str
+    ) -> None:
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
         for head in heads.heads:
             stacked = head.commit_sha in heads.stacked_commits
@@ -456,6 +514,7 @@ class Command(BaseCommand):
                         head.commit_sha,
                         run_type,
                         setup_check,
+                        report_check,
                         stacked=stacked,
                         pr_numbers=heads.pull_requests_by_commit.get(head.commit_sha, ()),
                     )
@@ -489,6 +548,7 @@ class Command(BaseCommand):
         heads: _Heads,
         run_types: list[str],
         setup_check: str,
+        report_check: str,
         options: dict[str, Any],
     ) -> None:
         only_success = options["only_success"]
@@ -515,6 +575,7 @@ class Command(BaseCommand):
                 commit_sha,
                 run_type,
                 setup_check,
+                report_check,
                 current=current,
                 only_success=only_success,
                 wait=pacer.wait,
@@ -549,18 +610,25 @@ class Command(BaseCommand):
                 "Without --apply the command only shows the statuses, and --only-success posts only the greens."
             )
         setup_check = options["setup_check"]
+        report_check = options["report_check"]
         # Without it every head without a run would get a pending status.
         if apply and not setup_check:
             raise CommandError(
                 "--apply needs --setup-check, the CI job that creates the run, to tell a head that needs no run "
                 "from one whose run is gone. Nothing was posted."
             )
+        if apply and not report_check:
+            raise CommandError(
+                "--apply needs --report-check, the CI job that reports a commit needs no run. Nothing was posted."
+            )
         run_types = self._run_types(repo, options.get("run_types"))
         # Each run type has its own CI job that creates its run.
-        if setup_check and len(run_types) != 1:
-            raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")
+        if (setup_check or report_check) and len(run_types) != 1:
+            raise CommandError(
+                "--setup-check and --report-check name the jobs of one run type. Pass exactly one --run-type with them."
+            )
         heads = self._heads(repo, options["pushed_within_days"])
         if apply:
-            self._post_verdicts(repo, heads, run_types, setup_check, options)
+            self._post_verdicts(repo, heads, run_types, setup_check, report_check, options)
         else:
-            self._show_verdicts(repo, heads, run_types, setup_check)
+            self._show_verdicts(repo, heads, run_types, setup_check, report_check)

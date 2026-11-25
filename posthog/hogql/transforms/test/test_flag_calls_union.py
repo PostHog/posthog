@@ -32,6 +32,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
@@ -78,6 +79,8 @@ UNION_EXPANSION = "FROM flag_evaluations"
 FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
 FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
 SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
+UNKEYED_READ_MEMORY_CAP = "max_memory_usage=8589934592"
 KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -1286,6 +1289,89 @@ class TestReadFlagCallsWithUnion(BaseTest):
             return
         with pytest.raises(QueryError, match=reason):
             self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+    @parameterized.expand(
+        [
+            ("mode_2", UNKEYED_FEATURE_PROPERTY, ONLY, True, True),
+            ("mode_0_native", UNKEYED_FEATURE_PROPERTY, EVENTS, True, True),
+            ("subscript", f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'", ONLY, True, True),
+            (
+                "key_the_predicate_cannot_carry",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'café'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "scan_found_by_type",
+                "SELECT count() FROM persons p JOIN events e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called' AND e.properties.`$feature/new-checkout` = 'true'",
+                ONLY,
+                True,
+                True,
+            ),
+            (
+                "flag_key_pinned",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'new-checkout'",
+                ONLY,
+                True,
+                False,
+            ),
+            ("no_feature_property", FLAG_CALLS, ONLY, True, False),
+            ("mode_1_legacy", UNKEYED_FEATURE_PROPERTY, READ, False, False),
+        ]
+    )
+    def test_unkeyed_feature_property_read_runs_under_a_memory_cap(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, capped: bool
+    ):
+        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+        assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
+
+    @parameterized.expand(
+        [
+            (
+                "spill_threshold_above_the_cap",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=20 * 1024**3),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=4294967296"],
+            ),
+            (
+                "lower_memory_limit",
+                HogQLGlobalSettings(max_memory_usage=1024**3, max_bytes_before_external_group_by=2 * 1024**3),
+                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=536870912"],
+            ),
+            (
+                "default_settings",
+                HogQLGlobalSettings(),
+                [
+                    UNKEYED_READ_MEMORY_CAP,
+                    "max_bytes_before_external_sort=4294967296",
+                    "max_bytes_ratio_before_external_sort=0",
+                    "max_bytes_before_external_group_by=4294967296",
+                    "max_bytes_ratio_before_external_group_by=0",
+                ],
+            ),
+            (
+                "lower_spill_threshold_stays",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=512 * 1024**2),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=536870912"],
+            ),
+        ]
+    )
+    def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
+        self, _name: str, settings: HogQLGlobalSettings, expected: list[str]
+    ):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            sql, _ = prepare_and_print_ast(
+                parse_select(UNKEYED_FEATURE_PROPERTY),
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=settings,
+            )
+
+        assert [setting for setting in expected if setting not in sql] == []
 
     @parameterized.expand(
         [
