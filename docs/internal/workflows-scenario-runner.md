@@ -703,7 +703,7 @@ export type TruthRecord = {
   unitId?: string // from the recipient or the webhook path
   actionId?: string // from the signed tracking code, or the webhook path
   flowId?: string // the sending flow, from the signed tracking code
-  invocationId?: string // the sending job, from the signed tracking code
+  invocationId?: string // the sending invocation, from the signed tracking code; a new job can reuse it
   status: number // what the edge answered, or the 2xx it took before an ambiguous fault dropped the answer; for ses.feedback, what cdp-api answered the edge
   fault?: string // the fault that shaped the answer
   detail: Record<string, unknown>
