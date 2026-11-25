@@ -5,10 +5,14 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from posthog.models import Organization, Team
+
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import (
     _should_capture_import_failure,
     _source_module_paths,
     load_all_sources,
+    load_sources_in_use,
     source_module_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource
@@ -99,6 +103,23 @@ def test_get_source_imports_only_the_requested_source(empty_registry):
     assert isinstance(source, _FakePypiSource)
     load_source.assert_called_once_with(ExternalDataSourceType.PYPI)
     assert SourceRegistry._loaded is False
+
+
+@pytest.mark.django_db
+def test_load_sources_in_use_imports_only_the_types_that_have_a_live_source():
+    team = Team.objects.create(organization=Organization.objects.create(name="org"))
+    for source_type, deleted in [(ExternalDataSourceType.PYPI, False), (ExternalDataSourceType.STRIPE, True)]:
+        ExternalDataSource.objects.create(
+            team=team, source_id="id", connection_id="id", status="Completed", source_type=source_type, deleted=deleted
+        )
+
+    # The import is recorded, not run, because a module that an earlier test imported registers nothing again.
+    with patch(f"{_SOURCES}._load_source") as import_source_module:
+        load_sources_in_use()
+
+    assert [call.args[0] for call in import_source_module.call_args_list] == [
+        source_module_path(ExternalDataSourceType.PYPI)
+    ]
 
 
 def test_get_source_falls_back_to_the_full_load_when_the_single_import_registers_nothing(empty_registry):

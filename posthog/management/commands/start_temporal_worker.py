@@ -151,6 +151,7 @@ from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
+    load_sources_in_use,
 )
 
 # When adding modules to a queue, also add their paths to that fleet's filter: the
@@ -276,6 +277,13 @@ ACTIVITIES_DICT = _activities
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
     """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
+
+
+def preload_data_import_sources() -> None:
+    if settings.TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES:
+        load_all_sources()
+    else:
+        load_sources_in_use()
 
 
 if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
@@ -459,7 +467,7 @@ class Command(BaseCommand):
         # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
-            load_all_sources()
+            preload_data_import_sources()
 
         # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
         # worker and an activities worker on the same queue split its work between them. This runs after
