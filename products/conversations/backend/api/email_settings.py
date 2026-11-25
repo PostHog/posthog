@@ -23,7 +23,7 @@ from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
-from posthog.email import EmailMessage, is_smtp_email_service_available
+from posthog.email import EmailMessage, is_email_available
 from posthog.helpers.email_utils import email_domain
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -1020,7 +1020,7 @@ class EmailVerifyForwardingView(APIView):
             channel_id = pending_setup.channel.id
             recipient = pending_setup.channel.from_email
 
-        if not is_smtp_email_service_available():
+        if not is_email_available():
             return Response(
                 {"error": "Email verification is not configured on this PostHog instance."},
                 status=503,

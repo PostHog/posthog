@@ -131,8 +131,6 @@ EMAIL_SEND_DROPPED_COUNTER = Counter(
     labelnames=["transport"],
 )
 
-SMTP_EMAILS_VIA_WORKFLOWS_FLAG = "smtp-emails-via-workflows"
-
 # Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
 # it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
 _TRANSIENT_SMTP_ERRORS = (
@@ -415,25 +413,6 @@ def _is_undeliverable(err: WorkflowsEmailError) -> bool:
     )
 
 
-def _routes_through_workflows(dest: dict[str, str], template_name: str) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SMTP_EMAILS_VIA_WORKFLOWS_FLAG,
-                dest.get("distinct_id") or dest["raw_email"],
-                person_properties={
-                    "email": dest["raw_email"],
-                    "transactional_email_template": template_name,
-                    "region": get_instance_region() or "",
-                },
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as err:
-        logger.warning("email_workflows_flag_check_failed", template_name=template_name, error=str(err))
-        return False
-
-
 def _workflows_reply_to(value: Optional[str]) -> list[str]:
     """The Reply-To addresses the send API accepts: bare, valid and ASCII.
 
@@ -450,14 +429,12 @@ def _workflows_reply_to(value: Optional[str]) -> list[str]:
     return addresses
 
 
-def _send_code_via_workflows(
-    dest: dict[str, str], campaign_key: str, template_name: str, content: dict[str, Any], workflows_only: bool
-) -> dict[str, Any] | None:
-    """Send an SMTP email through Workflows when the flag routes it there, or when an earlier attempt went there.
+def _send_code_via_workflows(dest: dict[str, str], campaign_key: str, content: dict[str, Any]) -> dict[str, Any] | None:
+    """Send a rendered email through Workflows when this instance has its key.
 
     Returns the Workflows response, or None when SMTP should send the email.
     """
-    if not is_http_email_service_available() or not (workflows_only or _routes_through_workflows(dest, template_name)):
+    if not is_http_email_service_available():
         return None
     try:
         return _queue_workflows_email(
@@ -592,9 +569,8 @@ def _send_via_smtp(
     headers: dict,
     reply_to: Optional[str] = None,
     will_retry: bool = True,
-    workflows_only: bool = False,
 ) -> list[str]:
-    """Sends emails using SMTP, or through Workflows where the flag routes them.
+    """Sends rendered emails through Workflows when this instance has its key, otherwise over SMTP.
 
     Returns the addresses Workflows refused as undeliverable.
     """
@@ -633,9 +609,7 @@ def _send_via_smtp(
                     continue
 
                 try:
-                    workflows_response = _send_code_via_workflows(
-                        dest, campaign_key, template_name, workflows_content, workflows_only
-                    )
+                    workflows_response = _send_code_via_workflows(dest, campaign_key, workflows_content)
                 except WorkflowsEmailError as err:
                     if _is_undeliverable(err):
                         # Workflows refuses the address, such as after a hard bounce, so the email is dropped.
@@ -936,6 +910,7 @@ def _send_email_now(
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
+    # Unused. Retries the previous release queued still pass it.
     workflows_only: bool = False,
 ) -> list[str]:
     try:
@@ -947,8 +922,7 @@ def _send_email_now(
                 properties=properties or {},
                 will_retry=_send_will_retry(retry_in_worker),
             )
-        if is_smtp_email_service_available():
-            # The flag can route an SMTP email through Workflows, which raises the same retryable errors.
+        if is_http_email_service_available() or is_smtp_email_service_available():
             return _send_via_smtp(
                 to=to,
                 campaign_key=campaign_key,
@@ -959,23 +933,15 @@ def _send_email_now(
                 headers=headers,
                 reply_to=reply_to,
                 will_retry=_send_will_retry(retry_in_worker),
-                workflows_only=workflows_only,
             )
     except RETRYABLE_HTTP_SEND_ERRORS as err:
-        # Workflows may have queued the email, so its retry must not fall back to SMTP if the flag changes.
-        # Set only when true, so a worker on the previous release never gets an argument it does not know.
-        sticky = (
-            {"workflows_only": True}
-            if workflows_only or (not use_http and isinstance(err, WorkflowsEmailError))
-            else {}
-        )
         if not retry_in_worker:
             task = _worker_send_task()
             if task is not None:
                 # After the last wait, Celery raises `err` instead of scheduling another attempt.
                 countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
                 raise task.retry(
-                    kwargs={**(task.request.kwargs or {}), **sticky},
+                    kwargs=task.request.kwargs or {},
                     exc=err,
                     countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
                     max_retries=len(countdowns),
@@ -994,7 +960,6 @@ def _send_email_now(
                 "reply_to": reply_to,
                 "use_http": use_http,
                 "properties": properties,
-                **sticky,
             }
         )
         return []
