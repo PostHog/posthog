@@ -71,7 +71,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import interval_of, rowless_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
     configuration_team_id,
     count_configurations,
@@ -533,7 +533,7 @@ def _snooze_native_from_slack(
         return "invalid_until"
     with transaction.atomic(), ActingUserContext(user):
         # Rechecked under the platform's lock, so a concurrent disable never ends up snoozed.
-        view = native_insight_alert_view(team_id, alert_id, lock=True)
+        view = rowless_insight_alert_view(team_id, alert_id, lock=True)
         if view is None:
             return "not_found"
         if not view.enabled:
@@ -542,7 +542,7 @@ def _snooze_native_from_slack(
             snoozed = update_configuration(
                 team_id=team_id,
                 source_kinds=[SourceKind.INSIGHT.value],
-                configuration_id=alert_id,
+                configuration_id=view.id,
                 change=lambda stored: stored,
                 snooze_until=snoozed_until,
                 snooze_changed=True,
@@ -552,6 +552,14 @@ def _snooze_native_from_slack(
         except InvalidPlatformAlertEdit as error:
             capture_exception(error, {"alert_id": str(alert_id)})
             return "not_snoozable"
+        if snoozed is not None and view.legacy_configuration_id is not None:
+            # Deferred: activity logging reaches this module back.
+            from products.alerts.backend.activity_logging import log_platform_alert_edit  # noqa: PLC0415
+
+            # A copy whose row is gone keeps its history where its row's edits wrote it.
+            after = shallow_copy(alert)
+            after.snoozed_until = snoozed_until
+            log_platform_alert_edit(alert, after, user=user, was_impersonated=False)
     return "snoozed" if snoozed is not None else "not_found"
 
 
@@ -840,9 +848,9 @@ def take_alert_ownership(
 
 
 def _native_alert(*, team_id: int, alert_id: uuid.UUID) -> AlertConfiguration:
-    """The insight alert with no insight row under `alert_id`, as the API presents it. Raises
-    `AlertConfiguration.DoesNotExist`, as a missing row does."""
-    view = native_insight_alert_view(team_id, alert_id)
+    """The insight alert with no insight row under the public id `alert_id`, as the API presents it.
+    Raises `AlertConfiguration.DoesNotExist`, as a missing row does."""
+    view = rowless_insight_alert_view(team_id, alert_id)
     alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
     if alert is None:
         raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")

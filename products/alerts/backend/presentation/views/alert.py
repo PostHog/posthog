@@ -154,11 +154,11 @@ from products.alerts.backend.facade.platform import (
     moved_alert_statuses,
     native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
-    native_insight_alert_view,
     native_insight_alert_views,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
     queue_delivery_test,
+    rowless_insight_alert_view,
     set_native_subscribers,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
@@ -184,6 +184,7 @@ from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
     lock_source_configuration,
+    owned_copies_by_legacy_id,
     record_source_destination,
     redact_destination_data as redact_platform_destination_data,
     standalone_destination_counts,
@@ -1294,7 +1295,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         for insight_id in sorted(insight_ids):
             if not lock_insight_for_evaluation(team_id=instance.team_id, insight_id=insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
-        view = native_insight_alert_view(instance.team_id, instance.id, lock=True)
+        view = rowless_insight_alert_view(instance.team_id, instance.id, lock=True)
         locked = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
         if locked is None:
             raise Http404
@@ -2468,7 +2469,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id = uuid.UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
         except ValueError:
             return None
-        view = native_insight_alert_view(self.team_id, alert_id)
+        view = rowless_insight_alert_view(self.team_id, alert_id)
         alert = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         if alert is None:
             return None
@@ -2587,6 +2588,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             native_insight_alert_views(self.team_id, [key.id for key in listed if key.native]), team_id=self.team_id
         )
         loaded.update(native)
+        # A copy whose row was deleted is listed from the copy, under its row's id.
+        rowless_copies = owned_copies_by_legacy_id(
+            team_id=self.team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=[key.id for key in listed if not key.native and key.id not in loaded],
+        )
+        loaded.update(
+            (alert.id, alert)
+            for alert in AlertConfiguration.from_platform_views(rowless_copies.values(), team_id=self.team_id).values()
+        )
         if searched:
             for key in listed:
                 if key.id in loaded:
@@ -2684,7 +2695,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _alert_watches(self, alert_id: uuid.UUID, insight_id: int) -> bool:
         if AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id, insight_id=insight_id).exists():
             return True
-        view = native_insight_alert_view(self.team_id, alert_id)
+        view = rowless_insight_alert_view(self.team_id, alert_id)
         native = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         return native is not None and native.insight_id == insight_id
 

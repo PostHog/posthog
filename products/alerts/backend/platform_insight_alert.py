@@ -19,6 +19,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
     delete_owned_configuration,
     get_configuration,
+    held_configuration,
     list_configurations,
     native_configuration_ids_by_source_config,
     native_configuration_matches,
@@ -104,10 +105,11 @@ def insight_activity_source(team_id: int, source_config: Mapping[str, Any]) -> A
 
 
 def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
-    """The users who can still view the insight an insight alert watches. Nobody, once it is gone."""
+    """The users who can still view the insight an insight alert watches, named by its platform id or its
+    public id. Nobody, once it is gone."""
     configuration = get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
-    )
+    ) or rowless_insight_alert_view(team_id, configuration_id)
     insight = insight_of(team_id, configuration.source_config) if configuration is not None else None
     if insight is None:
         return []
@@ -192,34 +194,12 @@ def rowless_insight_alert_view(
     """The team's insight alert the platform keeps under the public id `alert_id`, for a caller that
     found no insight row under it: one created with no insight row, or a copy the platform owns whose
     row is gone. None otherwise. With `lock`, its row stays locked until the caller's transaction ends."""
-    if (view := native_insight_alert_view(team_id, alert_id, lock=lock)) is not None:
-        return view
-    copy = owned_copies_by_legacy_id(
-        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert_id]
-    ).get(alert_id)
-    if copy is None or not lock:
-        return copy
-    locked = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=copy.id, lock=True
-    )
-    # Rechecked under the lock, so a copy handed back to its source is not served as the platform's.
-    return locked if locked is not None and locked.owner == PlatformAlertOwner.PLATFORM else None
-
-
-def native_insight_alert_view(
-    team_id: int, alert_id: UUID, *, lock: bool = False
-) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None.
-    With `lock`, its row stays locked until the caller's transaction ends."""
-    configuration = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
-    )
-    return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+    return held_configuration(team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], public_id=alert_id, lock=lock)
 
 
 def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """Turns on an insight alert with no insight row, through the platform's admission, once the
-    insight API has run its own checks. None when it is gone.
+    """Turns on an insight alert with no insight row, named by its platform id, through the platform's
+    admission, once the insight API has run its own checks. None when it is gone.
 
     Raises `InvalidPlatformAlertEdit` when the admission refuses it.
     """
@@ -233,9 +213,12 @@ def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAler
 
 
 def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
-    """Deletes an insight alert with no insight row: sends the resolves of its open firings while its
-    destinations still exist, then removes them and the alert. Call it outside any transaction."""
-    delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
+    """Deletes an insight alert with no insight row, named by its public id: sends the resolves of its
+    open firings while its destinations still exist, then removes them and the alert. Call it outside
+    any transaction."""
+    view = rowless_insight_alert_view(team_id, alert_id)
+    if view is not None:
+        delete_owned_configuration(team_id=team_id, configuration_id=view.id)
 
 
 def native_insight_alert_matches(
@@ -259,8 +242,12 @@ def native_insight_alert_matches(
     )
 
 
-def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
-    """The named insight alerts with no insight row, as the platform keeps them, in no particular order."""
+def native_insight_alert_views(
+    team_id: int, alert_ids: Collection[UUID], *, owned_copies: bool = False
+) -> tuple[PlatformAlertConfigurationView, ...]:
+    """The insight alerts with no insight row under these platform ids, as the platform keeps them, in no
+    particular order. With `owned_copies`, also the copies the platform owns under them, whatever their
+    rows."""
     if not alert_ids:
         return ()
     page = list_configurations(
@@ -269,17 +256,27 @@ def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tup
         limit=len(alert_ids),
         offset=0,
         configuration_ids=alert_ids,
+        held_only=True,
     )
     return tuple(
-        configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
+        configuration
+        for configuration in page.configurations
+        if owned_copies or configuration.legacy_configuration_id is None
     )
 
 
-def native_insight_alert_ids_by_insight(team_id: int, insight_ids: Collection[int]) -> dict[int, list[UUID]]:
-    """The ids of the team's insight alerts with no insight row on these insights, oldest first. An
-    insight with none is left out."""
+def native_insight_alert_ids_by_insight(
+    team_id: int, insight_ids: Collection[int], *, row_ids: Collection[UUID] | None = None
+) -> dict[int, list[UUID]]:
+    """The platform ids of the team's insight alerts with no insight row on these insights, oldest first.
+    With `row_ids`, the insight rows the caller holds, also the copies the platform owns of any other row,
+    which a copy whose row was deleted is. An insight with none is left out."""
     return native_configuration_ids_by_source_config(
-        team_id=team_id, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=insight_ids
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        source_config_key="insight_id",
+        values=insight_ids,
+        owned_copies_except=row_ids,
     )
 
 

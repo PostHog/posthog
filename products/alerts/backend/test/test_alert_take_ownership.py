@@ -20,7 +20,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade.api import take_alert_ownership
 from products.alerts.backend.facade.contracts import AlertWriteRefused
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view
 from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -193,7 +193,7 @@ class TestAlertTakeOwnership(APIBaseTest):
             )
 
         if storage == "platform":
-            view = native_insight_alert_view(self.team.id, alert_id)
+            view = rowless_insight_alert_view(self.team.id, alert_id)
             assert view is not None
             native_alert = AlertConfiguration.from_platform_view(view, team_id=self.team.id)
             assert native_alert is not None
