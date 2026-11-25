@@ -560,7 +560,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         by_shard = {}
         for shard in range(4):
             listed = {s.session_id for s in _list(self._shard_input(quote=quote, shard=shard))}
-            viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("~")
+            viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("", "~")
             assert set(viewports) <= listed
             by_shard.update({session_id: [v["width"] for v in rows] for session_id, rows in viewports.items()})
         # s1's autocapture is not read, and s9 is not in the quote.

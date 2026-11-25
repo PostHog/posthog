@@ -80,6 +80,8 @@ SESSIONS_PER_CHECKPOINT = 500
 PERSON_ROW_LIMIT = 50000
 VIEWPORTS_QUERY_TIMEOUT_SECONDS = 2 * 60 * 60
 VIEWPORTS_GROUP_BY_SPILL_BYTES = 10 * 1024 * 1024 * 1024
+# File playback refuses a header over 8 MiB, so one session's viewports stay well under it.
+MAX_SESSION_VIEWPORT_BYTES = 2 * 1024 * 1024
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
@@ -324,6 +326,8 @@ class ViewportFileWriter:
         self.shard: int | None = None
         self.listed: frozenset[str] = frozenset()
         self.rows = 0
+        self.session_id = ""
+        self.session_bytes = 0
         self.buffer = io.BytesIO()
         self.file = gzip.GzipFile(fileobj=self.buffer, mode="wb")
 
@@ -337,15 +341,21 @@ class ViewportFileWriter:
                     self.input.session_ids_prefix, self.input.day, shard
                 )
             )
-        if row["session_id"] in self.listed:
-            viewport = {
-                # JSONEachRow quotes 64-bit integers, and file playback needs a number.
-                "timestamp": int(row["first_ms"]),
-                "width": row["width"],
-                "height": row["height"],
-                "href": row["href"],
-            }
-            self.file.write(json.dumps([row["session_id"], viewport]).encode() + b"\n")
+        if row["session_id"] not in self.listed:
+            return
+        if row["session_id"] != self.session_id:
+            self.session_id, self.session_bytes = row["session_id"], 0
+        viewport = {
+            # JSONEachRow quotes 64-bit integers, and file playback needs a number.
+            "timestamp": int(row["first_ms"]),
+            "width": row["width"],
+            "height": row["height"],
+            "href": row["href"],
+        }
+        line = json.dumps([row["session_id"], viewport]).encode() + b"\n"
+        self.session_bytes += len(line)
+        if self.session_bytes <= MAX_SESSION_VIEWPORT_BYTES:
+            self.file.write(line)
             self.rows += 1
 
     async def flush(self) -> None:
@@ -404,8 +414,8 @@ class ViewportReader:
             raise ApplicationError(f"Viewport file {key} does not exist", non_retryable=True)
         return cls(content)
 
-    def take(self, last_session_id: str) -> dict[str, list[Viewport]]:
-        """Return the viewports of the sessions up to and including a session ID, and skip past them."""
+    def take(self, first_session_id: str, last_session_id: str) -> dict[str, list[Viewport]]:
+        """Return the viewports of the sessions between two session IDs, inclusive, and skip past them."""
         viewports: dict[str, list[Viewport]] = {}
         while True:
             if self.pending is None:
@@ -417,7 +427,9 @@ class ViewportReader:
             session_id, viewport = self.pending
             if session_id > last_session_id:
                 return viewports
-            viewports.setdefault(session_id, []).append(viewport)
+            # A resumed shard starts mid-file, so the sessions it already exported are skipped.
+            if session_id >= first_session_id:
+                viewports.setdefault(session_id, []).append(viewport)
             self.pending = None
 
 
@@ -460,7 +472,8 @@ def load_persons(team: Team, distinct_ids: list[str]) -> dict[str, dict[str, Any
 def load_session_metadata(team_id: int, sessions: list[SessionRow], viewports: ViewportReader) -> SessionMetadata:
     """Return the viewports per session and the person per distinct ID, which file playback cannot load."""
     team = Team.objects.get(id=team_id)
-    return viewports.take(sessions[-1].session_id), load_persons(team, sorted({s.distinct_id for s in sessions}))
+    viewports_by_session = viewports.take(sessions[0].session_id, sessions[-1].session_id)
+    return viewports_by_session, load_persons(team, sorted({s.distinct_id for s in sessions}))
 
 
 @frozen
