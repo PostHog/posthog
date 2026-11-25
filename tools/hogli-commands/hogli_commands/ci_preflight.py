@@ -286,6 +286,25 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="react-performance",
+        label="React Doctor performance checks on changed frontend files",
+        triggers=[
+            f"{tree}/*.{ext}"
+            for tree in ("frontend/src", "products/*/frontend")
+            for ext in ("js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts")
+        ],
+        verify=["node", "bin/lint-react-performance.mjs"],
+        requires=("node",),
+        takes_files=True,
+    ),
+    DiffCheck(
+        key="react-performance-runner",
+        label="React performance scan integration tests",
+        triggers=["bin/*react-performance*.mjs"],
+        verify=["node", "--test", "bin/lint-react-performance.test.mjs"],
+        requires=("node",),
+    ),
+    DiffCheck(
         key="feature-flags",
         label="FEATURE_FLAGS not alphabetically sorted",
         triggers=["frontend/src/lib/constants.tsx"],

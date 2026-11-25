@@ -269,6 +269,7 @@ jobs:
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .oxlintrc.json
+                        - 'bin/*react-performance*.mjs'
                         - .oxfmtrc*
                         - babel.config.js
                         - package.json
@@ -316,6 +317,7 @@ jobs:
                         - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
+                        - 'bin/*react-performance*.mjs'
                         - .oxfmtrc*
                         - babel.config.js
                         - package.json
@@ -460,6 +462,8 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -510,6 +514,13 @@ jobs:
 
                   - name: Lint with Oxlint
                     run: pnpm exec oxlint --quiet
+
+                  - name: Lint changed React files for performance
+                    run: |
+                        if [ -f bin/lint-react-performance.mjs ]; then
+                            node --test bin/lint-react-performance.test.mjs
+                            node bin/lint-react-performance.mjs --base HEAD^1
+                        fi
 
                   - name: Check markdown formatting with oxfmt
                     if: needs.changes.outputs.markdown_format != 'false'

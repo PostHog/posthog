@@ -13,6 +13,12 @@ We try to be very explicit about this separation, and avoid local React state wh
 
 Hence the explicit separation between the data and view layers.
 
+#### Performance lint
+
+Run `hogli lint:react-performance` to check changed React source files against `origin/master`, including staged, unstaged, and untracked files. Pass file paths to check only those files, or use `--base <ref>` to select another base.
+
+The check runs React Doctor's Performance category during frontend lint, pre-commit checks, preflight, and frontend CI. It uses the upstream performance checks and fails on warnings or errors in the selected files. Generated files are excluded. Dependency checks and telemetry are disabled. Use profiling to measure runtime performance.
+
 #### General tips
 
 - The `tracing-ui-v2` feature flag replaces the tracing scene with a `Tracing UI v2` placeholder for targeted testing. When the flag is off or unavailable, the existing tracing UI remains unchanged.
