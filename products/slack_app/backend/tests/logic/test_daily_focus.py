@@ -124,13 +124,17 @@ def test_a_run_whose_installation_is_gone_turns_the_daily_work_focus_off(org_tea
 
 @pytest.mark.django_db
 def test_a_daily_run_queued_without_its_claimed_time_sends_nothing(workspace_integration) -> None:
-    outcome = find_slack_app_work_focus_activity(
-        SlackAppWorkFocusInputs(
-            integration_id=workspace_integration.id, slack_team_id=SLACK_TEAM_ID, slack_user_id="U_QUEUED", since=1
+    with patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured:
+        outcome = find_slack_app_work_focus_activity(
+            SlackAppWorkFocusInputs(
+                integration_id=workspace_integration.id, slack_team_id=SLACK_TEAM_ID, slack_user_id="U_QUEUED", since=1
+            )
         )
-    )
 
     assert outcome == "superseded"
+    # A run that sends nothing is still counted, so adoption has a denominator of runs.
+    assert captured.call_args.args[1] == "slack app daily work focus run finished"
+    assert captured.call_args.kwargs["outcome"] == "superseded"
 
 
 @pytest.mark.parametrize(

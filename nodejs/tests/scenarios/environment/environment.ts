@@ -13,7 +13,8 @@ import type { RunManifest } from '../cloud/lease'
 import type { CpuPoint } from '../judge/bars'
 import type { DriveWindow } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
-import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FaultHold, FaultRule } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
 import { nameOf } from './identity'
 import { ProbeProcess, startProbeProcess } from './probe-process'
@@ -208,7 +209,7 @@ export function createEnvironment({
         graceMs: STOP_GRACE_MS,
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
-    let edge: ProviderEdge | undefined
+    let edge: EdgeProcess | undefined
     let probing: { edgeUrl: string | undefined; probes: ProbeProcess } | undefined
     let postgresServers = [postgresUrl]
     let cyclotronUrl = STACK.cyclotronNodeUrl
@@ -321,14 +322,14 @@ export function createEnvironment({
         down: stop,
     }
 
-    function startedEdge(caller: string): ProviderEdge {
+    function startedEdge(caller: string): EdgeProcess {
         if (!edge) {
             throw new Error(`Start the environment with up() before ${caller}().`)
         }
         return edge
     }
 
-    async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
+    async function resetRoles(edge: EdgeProcess, settings: Profile['settings'], replicas: Replicas): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
@@ -349,7 +350,7 @@ export function createEnvironment({
             GROUPS_EMPTY_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        edge.clearFaults()
+        await edge.clearFaults()
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         await deleteUnfinishedJobs(cyclotronUrl)
@@ -432,7 +433,7 @@ export function createEnvironment({
             GROUP_DRAINS_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        edge = await startProviderEdge({
+        edge = await startEdgeProcess({
             port: EDGE_PORT,
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),

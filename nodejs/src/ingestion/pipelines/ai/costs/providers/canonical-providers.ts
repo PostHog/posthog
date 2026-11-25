@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-24 20:02:10 UTC
+// Generated at: 2026-11-25 10:05:18 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -156,7 +156,6 @@ export type CanonicalProvider =
     | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
-    | 'novita'
     | 'novita-bf16'
     | 'novita-fp8'
     | 'nvidia'

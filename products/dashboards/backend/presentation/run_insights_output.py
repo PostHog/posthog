@@ -3,14 +3,20 @@ from typing import Any
 
 from rest_framework import exceptions
 
-from products.dashboards.backend.constants import (
-    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
-    RUN_INSIGHTS_MAX_TOTAL_CHARS,
-    RUN_INSIGHTS_MAX_UNRUN_TILES,
-    RUN_INSIGHTS_MIN_TILE_CHARS,
-)
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
+
+# `optimized` run_insights output is read by agents with a limited context window, so each tile's
+# formatted table is held to this many characters unless the caller asks for more.
+RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS = 2000
+
+# Ceiling on the whole `optimized` run_insights response. Tiles past it are not run.
+RUN_INSIGHTS_MAX_TOTAL_CHARS = 30000
+
+# Below this, a tile can only carry a sliced header, so it is reported as not run instead.
+RUN_INSIGHTS_MIN_TILE_CHARS = 200
+
+# The marker list grows with the dashboard, so it gets a ceiling of its own.
+RUN_INSIGHTS_MAX_UNRUN_TILES = 25
 
 ELISION_NOTE = (
     "[{omitted} of {total} rows omitted here. To read the whole table, run dashboard-insights-run "
@@ -138,7 +144,7 @@ def render_unsupported_result(result: Any) -> str:
     return json.dumps(result, default=str)
 
 
-def unrun_tile_results(remaining: list[tuple[int, DashboardTile, Insight]]) -> list[dict[str, Any]]:
+def unrun_tile_results(remaining: list[tuple[int, int, Insight]]) -> list[dict[str, Any]]:
     """Markers for the tiles the response budget left out.
 
     The list is capped because it grows with the dashboard, and a few hundred markers would cost
@@ -146,23 +152,23 @@ def unrun_tile_results(remaining: list[tuple[int, DashboardTile, Insight]]) -> l
     caller is never left thinking the dashboard ends there.
     """
     listed = remaining[:RUN_INSIGHTS_MAX_UNRUN_TILES]
-    results = [unrun_tile_result(tile, insight, order) for order, tile, insight in listed]
+    results = [unrun_tile_result(tile_id, insight, order) for order, tile_id, insight in listed]
     unlisted = len(remaining) - len(listed)
     if unlisted and results:
         results[-1]["insight"]["result"] += UNLISTED_NOTE.format(unlisted=unlisted)
     return results
 
 
-def unrun_tile_result(tile: DashboardTile, insight: Insight, order: int) -> dict[str, Any]:
+def unrun_tile_result(tile_id: int, insight: Insight, order: int) -> dict[str, Any]:
     """Stand-in for a tile the response budget left out, shaped like a run tile."""
     return {
-        "id": tile.id,
+        "id": tile_id,
         "insight": {
             "id": insight.id,
             "short_id": insight.short_id,
             "name": insight.name,
             "derived_name": insight.derived_name,
-            "result": BUDGET_NOTE.format(budget=RUN_INSIGHTS_MAX_TOTAL_CHARS, tile_id=tile.id),
+            "result": BUDGET_NOTE.format(budget=RUN_INSIGHTS_MAX_TOTAL_CHARS, tile_id=tile_id),
         },
         "order": order,
         "last_refresh": None,

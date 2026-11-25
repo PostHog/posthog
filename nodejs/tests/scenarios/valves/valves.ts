@@ -206,7 +206,7 @@ const now = (): string => new Date().toISOString()
 export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const doses = new Map<ValveTimelineEntry, unknown>()
-    const actuations = new Map<ValveTimelineEntry, Actuation>()
+    const unitIds = new Map<ValveTimelineEntry, string[]>()
     const running: Promise<void>[] = []
     const released = new AbortController()
     const refusals = new AbortController()
@@ -292,7 +292,6 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 durationMs(entry.for),
                 released.signal
             )
-            actuations.set(record, actuation)
             record.appliedAt = now()
             journal()
             const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
@@ -322,6 +321,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } finally {
             await releaseBoundary()
             if (actuation) {
+                const hits = await actuation.hits?.().catch(() => undefined)
+                if (hits) {
+                    unitIds.set(record, hits)
+                }
                 try {
                     await actuation.release()
                     record.releasedAt = now()
@@ -359,8 +362,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 .filter(({ appliedAt }) => appliedAt !== undefined)
                 .map((entry) => {
                     const { valve, target, ...record } = entry
-                    const unitIds = actuations.get(entry)?.hits?.()
-                    return { valve, target, dose: doses.get(entry), ...record, ...(unitIds && { unitIds }) }
+                    const hits = unitIds.get(entry)
+                    return { valve, target, dose: doses.get(entry), ...record, ...(hits && { unitIds: hits }) }
                 }),
 
         refusal: refusals.signal,

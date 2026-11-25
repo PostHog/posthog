@@ -6,15 +6,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import exceptions
 
-from products.dashboards.backend.constants import (
+from products.dashboards.backend.presentation.run_insights_output import (
+    CUT_NOTE,
+    ELISION_NOTE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MAX_UNRUN_TILES,
     RUN_INSIGHTS_MIN_TILE_CHARS,
-)
-from products.dashboards.backend.run_insights_output import (
-    CUT_NOTE,
-    ELISION_NOTE,
     bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
@@ -139,7 +137,7 @@ class TestUnrunTileResults(SimpleTestCase):
         return [
             (
                 order,
-                SimpleNamespace(id=1000 + order),
+                1000 + order,
                 SimpleNamespace(id=order, short_id="abcdefgh", name=f"Tile {order}", derived_name=None),
             )
             for order in range(count)

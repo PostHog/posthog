@@ -36,8 +36,53 @@ const FAULT_POLL_MS = 100
 export type FaultHold = {
     observed(holdEnds?: AbortSignal): Promise<boolean>
     accepted?(until: AbortSignal): Promise<boolean>
-    hits?(): string[]
+    hits?(): Promise<string[]>
     release(): Promise<void>
+}
+
+type HeldFault = {
+    firstAppliedAt(): Promise<number | undefined>
+    hits?(): Promise<string[]>
+    remove(): Promise<void>
+}
+
+export function holdOf(fault: HeldFault): FaultHold {
+    return {
+        observed: async (holdEnds) => {
+            const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
+            let windowEndsAt = deadline
+            const holdEnded = (): void => {
+                windowEndsAt = Math.min(windowEndsAt, Date.now())
+            }
+            if (holdEnds?.aborted) {
+                return false
+            }
+            holdEnds?.addEventListener('abort', holdEnded, { once: true })
+            const answeredInWindow = async (): Promise<boolean> =>
+                ((await fault.firstAppliedAt()) ?? Infinity) <= windowEndsAt
+            try {
+                let answered = await answeredInWindow()
+                while (!answered && Date.now() <= deadline && !holdEnds?.aborted) {
+                    await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+                    answered = await answeredInWindow()
+                }
+                return answered
+            } finally {
+                holdEnds?.removeEventListener('abort', holdEnded)
+            }
+        },
+        accepted: async (until) => {
+            const applied = async (): Promise<boolean> => (await fault.firstAppliedAt()) !== undefined
+            let accepted = await applied()
+            while (!accepted && !until.aborted) {
+                await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
+                accepted = await applied()
+            }
+            return accepted
+        },
+        hits: () => fault.hits?.() ?? Promise.resolve([]),
+        release: () => fault.remove(),
+    }
 }
 
 export type ProviderEdgeOptions = {
@@ -55,6 +100,9 @@ export type ProviderEdge = {
     caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
+    firstAppliedAt(faultId: string): number | undefined
+    hitsOf(faultId: string): string[]
+    removeFault(faultId: string): void
     hold(rule: FaultRule): FaultHold
     clearFaults(): void
     close(): Promise<void>
@@ -102,9 +150,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
-    const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
+    const trackedOf = (
+        trackingCode: string | undefined
+    ): { actionId?: string; flowId?: string; invocationId?: string } => {
         const tracked = trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)
-        return { actionId: tracked?.actionId, flowId: tracked?.functionId }
+        return { actionId: tracked?.actionId, flowId: tracked?.functionId, invocationId: tracked?.invocationId }
     }
 
     const sendEmail = (body: unknown): Reply | Silence | Held => {
@@ -351,29 +401,16 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
+        firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
+        hitsOf: (faultId) => faults.hitsOf(faultId),
+        removeFault: (faultId) => void removeFault(faultId),
         hold: (rule) => {
             const id = faults.add(rule)
-            return {
-                observed: async (holdEnds) => {
-                    const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-                    const answeredInWindow = (): boolean => (faults.firstAppliedAt(id) ?? Infinity) <= deadline
-                    while (Date.now() <= deadline && !holdEnds?.aborted && !answeredInWindow()) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
-                    }
-                    return answeredInWindow()
-                },
-                accepted: async (until) => {
-                    while (!until.aborted && faults.firstAppliedAt(id) === undefined) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
-                    }
-                    return faults.firstAppliedAt(id) !== undefined
-                },
-                hits: () => faults.hitsOf(id),
-                release: () => {
-                    removeFault(id)
-                    return Promise.resolve()
-                },
-            }
+            return holdOf({
+                firstAppliedAt: () => Promise.resolve(faults.firstAppliedAt(id)),
+                hits: () => Promise.resolve(faults.hitsOf(id)),
+                remove: () => Promise.resolve(void removeFault(id)),
+            })
         },
         clearFaults,
         close: async () => {

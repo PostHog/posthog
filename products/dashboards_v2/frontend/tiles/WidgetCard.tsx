@@ -2,6 +2,7 @@ import './WidgetCard.css'
 import './TileHoverReveal.css'
 
 import clsx from 'clsx'
+import type { CSSProperties } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -20,10 +21,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
-import { showsBackground, showsBorder } from '../presentation/tileAppearance'
+import { showsBackground, showsBorder, tileBackgroundColor } from '../presentation/tileAppearance'
 import { isPartShown } from '../presentation/tileParts'
 import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
-import { findWidget } from '../widgets/widgetSpec'
+import { type WidgetAppearanceOptions, findWidget } from '../widgets/widgetSpec'
 import { WidgetView } from '../widgets/WidgetView'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { TileMenuButton } from './TileMenuButton'
@@ -37,6 +38,22 @@ function UpdatedAt({ refreshedAt }: { refreshedAt?: string }): JSX.Element {
             Updated <TZLabel time={refreshedAt} />
         </span>
     )
+}
+
+function cardLook(
+    widget: ContentWidget,
+    options: WidgetAppearanceOptions
+): { className: string; style: CSSProperties | undefined } {
+    const backgroundColor = tileBackgroundColor(widget, options)
+    return {
+        className: clsx(
+            !showsBackground(widget, options) && 'dash-WidgetCard--no-background',
+            !showsBorder(widget) && 'dash-WidgetCard--no-border',
+            backgroundColor && 'dash-WidgetCard--tinted'
+        ),
+        // A saved color can be any CSS color, so no class can carry it.
+        style: backgroundColor ? ({ '--dv2-tile-background-color': backgroundColor } as CSSProperties) : undefined,
+    }
 }
 
 /**
@@ -61,7 +78,7 @@ export function WidgetCard({
     const slots = widgetSlots(definition)
     const showHeader = isPartShown(widget, 'header', slots)
     const showFooter = isPartShown(widget, 'footer', slots)
-    const showBackground = showsBackground(widget, definition?.appearance ?? {})
+    const look = cardLook(widget, definition?.appearance ?? {})
     const HeaderActions = definition?.HeaderActions
     const Footer = definition?.Footer
     const hasMenu = hasTileMenu(actions)
@@ -71,12 +88,8 @@ export function WidgetCard({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx(
-                    'dash-WidgetCard',
-                    !showBackground && 'dash-WidgetCard--no-background',
-                    !showsBorder(widget) && 'dash-WidgetCard--no-border',
-                    editable && !showHeader && 'TileGrid__handle'
-                )}
+                className={clsx('dash-WidgetCard', look.className, editable && !showHeader && 'TileGrid__handle')}
+                style={look.style}
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>

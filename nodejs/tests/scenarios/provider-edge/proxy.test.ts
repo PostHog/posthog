@@ -159,7 +159,7 @@ describe('provider edge proxy', () => {
                 body: '{}',
             })
             await response.body.text()
-            const hits = hold.hits?.()
+            const hits = await hold.hits?.()
             await hold.release()
             return { status: response.statusCode, hits }
         }
