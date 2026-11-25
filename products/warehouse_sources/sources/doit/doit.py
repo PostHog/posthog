@@ -1,3 +1,4 @@
+import random
 import hashlib
 import datetime
 from collections.abc import Callable
@@ -5,6 +6,7 @@ from typing import Any, Optional, cast
 from urllib.parse import quote, urlencode
 
 import pyarrow as pa
+import requests
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
@@ -22,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     build_chained_resource,
     frozen,
+    interruptible_wait,
     make_tracked_session,
     rest_api_resource,
 )
@@ -46,6 +49,17 @@ REPORT_TIMEOUT_SECONDS = (DOIT_CONNECT_TIMEOUT_SECONDS, 300)
 
 # Key under a schema's persisted `schema_metadata` holding the DoIt report id.
 REPORT_ID_METADATA_KEY = "report_id"
+
+# DoiT limits how many report queries one account can run at the same time. A query over that limit
+# gets a 429 with this text in the body. All report schemas of a source start on the same schedule,
+# and one report query can run for minutes. The adapter retries and the Temporal activity retries
+# end within seconds, so they spend their whole budget while the other queries still run. Wait on
+# the scale of a report query instead. The jitter keeps the schemas that collide from retrying
+# together again. The waits double from the first value up to the cap, for 12 minutes at most.
+DOIT_CONCURRENCY_QUOTA_ERROR = "exhausted; please wait for previous requests to complete"
+DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS = 15.0
+DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS = 120.0
+DOIT_CONCURRENCY_QUOTA_MAX_WAITS = 8
 
 DOIT_BASE_URL = "https://api.doit.com"
 DOIT_REPORTS_URL = f"{DOIT_BASE_URL}/analytics/v1/reports"
@@ -91,6 +105,41 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
+def _is_concurrency_quota_error(response: requests.Response) -> bool:
+    return response.status_code == 429 and DOIT_CONCURRENCY_QUOTA_ERROR in response.text
+
+
+def _get_waiting_for_concurrency_quota(
+    session: requests.Session,
+    url: str,
+    *,
+    api_key: str,
+    timeout: tuple[int, int],
+    logger: FilteringBoundLogger,
+    max_waits: int = DOIT_CONCURRENCY_QUOTA_MAX_WAITS,
+) -> requests.Response:
+    wait_seconds = DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS
+    waits_done = 0
+    while True:
+        response = session.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
+        if not _is_concurrency_quota_error(response) or waits_done >= max_waits:
+            return response
+
+        delay = random.uniform(wait_seconds / 2, wait_seconds)
+        logger.info(
+            "DoIt concurrent report query quota is exhausted, waiting before the next try",
+            wait_seconds=round(delay, 1),
+            waits_done=waits_done,
+        )
+        # The wait ends early only in a run that installs a shutdown signal. A SimpleSource run does
+        # not install one, so for DoiT today this is a plain sleep, like a long report read. If a
+        # signal ends the wait, return the 429 so that the caller raises the retryable error.
+        if interruptible_wait(delay):
+            return response
+        waits_done += 1
+        wait_seconds = min(wait_seconds * 2, DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS)
+
+
 @frozen
 class DoItReport:
     id: str
@@ -100,7 +149,15 @@ class DoItReport:
     report_name: str
 
 
-def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundLogger] = None) -> list[DoItReport]:
+def doit_list_reports(
+    config: DoItSourceConfig,
+    logger: Optional[FilteringBoundLogger] = None,
+    wait_for_concurrency_quota: bool = False,
+) -> list[DoItReport]:
+    # Synchronous API views list the reports for source setup and schema listing. A quota wait there
+    # holds a web worker for minutes, so only an import run asks for it.
+    max_quota_waits = DOIT_CONCURRENCY_QUOTA_MAX_WAITS if wait_for_concurrency_quota else 0
+
     if logger is None:
         logger = structlog.get_logger(__name__)
 
@@ -113,10 +170,13 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
         if page_token:
             url = f"{DOIT_REPORTS_URL}?{urlencode({'pageToken': page_token})}"
 
-        res = session.get(
+        res = _get_waiting_for_concurrency_quota(
+            session,
             url,
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            api_key=config.api_key,
             timeout=LIST_REPORTS_TIMEOUT_SECONDS,
+            logger=logger,
+            max_waits=max_quota_waits,
         )
 
         # `DOIT_RETRY` sets `raise_on_status=False`, so a 5xx that outlives the retries lands here as
@@ -169,7 +229,11 @@ def resolve_report_id(
     if schema_metadata and schema_metadata.get(REPORT_ID_METADATA_KEY):
         return str(schema_metadata[REPORT_ID_METADATA_KEY])
 
-    matches = [report.id for report in doit_list_reports(config, logger=logger) if report.name == schema_name]
+    matches = [
+        report.id
+        for report in doit_list_reports(config, logger=logger, wait_for_concurrency_quota=True)
+        if report.name == schema_name
+    ]
     if not matches:
         raise Exception("Report no longer exists")
     return matches[0]
@@ -229,10 +293,12 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = make_tracked_session(retry=DOIT_RETRY).get(
+        res = _get_waiting_for_concurrency_quota(
+            make_tracked_session(retry=DOIT_RETRY),
             request_uri,
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            api_key=config.api_key,
             timeout=REPORT_TIMEOUT_SECONDS,
+            logger=logger,
         )
 
         if res.status_code != 200:

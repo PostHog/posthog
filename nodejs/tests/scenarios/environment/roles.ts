@@ -115,8 +115,6 @@ export function roleSpecs(
         AWS_ACCESS_KEY_ID: 'scenario',
         AWS_SECRET_ACCESS_KEY: 'scenario',
         PERSONHOG_ENABLED: 'true',
-        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '*',
-        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: 'true',
         ...settings,
     }
     return roleIdsOf(replicas).map((id, index) => ({
