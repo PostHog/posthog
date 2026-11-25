@@ -1,4 +1,4 @@
-import { cn } from '@posthog/quill'
+import { cn } from 'lib/utils/css-classes'
 
 // @posthog/icons has no tag glyph, so this draws one at the icon set's stroke weight.
 export function TagIcon({ className }: { className?: string }): JSX.Element {
