@@ -45,8 +45,6 @@ from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OAuthTokenResponse, Operati
 EXPECTED_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
 
 CACHED_SESSION_DATA = {
-    "access_token": "vercel_token_123",
-    "token_type": "Bearer",
     "installation_id": "icfg_connect_test",
     "user_id": "vercel_user_1",
     "team_id": "team_vercel_1",
@@ -265,8 +263,8 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert "next" not in parsed
         session_data = _load_connect_session(parsed["session"][0])
         assert session_data["next_url"] == expected_next_url
-        assert [session_data["access_token"], session_data["installation_id"], session_data["configuration_id"]] == [
-            "tok_code_from_marketplace",
+        assert "access_token" not in session_data
+        assert [session_data["installation_id"], session_data["configuration_id"]] == [
             "icfg_code_from_marketplace",
             "icfg_code_from_marketplace",
         ]
@@ -571,7 +569,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_existing",
-            config={"credentials": {"access_token": "tok"}},
+            config={},
             created_by=self.user,
         )
         session_token = self._seed_session()
@@ -600,7 +598,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_orphaned",
-            config={"credentials": {"access_token": "tok_dead"}},
+            config={},
             created_by=self.user,
         )
         Integration.objects.create(
@@ -643,7 +641,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_orphaned",
-            config={"credentials": {"access_token": "tok_dead"}},
+            config={},
             created_by=self.user,
         )
         session_token = (
@@ -760,7 +758,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert org_integration.config["type"] == "connectable"
-        assert org_integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert org_integration.integration_id == "icfg_connect_test"
         assert not OrganizationProvisioning.objects.filter(organization=self.organization).exists()
 
@@ -948,7 +945,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_existing",
-            config={"credentials": {"access_token": "tok_old"}},
+            config={},
             created_by=self.user,
         )
         session_token = self._seed_session()
@@ -978,7 +975,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_stale",
-            config={"credentials": {"access_token": "tok_stale"}},
+            config={},
             created_by=self.user,
         )
         stale_resource = Integration.objects.create(
@@ -1339,7 +1336,6 @@ class TestSafeVercelSyncSelfHealing(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_selfheal",
             config={"type": "connectable"},
-            sensitive_config={"credentials": {"access_token": "tok_selfheal"}},
             created_by=self.user,
         )
         assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
@@ -1389,7 +1385,6 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_backfill",
             config={},
-            sensitive_config={"credentials": {"access_token": "tok_backfill"}},
             created_by=self.user,
         )
         assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
@@ -1418,7 +1413,7 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_backfill2",
-            config={"credentials": {"access_token": "tok_backfill2"}},
+            config={},
             created_by=self.user,
         )
         Integration.objects.create(
