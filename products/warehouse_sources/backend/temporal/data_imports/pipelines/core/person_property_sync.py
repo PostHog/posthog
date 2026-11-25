@@ -407,9 +407,10 @@ async def _sources_with_key_column_for_empty_read(
     sources_with_key_column = frozenset(str(source.source_id) for source in sources) - delta.sources_missing_key_column
     # No staged files is a genuine zero-row read only when the table is empty too. Otherwise the files
     # are gone for another reason, such as a retry after an earlier attempt finished and cleared them.
-    if sources_with_key_column and await asyncio.to_thread(_table_has_rows, delta):
-        return frozenset()
-    return sources_with_key_column
+    if not sources_with_key_column:
+        return sources_with_key_column
+    table_has_rows = await asyncio.to_thread(_table_has_rows, delta)
+    return frozenset() if table_has_rows else sources_with_key_column
 
 
 def _table_has_rows(delta: "_DeltaBatches") -> bool:
