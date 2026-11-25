@@ -329,7 +329,7 @@ ORDER BY 1, 2"""
 SELECT
     {left_out}.reason AS reason,
     IF({left_out}.reason = 'unknown_variant', {left_out}.variant, NULL) AS value,
-    COUNT(*) AS rows
+    COUNT(*) AS row_count
 FROM {left_out}
 WHERE {left_out}.reason IS NOT NULL
 GROUP BY 1, 2
