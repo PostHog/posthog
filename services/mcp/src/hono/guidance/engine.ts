@@ -6,6 +6,8 @@ import type { RedisLike } from '../cache/RedisCache'
 import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
+import { inboxDigestGuidance } from './inbox-digest'
+import { inboxReportMatchGuidance } from './inbox-report-match'
 import { GuidanceProductState } from './product-state'
 import type { GuidanceRule } from './rule-schema'
 import { GUIDANCE_RULES } from './rules'
@@ -198,12 +200,22 @@ export class GuidanceEngine {
             if (activation?.text) {
                 return activation
             }
+            // Activation is for a project without Self-driving and the report match for one with it, so any activation outcome, `flag_off` included, rules the match out.
+            const reportMatch = activation
+                ? undefined
+                : counted(await inboxReportMatchGuidance(this.redis, state, call, productState, firstSessionCall))
+            if (reportMatch) {
+                return reportMatch
+            }
             // A `flag_off` activation sends no text, so it must not take the slot from the ordinary rules.
             // The activation stamp is kept below unless another rule actually shows a notice on this call.
             const preset = resolveScopePreset(state.apiKeyScopes)
             const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
+            // The digest goes last and only on a call that carries no other notice or stamp, so it never replaces one.
+            const orDigest = async (notice: GuidanceNotice | undefined): Promise<GuidanceNotice | undefined> =>
+                notice ?? counted(await inboxDigestGuidance(this.redis, state, call, productState))
             if (rules.length === 0) {
-                return activation
+                return orDigest(activation)
             }
             const scopes = countingScopes(state, firstSessionCall)
             let winner: GuidanceNotice | undefined
@@ -225,7 +237,7 @@ export class GuidanceEngine {
             if (winner) {
                 guidanceNoticesTotal.inc({ rule: winner.ruleId, outcome: winner.outcome })
             }
-            return winner?.text ? winner : (activation ?? winner)
+            return orDigest(winner?.text ? winner : (activation ?? winner))
         } catch (error) {
             guidanceEvaluationErrorsTotal.inc()
             console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
@@ -310,6 +322,13 @@ export class GuidanceEngine {
         )
         return Number(fired)
     }
+}
+
+function counted(notice: GuidanceNotice | undefined): GuidanceNotice | undefined {
+    if (notice) {
+        guidanceNoticesTotal.inc({ rule: notice.ruleId, outcome: notice.outcome })
+    }
+    return notice
 }
 
 function keepUnlessMirrorTaken(result: number, mirrored: number | undefined): RuleResult {

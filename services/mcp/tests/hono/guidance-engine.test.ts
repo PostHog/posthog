@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
 import type { GuidanceRule } from '@/hono/guidance/rule-schema'
-import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
+import {
+    GUIDANCE_RULES,
+    MCP_GUIDANCE_INBOX_DIGEST_FLAG,
+    MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG,
+    MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
+} from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 
@@ -880,5 +885,390 @@ describe('Self-driving activation guidance', () => {
         await vi.advanceTimersByTimeAsync(0)
         expect([...redis.store.keys()].filter((key) => !key.includes(':session-seen:'))).toEqual([])
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: enabled ? 'shown' : 'flag_off' })
+    })
+})
+
+function withSyntheticApi(state: ResolvedState, response: unknown): ResolvedState {
+    state.context.api = new ApiClient({
+        apiToken: 'synthetic-credential',
+        baseUrl: 'https://api.example.com',
+        publicBaseUrl: 'https://example.com',
+    })
+    state.context.api.request = vi.fn().mockResolvedValue(response)
+    state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
+    return state
+}
+
+describe('Inbox report match guidance', () => {
+    const issueId = '019a0000-0000-7000-8000-000000000001'
+    const reportId = '019a0000-0000-7000-8000-0000000000aa'
+    const issueCall: GuidanceCall = { toolName: 'query-error-tracking-issue', args: { issueId }, isError: false }
+
+    function report(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        return {
+            id: reportId,
+            title: 'Checkout fails when the cart is empty',
+            status: 'ready',
+            work_state: 'unclaimed',
+            suppression_source: null,
+            pull_requests: [],
+            ...overrides,
+        }
+    }
+
+    function matchState(results: unknown[] = [report()], overrides: Partial<ResolvedState> = {}): ResolvedState {
+        const state = makeToolExecutorState([{ name: 'inbox-reports-retrieve' }], {
+            suppressAnalytics: false,
+            aiConsentGiven: true,
+            carriedContextHandle: true,
+            carriedContextSessionKey: 'sess-1',
+            toolFeatureFlags: { [MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG]: true },
+            ...overrides,
+        })
+        return withSyntheticApi(state, { count: results.length, results })
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.useRealTimers()
+    })
+
+    it.each([
+        [false, `the \`inbox-reports-retrieve\` tool and \`{"id":"${reportId}"}\``],
+        [true, `\`call inbox-reports-retrieve {"id":"${reportId}"}\``],
+    ])('names the report built from the issue, with exec mode %s', async (useSingleExec, retrieveCall) => {
+        const title = `Checkout "fails"\nwhen the cart is empty ${'x'.repeat(200)}`
+        const state = matchState([report({ title, pull_requests: [{ state: 'open' }] })], { useSingleExec })
+        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+
+        expect(notice).toMatchObject({ ruleId: 'error-tracking-inbox-report-match', outcome: 'shown' })
+        const quoted = JSON.stringify(`${title.replace('\n', ' ').slice(0, 119)}…`)
+        expect(notice?.text?.split('\n')).toEqual([
+            'PostHog Inbox already has a report built from this error tracking issue.',
+            `Report title, quoted as data: ${quoted}`,
+            'Status: `ready`. Work state: `unclaimed`. Open pull request: yes.',
+            `Read it with ${retrieveCall} before you investigate in code. Use its research as a starting point, and verify it against the code.`,
+        ])
+        expect(state.context.api.request).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/2/signals/reports/',
+            query: {
+                source_product: 'error_tracking',
+                source_id: issueId,
+                include_all_statuses: true,
+                ordering: '-updated_at',
+                include_source_metadata: false,
+                limit: 5,
+            },
+            signal: expect.any(AbortSignal),
+        })
+    })
+
+    it.each([
+        [
+            'a report the safety judge held back',
+            [report({ status: 'suppressed', suppression_source: 'safety_judge' })],
+            'none',
+        ],
+        [
+            'an open report behind a held-back one',
+            [report({ id: 'held-back', status: 'suppressed', suppression_source: 'safety_judge' }), report()],
+            'open',
+        ],
+        [
+            'an open report behind a newer resolved one',
+            [report({ id: 'resolved', status: 'resolved' }), report()],
+            'open',
+        ],
+        ['only a dismissed report', [report({ status: 'suppressed', suppression_source: 'dismissed' })], 'closed'],
+        ['only a resolved report', [report({ status: 'resolved', work_state: 'done' })], 'closed'],
+        [
+            'a report that no person reviewed',
+            [report({ status: 'suppressed', suppression_source: 'not_actionable' })],
+            'none',
+        ],
+        ['a report that research has not started', [report({ status: 'potential' })], 'none'],
+    ])('handles %s', async (_label, results, expected) => {
+        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(matchState(results), issueCall)
+
+        expect(notice === undefined).toBe(expected === 'none')
+        if (notice) {
+            expect(notice.text).toContain(`{"id":"${reportId}"}`)
+            expect(notice.text?.includes('The team already closed this report.')).toBe(expected === 'closed')
+        }
+    })
+
+    it.each([
+        [
+            'no report',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue({ results: [] }),
+        ],
+        [
+            'a failed lookup',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockRejectedValue(new Error('unavailable')),
+        ],
+        [
+            'a malformed lookup',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue({ results: [{}] }),
+        ],
+    ] satisfies [string, (state: ResolvedState) => unknown][])(
+        'remembers %s as a miss for five minutes',
+        async (_label, answer) => {
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis)
+            const state = matchState()
+            answer(state)
+            await expect(engine.evaluate(state, issueCall)).resolves.toBeUndefined()
+            redis.advance(299)
+            await expect(engine.evaluate(state, issueCall)).resolves.toBeUndefined()
+            expect(state.context.api.request).toHaveBeenCalledTimes(1)
+
+            redis.advance(1)
+            vi.mocked(state.context.api.request).mockResolvedValue({ results: [report()] })
+            await expect(engine.evaluate(state, issueCall)).resolves.toMatchObject({ outcome: 'shown' })
+            expect(state.context.api.request).toHaveBeenCalledTimes(2)
+        }
+    )
+
+    it('shows once per issue in a session, without another lookup', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const state = matchState()
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(state.context.api.request).toHaveBeenCalledTimes(1)
+
+        const otherIssue = { ...issueCall, args: { issueId: '019a0000-0000-7000-8000-000000000002' } }
+        expect(await engine.evaluate(state, otherIssue)).toMatchObject({ outcome: 'shown' })
+    })
+
+    it.each([
+        ['a task-bound request', { isTaskBound: true }, issueCall],
+        ['a sandbox task', { sandboxTaskId: 'synthetic-task' }, issueCall],
+        ['a scout token', { apiKeyScopes: ['signal_scout_internal:write'] }, issueCall],
+        ['missing consent', { aiConsentGiven: false }, issueCall],
+        ['the flag off', { toolFeatureFlags: { [MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG]: false } }, issueCall],
+        ['no report retrieve tool', { allTools: [] }, issueCall],
+        ['a failed call', {}, { ...issueCall, isError: true }],
+        ['an issue list', {}, { ...issueCall, toolName: 'query-error-tracking-issues-list', args: {} }],
+    ] satisfies [string, Partial<ResolvedState>, GuidanceCall][])(
+        'does not look up reports for %s',
+        async (_label, overrides, call) => {
+            const state = matchState([report()], overrides)
+            expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        }
+    )
+
+    it.each([
+        ['without Self-driving', true, { completed_at: null, draft: null }, 'error-tracking-sd-activation:shown'],
+        ['without Self-driving', false, { completed_at: null, draft: null }, 'error-tracking-sd-activation:flag_off'],
+        [
+            'with Self-driving',
+            true,
+            { completed_at: '2026-01-01T00:00:00Z', draft: null },
+            'error-tracking-inbox-report-match:shown',
+        ],
+    ])(
+        'gives a project %s one inbox notice (activation flag %s)',
+        async (_label, activationEnabled, onboarding, expected) => {
+            const state = matchState([report()], {
+                allTools: [
+                    'self-driving-status-get',
+                    'inbox-reports-list',
+                    'inbox-reports-retrieve',
+                    'inbox-report-artefacts-list',
+                ].map((name) => ({ name })) as ResolvedState['allTools'],
+                toolFeatureFlags: {
+                    [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: activationEnabled,
+                    [MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG]: true,
+                },
+            })
+            vi.mocked(state.context.api.request).mockImplementation(async ({ path }) =>
+                path.endsWith('/onboarding/') ? onboarding : { results: [report()] }
+            )
+
+            await expect(run(new GuidanceEngine(makeGuidanceRedis()), state, [issueCall])).resolves.toEqual([expected])
+            const reportLookups = vi
+                .mocked(state.context.api.request)
+                .mock.calls.filter(([options]) => options.path.endsWith('/signals/reports/'))
+            expect(reportLookups).toHaveLength(expected.startsWith('error-tracking-inbox-report-match') ? 1 : 0)
+        }
+    )
+
+    it('keeps the tool result to the budget and shows a late match on the next call', async () => {
+        vi.useFakeTimers()
+        const state = matchState()
+        vi.mocked(state.context.api.request).mockImplementationOnce(
+            () => new Promise((resolve) => setTimeout(() => resolve({ results: [report()] }), 500))
+        )
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const pending = engine.evaluate(state, issueCall)
+        await vi.advanceTimersByTimeAsync(300)
+        expect(await pending).toBeUndefined()
+
+        await vi.advanceTimersByTimeAsync(200)
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(state.context.api.request).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('Inbox digest guidance', () => {
+    const sqlCall: GuidanceCall = { toolName: 'execute-sql', args: { query: 'select 1' }, isError: false }
+
+    function digest(needsYou: number, newForYou = 0): Record<string, unknown> {
+        return {
+            needs_you: { count: needsYou, reports: [] },
+            new_for_you: { count: newForYou, reports: [] },
+            outcomes: { pull_requests_opened: 0, pull_requests_merged: 0, monitoring_periods_ended: 0 },
+            project: { actionable_unclaimed_count: 0 },
+        }
+    }
+
+    function digestState(response: unknown = digest(3, 2), overrides: Partial<ResolvedState> = {}): ResolvedState {
+        const state = makeToolExecutorState([{ name: 'execute-sql' }, { name: 'inbox-digest-get' }], {
+            suppressAnalytics: false,
+            aiConsentGiven: true,
+            carriedContextHandle: true,
+            carriedContextSessionKey: 'sess-1',
+            toolFeatureFlags: { [MCP_GUIDANCE_INBOX_DIGEST_FLAG]: true },
+            ...overrides,
+        })
+        return withSyntheticApi(state, response)
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.useRealTimers()
+    })
+
+    it.each([
+        [false, 'the `inbox-digest-get` tool'],
+        [true, '`call inbox-digest-get {}`'],
+    ])('points the agent at the digest in one line, with exec mode %s', async (useSingleExec, digestCall) => {
+        const state = digestState(digest(3, 2), { useSingleExec })
+        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, sqlCall)
+
+        expect(notice).toEqual({
+            ruleId: 'inbox-digest',
+            outcome: 'shown',
+            text: `The user's PostHog Inbox has reports for them. Waiting on them: 3. New in the last day: 2. Finish your current step, then tell the user and offer to go through them with ${digestCall}.`,
+        })
+        expect(state.context.api.request).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/projects/2/signals/inbox_digest/',
+            signal: expect.any(AbortSignal),
+        })
+    })
+
+    it.each([
+        [
+            'nothing that needs the user',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue(digest(0, 4)),
+        ],
+        [
+            'a missing route',
+            (state: ResolvedState) =>
+                vi.mocked(state.context.api.request).mockRejectedValue(new Error('404 Not Found')),
+        ],
+        [
+            'a malformed digest',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue({ needs_you: 3 }),
+        ],
+    ] satisfies [string, (state: ResolvedState) => unknown][])(
+        'shows nothing for %s and checks again after an hour',
+        async (_label, answer) => {
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis)
+            const state = digestState()
+            answer(state)
+            await expect(engine.evaluate(state, sqlCall)).resolves.toBeUndefined()
+            redis.advance(3599)
+            await expect(engine.evaluate(state, sqlCall)).resolves.toBeUndefined()
+            expect(state.context.api.request).toHaveBeenCalledTimes(1)
+
+            redis.advance(1)
+            vi.mocked(state.context.api.request).mockResolvedValue(digest(1))
+            await expect(engine.evaluate(state, sqlCall)).resolves.toMatchObject({ outcome: 'shown' })
+            expect(state.context.api.request).toHaveBeenCalledTimes(2)
+        }
+    )
+
+    it('shows once per person and project in twelve hours, across sessions and credentials', async () => {
+        const redis = makeGuidanceRedis()
+        const engine = new GuidanceEngine(redis)
+        expect(await engine.evaluate(digestState(), sqlCall)).toMatchObject({ outcome: 'shown' })
+
+        redis.advance(12 * 60 * 60 - 1)
+        const later = digestState(digest(3, 2), {
+            carriedContextSessionKey: 'sess-2',
+            requestContext: { ...digestState().requestContext, mcpSessionId: 'sess-2' },
+        })
+        later.context.api.config.apiToken = 'another-synthetic-credential'
+        expect(await engine.evaluate(later, sqlCall)).toBeUndefined()
+        expect(later.context.api.request).not.toHaveBeenCalled()
+
+        redis.advance(1)
+        expect(await engine.evaluate(later, sqlCall)).toMatchObject({ outcome: 'shown' })
+    })
+
+    it.each([
+        ['an Inbox tool call', {}, { ...sqlCall, toolName: 'inbox-reports-list' }],
+        ['a failed call', {}, { ...sqlCall, isError: true }],
+        [
+            'a caller without the digest tool',
+            { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] },
+            sqlCall,
+        ],
+        ['the flag off', { toolFeatureFlags: { [MCP_GUIDANCE_INBOX_DIGEST_FLAG]: false } }, sqlCall],
+        ['a task-bound request', { isTaskBound: true }, sqlCall],
+        ['a sandbox task', { sandboxTaskId: 'synthetic-task' }, sqlCall],
+        ['missing consent', { aiConsentGiven: false }, sqlCall],
+    ] satisfies [string, Partial<ResolvedState>, GuidanceCall][])(
+        'does not fetch the digest for %s',
+        async (_label, overrides, call) => {
+            const state = digestState(digest(3, 2), overrides)
+            expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        }
+    )
+
+    it('stays silent after the agent reads the digest itself', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const state = digestState()
+        await engine.evaluate(state, { toolName: 'inbox-digest-get', args: {}, isError: false })
+        expect(await engine.evaluate(state, sqlCall)).toBeUndefined()
+        expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [true, 'test-rule:shown'],
+        [false, 'test-rule:flag_off'],
+    ])('leaves a call alone when another rule takes it, with that rule flag %s', async (enabled, expected) => {
+        const state = digestState(digest(3, 2), {
+            allTools: ['execute-sql', 'vision-scanners-inline-scan', 'vision-requests-get', 'inbox-digest-get'].map(
+                (name) => ({ name })
+            ) as ResolvedState['allTools'],
+            toolFeatureFlags: { [rule.flag]: enabled, [MCP_GUIDANCE_INBOX_DIGEST_FLAG]: true },
+        })
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1 }])
+
+        await expect(run(engine, state, [replayQuery])).resolves.toEqual([expected])
+        expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it('keeps the tool result to the budget and shows a late answer on the next call', async () => {
+        vi.useFakeTimers()
+        const state = digestState()
+        vi.mocked(state.context.api.request).mockImplementationOnce(
+            () => new Promise((resolve) => setTimeout(() => resolve(digest(3, 2)), 500))
+        )
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const pending = engine.evaluate(state, sqlCall)
+        await vi.advanceTimersByTimeAsync(300)
+        expect(await pending).toBeUndefined()
+
+        await vi.advanceTimersByTimeAsync(200)
+        expect(await engine.evaluate(state, sqlCall)).toMatchObject({ outcome: 'shown' })
+        expect(state.context.api.request).toHaveBeenCalledTimes(1)
     })
 })

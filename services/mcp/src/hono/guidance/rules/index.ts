@@ -8,6 +8,8 @@ import sql from './sql'
 import tracing from './tracing'
 
 export const MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG = 'mcp-guidance-error-tracking-sd-activation'
+export const MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG = 'mcp-guidance-inbox-report-match'
+export const MCP_GUIDANCE_INBOX_DIGEST_FLAG = 'mcp-guidance-inbox-digest'
 
 export const GUIDANCE_RULES: readonly GuidanceRule[] = z
     .array(guidanceRuleSchema)
@@ -16,4 +18,6 @@ export const GUIDANCE_RULES: readonly GuidanceRule[] = z
 export const GUIDANCE_RULE_FLAGS: readonly string[] = [
     ...new Set(GUIDANCE_RULES.map((rule) => rule.flag)),
     MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
+    MCP_GUIDANCE_INBOX_REPORT_MATCH_FLAG,
+    MCP_GUIDANCE_INBOX_DIGEST_FLAG,
 ]

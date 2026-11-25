@@ -30,11 +30,9 @@ const onboardingSchema = z.object({
     github_optional_available: z.boolean().optional().default(false),
 })
 
-function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
+/** A person's own agent with AI consent, never a PostHog task, scout or sandbox run. */
+export function isSelfDrivingAudience(state: ResolvedState): boolean {
     return (
-        (call.toolName === 'query-error-tracking-issues-list' ||
-            (call.toolName === 'query-error-tracking-issue' && typeof call.args?.issueId === 'string')) &&
-        !call.isError &&
         !state.isImpersonated &&
         !state.suppressAnalytics &&
         !state.isTaskBound &&
@@ -46,7 +44,16 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
             clientUserAgent: state.requestContext.clientUserAgent,
             apiKeyScopes: state.apiKeyScopes,
             oauthClientId: state.oauthClientId,
-        }) &&
+        })
+    )
+}
+
+function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
+    return (
+        (call.toolName === 'query-error-tracking-issues-list' ||
+            (call.toolName === 'query-error-tracking-issue' && typeof call.args?.issueId === 'string')) &&
+        !call.isError &&
+        isSelfDrivingAudience(state) &&
         typeof state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === 'boolean' &&
         REQUIRED_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
     )
@@ -57,8 +64,9 @@ function sessionKey(state: ResolvedState, handle: string): string {
     return `mcp:guidance:sd-activation:{${identity}}`
 }
 
-function ineligibleKey(state: ResolvedState, projectId: string): string {
-    const identity = createHash('sha256')
+/** A cached API answer skips the API's permission check, so only the same user, credential and scopes reuse it. */
+export function callerCacheIdentity(state: ResolvedState, projectId: string, ...parts: string[]): string {
+    return createHash('sha256')
         .update(
             JSON.stringify([
                 state.context.api.config.baseUrl,
@@ -66,10 +74,14 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
                 state.distinctId,
                 state.context.api.config.apiToken,
                 [...state.apiKeyScopes].sort(),
+                ...parts,
             ])
         )
         .digest('base64url')
-    return `mcp:guidance:sd-activation:ineligible:{${identity}}`
+}
+
+function ineligibleKey(state: ResolvedState, projectId: string): string {
+    return `mcp:guidance:sd-activation:ineligible:{${callerCacheIdentity(state, projectId)}}`
 }
 
 function activationText(projectUrl: string, githubOptional: boolean): string {
