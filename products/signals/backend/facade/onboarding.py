@@ -108,7 +108,6 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
-            # A caller that validated a pilot draft has evaluated the pilot flag in this request.
             "github_optional_available": pilot_enabled or ResearchAccessPolicy.enabled(self.team_id),
             "setup_default_skills": setup_default_skills_for_team(self.team.parent_team_id or self.team_id),
             "draft": state.get("draft"),

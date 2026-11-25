@@ -1124,7 +1124,6 @@ describe('Inbox setup', () => {
             })
             await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
             await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-            // Without usage-based pricing there is no toggle, so a stored value is not the person's choice.
             const withoutGithub = pilot && !connected && !(usageBasedPricing && implementation)
             expect(logic.values.githubIsOptional).toBe(pilot && !connected)
             expect(logic.values.activatesWithoutGithub).toBe(withoutGithub)
@@ -1136,7 +1135,6 @@ describe('Inbox setup', () => {
                       : 'Connect GitHub to continue'
             )
             await expectLogic(logic, () => logic.actions.requestActivation()).toFinishAllListeners()
-            // Activation without GitHub waits for the person to confirm it in the dialog.
             expect(logic.values.githubSkipConfirmationVisible).toBe(withoutGithub)
             expect(logic.values.completed).toBe(connected)
             if (withoutGithub) {

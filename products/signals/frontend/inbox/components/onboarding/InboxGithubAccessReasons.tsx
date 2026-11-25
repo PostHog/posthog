@@ -3,9 +3,7 @@ import type { ReactNode } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 interface InboxGithubAccessReasonsProps {
-    /** Rendered beside the summary, for example the close button of a popover. */
     action?: ReactNode
-    /** Lays out the list of reasons. */
     className?: string
 }
 

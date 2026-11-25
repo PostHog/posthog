@@ -167,23 +167,23 @@ describe('Inbox setup defaults', () => {
         {
             name: 'a draft without GitHub takes github_optional',
             saved: {},
-            withoutGithub: true,
+            githubIsOptional: true,
             expected: { activation_mode: 'github_optional', setup_mode: 'guided' },
         },
         {
             name: 'a draft drops its saved mode once GitHub is connected',
             saved: { activation_mode: 'github_optional' },
-            withoutGithub: false,
+            githubIsOptional: false,
             expected: { setup_mode: 'guided' },
         },
         {
             name: 'a draft saved without a setup mode becomes guided when it takes github_optional',
             saved: { setup_mode: undefined },
-            withoutGithub: true,
+            githubIsOptional: true,
             expected: { activation_mode: 'github_optional', setup_mode: 'guided' },
         },
-    ] as const)('in the guided steps, $name', ({ saved, withoutGithub, expected }) => {
-        const draft = withGuidedSetupActivationMode({ ...newInboxSetupDraft([], []), ...saved }, withoutGithub)
+    ] as const)('in the guided steps, $name', ({ saved, githubIsOptional, expected }) => {
+        const draft = withGuidedSetupActivationMode({ ...newInboxSetupDraft([], []), ...saved }, githubIsOptional, true)
         expect({ activation_mode: draft.activation_mode, setup_mode: draft.setup_mode }).toEqual(expected)
     })
 

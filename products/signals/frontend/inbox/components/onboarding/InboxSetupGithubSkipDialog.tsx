@@ -12,7 +12,6 @@ interface InboxSetupGithubSkipDialogProps {
     canConnectGithub: boolean
 }
 
-/** Asks before the guided setup activates without GitHub, and shows what GitHub access is used for. */
 export function InboxSetupGithubSkipDialog({ canConnectGithub }: InboxSetupGithubSkipDialogProps): JSX.Element {
     const { githubSkipConfirmationVisible, githubIntegrations } = useValues(inboxSetupLogic)
     const { setGithubSkipConfirmationOpen, activate } = useActions(inboxSetupLogic)
@@ -24,8 +23,7 @@ export function InboxSetupGithubSkipDialog({ canConnectGithub }: InboxSetupGithu
             width={640}
             data-attr="inbox-setup-skip-github-dialog"
             footer={
-                // Bottom-aligned because the connect card grows a notice above its button when GitHub already has an
-                // installation to link, and the two buttons must stay on one line.
+                // Bottom-aligned because the connect card adds a notice above its button for a linkable installation.
                 <div className="flex w-full flex-wrap items-end justify-end gap-2">
                     <LemonButton
                         type="secondary"
@@ -34,9 +32,8 @@ export function InboxSetupGithubSkipDialog({ canConnectGithub }: InboxSetupGithu
                     >
                         Activate without GitHub
                     </LemonButton>
-                    {/* The connect card lists a GitHub connection that already exists, and a list does not fit this
-                        row of buttons. A connection exists when GitHub reports it as unavailable, and for the moment
-                        this dialog takes to close after a person links an installation from it. */}
+                    {/* The connect card lists an existing connection, and a list does not fit this row of buttons.
+                        One exists when GitHub reports it as unavailable, and briefly after a link from this dialog. */}
                     {canConnectGithub && githubIntegrations.length === 0 && (
                         <div className="min-w-0 whitespace-normal">
                             <InboxSetupGithubConnect connectDescription="" />

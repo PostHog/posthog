@@ -106,20 +106,19 @@ export function reconcileInboxSetupDraft(
         : draft
 }
 
-/**
- * The guided steps follow the GitHub connection, so a draft saved before GitHub was connected does not keep
- * activating without it.
- */
+/** A guided draft follows the GitHub connection, so one saved before the connection stops activating without it. */
 export function withGuidedSetupActivationMode(
     draft: InboxOnboardingDraftApi,
-    withoutGithub: boolean
+    githubIsOptional: boolean,
+    implementationToggleShown: boolean
 ): InboxOnboardingDraftApi {
+    // Automatic implementation needs GitHub. Without the toggle, the stored value is not the person's choice.
+    const withoutGithub = githubIsOptional && !(implementationToggleShown && draft.automatic_implementation)
     if ((draft.activation_mode === 'github_optional') === withoutGithub) {
         return draft
     }
     const { activation_mode: _, ...rest } = draft
-    // The server reads a draft that has this activation mode and no setup mode as quick setup. A guided draft saved
-    // before drafts carried a setup mode has none.
+    // A draft saved before drafts carried a setup mode has none, and the server would read it as quick setup.
     return withoutGithub
         ? { ...rest, setup_mode: draft.setup_mode ?? 'guided', activation_mode: 'github_optional' }
         : rest

@@ -11,7 +11,6 @@ interface InboxSetupGithubConnectProps {
     connectDescription: string
 }
 
-/** The GitHub connection of the guided setup. Connecting saves the draft and returns to the last step. */
 export function InboxSetupGithubConnect({ connectDescription }: InboxSetupGithubConnectProps): JSX.Element {
     const { saving } = useValues(inboxSetupLogic)
     const { connectGithub } = useActions(inboxSetupLogic)

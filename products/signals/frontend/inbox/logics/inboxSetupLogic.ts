@@ -706,16 +706,14 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                           sources,
                           (scanners ?? []).map((scanner) => scanner.id)
                       )
-                // Automatic implementation opens pull requests, so a person who turns it on still needs GitHub.
-                // Without usage-based pricing the person has no toggle, and the stored value is not their choice.
-                const wantsImplementation = !!flags[FEATURE_FLAGS.SELF_DRIVING_UBP] && current.automatic_implementation
+                const usageBasedPricing = !!flags[FEATURE_FLAGS.SELF_DRIVING_UBP]
                 // Quick setup sets the activation mode when it builds its own draft.
                 const reconciled = quick
                     ? current
-                    : withGuidedSetupActivationMode(current, githubIsOptional && !wantsImplementation)
+                    : withGuidedSetupActivationMode(current, githubIsOptional, usageBasedPricing)
                 return reconciled.activation_mode === 'github_optional'
                     ? { ...reconciled, automatic_implementation: false }
-                    : flags[FEATURE_FLAGS.SELF_DRIVING_UBP]
+                    : usageBasedPricing
                       ? reconciled
                       : { ...reconciled, automatic_implementation: true }
             },
@@ -783,8 +781,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             (optional: boolean, draft: InboxOnboardingDraftApi): boolean =>
                 optional && draft.activation_mode === 'github_optional',
         ],
-        // Linking an existing GitHub installation from the dialog connects GitHub without leaving the page, and the
-        // question the dialog asks no longer applies.
+        // A person can link an existing installation from the dialog, and then its question no longer applies.
         githubSkipConfirmationVisible: [
             (s) => [s.githubSkipConfirmationOpen, s.activatesWithoutGithub],
             (open: boolean, withoutGithub: boolean): boolean => open && withoutGithub,
@@ -868,6 +865,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     ? (values.quickSetupDraft?.automatic_implementation ?? null)
                     : values.draft.automatic_implementation,
                 implementation_priority: values.draft.implementation_priority,
+                activation_mode: (values.isQuickSetup ? values.quickSetupDraft : values.draft)?.activation_mode ?? null,
                 ...properties,
             })
         }
@@ -1012,7 +1010,6 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             values.draft.step === 'github' && !!values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP],
                         github_connected: values.hasGithubIntegration,
                         github_optional: values.githubIsOptional,
-                        activation_mode: values.draft.activation_mode ?? null,
                     })
                     cache.viewedStep = key
                 }
@@ -1230,7 +1227,6 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 actions.activate(activationSource)
             },
             requestActivation: () => {
-                // Activating without GitHub gives up code context, so the person confirms it in a dialog first.
                 if (values.activatesWithoutGithub) {
                     actions.setGithubSkipConfirmationOpen(true)
                     capture('self-driving onboarding github skip confirmation viewed')
@@ -1246,7 +1242,6 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 capture('self-driving onboarding activation requested', {
                     activation_source: activationSource,
                     github_connected: values.hasGithubIntegration,
-                    activation_mode: values.draft.activation_mode ?? null,
                 })
                 cache.activating = true
                 actions.setSaving(true)
