@@ -189,6 +189,8 @@ MIDDLEWARE = [
     # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
     # so the build skew counter sees the status of each API response the client receives.
     "posthog.client_build_middleware.ClientBuildSkewMiddleware",
+    # Outside the same middleware, so hog gets its notices on every answer, an early refusal included.
+    "posthog.cli_notices.CliNoticeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -210,6 +212,13 @@ MIDDLEWARE = [
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.csp_middleware.CSPMiddleware",
+    # Above every middleware that can answer without calling the view, so those responses get the
+    # header too. A view that allows framing still opts out with xframe_options_exempt.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware and
+    # XFrameOptionsMiddleware, so that the 404 gets their headers. Above the middleware that loads
+    # the session and the user from the database.
+    "posthog.middleware.MissingStaticFileMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -237,7 +246,6 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "posthog.middleware.NewEventsSchemaCookieMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",

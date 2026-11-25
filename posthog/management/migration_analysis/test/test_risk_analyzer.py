@@ -2510,7 +2510,7 @@ class TestHotTableAlterPolicy:
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
-    def test_acknowledged_migration_not_flagged(self, tmp_path, monkeypatch):
+    def test_acknowledged_migration_needs_review_instead_of_blocked(self, tmp_path, monkeypatch):
         ack_file = tmp_path / "acks.txt"
         ack_file.write_text("# comment\nposthog.0001_test\n")
         monkeypatch.setattr(HotTableAlterPolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
@@ -2519,6 +2519,9 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+        # The acknowledgment allows the lock, so the Migration risk check must not pass it as safe.
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert any("every query on the table" in note for note in risk.review_notes)
 
     def test_violation_names_the_acknowledgment_entry(self):
         op = create_mock_operation(
@@ -2778,6 +2781,8 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze_product([op])
         assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert any("every write on the table" in note for note in risk.review_notes)
 
     def test_add_foreign_key_not_valid_on_hot_child_blocked(self):
         """The helper run against a hot child still ALTERs posthog_team itself - gate it."""

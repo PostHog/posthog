@@ -159,14 +159,17 @@ function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'add
 
 function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf: SizeOf): Dashboard {
     switch (edit.edit) {
-        case 'placeTiles':
+        case 'placeTiles': {
+            // A section the person opened for themselves is resized open, whatever the saved fold says.
+            const shown = edit.resized ? findTile(view(dashboard), edit.resized) : null
+            const shownCollapsed = shown && isSection(shown) ? shown.widget.collapsed : undefined
             return changeGrid(dashboard, edit.grid, (tiles) =>
                 tiles.map((tile) => {
                     const place = edit.places[tile.id]
                     if (!place) {
                         return tile
                     }
-                    if (edit.resized !== tile.id || !isSection(tile) || tile.widget.collapsed) {
+                    if (edit.resized !== tile.id || !isSection(tile) || (shownCollapsed ?? tile.widget.collapsed)) {
                         return { ...tile, place }
                     }
                     // A section resized taller than its tiles need keeps that height. Resized back down to what they
@@ -176,6 +179,7 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
                     return { ...tile, place, widget: minRows ? { ...widget, minRows } : widget }
                 })
             )
+        }
         case 'moveTile':
             return moveTile(dashboard, edit, view, sizeOf)
         case 'addTile':
