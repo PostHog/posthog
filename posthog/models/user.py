@@ -164,24 +164,17 @@ class UserType(models.TextChoices):
     SERVICE_ACCOUNT = "service_account", "Service account"
 
 
-class UserQuerySet(models.QuerySet["User"]):
-    def humans(self) -> "UserQuerySet":
-        return self.filter(type=UserType.HUMAN)
-
-
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
-    _queryset_class = UserQuerySet
-
-    def get_queryset(self) -> UserQuerySet:  # type: ignore[override]
-        queryset = cast(UserQuerySet, super().get_queryset().defer(*DEFERED_ATTRS))
+    def get_queryset(self):
+        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
         if _join_current_organization.get():
             queryset = queryset.select_related("current_organization")
         return queryset
 
-    def humans(self) -> UserQuerySet:
-        return self.get_queryset().humans()
+    def humans(self) -> models.QuerySet["User"]:
+        return self.get_queryset().filter(type=UserType.HUMAN)
 
     @contextmanager
     def joining_current_organization(self) -> Iterator[None]:
