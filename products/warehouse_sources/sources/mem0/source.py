@@ -67,7 +67,7 @@ class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
             name=ExternalDataSourceType.MEM0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mem0",
-            caption="""Enter your Mem0 API key to automatically pull your Mem0 memories, memory history, entities, operation events, organizations, and projects into the PostHog Data warehouse.
+            caption="""Enter your Mem0 API key to automatically pull your Mem0 memories, memory history, entities, operation events, organizations, organization members, and projects into the PostHog Data warehouse.
 
 You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/api-keys).""",
             iconPath="/static/services/mem0.svg",

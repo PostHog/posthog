@@ -13,6 +13,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ..logic.eval_suggestions import (
     accept as eval_suggestion_accept,
+    eligibility as eval_suggestion_eligibility,
     suggestions as eval_suggestions,
 )
 from ..logic.eval_suggestions.runs import OBSERVATION_KEYS
@@ -36,6 +37,15 @@ def list_eval_suggestions(team: Team, access: UserAccessControl | None) -> contr
         pending=latest.pending,
         results=[_to_eval_suggestion(suggestion) for suggestion in latest.suggestions],
     )
+
+
+def get_eval_suggestion_settings(team: Team) -> contracts.EvalSuggestionSettings:
+    return contracts.EvalSuggestionSettings(enabled=not eval_suggestion_eligibility.suggestions_turned_off(team))
+
+
+def update_eval_suggestion_settings(team: Team, *, enabled: bool) -> contracts.EvalSuggestionSettings:
+    eval_suggestion_eligibility.set_suggestions_turned_off(team, not enabled)
+    return contracts.EvalSuggestionSettings(enabled=enabled)
 
 
 def get_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: UUID) -> contracts.EvalSuggestion:

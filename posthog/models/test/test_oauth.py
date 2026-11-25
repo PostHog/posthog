@@ -1,9 +1,11 @@
 from datetime import timedelta
 
 import time_machine
+from unittest.mock import patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -665,6 +667,83 @@ class TestOAuthModels(TestCase):
         other_app.refresh_from_db()
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
+
+    @parameterized.expand(
+        [
+            ("partner_switched_off", True, {"is_provisioning_partner": False}, None, True),
+            (
+                "partner_switched_off_with_update_fields",
+                True,
+                {"is_provisioning_partner": False},
+                ["is_provisioning_partner", "_provisioning_config"],
+                True,
+            ),
+            ("partner_switched_on", False, {"is_provisioning_partner": True}, None, False),
+            ("partner_renamed", True, {"name": "Renamed Partner"}, None, False),
+            ("non_partner_renamed", False, {"name": "Renamed App"}, None, False),
+            (
+                "flag_cleared_but_not_saved",
+                True,
+                {"is_provisioning_partner": False, "name": "Renamed"},
+                ["name"],
+                False,
+            ),
+        ]
+    )
+    def test_switching_a_partner_off_revokes_its_sessions(
+        self,
+        _name: str,
+        was_partner: bool,
+        changes: dict,
+        update_fields: list[str] | None,
+        expects_revoke: bool,
+    ) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=was_partner)
+        access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="partner_access", expires=timezone.now() + timedelta(minutes=5)
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app, user=self.user, token="partner_refresh", access_token=access_token
+        )
+
+        for field, value in changes.items():
+            setattr(app, field, value)
+        app.save(update_fields=update_fields)
+
+        refresh_token.refresh_from_db()
+        app.refresh_from_db()
+        self.assertEqual(OAuthAccessToken.objects.filter(pk=access_token.pk).exists(), not expects_revoke)
+        self.assertEqual(refresh_token.revoked is not None, expects_revoke)
+        self.assertEqual(app.sessions_revoked_at is not None, expects_revoke)
+
+    def test_a_stale_full_save_revokes_a_partner_switched_on_since_it_loaded(self) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=False)
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
+        OAuthApplication.objects.filter(pk=app.pk).update(is_provisioning_partner=True)
+
+        app.name = "Renamed Partner"
+        app.save()
+
+        app.refresh_from_db()
+        refresh_token.refresh_from_db()
+        self.assertFalse(app.is_provisioning_partner)
+        self.assertIsNotNone(refresh_token.revoked)
+
+    def test_a_failed_revoke_keeps_the_partner_switched_on(self) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=True)
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
+
+        app.is_provisioning_partner = False
+        with (
+            patch("posthog.models.oauth.revoke_application_sessions", side_effect=DatabaseError("statement timeout")),
+            self.assertRaises(DatabaseError),
+        ):
+            app.save(update_fields=["is_provisioning_partner"])
+
+        app.refresh_from_db()
+        refresh_token.refresh_from_db()
+        self.assertTrue(app.is_provisioning_partner)
+        self.assertIsNone(refresh_token.revoked)
 
 
 class TestCarriesProvisioningConfig(SimpleTestCase):

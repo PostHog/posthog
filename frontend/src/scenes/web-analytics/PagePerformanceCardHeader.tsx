@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 export function PagePerformanceCardHeader({
     title,
@@ -9,7 +9,7 @@ export function PagePerformanceCardHeader({
     actions,
 }: {
     title: string
-    /** How to read the tile, shown on hover next to the title rather than as a footer under the data. */
+    /** How to read the tile, shown from an info button next to the title rather than as a footer under the data. */
     description?: string
     actions?: ReactNode
 }): JSX.Element {
@@ -18,8 +18,8 @@ export function PagePerformanceCardHeader({
             <h3 className="m-0 flex items-center gap-1 text-sm font-semibold">
                 {title}
                 {description ? (
-                    <Tooltip title={description}>
-                        <IconInfo className="text-secondary text-base shrink-0" aria-label={description} />
+                    <Tooltip title={description} interactive openOnClick>
+                        <LemonButton size="xsmall" noPadding icon={<IconInfo />} aria-label={`About ${title}`} />
                     </Tooltip>
                 ) : null}
             </h3>

@@ -247,7 +247,7 @@ class PRStatusLookup:
             status=ReviewRequestOutcomeStatus.FAILED, reason=NO_MATCHING_RUN_REASON, review_id=self.report_id
         )
 
-    def status(self, requested_at: datetime | None, run_mode: str, head_sha: str | None = None) -> PRStatus:
+    def status(self, requested_at: datetime | None, run_mode: str | None, head_sha: str | None = None) -> PRStatus:
         state = self._state()
         resolution = (
             latest_resolution_summaries(self.team_id, [self.report]).get(self.report_id)

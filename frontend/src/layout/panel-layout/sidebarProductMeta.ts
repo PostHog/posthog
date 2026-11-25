@@ -58,6 +58,9 @@ const descriptions: Record<string, string> = {
     Transformations:
         'Reshape incoming events before they reach your analyses. Keep event names and properties consistent across your tracking.',
     Models: 'Turn SQL queries into reusable views and materialized views. Build on shared data models instead of repeating the same preparation in every analysis.',
+    Scouts: 'Agents that run on a schedule and look for problems in your product. What they find shows up in your Self-driving inbox.',
+    Subscriptions:
+        'Get insights and dashboards delivered on a schedule by email or Slack. Manage the subscriptions you have set up.',
 }
 
 /**
@@ -128,7 +131,6 @@ const examples: Record<string, string> = {
     'Replay vision': 'Explore patterns found in session recordings.',
     Skills: 'Share reusable instructions with the agents your team uses.',
     Support: 'Investigate and respond to a customer’s support request.',
-    Taggers: 'Label AI generations so you can compare different kinds of requests.',
     Tasks: 'Ask an agent to investigate an issue and prepare a code change.',
     Toolbar: 'Inspect elements on your website while setting up tracking.',
     Tracing: 'Follow a slow request across services to find the bottleneck.',
@@ -155,6 +157,8 @@ const examples: Record<string, string> = {
     Transformations: 'Clean or reshape incoming data before you analyze it.',
     'Warehouse destinations': 'Choose where a warehouse source sends its synced rows.',
     'Warehouse properties': 'Add account attributes from a warehouse table to your groups.',
+    Scouts: 'Have a scout check each morning for new checkout errors and report what it finds.',
+    Subscriptions: 'Send the weekly activation dashboard to your team every Monday.',
 }
 
 // Pinned pages that have no scene config of their own to carry a docs link.

@@ -19,7 +19,7 @@ const meta: Meta<typeof EvaluationPreviewRuns> = {
             { outcome: 'error', value: 'N/A', detail: ERROR },
         ]),
         loading: false,
-        loadFailed: false,
+        loadError: null,
         noneInSample: false,
         live: true,
         testing: false,
@@ -49,7 +49,7 @@ export const UngradedScores: Story = {
     },
 }
 export const Loading: Story = { args: { runs: [], loading: true } }
-export const LoadFailed: Story = { args: { runs: [], loadFailed: true } }
+export const LoadFailed: Story = { args: { runs: [], loadError: "Couldn't load matching traffic." } }
 export const NothingMatched: Story = { args: { runs: [], unit: 'trace' } }
 export const NoneInSample: Story = { args: { runs: [], unit: 'trace', noneInSample: true } }
 export const Narrow: Story = { decorators: [withWidth(NARROW_PANEL_WIDTH)] }

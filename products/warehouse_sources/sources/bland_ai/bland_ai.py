@@ -41,8 +41,13 @@ PERSONAS_PAGE_SIZE = 100
 EVALS_PAGE_SIZE = 100
 
 # Documented maximum page size of GET /v1/agent-testing/runs, /v1/widget/{id}/threads,
-# /v1/audit-logs and /v1/knowledge.
+# /v1/audit-logs, /v1/knowledge, /v1/triage/issues and /v1/dispositions.
 MAX_PAGE_SIZE = 100
+
+# Documented maximum page size of GET /v1/contacts and the most events GET /v1/alarms/history
+# returns.
+CONTACTS_PAGE_SIZE = 200
+ALARM_EVENTS_LIMIT = 200
 
 
 @dataclasses.dataclass(frozen=True)
@@ -141,6 +146,7 @@ SINGLE_PAGE_ENDPOINTS: dict[str, tuple[str, TJsonPath]] = {
     "voices": ("v1/voices", "voices"),
     "web_agents": ("v1/agents", "agents"),
     "agent_test_scenarios": ("v1/agent-testing/scenarios", "scenarios"),
+    "alarms": ("v1/alarms", "data.alarms"),
 }
 
 # Endpoints that list calls and hydrate each one, keyed to the per-call path and the selector that
@@ -402,6 +408,78 @@ def _audit_logs_resource(
     )
 
 
+def _contacts_resource(
+    rest_config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(BlandAIResumeConfig(offset=int(state["offset"])))
+
+    rest_config["resources"] = [
+        {
+            "name": "contacts",
+            "endpoint": {
+                "path": "v1/contacts",
+                "data_selector": "data",
+                "paginator": OffsetPaginator(
+                    limit=CONTACTS_PAGE_SIZE,
+                    offset_param="offset",
+                    limit_param="limit",
+                    total_path="pagination.total",
+                ),
+            },
+        }
+    ]
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"offset": resume.offset} if resume is not None else None,
+    )
+
+
+def _triage_issues_resource(
+    rest_config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(BlandAIResumeConfig(cursor=str(state["cursor"])))
+
+    rest_config["resources"] = [
+        {
+            "name": "triage_issues",
+            "endpoint": {
+                "path": "v1/triage/issues",
+                # The default sort is `last_activity_at`, which moves while we page; creation order
+                # keeps the keyset cursor pointing at a stable position.
+                "params": {"limit": MAX_PAGE_SIZE, "sort": "created_at", "order": "asc"},
+                "data_selector": "data.items",
+                "paginator": JSONResponseCursorPaginator(cursor_path="data.next_cursor", cursor_param="cursor"),
+            },
+        }
+    ]
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume is not None and resume.cursor else None,
+    )
+
+
 def _adopt_parent_conversation_fields(row: dict[str, Any]) -> dict[str, Any]:
     # Rename the injected parent fields onto the message row: `conversation_id` (part of the
     # composite primary key) and `conversation_created_at`, the parent conversation's creation
@@ -583,6 +661,38 @@ def bland_ai_source(
             }
         ]
         resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "alarm_events":
+        rest_config["resources"] = [
+            {
+                "name": "alarm_events",
+                "endpoint": {
+                    "path": "v1/alarms/history",
+                    "params": {"limit": ALARM_EVENTS_LIMIT},
+                    "data_selector": "data.events",
+                    "paginator": SinglePagePaginator(),
+                },
+            }
+        ]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "outcomes":
+        rest_config["resources"] = [
+            {
+                "name": "outcomes",
+                "endpoint": {
+                    "path": "v1/dispositions",
+                    "params": {"limit": MAX_PAGE_SIZE},
+                    "data_selector": "data.dispositions",
+                    "paginator": PageNumberPaginator(
+                        base_page=1, page_param="page", total_path="data.pagination.total_pages"
+                    ),
+                },
+            }
+        ]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "contacts":
+        resource = _contacts_resource(rest_config, team_id, job_id, resumable_source_manager)
+    elif endpoint == "triage_issues":
+        resource = _triage_issues_resource(rest_config, team_id, job_id, resumable_source_manager)
     elif endpoint == "agent_test_runs":
         rest_config["resources"] = [
             {

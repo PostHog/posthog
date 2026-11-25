@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -242,8 +243,8 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
     not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked.")
     untracked = serializers.IntegerField(
-        help_text="Sends that went out with open and click tracking off, as sensitive emails do, counted by when they "
-        "were queued like the other counts. They can't record an open or a click."
+        help_text="Sends that went out with open and click tracking off, counted by when they were queued like the "
+        "other counts. They can't record an open or a click."
     )
     window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
     after_click = TransactionalEmailConversionsSerializer(
@@ -331,6 +332,7 @@ class _PageSchema(AutoSchema):
 
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -35,16 +35,21 @@ export function EvaluationNameFields(): JSX.Element | null {
                         data-attr="llma-evaluation-create-name"
                     />
                 </LemonField.Pure>
-                {/* The field waits behind this button, even when a template filled it in, so it takes no room. */}
-                {descriptionOpen ? (
+                {/* An empty field waits behind this button, so it takes no room. */}
+                {descriptionOpen || evaluation.description ? (
                     <LemonField.Pure label="Description (optional)" htmlFor="llma-evaluation-create-description">
-                        <LemonInput
+                        <LemonTextArea
                             id="llma-evaluation-create-description"
                             value={evaluation.description || ''}
-                            onChange={setEvaluationDescription}
+                            onChange={(value) => {
+                                // Clearing the text keeps the field open while people type.
+                                setDescriptionOpen(true)
+                                setEvaluationDescription(value)
+                            }}
                             placeholder="What it checks and when to use it, for your teammates"
                             maxLength={500}
-                            autoFocus
+                            minRows={1}
+                            autoFocus={descriptionOpen}
                             data-attr="llma-evaluation-create-description"
                         />
                     </LemonField.Pure>
@@ -57,7 +62,7 @@ export function EvaluationNameFields(): JSX.Element | null {
                             onClick={() => setDescriptionOpen(true)}
                             data-attr="llma-evaluation-create-add-description"
                         >
-                            {evaluation.description ? 'Edit description' : 'Add description'}
+                            Add description
                         </LemonButton>
                     </div>
                 )}

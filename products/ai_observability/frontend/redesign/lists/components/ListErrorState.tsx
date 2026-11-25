@@ -1,11 +1,11 @@
 import { IconRefresh, IconWarning } from '@posthog/icons'
 
-import { ListEmptyState, ListEmptyStateAction } from './ListEmptyState'
+import { ListEmptyState } from './ListEmptyState'
 
 export interface ListErrorStateProps {
     title: string
     description: string
-    retry?: Pick<ListEmptyStateAction, 'onClick' | 'data-attr'>
+    retry?: { onClick: () => void; 'data-attr': string }
 }
 
 export function ListErrorState({ title, description, retry }: ListErrorStateProps): JSX.Element {

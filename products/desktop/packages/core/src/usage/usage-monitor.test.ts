@@ -364,26 +364,32 @@ describe("UsageMonitorService", () => {
     expect(fetchUsage).toHaveBeenCalledTimes(5);
   });
 
-  it("lets an org switch refetch through an open backoff window", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
-    const gateway = { fetchUsage } as unknown as GatewaySlice;
-    service = makeService(gateway, makeActivityMonitor());
+  it.each([
+    ["an org switch", () => emitAuthState("org-2")],
+    ["a project switch", () => emitAuthState("org-1", "authenticated", 43)],
+  ] as const)(
+    "lets %s refetch through an open backoff window",
+    async (_case, switchTo) => {
+      vi.spyOn(Math, "random").mockReturnValue(0);
+      const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+      const gateway = { fetchUsage } as unknown as GatewaySlice;
+      service = makeService(gateway, makeActivityMonitor());
 
-    // Three failures put the window at 10s, wider than the coalesce delay the
-    // switch's refetch waits out, so the window is still open when it fires.
-    await service.fetchOnce();
-    vi.advanceTimersByTime(2_500);
-    await service.fetchOnce();
-    vi.advanceTimersByTime(5_000);
-    await service.fetchOnce();
-    expect(fetchUsage).toHaveBeenCalledTimes(3);
+      // Three failures put the window at 10s, wider than the coalesce delay the
+      // switch's refetch waits out, so the window is still open when it fires.
+      await service.fetchOnce();
+      vi.advanceTimersByTime(2_500);
+      await service.fetchOnce();
+      vi.advanceTimersByTime(5_000);
+      await service.fetchOnce();
+      expect(fetchUsage).toHaveBeenCalledTimes(3);
 
-    // The switch drops the snapshot, so its refetch must not be swallowed.
-    emitAuthState("org-2");
-    await vi.advanceTimersByTimeAsync(5_001);
-    expect(fetchUsage).toHaveBeenCalledTimes(4);
-  });
+      // The switch changes whose usage is shown, so its refetch must not be swallowed.
+      switchTo();
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(fetchUsage).toHaveBeenCalledTimes(4);
+    },
+  );
 
   it("lets a forced refresh skip the timed window", async () => {
     const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));

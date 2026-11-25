@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Schemas } from '@/api/generated'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import parserRecipeCreate from '@/tools/aiObservability/parserRecipeCreate'
 import type { Context } from '@/tools/types'
 
@@ -46,6 +47,10 @@ function createContext(request: ReturnType<typeof vi.fn>): Context {
 
 describe('llma-parser-recipe-create handler', () => {
     const params = { name: 'Acme SDK', yaml_source: SOURCE, trace_id: 'trace-1', event_uuid: 'event-1' }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
 
     it('tests the parser against the event, then saves it on a pass and returns its id', async () => {
         const request = vi
@@ -138,14 +143,28 @@ describe('llma-parser-recipe-create handler', () => {
         await expect(parserRecipeCreate().handler(createContext(request), params)).rejects.toThrow()
     })
 
-    it('keeps a parser that passed when only the save fails', async () => {
+    it.each([
+        { error: new Error('500 from API'), captures: 1 },
+        {
+            error: new PostHogPermissionError({
+                detail: 'Your organization restricts MCP access to read-only.',
+                url: RECIPES_PATH,
+                method: 'POST',
+            }),
+            captures: 0,
+        },
+        { error: apiError(400, '{"code":"invalid"}'), captures: 1 },
+        { error: apiError(429, '{"code":"throttled"}'), captures: 0 },
+    ])('keeps a parser that passed when only the save fails ($error.message)', async ({ error, captures }) => {
+        const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
         const request = vi
             .fn()
             .mockResolvedValueOnce(verdict(FIXED, FINE, true))
-            .mockRejectedValueOnce(new Error('500 from API'))
+            .mockRejectedValueOnce(error)
 
         const result = await parserRecipeCreate().handler(createContext(request), params)
 
-        expect(result).toEqual({ valid: true, saved: false, error: '500 from API' })
+        expect(result).toEqual({ valid: true, saved: false, error: error.message })
+        expect(captureException).toHaveBeenCalledTimes(captures)
     })
 })

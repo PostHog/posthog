@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.hogql.direct_connection import (
+    RAW_QUERY_COLUMN_RESTRICTED_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     raw_query_denied_by_table_access,
@@ -18,6 +19,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
+    ExternalDataSchema,
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -310,6 +312,26 @@ class TestRawQueryTableAccess(APIBaseTest):
             patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True),
             self.assertRaisesMessage(ExposedHogQLError, RAW_QUERY_TABLE_DENIED_ERROR),
         ):
+            HogQLQueryExecutor(
+                query="SELECT * FROM orders",
+                team=self.team,
+                user=self.user,
+                connection_id=str(source.id),
+                send_raw_query=True,
+            ).execute()
+
+        connect.assert_not_called()
+
+    @parameterized.expand([("active", False), ("deleted_flag_unset", None)])
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_denies_raw_query_when_a_table_hides_columns(self, _name: str, deleted: bool | None, connect: MagicMock):
+        source = self._create_source()
+        self._create_table(source)
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="orders", enabled_columns=["id"], deleted=deleted
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, RAW_QUERY_COLUMN_RESTRICTED_ERROR):
             HogQLQueryExecutor(
                 query="SELECT * FROM orders",
                 team=self.team,

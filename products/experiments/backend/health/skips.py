@@ -42,6 +42,7 @@ SPLIT_CHANGED_AFTER_END = "The variant split changed after the experiment ended,
 NEEDS_EXPOSURES = "Runs once enough users are exposed"
 NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 NOT_ON_FLAG_RULE = "Couldn't check because experiments on a feature flag rule aren't supported yet"
+NOT_ON_WAREHOUSE_NATIVE_EXPOSURES = "Doesn't run when exposures come from a warehouse-native query"
 
 
 def not_applicable(reason: str) -> CheckSkip:

@@ -425,16 +425,29 @@ describe('signupLogic — name handling', () => {
         }
     )
 
-    it('shows when to retry after the signup is throttled', async () => {
-        useMocks({
-            post: {
-                '/api/signup/': () =>
-                    HttpResponse.json(
-                        { type: 'throttled_error', code: 'throttled', detail: 'Request was throttled.', attr: null },
-                        { status: 429, headers: { 'Retry-After': '3600' } }
-                    ),
+    it.each([
+        {
+            name: 'when to retry after the signup is throttled',
+            response: () =>
+                HttpResponse.json(
+                    { type: 'throttled_error', code: 'throttled', detail: 'Request was throttled.', attr: null },
+                    { status: 429, headers: { 'Retry-After': '3600' } }
+                ),
+            expected: {
+                code: 'throttled',
+                detail: 'Too many signup attempts from your network. Try again in an hour.',
             },
-        })
+        },
+        {
+            name: 'a connection message when the signup request gets no response',
+            response: () => HttpResponse.error(),
+            expected: {
+                code: 'network_error',
+                detail: "We couldn't reach PostHog. Check your connection and try again. Your details are still filled in.",
+            },
+        },
+    ])('shows $name', async ({ response, expected }) => {
+        useMocks({ post: { '/api/signup/': response } })
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({
             name: 'John Smith',
@@ -447,10 +460,7 @@ describe('signupLogic — name handling', () => {
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.signupPanelOnboardingManualErrors.generic).toMatchObject({
-            code: 'throttled',
-            detail: 'Too many signup attempts from your network. Try again in an hour.',
-        })
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).toMatchObject(expected)
     })
 
     it('drops a stale password error when a different email is submitted', async () => {

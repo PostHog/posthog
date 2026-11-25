@@ -33,7 +33,6 @@ For example, "which active users will open a report in the next 7 days?".
 In the PostHog UI the entity is a **model**. The API and tools call it a **pipeline**. Use "model" when you talk to people.
 
 Autoresearch is behind the `autoresearch` feature flag.
-Training runs in a cloud sandbox, so it also needs PostHog Desktop access.
 If the `autoresearch-*` tools are missing, the project probably does not have access yet.
 
 ## Pick the job
@@ -53,7 +52,7 @@ The usual path is short. Each tool's description names its prerequisites and ref
 1. **Resolve or define.** Templates cover the common questions (activity, inactivity risk, return after first use, feature adoption, repeat behavior). A custom definition works when none fits. See [defining-a-question.md](references/defining-a-question.md).
 2. **Validate.** `posthog:autoresearch-validate-create` with the same target, horizon, lookback and populations you will create with. It returns the base rate, positive and negative counts and warnings. Fix anything that sets `can_proceed` to false, and tell the user about the non-blocking warnings.
 3. **Create.** `posthog:autoresearch-create`. The new model is a `draft` until training starts.
-4. **Train.** `posthog:autoresearch-train-create` starts an agent run that takes a while (often tens of minutes). It costs real sandbox and LLM time, so confirm with the user before you start one, and never start a second run while one is live. A 403 means either the call came from inside a sandbox (ask the user to click **Start training** on the model's page) or the user has no PostHog Desktop access (the page will refuse too). Read the error message to tell them apart.
+4. **Train.** `posthog:autoresearch-train-create` starts an agent run that takes a while (often tens of minutes). It costs real sandbox and LLM time, so confirm with the user before you start one, and never start a second run while one is live. A 403 means either the call came from inside a sandbox (ask the user to click **Start training** on the model's page) or the organization is deactivated (the page will refuse too). Read the error message to tell them apart.
 5. **Wait.** Poll `posthog:autoresearch-training-runs-list` at a relaxed pace. While the first run is in progress the model is `bootstrapping`, and a missing champion is normal.
 6. **Score.** After a champion is promoted, the next daily sweep scores the population. `posthog:autoresearch-score-create` scores today now; call it once, then poll `posthog:autoresearch-runs-list`. A second manual score for the same date can duplicate predictions.
 

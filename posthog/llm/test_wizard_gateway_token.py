@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
@@ -50,6 +51,8 @@ MINT_SETTINGS = {
     # assertions indistinguishable.
     "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
+    # Not _DEFAULT_DECISION_CAP_USD, for the same reason.
+    "WIZARD_GATEWAY_DECISION_CAP_USD": "0.3",
 }
 
 # Trailing whitespace and an accent: the mint must carry the text byte for byte.
@@ -99,7 +102,7 @@ class TestMintWizardGatewayToken:
         ],
     )
     def test_posts_pinned_attribution_and_bearer(self, mint_url: str, expected_url: str) -> None:
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25"}
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25", "decision_cap_usd": "0.3"}
         with (
             override_settings(WIZARD_GATEWAY_MINT_URL=mint_url),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
@@ -117,6 +120,7 @@ class TestMintWizardGatewayToken:
             "allowed_models": ["gpt-5.6-luna", "claude-sonnet-5"],
             "allowed_efforts": ["none", "high"],
             "system_prompt": PROMPT_TEXT,
+            "decision_cap_usd": "0.300000",
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
@@ -132,6 +136,106 @@ class TestWizardMintRequest:
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
+
+    @pytest.mark.parametrize(
+        "configured,cap,expected",
+        [
+            ("0.3", None, "0.300000"),
+            # The gateway refuses a decision cap above the cap, which would fail every mint.
+            ("0.3", Decimal("0.1"), "0.100000"),
+            # Unreadable: the default, not an uncapped token.
+            ("a quarter", None, "0.250000"),
+            ("-1", None, "0.250000"),
+            # Blank is not an off value: get_from_env reads an empty variable as the default.
+            (" ", None, "0.250000"),
+            # Zero turns decisions off with the smallest cap the gateway takes, not with none:
+            # a token with no decision cap and no prompt would spend the run's whole cap on them.
+            ("0", None, "0.000001"),
+            ("0.00", None, "0.000001"),
+        ],
+    )
+    def test_the_decision_cap_is_sent_inside_the_cap(self, configured, cap, expected):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        rejects = WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="decision_cap_usd")
+        before = rejects._value.get()
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, cap_usd=cap)
+        assert post.call_args.kwargs["json"]["decision_cap_usd"] == expected
+        # Only an unreadable value counts as a reject; zero is a choice.
+        unreadable = configured in ("a quarter", "-1", " ")
+        assert rejects._value.get() - before == (1 if unreadable else 0)
+
+    @pytest.mark.parametrize("configured", ["0.3", "0"])
+    def test_a_token_with_no_prompt_still_carries_a_decision_cap(self, configured):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "decision_cap_usd": "0.000001"}
+        unpinned = dataclasses.replace(POLICY, prompt=None)
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+        sent = post.call_args.kwargs["json"]
+        assert "system_prompt" not in sent
+        assert Decimal(sent["decision_cap_usd"]) > 0
+
+    @pytest.mark.parametrize(
+        "echoed",
+        [
+            # A gateway that predates the field echoes nothing.
+            None,
+            # Not a cap, and one above what was sent, are not the cap that was asked for.
+            "a quarter",
+            "0.31",
+        ],
+    )
+    def test_a_token_with_no_prompt_is_not_released_without_its_decision_cap(self, echoed):
+        # With neither a prompt nor a decision cap the gateway serves the token's
+        # decisions against the run's whole cap, so the mint fails and keeps its slot.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        if echoed is not None:
+            minted["decision_cap_usd"] = echoed
+        unpinned = dataclasses.replace(POLICY, prompt=None)
+        with (
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)),
+            pytest.raises(WizardGatewayMintError) as refused,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+        assert refused.value.token_may_exist is True
+        assert "phe_x" not in str(refused.value)
+
+    def test_a_token_with_a_prompt_is_released_without_its_decision_cap(self):
+        # Every gateway refuses a prompt-carrying token's decisions when it has no
+        # decision cap, so this token is safe to hand over.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)):
+            assert mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)["token"] == "phe_x"
+
+    @pytest.mark.parametrize(
+        "configured,echoed,warns",
+        [
+            # A gateway that predates the field mints without it and echoes nothing.
+            ("0.3", None, True),
+            ("0.3", "0.3", False),
+            # Zero sends a cap too, so a missing echo is still a cap the gateway dropped.
+            ("0", None, True),
+        ],
+    )
+    def test_a_decision_cap_the_gateway_did_not_store_is_logged(self, configured, echoed, warns):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        if echoed is not None:
+            minted["decision_cap_usd"] = echoed
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)),
+            patch("posthog.llm.wizard_gateway_token.logger") as log,
+        ):
+            result = mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
+        assert result["decision_cap_usd"] == echoed
+        logged = [call.args[0] for call in log.warning.call_args_list]
+        assert ("wizard_gateway_token: the gateway did not store the decision cap" in logged) is warns
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):
@@ -724,7 +828,8 @@ class TestWizardGatewayPolicy:
         unpinned = WizardGatewayPolicy(
             models=POLICY.models, efforts=POLICY.efforts, programs=POLICY.programs, prompt=None
         )
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        # An unpinned token is released only with the decision cap the gateway stored.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "decision_cap_usd": "0.3"}
         with (
             override_settings(**MINT_SETTINGS),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,

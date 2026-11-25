@@ -27,21 +27,33 @@ from posthog.storage import object_storage
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import DocsRequest, MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
-from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
+from products.knowledge_writer.backend.feature_flags import (
+    AGENT_LAUNCH_FLAG,
+    OPEN_PULL_REQUESTS_AUTHORS_FLAG,
+    OPEN_PULL_REQUESTS_FLAG,
+)
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
+    MISSING_TOOL_PATTERN,
+    PRE_COMMIT_CONFIG_PATH,
     SOURCE_DIFF_ATTACHMENT_NAME,
-    WRITER_FORMAT_COMMAND_PATH,
     WRITER_QUOTES_PATH,
 )
-from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
-from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS, change_manifest_script
+from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport, ground_draft
+from products.knowledge_writer.backend.logic.launch import (
+    CHECK_SCRIPT_ATTACHMENT_NAME,
+    WRITER_IDLE_TIMEOUT_SECONDS,
+    change_check_script,
+)
 from products.knowledge_writer.backend.logic.pull_requests import (
+    AUTHOR_FLAG_UNREADABLE,
+    AUTHOR_NOT_OPTED_IN,
     DRAFT_EVENT,
     LINK_BACK_START,
     OPEN_PULL_REQUESTS_OFF,
     open_pull_request_for_run,
     settle_publication,
+    source_github,
 )
 from products.knowledge_writer.backend.logic.records import (
     BASE_SHA_STATE_KEY,
@@ -50,6 +62,7 @@ from products.knowledge_writer.backend.logic.records import (
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
+    SourceChange,
 )
 from products.knowledge_writer.backend.logic.writer_change import MAX_WRITER_CHANGE_BYTES, WRITER_CHANGE_ARTIFACT_NAME
 from products.knowledge_writer.backend.task_profiles import WRITER
@@ -96,6 +109,7 @@ BASE_FILES = {
     SIBLING_OF_DOCS_PATH: "build()\n",
     "AGENTS.md": "Docs follow the style guide.\n",
 }
+OVERSIZED_RULES_TEXT = "Follow the style guide.\n" * 20_000
 REGULAR_FILE_MODE = 0o100644
 SYMLINK_MODE = 0o120000
 TREE_MODE = 0o040000
@@ -116,8 +130,28 @@ SOURCE_DIFF = (
     "diff --git a/posthog/session_recordings/retention.py b/posthog/session_recordings/retention.py\n"
     '+    """Retention presets keep recordings for 90 days."""\n'
 )
+SOURCE_FILE_TEXT = 'RETENTION_PRESETS = ("30 days", "90 days")  # Presets apply to every project in the team.\n'
+UNCHANGED_SOURCE_LINE_CLAIM = "Presets apply to every project in the team."
 GROUNDING_DID_NOT_RUN = "Grounding did not run"
-SUPPORTED_QUOTES = {NEW_PAGE_HEADING: "Retention presets keep", NEW_PAGE_LINE: "keep recordings for 90 days"}
+NUMBERED_HEADING = "## Keep recordings for 90 days"
+SUPPORTED_QUOTES = {
+    NEW_PAGE_LINE: "keep recordings for 90 days",
+    UNCHANGED_SOURCE_LINE_CLAIM: "Presets apply to every project",
+}
+STRUCTURED_NEW_PAGE_PATCH = "\n".join(
+    [
+        "@@ -0,0 +1,9 @@",
+        "+---",
+        "+title: Retention presets",
+        "+sidebar: Docs",
+        "+---",
+        '+import { CalloutBox } from "components/Docs/CalloutBox"',
+        "+<RetentionPresetsIntro />",
+        "+## Pick a preset",
+        f"+{NUMBERED_HEADING}",
+        f"+{NEW_PAGE_LINE}",
+    ]
+)
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 OPENED_PULL_REQUEST_NUMBER = 9
@@ -170,14 +204,14 @@ def _change(
     *,
     base_files: Mapping[str, str] = BASE_FILES,
     patches: Mapping[str, str] | None = None,
-    format_result: Mapping[str, object] | None = None,
+    enforcer_entry: Mapping[str, object] | None = None,
 ) -> bytes:
     written = written or {}
     encoded = {path: base64.b64encode(text.encode()).decode() for path, text in written.items()}
     git_patches = {path: _git_patch(base_files[path], text) for path, text in written.items() if path in base_files}
     shipped_patches = git_patches if patches is None else patches
     manifest = {"written": encoded, "deleted": list(deleted), "patches": shipped_patches}
-    return json.dumps({**manifest, "format": format_result} if format_result else manifest).encode()
+    return json.dumps({**manifest, **({"enforcers": [enforcer_entry]} if enforcer_entry else {})}).encode()
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
@@ -192,8 +226,15 @@ NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES = {
 }
 RULES_FILE_EDIT_FLAG = "AGENTS.md: edits a rules file that agents follow"
 ADDED_RULES_LINE = "Docs follow the style guide. Add each new page to the nav."
-FAILED_FORMAT = {"command": "pnpm format:docs", "exit_code": 2}
-FAILED_FORMAT_LINE = "format command exited with 2 in the writer's sandbox"
+UNRUN_ENFORCER = {
+    "runner": "lint-staged",
+    "command": "node_modules/.bin/lint-staged --no-stash",
+    "exit_code": None,
+    "not_run_reason": "installing its tools exited with 1",
+}
+UNRUN_ENFORCER_LINE = "lint-staged: installing its tools exited with 1"
+FAILED_ENFORCER = {**UNRUN_ENFORCER, "exit_code": 1, "not_run_reason": None}
+FAILED_ENFORCER_LINE = "lint-staged: it exited with 1"
 UNRELATED_NAV_EDIT_FLAGS = [
     f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
     f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
@@ -297,6 +338,8 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if path.startswith("/repos/PostHog/posthog/contents/"):
+            return MagicMock(status_code=200, text=SOURCE_FILE_TEXT)
         if path.endswith(f"/pulls/{OPENED_PULL_REQUEST_NUMBER}"):
             return _replied(
                 {"number": OPENED_PULL_REQUEST_NUMBER, "requested_reviewers": self.requested_logins_payload()}
@@ -350,7 +393,13 @@ class DocsGitHub:
         text = self.base_files[path]
         limit = self.graphql_text_limit
         is_truncated = limit is not None and len(text) > limit
-        return {"oid": _blob_oid(path), "text": text[:limit], "isBinary": False, "isTruncated": is_truncated}
+        return {
+            "oid": _blob_oid(path),
+            "byteSize": len(text.encode()),
+            "text": text[:limit],
+            "isBinary": False,
+            "isTruncated": is_truncated,
+        }
 
     def tree_entry(self, directory: str, name: str) -> dict:
         path = f"{directory}/{name}" if directory else name
@@ -414,7 +463,12 @@ def writer_env(team, user):
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(GITHUB_REQUEST, side_effect=DocsGitHub()),
         patch(READ_ARTIFACT, side_effect=_read_uploaded_artifact),
-        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
+        patch(
+            FLAG_CHECK,
+            side_effect=lambda flag, *args, **kwargs: (
+                flag in (OPEN_PULL_REQUESTS_FLAG, OPEN_PULL_REQUESTS_AUTHORS_FLAG)
+            ),
+        ),
         patch(GROUNDING_GATEWAY, side_effect=_grounding_gateway(None)),
     ):
         yield
@@ -586,6 +640,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW) as start_workflow,
         patch.object(intake, "read_source_diff", return_value=SOURCE_DIFF_BACKING_RETENTION),
+        patch(GITHUB_REQUEST, side_effect=DocsGitHub(base_files={**BASE_FILES, "CLAUDE.md": OVERSIZED_RULES_TEXT})),
     ):
         started = intake.submit(verdict, team_id=team.id)
         assert started.task_id is not None
@@ -614,11 +669,18 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert run.state["include_live_context"] is False
-    (attachment,) = run.artifacts
-    assert run.state["pending_user_artifact_ids"] == [attachment["id"]]
+    attachment_by_name = {attachment["name"]: attachment for attachment in run.artifacts}
+    assert run.state["pending_user_artifact_ids"] == [attachment["id"] for attachment in run.artifacts]
     assert WRITER_QUOTES_PATH in run.state["pending_user_message"]
-    assert attachment["name"] == SOURCE_DIFF_ATTACHMENT_NAME
-    assert object_storage.read(attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
+    check_attachment = attachment_by_name[CHECK_SCRIPT_ATTACHMENT_NAME]
+    assert CHECK_SCRIPT_ATTACHMENT_NAME in run.state["pending_user_message"]
+    check_script = object_storage.read(check_attachment["storage_path"])
+    assert check_script is not None and BASE_SHA in check_script
+    diff_attachment = attachment_by_name[SOURCE_DIFF_ATTACHMENT_NAME]
+    assert object_storage.read(diff_attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
+    assert object_storage.read(attachment_by_name["rules-1-AGENTS.md"]["storage_path"]) == BASE_FILES["AGENTS.md"]
+    assert not any(name.endswith("CLAUDE.md") for name in attachment_by_name)
+    assert "`AGENTS.md` as `rules-1-AGENTS.md`" in task.description
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
 
@@ -721,7 +783,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 
 
 @pytest.mark.parametrize(
-    "author_login, docs_github_state, create_reply, expected_review, published_files, published_format, quotes, "
+    "author_login, docs_github_state, create_reply, expected_review, published_files, published_enforcer, quotes, "
     "expected_draft, expected_body_flags, expected_event_flags",
     [
         pytest.param(
@@ -738,17 +800,17 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             id="human_author_is_asked_to_review_a_grounded_change_ready_for_review",
         ),
         pytest.param(
-            None,
+            "octo-person",
             {},
             OPENED,
-            (None, "no_human_author", None),
+            ("octo-person", None, None),
             NEW_PAGE_FILES,
             None,
             None,
             True,
             [GROUNDING_DID_NOT_RUN],
             (False, [], [], []),
-            id="bot_author_is_asked_nothing_and_a_failed_grounding_call_opens_a_draft",
+            id="a_failed_grounding_call_opens_a_draft",
         ),
         pytest.param(
             "octo-person",
@@ -757,10 +819,10 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             (None, "review_request_failed", 422),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
             None,
-            {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
+            {NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
             True,
-            [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
-            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
+            [NEW_PAGE_LINE, SHARING_PAGE_PATH],
+            (True, [NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
             id="failed_request_is_recorded_and_unquoted_lines_and_an_unrouted_page_open_a_draft",
         ),
         pytest.param(
@@ -821,12 +883,25 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             {**NEW_PAGE_FILES, "AGENTS.md": f"{ADDED_RULES_LINE}\n"},
-            FAILED_FORMAT,
+            UNRUN_ENFORCER,
             SUPPORTED_QUOTES,
             True,
-            [RULES_FILE_EDIT_FLAG, FAILED_FORMAT_LINE],
+            [RULES_FILE_EDIT_FLAG, UNRUN_ENFORCER_LINE],
             (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
-            id="rules_file_edit_and_failed_format_command_open_a_draft_listing_both",
+            id="rules_file_edit_and_an_enforcer_that_could_not_run_open_a_draft_listing_both",
+        ),
+        pytest.param(
+            "octo-person",
+            {},
+            OPENED,
+            ("octo-person", None, None),
+            {**NEW_PAGE_FILES, "AGENTS.md": f"{ADDED_RULES_LINE}\n"},
+            FAILED_ENFORCER,
+            SUPPORTED_QUOTES,
+            True,
+            [RULES_FILE_EDIT_FLAG, FAILED_ENFORCER_LINE],
+            (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
+            id="an_uploaded_enforcer_that_failed_opens_a_draft_listing_it",
         ),
     ],
 )
@@ -841,7 +916,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     create_reply: dict,
     expected_review: tuple[str | None, str | None, int | None],
     published_files: Mapping[str, str],
-    published_format: Mapping[str, object] | None,
+    published_enforcer: Mapping[str, object] | None,
     quotes: Mapping[str, str] | None,
     expected_draft: bool,
     expected_body_flags: list[str],
@@ -884,7 +959,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         _finish_run(
             started.task_id,
             django_capture_on_commit_callbacks,
-            change=_change(published_files, base_files=published_base_files, format_result=published_format),
+            change=_change(published_files, base_files=published_base_files, enforcer_entry=published_enforcer),
             github=docs_github,
         )
     create_for_new_page.assert_called_once()
@@ -944,10 +1019,11 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         SHARING_PAGE_PATH,
         *UNRELATED_NAV_EDIT_FLAGS,
         RULES_FILE_EDIT_FLAG,
-        FAILED_FORMAT_LINE,
+        UNRUN_ENFORCER_LINE,
+        FAILED_ENFORCER_LINE,
     )
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
-    assert "pnpm format:docs" not in body
+    assert "node_modules/.bin/lint-staged" not in body
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == OPENED_PULL_REQUEST_NUMBER
@@ -971,6 +1047,28 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         draft_properties["review_request_skipped"],
         draft_properties["review_request_status_code"],
     ) == expected_review
+
+
+@pytest.mark.parametrize(
+    "page_patch, expected_unsupported_lines",
+    [
+        pytest.param(STRUCTURED_NEW_PAGE_PATCH, (NUMBERED_HEADING,), id="without_sending_page_structure"),
+        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", (), id="against_unchanged_lines_of_touched_files"),
+    ],
+)
+@pytest.mark.django_db
+def test_a_source_owner_without_a_github_integration_is_grounded(
+    team, monkeypatch, page_patch: str, expected_unsupported_lines: tuple[str, ...]
+) -> None:
+    Integration.objects.create(
+        team=team, kind="github", integration_id="31338", config={"account": {"name": "posthog-docs"}}
+    )
+    monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(SUPPORTED_QUOTES))
+    source = SourceChange(repository="PostHog/posthog", commit_sha="a" * 40)
+    added_page = {"filename": NEW_PAGE_PATH, "patch": page_patch}
+    with patch(GITHUB_REQUEST, side_effect=DocsGitHub()):
+        grounding = ground_draft(source_github(team.id, source, "posthog-docs/posthog.com"), source, [added_page])
+    assert (grounding.ran, grounding.unsupported_lines) == (True, expected_unsupported_lines)
 
 
 @pytest.mark.django_db
@@ -998,16 +1096,27 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "open_pull_requests_reply, expected_outcomes",
-    [(False, ["logged"]), (None, [])],
+    "open_pull_requests_reply, author_login, author_reply, expected_outcomes, expected_failure",
+    [
+        pytest.param(False, "octo-person", True, ["logged"], OPEN_PULL_REQUESTS_OFF, id="pull_requests_off"),
+        pytest.param(None, "octo-person", True, [], None, id="pull_requests_flag_unreadable"),
+        pytest.param(True, "octo-person", False, ["logged"], AUTHOR_NOT_OPTED_IN, id="author_not_opted_in"),
+        pytest.param(True, None, True, ["logged"], AUTHOR_NOT_OPTED_IN, id="no_human_author"),
+        pytest.param(
+            True, "octo-person", None, ["logged"], AUTHOR_FLAG_UNREADABLE, id="author_flag_unreadable_on_last_attempt"
+        ),
+    ],
 )
-def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
+def test_without_an_opted_in_author_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
     team,
     writer_env,
     django_capture_on_commit_callbacks,
     monkeypatch,
     open_pull_requests_reply,
+    author_login,
+    author_reply,
     expected_outcomes,
+    expected_failure,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
@@ -1016,15 +1125,13 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
+        started = intake.submit(
+            _verdict(suggested_page_urls=(RETENTION_PAGE,), author_login=author_login), team_id=team.id
+        )
     assert started.task_id is not None
+    flag_replies = {OPEN_PULL_REQUESTS_FLAG: open_pull_requests_reply, OPEN_PULL_REQUESTS_AUTHORS_FLAG: author_reply}
     with (
-        patch(
-            FLAG_CHECK,
-            side_effect=lambda flag, *args, **kwargs: (
-                open_pull_requests_reply if flag == OPEN_PULL_REQUESTS_FLAG else True
-            ),
-        ),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag_replies.get(flag, True)),
         patch(CREATE_PULL_REQUEST) as create_pull_request,
         patch(CAPTURE_DRAFT) as scoped_capture,
     ):
@@ -1034,11 +1141,10 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
     assert (docs_github.created_branches, docs_github.commits) == ([], [])
     capture = scoped_capture.return_value.__enter__.return_value
     assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
-    if open_pull_requests_reply is None:
+    if expected_failure is None:
         return
     assert (
-        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
-        == OPEN_PULL_REQUESTS_OFF
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == expected_failure
     )
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
     assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [RETENTION_PAGE])
@@ -1462,8 +1568,36 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 """
 
 
+CREDENTIALED_ORIGIN_URL = "https://x-access-token:ghs_example@github.com/acme/docs.git"
+FAKE_UVX = """#!/bin/sh
+[ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ -z "$AWS_ACCESS_KEY_ID" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
+git remote get-url origin | grep -q ghs_ && exit 3
+case "$*" in *install-hooks*) exit 0 ;; esac
+[ -f .git/fake-uvx-ran ] && exit 0
+touch .git/fake-uvx-ran
+printf '// formatted\\n' >> src/navs/index.js
+exit 1
+"""
+
+
 @pytest.mark.parametrize(
-    "is_adding_page_with_nav_edit, is_editing_rules_with_failing_format, source_diff, quote_by_line, "
+    "enforcer_output",
+    ["[FAILED] prettier [ENOENT]", "prettier failed without output (ENOENT)."],
+)
+def test_a_missing_tool_in_enforcer_output_counts_as_not_run(enforcer_output: str) -> None:
+    assert MISSING_TOOL_PATTERN.search(enforcer_output) is not None
+
+
+def _fake_uvx_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    folder = tmp_path_factory.mktemp("fake-bin")
+    uvx = folder / "uvx"
+    uvx.write_text(FAKE_UVX)
+    uvx.chmod(0o755)
+    return folder
+
+
+@pytest.mark.parametrize(
+    "is_adding_page_with_nav_edit, is_editing_rules_with_pre_commit_fixing_files, source_diff, quote_by_line, "
     "routed_page_keys, expected_warnings",
     [
         (False, False, None, None, frozenset(), []),
@@ -1473,11 +1607,7 @@ NAV_HEAD_TEXT = """export const docsMenu = [
             None,
             None,
             frozenset(),
-            [
-                "warning: the format command `printf '// formatted\\n' >> src/navs/index.js; echo unformatted; "
-                "exit 3` exited with 3:",
-                "warning: AGENTS.md: edits a rules file that agents follow",
-            ],
+            ["warning: AGENTS.md: edits a rules file that agents follow"],
         ),
         (
             True,
@@ -1510,8 +1640,9 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 )
 def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
     is_adding_page_with_nav_edit: bool,
-    is_editing_rules_with_failing_format: bool,
+    is_editing_rules_with_pre_commit_fixing_files: bool,
     source_diff: str | None,
     quote_by_line: dict[str, str] | None,
     routed_page_keys: frozenset[str],
@@ -1524,6 +1655,10 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
             if name not in ("PYTHONPATH", "DJANGO_SETTINGS_MODULE") and not name.startswith("GIT_")
         },
         "HOME": str(tmp_path),
+        "GH_TOKEN": "ghs_example",
+        "BASH_ENV": str(tmp_path / "bash-env.sh"),
+        "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE",
+        "PATH": f"{_fake_uvx_folder(tmp_path_factory)}{os.pathsep}{os.environ['PATH']}",
         **{
             f"GIT_{role}_{field}": value
             for role in ("AUTHOR", "COMMITTER")
@@ -1540,7 +1675,10 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     nav.write_text(NAV_BASE_TEXT)
     rules = tmp_path / "AGENTS.md"
     rules.write_text("Docs follow the style guide.\n")
+    if is_editing_rules_with_pre_commit_fixing_files:
+        (tmp_path / PRE_COMMIT_CONFIG_PATH).write_text("repos: []\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "remote", "add", "origin", CREDENTIALED_ORIGIN_URL], cwd=tmp_path, env=git_env, check=True)
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
     tree = subprocess.run(["git", "write-tree"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True)
     base = subprocess.run(
@@ -1556,11 +1694,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if is_adding_page_with_nav_edit:
         (page.parent / "exports.mdx").write_text("Export your recordings.\n")
         nav.write_text(NAV_HEAD_TEXT)
-    if is_editing_rules_with_failing_format:
+    if is_editing_rules_with_pre_commit_fixing_files:
         rules.write_text("Docs follow the style guide. Remove retired pages from the nav.\n")
-        (tmp_path / WRITER_FORMAT_COMMAND_PATH).write_text(
-            "printf '// formatted\\n' >> src/navs/index.js; echo unformatted; exit 3\n"
-        )
     if source_diff is not None:
         attachment = tmp_path / ".posthog" / "attachments" / "run" / "file" / SOURCE_DIFF_ATTACHMENT_NAME
         attachment.parent.mkdir(parents=True)
@@ -1569,8 +1704,12 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if quote_by_line is not None:
         (tmp_path / WRITER_QUOTES_PATH).write_text(json.dumps(quote_by_line))
 
+    check_script = tmp_path / ".posthog" / "attachments" / "run" / "check" / CHECK_SCRIPT_ATTACHMENT_NAME
+    check_script.parent.mkdir(parents=True)
+    check_script.write_text(change_check_script(base, ("contents/docs",), "/docs/", routed_page_keys))
+
     check = subprocess.run(
-        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/", routed_page_keys)],
+        ["python3", str(check_script.relative_to(tmp_path))],
         cwd=tmp_path,
         env=git_env,
         capture_output=True,
@@ -1578,10 +1717,25 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     )
 
     assert (check.returncode, check.stderr) == (0, "")
+    origin_after_check = subprocess.run(
+        ["git", "remote", "get-url", "origin"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True
+    )
+    assert origin_after_check.stdout.strip() == CREDENTIALED_ORIGIN_URL
     assert [line for line in check.stdout.splitlines() if line.startswith("warning:")] == expected_warnings
     assert "rules: AGENTS.md" in check.stdout.splitlines()
     manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())
     assert nav.read_text() == (NAV_HEAD_TEXT if is_adding_page_with_nav_edit else NAV_BASE_TEXT)
-    assert manifest.get("format") == ({"exit_code": 3} if is_editing_rules_with_failing_format else None)
+    assert manifest["enforcers"] == (
+        [
+            {
+                "runner": "pre-commit",
+                "command": "uvx pre-commit@4.7.0 run --files",
+                "exit_code": 0,
+                "not_run_reason": None,
+            }
+        ]
+        if is_editing_rules_with_pre_commit_fixing_files
+        else []
+    )
     assert manifest["patches"][DOCS_PAGE_PATH] == "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
     assert manifest["deleted"] == [str(removed_page.relative_to(tmp_path))]

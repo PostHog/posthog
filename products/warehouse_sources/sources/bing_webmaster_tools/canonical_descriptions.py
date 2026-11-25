@@ -90,12 +90,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "page_query_stats": {
         "description": (
-            "Traffic statistics for each search query that led to each of the site's top pages on Bing. "
+            "Traffic statistics for each search query that led to each of the site's 100 pages with the "
+            "most clicks on Bing. "
             "Bing updates this data weekly and retains about six months."
         ),
         "docs_url": f"{_API_DOCS_BASE}.getpagequerystats",
         "columns": {
-            "page": "The page URL the statistics are for, taken from the site's top pages.",
+            "page": "The page URL the statistics are for, taken from the site's 100 pages with the most clicks.",
             **_DATE_COLUMN,
             "query": "The search query users typed before they saw or clicked the page.",
             **_QUERY_STATS_METRIC_COLUMNS,
