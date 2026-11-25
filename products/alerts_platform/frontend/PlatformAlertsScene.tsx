@@ -16,12 +16,11 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { OptionalTimeLabel } from './OptionalTimeLabel'
+import { PlatformAlertDestinationIcons } from './PlatformAlertDestinationIcons'
 import {
     PlatformAlertListRow,
     SOURCE_KINDS,
     canExpand,
-    describeCondition,
     describeGroup,
     describeInterval,
     describeSchedule,
@@ -116,8 +115,14 @@ function listColumns(
                 ),
         },
         {
-            title: 'Condition',
-            render: (_, row) => (row.kind === 'group' ? null : describeCondition(row.configuration)),
+            title: 'Destinations',
+            render: (_, row) =>
+                row.kind === 'group' ? null : (
+                    <PlatformAlertDestinationIcons
+                        types={row.configuration.destination_types}
+                        enabled={row.configuration.enabled}
+                    />
+                ),
         },
         {
             title: 'Interval',
@@ -126,17 +131,6 @@ function listColumns(
                     <Tooltip title={describeSchedule(row.configuration)}>
                         <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
-                ),
-        },
-        {
-            title: 'Groups',
-            render: (_, row) => (row.kind === 'group' ? null : row.configuration.alerts.length),
-        },
-        {
-            title: 'Next check',
-            render: (_, row) =>
-                row.kind === 'group' ? null : (
-                    <OptionalTimeLabel time={row.configuration.next_check_at} fallback="Not scheduled" />
                 ),
         },
     ]
