@@ -637,7 +637,8 @@ tools:
             worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws
             and reputation are null for a user without project-wide workflow access. infrastructure holds the bounce and
             complaint rates of all email that every project in this PostHog region sent, so the user can tell a
-            shared-infrastructure problem from their own; it is null while unavailable for the project.
+            shared-infrastructure problem from their own; its complaint rate divides by deliveries to mailbox providers
+            that report complaints, not by all sends. It is null while unavailable for the project.
         feature_flag: workflows-sending-tier-requests
         response:
             include:

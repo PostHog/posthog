@@ -231,7 +231,12 @@ export const InfrastructureHealthWithoutTeamSends: StoryFn = () => {
             reputation: null,
             workflows: [],
             isps: [],
-            sending_allowance: null,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                enforced: false,
+                emails_sent_last_day: 0,
+                recent_changes: [],
+            },
         })
     )
     return <WorkflowsReputation />

@@ -382,8 +382,8 @@ def _rounded_infrastructure_health(metrics: IspSendingMetrics) -> EmailInfrastru
         return None
     return EmailInfrastructureHealth(
         emails_sent_at_least=_floor_to_one_significant_figure(metrics.emails_sent),
-        bounce_rate=_round_rate(metrics.bounce_rate, "0.0001", ROUND_CEILING),
-        complaint_rate=_round_rate(metrics.complaint_rate, "0.0001", ROUND_CEILING),
+        bounce_rate=_round_rate_up(metrics.bounce_rate),
+        complaint_rate=_round_rate_up(metrics.complaint_rate),
     )
 
 
@@ -392,8 +392,8 @@ def _floor_to_one_significant_figure(count: int) -> int:
     return count // magnitude * magnitude
 
 
-def _round_rate(rate: float, step: str, rounding: str) -> float:
-    return float(Decimal(str(rate)).quantize(Decimal(step), rounding=rounding))
+def _round_rate_up(rate: float) -> float:
+    return float(Decimal(str(rate)).quantize(Decimal("0.0001"), rounding=ROUND_CEILING))
 
 
 def verified_email_domains(*, team_id: int) -> list[str]:

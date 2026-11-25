@@ -124,6 +124,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
     def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
         with FakeSesEndpoint().installed() as ses:
+            ses.failing_metrics.add("DELIVERY")
             ses.account_metrics.update(
                 {
                     "SEND": 4_276_310,
