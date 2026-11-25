@@ -748,7 +748,10 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("every_word_converts_cheaply", "funnel analysis", "Search"),
+            ("variant_of_a_search_that_converts_cheaply", "funnel tracking tool", "Search"),
+            ("adds_a_word_that_converts_only_in_another_search", "funnel tracking session", None),
+            ("broader_than_the_search_that_converts", "funnel", None),
+            ("goes_to_the_campaign_of_the_search_it_varies", "llm tracking tool", "Replay"),
             ("one_word_never_converted", "funnel spy", None),
             ("only_generic_words", "free online tool", None),
             ("ranks_on_a_landing_page_of_the_ads", "funnel spy", "Replay", "https://www.example.com/replay/"),
@@ -786,7 +789,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("already_a_keyword", "funnel analysis", None, None, "funnel analysis"),
         ]
     )
-    def test_keyword_gap_takes_queries_whose_words_convert_or_that_rank_on_a_landing_page(
+    def test_keyword_gap_takes_variants_of_converting_searches_or_queries_that_rank_on_a_landing_page(
         self,
         _name: str,
         query: str,
@@ -812,6 +815,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("analysis software", "c1", cost=100, conversions=10),
             _term("spy", "c1", cost=1000, conversions=1),
             _term("session replay", "c2", cost=100, conversions=10),
+            _term("llm tracking", "c2", cost=10, conversions=1),
         )
         organic = tuple(OrganicQueryStats(query=f"filler {i}", clicks=1, impressions=1, position=50) for i in range(30))
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
@@ -845,6 +849,22 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert query not in gaps
         else:
             assert gaps[query] == (expected_campaign, "", "")
+
+    def test_keyword_gap_cites_the_closest_variant_from_its_campaign(self) -> None:
+        campaigns = (_campaign(id="c2", name="Replay"), _campaign())
+        terms = (
+            _term("tracking for llms", "c2", cost=50, conversions=5),
+            _term("llm tracking", "c2", cost=10, conversions=1),
+            _term("an llm tracking tool", "c1", cost=5, conversions=0.5),
+        )
+        organic = (OrganicQueryStats(query="llm tracking tool", clicks=1, impressions=5000, position=25),)
+
+        gap = next(rec for rec in recommend(_inputs(campaigns, terms, organic)) if rec.rule == "keyword_gap")
+
+        assert (gap.campaign, gap.reason.split("not bought. ")[1]) == (
+            "Replay",
+            'It is a variant of the search "llm tracking", which converts at or below its CPA benchmark.',
+        )
 
     @parameterized.expand(
         [
@@ -889,7 +909,10 @@ class TestMarketingRecommendations(SimpleTestCase):
     def test_keyword_gap_picks_the_match_type_by_query_length(
         self, _name: str, query: str, expected_copy: str, expected_match: str
     ) -> None:
-        terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
+        terms = (
+            _term("funnel tools", "c1", cost=100, conversions=10),
+            _term("funnel tracking", "c1", cost=100, conversions=10),
+        )
         organic = (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
 
         gap = next(rec for rec in recommend(_inputs((_campaign(),), terms, organic)) if rec.rule == "keyword_gap")

@@ -1,6 +1,6 @@
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from difflib import SequenceMatcher
 from itertools import groupby
 from typing import Literal
@@ -335,6 +335,14 @@ class _Benchmark:
     @property
     def compared_conversions(self) -> str:
         return "conversions" if self.source == BenchmarkSource.TARGET_CPA else "non-brand conversions"
+
+
+@frozen
+class _ConvertingSearch:
+    term: str
+    stems: frozenset[str]
+    campaign_id: str
+    conversions: float
 
 
 @frozen
@@ -1038,7 +1046,7 @@ class _Recommender:
         unranked = [term for term in terms if not term.organic or term.organic.position > 3]
         unranked_clicks = sum(term.clicks for term in unranked)
         average_cpc = sum(term.cost for term in unranked) / unranked_clicks if unranked_clicks else None
-        vocabulary = self._vocabulary(terms, benchmarks)
+        converting = self._converting_searches(terms, benchmarks)
         competitors = self._competitor_names()
 
         rules: dict[MarketingAnalyticsRecommendationRule, list[MarketingAnalyticsRecommendation]] = defaultdict(list)
@@ -1100,7 +1108,7 @@ class _Recommender:
         if self.organic:
             if average_cpc:
                 rules[MarketingAnalyticsRecommendationRule.KEYWORD_GAP] = self._keyword_gap(
-                    average_cpc, vocabulary, competitors
+                    average_cpc, converting, competitors
                 )
             rules[MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE] = [
                 self._term_recommendation(
@@ -1289,7 +1297,7 @@ class _Recommender:
     def _keyword_gap(
         self,
         average_cpc: float,
-        vocabulary: dict[str, dict[str, float]],
+        converting: Sequence[_ConvertingSearch],
         competitors: set[str],
     ) -> list[MarketingAnalyticsRecommendation]:
         has_search = any(
@@ -1312,17 +1320,30 @@ class _Recommender:
                 continue
             page = self.ranking_page.get(query.query)
             landing_campaign = landing_campaigns.get(_page_key(page)) if page else None
-            words = [word for word in query.query.split() if _is_meaningful(word)]
-            matched = [word for word in words if word in vocabulary]
-            # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
-            if not matched or (landing_campaign is None and len(matched) < len(words)):
-                continue
-            campaign = landing_campaign or self._campaign_for_words(matched, vocabulary, channel)
+            stems = _word_stems(query.query)
+            campaign: CampaignStats | None
             if landing_campaign:
-                evidence = f"It ranks on {page}, which this campaign's ads link to"
+                # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
+                if not any(stems & search.stems for search in converting):
+                    continue
+                campaign = landing_campaign
+                evidence = f"It ranks on {page}, which this campaign's ads link to."
                 ad_group = f"the ad group whose ads link to {page}"
             else:
-                evidence = "Its words all appear in paid searches that convert at or below their CPA benchmark"
+                # Words that convert only in separate searches, or one word more or less, can change the topic.
+                variants = [search for search in converting if search.stems == stems]
+                if not variants:
+                    continue
+                campaign = self._campaign_for_searches(variants, channel)
+                # Variants can differ in every generic word, so the one sharing the most words reads as the evidence.
+                query_words = set(WORD.findall(query.query.lower()))
+                proof = max(
+                    (search for search in variants if campaign is None or search.campaign_id == campaign.id),
+                    key=lambda search: (len(query_words & set(WORD.findall(search.term))), search.conversions),
+                )
+                evidence = (
+                    f'It is a variant of the search "{proof.term}", which converts at or below its CPA benchmark.'
+                )
                 ad_group = "an ad group of the campaign"
             if has_search:
                 # A single word in phrase match is almost broad match.
@@ -1418,14 +1439,11 @@ class _Recommender:
             and spend_per_conversion >= REVIEW_CPA_MULTIPLE * benchmark.cpa
         )
 
-    def _campaign_for_words(
-        self, words: list[str], vocabulary: dict[str, dict[str, float]], channel: str
-    ) -> CampaignStats | None:
-        # The campaign with the most conversions on searches that use the query's words already serves the topic.
+    def _campaign_for_searches(self, searches: Sequence[_ConvertingSearch], channel: str) -> CampaignStats | None:
+        # The campaign with the most conversions on the query's variants already serves the topic.
         conversions: dict[str, float] = defaultdict(float)
-        for word in words:
-            for campaign_id, count in vocabulary.get(word, {}).items():
-                conversions[campaign_id] += count
+        for search in searches:
+            conversions[search.campaign_id] += search.conversions
         candidates = [
             campaign
             for campaign_id in conversions
@@ -1571,22 +1589,21 @@ class _Recommender:
             cost=max(campaign.cost - leak.cost, 0), conversions=max(campaign.conversions - leak.conversions, 0)
         )
 
-    def _vocabulary(self, terms: list[_Term], benchmarks: dict[str, _Benchmark]) -> dict[str, dict[str, float]]:
-        # Words from non-brand terms that convert at or below their CPA benchmark: the account's own
-        # definition of a relevant search. Terms that convert only at a high cost do not count.
-        # Each word maps to the conversions per campaign of the terms that contain it.
-        vocabulary: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-        for term in terms:
-            if (
-                term.conversions <= 0
-                or term.term in self.brand_terms
-                or ((benchmark := benchmarks.get(term.term)) and term.cost / term.conversions > benchmark.cpa)
-            ):
-                continue
-            for word in term.term.split():
-                if _is_meaningful(word):
-                    vocabulary[word][term.top_campaign_id] += term.conversions
-        return vocabulary
+    def _converting_searches(
+        self, terms: list[_Term], benchmarks: dict[str, _Benchmark]
+    ) -> tuple[_ConvertingSearch, ...]:
+        # Non-brand terms that convert at or below their CPA benchmark: the account's own definition of a
+        # relevant search.
+        return tuple(
+            _ConvertingSearch(
+                term=term.term, stems=stems, campaign_id=term.top_campaign_id, conversions=term.conversions
+            )
+            for term in terms
+            if term.conversions > 0
+            and term.term not in self.brand_terms
+            and not ((benchmark := benchmarks.get(term.term)) and term.cost / term.conversions > benchmark.cpa)
+            and (stems := _word_stems(term.term))
+        )
 
     def _competitor_names(self) -> set[str]:
         queries = set(self.organic) | set(self.terms)
