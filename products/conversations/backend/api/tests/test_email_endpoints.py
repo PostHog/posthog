@@ -39,6 +39,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.email_thread_ingestion import EmailAddress
 from products.conversations.backend.services.mailgun_events import _forwarded_message, _ForwardedMessage
+from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
 
 
 def _make_png_bytes() -> bytes:
@@ -2684,15 +2685,28 @@ class TestForwardedMessage(SimpleTestCase):
             ),
             ("group_rewrite", _gmail_forward("'Jane' via Billing <billing@example.org>"), None),
             ("overlong_from", _gmail_forward("J" * 600 + " <jane@example.net>"), None),
+            ("quoted_gmail_marker", "FYI\n\n> " + _gmail_forward("Bob <bob@example.net>"), None),
             (
-                "forward_inside_quoted_reply",
-                "Thanks!\n\nOn Mon, 2 Nov 2026, Jane Doe <jane@example.net> wrote:\n> "
+                "forward_below_reply_header",
+                "Thanks!\n\nOn Mon, 2 Nov 2026, Jane Doe <jane@example.net> wrote:\n"
                 + _gmail_forward("Bob <bob@example.net>"),
                 None,
             ),
             (
-                "forward_inside_localized_reply",
-                "Danke!\n\nAm Mo., 2. Nov. 2026 um 10:00 schrieb Jane Doe <jane@example.net>:\n> "
+                "forward_below_german_reply_header",
+                "Danke!\n\nAm Mo., 2. Nov. 2026 um 10:00 schrieb Jane Doe <jane@example.net>:\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_below_bare_address_reply_header",
+                "Danke!\n\nAm 02.11.2026 um 10:00 schrieb jane@example.net:\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_below_french_reply_header",
+                "Merci !\n\nLe lun. 2 nov. 2026 à 10:00, Jane Doe <jane@example.net> a écrit :\n"
                 + _gmail_forward("Bob <bob@example.net>"),
                 None,
             ),
@@ -2730,6 +2744,7 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
         )
         self._create_user("sam@example.org")
         self._create_user("ana.forwarding-test@gmail.com")
+        self._create_user("ana.forwarding-test@proton.me")
         flag = patch(
             "products.conversations.backend.services.mailgun_events.posthoganalytics.feature_enabled", return_value=True
         )
@@ -2804,6 +2819,14 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
                     "Cc": "bo.forwarding-test@gmail.com",
                 },
             ),
+            (
+                "proton_forwarder_copies_an_outsider",
+                {
+                    "from": "Ana <ana.forwarding-test@proton.me>",
+                    "sender": "ana.forwarding-test@proton.me",
+                    "Cc": "bo.forwarding-test@proton.me",
+                },
+            ),
             ("reply_on_existing_thread", {"In-Reply-To": "<existing@example.net>"}),
         ]
     )
@@ -2823,6 +2846,12 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
             ("team_reply_all", {"To": "support@example.com", "Cc": "Sam <sam@example.org>"}, True, []),
             ("team_reply_to_customer", {"To": "jane@example.net", "Cc": "sam@example.org"}, False, ["sam@example.org"]),
             (
+                "outsider_copies_the_customer",
+                {"from": "Lee <lee@example.net>", "sender": "lee@example.net", "Cc": "jane@example.net"},
+                True,
+                [],
+            ),
+            (
                 "non_member_reply_all",
                 {"from": "Am <am@posthog.com>", "sender": "am@posthog.com", "Cc": "Sam <sam@example.org>"},
                 True,
@@ -2831,7 +2860,7 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
             ("customer_reply", {"from": "Jane Doe <jane@example.net>", "sender": "jane@example.net"}, False, []),
         ]
     )
-    def test_mail_on_a_forwarded_ticket_is_private_unless_it_involves_the_customer(
+    def test_mail_on_a_forwarded_ticket_is_private_unless_it_reached_the_customer(
         self, name: str, extra: dict[str, str], expected_private: bool, expected_cc: list[str]
     ):
         self._forward("<forward@posthog.com>", {})
@@ -2841,6 +2870,27 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
         assert comment.item_context is not None
         assert comment.item_context["is_private"] is expected_private
         assert Ticket.objects.get(team=self.team).cc_participants == expected_cc
+
+    @parameterized.expand([("forward_kept", False), ("forward_deleted", True)])
+    def test_ai_context_has_only_the_first_forwarded_email(self, _name: str, deleted: bool):
+        internal = (
+            "\r\n\r\n---------- Forwarded message ---------\r\nFrom: Sam <sam@example.org>\r\n\r\nOffer a discount."
+        )
+        body = "Can someone take this?\r\n\r\n" + _gmail_forward("Jane Doe <jane@example.net>") + internal
+        self._forward("<forward@posthog.com>", {"body-plain": body})
+        Comment.objects.filter(item_context__email_message_id="<forward@posthog.com>").update(deleted=deleted)
+        customer = {"from": "Jane Doe <jane@example.net>", "sender": "jane@example.net", "body-plain": "Any news?"}
+        self._forward("<news@example.net>", {"In-Reply-To": "<forward@posthog.com>", **customer})
+        ticket = Ticket.objects.get(team=self.team)
+
+        with patch("products.conversations.backend.ai.suggest._load_person_properties", return_value={}):
+            context = _build_context_sync(self.team.id, str(ticket.id)).ticket_context
+
+        assert ("[Customer]: ---------- Forwarded message" in context) is not deleted
+        assert ("My export is broken." in context) is not deleted
+        assert "Can someone take this?" not in context
+        assert "Offer a discount." not in context
+        assert "[Customer]: Any news?" in context
 
 
 class TestEmailInboundSelfAddressedAutoreply(MailgunWebhookTestMixin, BaseTest):

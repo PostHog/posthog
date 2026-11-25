@@ -79,20 +79,30 @@ _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
-# Outlook's `-----Original Message-----` and underscore rule also head plain replies, so they are left out.
-_FORWARD_MARKER_RE = re.compile(
-    r"^(?:[ \t]*-{2,}[ \t]*Forwarded message[ \t]*-{2,}|>?[ \t]*Begin forwarded message:)[ \t]*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _FORWARDED_HEADER_RE = re.compile(
     r"^\*?(?P<key>From|Sent|Date|To|Cc|Subject|Reply-To)\*?[ \t]*:\*?[ \t]*(?P<value>.*)$", re.IGNORECASE
 )
 # A quote, reply header or divider above the marker puts the forward inside mail someone else wrote.
 _QUOTED_MAIL_LINE_RE = re.compile(r"^(?:>|_{8,}|-{2,}[^-\n]+-{2,})|\bwrote:$", re.IGNORECASE)
+# Outlook's `-----Original Message-----` and underscore rule also head plain replies, so they are left out.
+_FORWARD_MARKER_RE = re.compile(
+    r"^(?:[ \t]*-{2,}[ \t]*Forwarded message[ \t]*-{2,}|>?[ \t]*Begin forwarded message:)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_MAILBOX_PROVIDER_DOMAINS = frozenset(free_email_domains_list) | {
+    "proton.me",
+    "pm.me",
+    "protonmail.ch",
+    "hey.com",
+    "tutanota.com",
+    "tuta.io",
+    "tuta.com",
+}
 _FORWARD_SUBJECT_PREFIX_RE = re.compile(r"^\s*(?:fwd?\s*:\s*)+", re.IGNORECASE)
 # parseaddr recurses on nested parentheses, so the cap also keeps a hostile From below the recursion limit.
 MAX_FORWARDED_FROM_LENGTH = 512
 MAX_FORWARDED_HEADER_LINES = 30
+MAX_FORWARDED_EMAIL_CONTEXT_LENGTH = 4_000
 FORWARD_ATTRIBUTION_FLAG = "product-support-forwarded-email-requester"
 MAX_EMAIL_ADDRESS_LENGTH = 254
 MAX_EMAIL_BODY_LENGTH = 50_000
@@ -739,6 +749,22 @@ def _has_open_angle_bracket(value: str) -> bool:
     return "<" in value and ">" not in value.rpartition("<")[2]
 
 
+def _is_reply_header(line: str) -> bool:
+    # Reply headers name the sender's address and end in a colon in every language, as in `schrieb a@example.com:`.
+    return "@" in line and line.endswith((":", "："))
+
+
+def _first_forwarded_email(content: str) -> str:
+    """The first forwarded email in a forward, without the note above it or any later forward below it."""
+    text = content.replace("\r\n", "\n").replace("\r", "\n")
+    first = _FORWARD_MARKER_RE.search(text)
+    if first is None:
+        return ""
+    following = _FORWARD_MARKER_RE.search(text, first.end())
+    block = text[first.start() : following.start() if following else len(text)]
+    return block.strip()[:MAX_FORWARDED_EMAIL_CONTEXT_LENGTH]
+
+
 def _forwarded_message(body_plain: str) -> _ForwardedMessage | None:
     """Read the headers of the message a team member forwarded below their own note."""
     text = body_plain.replace("\r\n", "\n").replace("\r", "\n")
@@ -746,7 +772,10 @@ def _forwarded_message(body_plain: str) -> _ForwardedMessage | None:
     if marker is None:
         return None
     above = (line.strip() for line in text[: marker.start()].split("\n"))
-    if any(_QUOTED_MAIL_LINE_RE.search(line) or _FORWARDED_HEADER_RE.match(line) for line in above):
+    if any(
+        _QUOTED_MAIL_LINE_RE.search(line) or _FORWARDED_HEADER_RE.match(line) or _is_reply_header(line)
+        for line in above
+    ):
         return None
     headers: dict[str, str] = {}
     key = ""
@@ -809,7 +838,7 @@ def _forwarded_original_message(email: ParsedEmail, config: EmailChannel) -> _Fo
     sender = forwarded.sender
     recipients = {recipient.email for recipient in (*email.to_recipients, *email.cc_recipients)}
     sender_domain = email.sender.email.rpartition("@")[2]
-    forwarder_domain = None if sender_domain in free_email_domains_list else sender_domain
+    forwarder_domain = None if sender_domain in _MAILBOX_PROVIDER_DOMAINS else sender_domain
     internal_addresses = {
         address.lower()
         for address in EmailChannel.objects.filter(team_id=config.team_id).values_list("from_email", flat=True)
@@ -881,6 +910,7 @@ def _process_support_email(
         else None
     )
     content = recover_links_from_html(body.text, body.html)
+    forwarded_email = _first_forwarded_email(content) if forwarded else ""
 
     try:
         with transaction.atomic():
@@ -943,13 +973,13 @@ def _process_support_email(
 
             assert ticket is not None
 
-            # Mail on a forwarded ticket that neither came from nor went to the requester never reached them.
+            # Outsider To and Cc headers prove nothing, so only the requester's mail and team mail to them are public.
             requester_email = (ticket.email_from or "").lower()
             recipients = {recipient.email for recipient in (*email.to_recipients, *email.cc_recipients)}
             private_note = forwarded is not None or (
                 (ticket.anonymous_traits or {}).get("email_forwarded") is True
                 and sender_email != requester_email
-                and requester_email not in recipients
+                and not (is_team_member and requester_email in recipients)
             )
 
             item_context = {
@@ -963,6 +993,7 @@ def _process_support_email(
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
                 "has_full_email_content": full_body_plain is not None,
+                **({"email_forwarded": True, "forwarded_email": forwarded_email} if forwarded else {}),
             }
 
             comment = Comment.objects.create(
