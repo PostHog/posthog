@@ -127,9 +127,6 @@ export async function startEdgeProcess(
         starting = bounded('start', startsWithinMs, { resolve: (value) => resolve(value as Started), reject })
     })
     child.on('message', (message: Message) => {
-        if (ended) {
-            return
-        }
         if (message.kind === 'started') {
             starting?.resolve(message)
         } else if (message.kind === 'failed') {
