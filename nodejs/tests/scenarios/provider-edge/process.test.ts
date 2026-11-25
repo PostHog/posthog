@@ -15,6 +15,7 @@ const REJECT = ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: 
 const TSX = pathToFileURL(require.resolve('tsx')).href
 const NODEJS_DIR = path.join(__dirname, '../../..')
 const EDGE_PROCESS = JSON.stringify(require.resolve('./process'))
+const WITHOUT_LOG_THREAD = { ...process.env, NODE_ENV: 'production', DEBUG: '' }
 
 describe('provider edge process', () => {
     let edge: EdgeProcess
@@ -140,8 +141,8 @@ describe('provider edge process', () => {
                 execFile(
                     'bash',
                     ['-c', 'ulimit -n 1024 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, runner],
-                    { cwd: NODEJS_DIR, timeout: 20_000 },
-                    (error, stdout, stderr) => resolve(error?.killed ? `timed out after ${stdout}` : stdout || stderr)
+                    { cwd: NODEJS_DIR, env: WITHOUT_LOG_THREAD, timeout: 20_000 },
+                    (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
                 )
             )
 
