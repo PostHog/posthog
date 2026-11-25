@@ -53,9 +53,8 @@ def trigger_for_run(*, output: dict[str, Any] | None, review_mode: ReviewMode | 
     and an ALL to LABEL switch would assert a request label the PR does not carry.
 
     Runs created before the stamp existed have nothing to read, so they derive it live as before.
-    The facade deliberately keeps deriving instead of calling this: its display value is paired with
-    a SQL filter that cannot read the stamp, and a display that disagreed with its own filter would
-    hide rows the caller just saw.
+    The facade does not call this: its display value is paired with a SQL filter, so it reads only
+    the stamps that filter can match (``facade/api.py::_derive_trigger``).
     """
     stamped = (output or {}).get("review_trigger")
     if stamped:

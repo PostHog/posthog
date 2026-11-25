@@ -14,6 +14,8 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
+To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
+
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
 
 Python cells can look up any notebook variable at runtime. Changing any default requires a new run for Python outputs in the app and results that depend on them. DuckDB cells need a new run when one of their bound parameters changes. Older single-cell results without an input snapshot may need one new run before publication.

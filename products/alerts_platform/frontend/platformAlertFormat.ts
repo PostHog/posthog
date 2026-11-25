@@ -9,6 +9,7 @@ import {
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
+    PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
@@ -229,6 +230,10 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     }
     const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
     return count ? { kind: 'groupsSnoozed', count } : null
+}
+
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

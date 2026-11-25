@@ -3,6 +3,8 @@ from datetime import datetime
 
 from django.db.models import Q
 
+from pydantic import JsonValue
+
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.facade.contracts import InsightPlacement, TilePlacement
@@ -47,6 +49,10 @@ def live_tile_placements(
         TilePlacement(tile_id=tile_id, dashboard_id=dashboard_id, insight_id=insight_id)
         for tile_id, dashboard_id, insight_id in tiles.order_by("id").values_list("id", "dashboard_id", "insight_id")
     ]
+
+
+def live_tile_layouts(*, dashboard_id: int, limit: int) -> list[dict[str, JsonValue]]:
+    return list(DashboardTile.objects.filter(dashboard_id=dashboard_id).values_list("layouts", flat=True)[:limit])
 
 
 def insight_placements(

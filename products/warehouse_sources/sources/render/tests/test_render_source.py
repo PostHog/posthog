@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.render._config import RenderSourceConfig
 from products.warehouse_sources.sources.render.source import RenderSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
 
 
 class TestRenderSource:
@@ -26,9 +27,27 @@ class TestRenderSource:
                 "(Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
                 "Failed to establish a new connection: [Errno 111] Connection refused'))",
             ),
+            (
+                "server_dropped_connection",
+                "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            ),
+            (
+                "body_cut_off",
+                "('Connection broken: IncompleteRead(10 bytes read, 40 more expected)', "
+                "IncompleteRead(10 bytes read, 40 more expected))",
+            ),
         ]
     )
     def test_exhausted_connection_retries_are_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    def test_persistent_read_timeout_is_retryable(self) -> None:
+        result = SourceDriver(self.source, self.config).run("services", always(TimeoutError("timed out")))
+
+        assert isinstance(result.raised, requests.ReadTimeout)
+        assert len(result.requests) == 5
+        observed_error = str(result.raised)
         assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
