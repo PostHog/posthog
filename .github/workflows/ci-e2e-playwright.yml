@@ -109,7 +109,7 @@ jobs:
         # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
         # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
-        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # 7 not 5: the debounce step below sleeps up to 15s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
         timeout-minutes: 7
