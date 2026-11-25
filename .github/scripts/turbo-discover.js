@@ -592,14 +592,25 @@ function pythonFilesUnder(repoRoot, dir) {
     return found
 }
 
-// The repo path a symlinked file points to, or null for a regular or missing file.
+// The repo path a symlinked file points to, or null for a regular or missing file. A dangling
+// link (its target was deleted) still names the path it ran, so a deleted target reaches it.
 function symlinkTarget(file, repoRoot) {
     const full = path.join(repoRoot, file)
     try {
         if (!fs.lstatSync(full).isSymbolicLink()) {
             return null
         }
+    } catch {
+        return null
+    }
+    try {
         return path.relative(fs.realpathSync(repoRoot), fs.realpathSync(full))
+    } catch {
+        // realpath fails on a dangling link, so resolve its own text against its directory.
+    }
+    try {
+        const linkDir = fs.realpathSync(path.dirname(full))
+        return path.relative(fs.realpathSync(repoRoot), path.resolve(linkDir, fs.readlinkSync(full)))
     } catch {
         return null
     }
@@ -854,15 +865,23 @@ function productsReachedByFiles(changedFiles, allProducts, repoRoot = process.cw
         .map((file) => moduleToProduct(productOfFile(file)))
         .filter((product) => allProductSet.has(product))
     const testInputProducts = productsWithUndeclaredInputChanges(changedFiles ?? [], allProductSet)
-    const linkProducts = productsLinkingToChangedFiles(changedFiles ?? [], repoRoot).filter((product) =>
-        allProductSet.has(product)
-    )
+    const links = linksToChangedFiles(changedFiles ?? [], repoRoot)
+    if (links === null) {
+        console.error('::warning::git ls-files failed, so a changed symlink target is unknown — reaching every product')
+        return [...allProducts].sort()
+    }
+    const linkProducts = links
+        .map(productOfFile)
+        .filter((product) => product !== null)
+        .map(moduleToProduct)
+        .filter((product) => allProductSet.has(product))
     return [...new Set([...inputProducts, ...testInputProducts, ...linkProducts])].sort()
 }
 
-// The products (dashed names) with a tracked symlink whose target the diff changed. A symlink runs
-// or reads its target, and the target can sit where a change reaches no product (tests/, frontend/).
-function productsLinkingToChangedFiles(changedFiles, repoRoot) {
+// The tracked symlinks under products/ whose target the diff changed, or null when git cannot list
+// them. A symlink runs or reads its target, and the target can sit where a change reaches no
+// product (tests/, frontend/).
+function linksToChangedFiles(changedFiles, repoRoot) {
     if (changedFiles.length === 0) {
         return []
     }
@@ -870,9 +889,9 @@ function productsLinkingToChangedFiles(changedFiles, repoRoot) {
     try {
         listing = execFileSync('git', ['ls-files', '-s', '-z', '--', PRODUCTS_DIR], { cwd: repoRoot, encoding: 'utf8' })
     } catch {
-        return []
+        return null
     }
-    const products = new Set()
+    const links = []
     for (const entry of listing.split('\0')) {
         if (!entry.startsWith('120000 ')) {
             continue
@@ -883,10 +902,10 @@ function productsLinkingToChangedFiles(changedFiles, repoRoot) {
             continue
         }
         if (changedFiles.some((file) => file === target || file.startsWith(`${target}/`))) {
-            products.add(moduleToProduct(productOfFile(link)))
+            links.push(link)
         }
     }
-    return [...products]
+    return links
 }
 
 // The products among `products` (dashed names) whose watched set the diff touched: a
@@ -935,9 +954,12 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
     }
     // A file directly under products/ (the package's __init__.py, the shared conftest.py,
     // db_routing.yaml that settings read) belongs to no one product and runs for all of them.
-    const looseRoot = (changedFiles ?? []).filter(
-        (f) => f.startsWith(PRODUCTS_DIR) && !f.slice(PRODUCTS_DIR.length).includes('/') && !f.endsWith('.md')
-    )
+    // So does a symlink there whose target changed.
+    const isLooseRoot = (f) => f.startsWith(PRODUCTS_DIR) && !f.slice(PRODUCTS_DIR.length).includes('/')
+    const looseRoot = [
+        ...(changedFiles ?? []).filter((f) => isLooseRoot(f) && !f.endsWith('.md')),
+        ...(linksToChangedFiles(changedFiles ?? [], process.cwd()) ?? []).filter(isLooseRoot),
+    ]
     if (looseRoot.length > 0) {
         console.error(`Shared files under products/ changed (${JSON.stringify(looseRoot)}) — testing all products + Django`)
         return everything('products_root')

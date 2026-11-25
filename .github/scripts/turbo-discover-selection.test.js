@@ -737,7 +737,12 @@ test('a change to a shared file directly under products/ runs every product and 
 })
 
 // A watched module that is a symlink runs its target, wherever the target lives.
-test('a change to the target of a symlinked watched file runs Django', () => {
+for (const [label, deleteTarget] of [
+    ['changed', false],
+    // The deleted target leaves the link dangling, so the link must still name it.
+    ['deleted', true],
+]) {
+test(`a ${label} target of a symlinked watched file runs Django`, () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
     fs.mkdirSync(path.join(root, 'products/canvas/backend'), { recursive: true })
     fs.mkdirSync(path.join(root, 'products/canvas/frontend'), { recursive: true })
@@ -745,17 +750,51 @@ test('a change to the target of a symlinked watched file runs Django', () => {
     fs.symlinkSync('../frontend/_impl.py', path.join(root, 'products/canvas/backend/linked.py'))
     execFileSync('git', ['init', '-q'], { cwd: root })
     execFileSync('git', ['add', '.'], { cwd: root })
+    const target = 'products/canvas/frontend/_impl.py'
+    if (deleteTarget) {
+        fs.rmSync(path.join(root, target))
+    }
     const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
     const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
-    const target = 'products/canvas/frontend/_impl.py'
     // The selector loads hoglint's answer only for a diff that reaches a product, so the link must reach it.
     assert.deepEqual(productsReachedByFiles([target], ALL_PRODUCTS, root), ['canvas'])
     const previous = process.cwd()
     process.chdir(root)
     try {
-        assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target] }).runLegacy, true)
+        const deletedFiles = new Set(deleteTarget ? [target] : [])
+        assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target], deletedFiles }).runLegacy, true)
     } finally {
         process.chdir(previous)
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+}
+
+test('a symlink directly under products/ whose target changed runs every product and Django', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loose-link-'))
+    fs.mkdirSync(path.join(root, 'products'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'shared/conftest.py'), '')
+    fs.symlinkSync('../shared/conftest.py', path.join(root, 'products/conftest.py'))
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
+    const previous = process.cwd()
+    process.chdir(root)
+    try {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], changedFiles: ['shared/conftest.py'] })
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'products_root' })
+    } finally {
+        process.chdir(previous)
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+// Without the listing a changed file may be any link's target, so every product is reached.
+test('a failed listing of symlinks reaches every product', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'no-git-'))
+    try {
+        assert.deepEqual(productsReachedByFiles(['shared/whatever.py'], ALL_PRODUCTS, root), [...ALL_PRODUCTS].sort())
+    } finally {
         fs.rmSync(root, { recursive: true, force: true })
     }
 })
