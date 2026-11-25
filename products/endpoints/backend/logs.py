@@ -81,7 +81,7 @@ def log_endpoint_execution(
 
     Best-effort: a failed write must never break or slow down an endpoint run, so each write swallows
     its own failure (debug-logged) and does not stop the other. We don't flush — `produce()` polls
-    non-blocking, and `send_internal_log` does not wait for the network.
+    non-blocking.
     """
     now = datetime.now(tz=UTC)
     try:
