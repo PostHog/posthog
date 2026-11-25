@@ -35,6 +35,9 @@ _DROP_COLUMN = re.compile(
 )
 _ADD_COLUMN = re.compile(r"ALTER TABLE\s+`([^`]+)`\s+(ADD COLUMN IF NOT EXISTS.*)", re.IGNORECASE)
 _ADD_COLUMN_CLAUSE = re.compile(r"ADD COLUMN IF NOT EXISTS\s+`([^`]+)`\s+(\w+)", re.IGNORECASE)
+_ALTER_COLUMN_TYPE = re.compile(
+    r"ALTER TABLE\s+`([^`]+)`\s+ALTER COLUMN\s+`([^`]+)`\s+SET DATA TYPE\s+(\w+)", re.IGNORECASE
+)
 
 
 # NUMERIC's own range: scale 9, 29 integer digits. A decimal column outside it needs BIGNUMERIC
@@ -180,7 +183,7 @@ class FakeBigQueryClient:
         return _Job()
 
     def query(self, statement: str) -> _Job:
-        for handler in (self._delete, self._drop_column, self._add_column, self._merge):
+        for handler in (self._delete, self._drop_column, self._add_column, self._alter_column_type, self._merge):
             if handler(statement):
                 return _Job()
         raise AssertionError(f"FakeBigQueryClient cannot run: {statement}")
@@ -219,6 +222,15 @@ class FakeBigQueryClient:
                 raise BadRequest(f"Type not found: {field_type}")
             additions[name] = _REPORTED_TYPE.get(field_type, field_type)
         table.add_columns(additions)
+        return True
+
+    def _alter_column_type(self, statement: str) -> bool:
+        match = _ALTER_COLUMN_TYPE.search(statement)
+        if not match:
+            return False
+        table = self.get_table(match.group(1))
+        column, field_type = match.group(2), match.group(3)
+        table.types[column] = _REPORTED_TYPE.get(field_type, field_type)
         return True
 
     def _merge(self, statement: str) -> bool:
