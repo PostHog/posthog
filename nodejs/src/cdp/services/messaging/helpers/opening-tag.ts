@@ -2,6 +2,8 @@ const SEPARATOR = /[\t\n\f\r /]*/y
 const ATTRIBUTE =
     /([^\t\n\f\r />][^\t\n\f\r />=]*)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"([^"]*)"?|'([^']*)'?|([^\t\n\f\r >]*)))?/y
 
+export const asciiLowerCase = (text: string): string => text.replace(/[A-Z]+/g, (upper) => upper.toLowerCase())
+
 export type Attribute = { name: string; value: string | null; start: number; end: number }
 
 export type OpeningTag = { attributes: Attribute[]; end: number; selfClosing: boolean }
@@ -24,7 +26,7 @@ export const readOpeningTag = (html: string, attributesStart: number, collect = 
         lastAttributeEnd = ATTRIBUTE.lastIndex
         if (collect) {
             const value = match[2] ?? match[3] ?? (match[4] || null)
-            attributes.push({ name: match[1].toLowerCase(), value, start, end: lastAttributeEnd })
+            attributes.push({ name: asciiLowerCase(match[1]), value, start, end: lastAttributeEnd })
         }
         position = lastAttributeEnd
     }

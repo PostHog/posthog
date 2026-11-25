@@ -1,4 +1,4 @@
-import { OpeningTag, readOpeningTag } from './opening-tag'
+import { OpeningTag, asciiLowerCase, readOpeningTag } from './opening-tag'
 
 export type HrefAnchor = {
     html: string
@@ -6,7 +6,7 @@ export type HrefAnchor = {
 }
 
 const COMMENT_START = /<!--(?!\[if\b[^<>]*\]>)/iy
-const COMMENT_END = /(?<=--!?)>/g
+const COMMENT_END = /(?<=--)>|--!>/g
 const TAG_NAME = /<(\/?)([A-Za-z][^\t\n\f\r />]*)/y
 const JAVASCRIPT_SCHEME = /^javascript:/i
 const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']
@@ -43,7 +43,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
     for (let position = html.indexOf('<'); position !== -1; position = html.indexOf('<', position)) {
         COMMENT_START.lastIndex = position
         if (COMMENT_START.test(html)) {
-            COMMENT_END.lastIndex = position + '<!'.length
+            COMMENT_END.lastIndex = position + '<!--'.length
             commentsCanClose = commentsCanClose && COMMENT_END.test(html)
             position = commentsCanClose ? COMMENT_END.lastIndex : position + 1
             continue
@@ -61,7 +61,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             position += 1
             continue
         }
-        const name = tagName[2].toLowerCase()
+        const name = asciiLowerCase(tagName[2])
         const isEndTag = tagName[1] === '/'
         const isAnchor = name === 'a'
         const attributesStart = TAG_NAME.lastIndex

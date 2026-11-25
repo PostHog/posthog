@@ -439,6 +439,24 @@ describe('EmailTrackingService', () => {
                     '<span title="<!--">x</span><a href="https://example.com/reset" ses:no-track>x</a><!-- footer -->',
                 ],
                 [
+                    'a sensitive template whose comment opens with <!--!> and holds a style tag',
+                    '<!--!><style>--><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<!--!><style>--><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with an empty comment before a link',
+                    '<!--><!---><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<!--><!---><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link names ses:no-track with a Kelvin sign',
+                    '<a href="https://example.com/reset" ses:no-tracK>x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-tracK ses:no-track>x</a>',
+                ],
+                [
                     'a sensitive template whose link title quotes a spaced end tag',
                     '<a href="https://example.com/reset" title="Example > </a >">x</a>',
                     sensitiveInvocation,
