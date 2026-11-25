@@ -62,6 +62,7 @@ export function SlackChannelSelect({
             onSearchChange={(term) => loadAllSlackChannels(false, term)}
             disabledReason={disabledReason}
             searchInputDataAttr="slack-app-channel-settings-channel-search"
+            menu={{ className: '!max-h-80' }}
             data-attr="slack-app-channel-settings-channel"
         />
     )

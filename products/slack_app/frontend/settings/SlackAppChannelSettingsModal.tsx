@@ -63,6 +63,7 @@ function RepositoryField({
             searchPlaceholder="Search repositories"
             noResultsMessage="No repository matches"
             searchInputDataAttr="slack-app-channel-settings-repository-search"
+            menu={{ className: '!max-h-80' }}
             data-attr="slack-app-channel-settings-repository"
         />
     )
