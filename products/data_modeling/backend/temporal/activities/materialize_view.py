@@ -902,7 +902,7 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(frozen=False, slots=True)
 class _AttemptProgress:
     """The attempt's current step, held in memory so that the line logged when the attempt ends
     can say where it stopped. A timeout reaches the activity as a cancellation inside whatever
