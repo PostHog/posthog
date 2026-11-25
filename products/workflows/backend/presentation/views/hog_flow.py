@@ -2527,6 +2527,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
+            if data.get("type") == "function_email":
+                if "click_tracking_enabled" in config:
+                    click_tracking = config["click_tracking_enabled"]
+                    if click_tracking is None:
+                        config.pop("click_tracking_enabled")
+                    elif not isinstance(click_tracking, bool):
+                        raise serializers.ValidationError({"config": {"click_tracking_enabled": "Must be a boolean."}})
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):

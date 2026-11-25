@@ -1024,6 +1024,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -1978,6 +1979,7 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -2958,6 +2960,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -3412,6 +3415,7 @@ export interface workflowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {

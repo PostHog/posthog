@@ -259,7 +259,7 @@ def save_validated_workflow(
     team_id: int,
     hog_flow_id: UUID,
     validated_data: dict | None = None,
-    validate: Callable[[WorkflowEditState], dict | None] | None = None,
+    validate: Callable[[WorkflowEditState], dict[str, Any] | None] | None = None,
 ) -> None:
     """Write a workflow's validated fields to the live row, with no draft routing, revision bump or
     follow-ups. For callers outside a request: enabling a workflow and the bytecode refresh."""

@@ -286,6 +286,79 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         assert body["billable_action_types"] == flow.billable_action_types
         assert body["actions"][1]["config"]["click_tracking_enabled"] is True
 
+    def test_workflows_api_rejects_non_boolean_and_strips_null_click_tracking_enabled(self):
+        flow = HogFlow.objects.get(
+            id=create_transactional_email_workflow(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                content=_content(sensitive=False, click_tracking_enabled=None),
+            )
+        )
+
+        bad_actions = deepcopy(flow.actions)
+        bad_actions[1]["config"]["click_tracking_enabled"] = "false"
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {"name": "Bad click tracking", "status": "draft", "actions": bad_actions, "edges": flow.edges},
+            format="json",
+        )
+        assert rejected.status_code == 400, rejected.json()
+
+        null_actions = deepcopy(flow.actions)
+        null_actions[1]["config"]["click_tracking_enabled"] = None
+        accepted = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {"name": "Null click tracking", "status": "active", "actions": null_actions, "edges": flow.edges},
+            format="json",
+        )
+        assert accepted.status_code == 201, accepted.json()
+        assert "click_tracking_enabled" not in accepted.json()["actions"][1]["config"]
+
+    def test_restoring_multi_step_revision_keeps_matching_and_conservative_fallback_click_tracking(self):
+        flow_id = create_transactional_email_workflow(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            content=_content(subject="Original subject", sensitive=False, click_tracking_enabled=True),
+        )
+        flow = HogFlow.objects.get(id=flow_id)
+        step_1 = deepcopy(flow.actions[1])
+        step_2 = deepcopy(flow.actions[1])
+        step_2["id"] = "action-send-email-2"
+        step_2["config"]["click_tracking_enabled"] = False
+        step_3 = deepcopy(flow.actions[1])
+        step_3["id"] = "action-send-email-3"
+        step_3["config"]["click_tracking_enabled"] = True
+
+        # Revision 1 contains step_1, step_2, and an extra step_3 that is later removed from live.
+        rev1_actions = [flow.actions[0], step_1, step_2, step_3, flow.actions[2]]
+        rev1_edges = [
+            {"from": flow.actions[0]["id"], "to": step_1["id"], "type": "continue"},
+            {"from": step_1["id"], "to": step_2["id"], "type": "continue"},
+            {"from": step_2["id"], "to": step_3["id"], "type": "continue"},
+            {"from": step_3["id"], "to": flow.actions[2]["id"], "type": "continue"},
+        ]
+        HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow=flow, version=1).update(
+            content={"name": flow.name, "actions": rev1_actions, "edges": rev1_edges}
+        )
+
+        # Live workflow keeps step_1 (True) and step_2 (False), without step_3.
+        live_actions = [flow.actions[0], step_1, step_2, flow.actions[2]]
+        live_edges = [
+            {"from": flow.actions[0]["id"], "to": step_1["id"], "type": "continue"},
+            {"from": step_1["id"], "to": step_2["id"], "type": "continue"},
+            {"from": step_2["id"], "to": flow.actions[2]["id"], "type": "continue"},
+        ]
+        HogFlow.objects.filter(id=flow_id).update(actions=live_actions, edges=live_edges, version=2)
+
+        published = self._restore_and_publish(flow_id, 1)
+
+        by_id = {
+            action["id"]: action["config"] for action in published["actions"] if action["type"] == "function_email"
+        }
+        assert by_id[step_1["id"]]["click_tracking_enabled"] is True
+        assert by_id["action-send-email-2"]["click_tracking_enabled"] is False
+        assert by_id["action-send-email-3"]["click_tracking_enabled"] is False
+
     @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
     def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
         self.sender.config = {"verified": verified}
