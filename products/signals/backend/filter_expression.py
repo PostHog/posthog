@@ -7,11 +7,19 @@ from posthog.hogql.visitor import clone_expr
 
 
 class FilterValidationError(ValueError):
-    def __init__(self, code: str, message: str, node: ast.Expr | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        node: ast.Expr | None = None,
+        *,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
-        self.start = node.start if node else None
-        self.end = node.end if node else None
+        self.start = node.start if node else start
+        self.end = node.end if node else end
 
 
 class FilterExpression:
@@ -38,7 +46,17 @@ class FilterExpression:
             return
         try:
             parsed = parse_expr(expression)
-        except (BaseHogQLError, RecursionError) as error:
+        except BaseHogQLError as error:
+            # The pinned Rust parser reports syntax positions in UTF-8 bytes, which differ from character
+            # offsets once non-ASCII text appears. Drop them until the pin includes #129245.
+            positioned = expression.isascii()
+            raise FilterValidationError(
+                "syntax",
+                "Enter a boolean HogQL expression.",
+                start=error.start if positioned else None,
+                end=error.end if positioned else None,
+            ) from error
+        except RecursionError as error:
             raise FilterValidationError("syntax", "Enter a boolean HogQL expression.") from error
         if self._validate(parsed, 0) != "boolean":
             raise FilterValidationError("boolean_required", "The expression must return a boolean.", parsed)
