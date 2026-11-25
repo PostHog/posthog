@@ -1,24 +1,30 @@
+import { useMemo, useRef } from 'react'
+
 import { TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
-import { timeSeriesFromFrames } from '../../timeSeriesFrames'
+import { timeSeriesFromFrames, yAxisFor } from '../../timeSeriesFrames'
 import type { DataFrame } from '../../vizTypes'
 import type { BarOptions } from './barSpec'
 
 export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarOptions }): JSX.Element {
     const theme = useChartTheme()
-    const { labels, series } = timeSeriesFromFrames(frames)
+    const assignedColors = useRef(new Map<string, string>())
+    const { labels, series, axes } = useMemo(
+        () => timeSeriesFromFrames(frames, theme.colors, assignedColors.current),
+        [frames, theme.colors]
+    )
     const stacked = !!options.stack
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: stacked ? 'stacked' : 'grouped',
             xAxis: { allDays: labels },
-            yAxis: { showGrid: true },
+            yAxis: yAxisFor(axes),
             legend: { show: series.length > 1, position: 'top' },
             tooltip: { placement: 'cursor', sortedByValue: true },
         }),
-        [labels, series.length, stacked]
+        [labels, series.length, stacked, axes]
     )
     return (
         <div className="relative flex min-h-0 w-full flex-1 flex-col">
