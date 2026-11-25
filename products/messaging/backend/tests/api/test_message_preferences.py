@@ -498,9 +498,9 @@ class TestMessagePreferencesViews(BaseTest):
             )
         ]
     )
-    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    @patch("posthog.plugins.plugin_server_api.internal_requests.get")
     def test_erase_revokes_links_minted_before_it(
-        self, entry_point, _minted, iat_offset_seconds, expected_status, mock_validate
+        self, entry_point, _minted, iat_offset_seconds, expected_status, mock_plugin_server_get
     ):
         erased_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
         token = jwt.encode(
@@ -514,7 +514,8 @@ class TestMessagePreferencesViews(BaseTest):
             algorithm="HS256",
         )
 
-        def plugin_server_verdict(submitted: str):
+        def plugin_server_verdict(url: str, **_kwargs):
+            submitted = url.rsplit("/", 1)[-1]
             if submitted != token:
                 return mock_response(400, {"error": "Invalid token"})
             claims = jwt.decode(submitted, options={"verify_signature": False})
@@ -522,7 +523,7 @@ class TestMessagePreferencesViews(BaseTest):
                 return mock_response(400, {"error": "Invalid token"})
             return mock_response(200, {"valid": True, "team_id": claims["team_id"], "identifier": claims["identifier"]})
 
-        mock_validate.side_effect = plugin_server_verdict
+        mock_plugin_server_get.side_effect = plugin_server_verdict
         with time_machine.travel(erased_at, tick=False):
             erase_recipient(self.team.id, self.recipient.identifier.upper(), confirm_complaints=False)
 
@@ -1235,6 +1236,9 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         MessageSuppression.objects.for_team(self.team.id).create(
             team_id=self.team.id, identifier="erased@example.com", suppressed=True
         )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier=" Erased@example.com\u00a0", suppressed=False, deleted=True
+        )
         other_team = self.create_team_with_organization(organization=self.organization)
         MessageRecipientPreference.objects.create(team=other_team, identifier="erased@example.com")
 
@@ -1242,7 +1246,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         repeat = self._erase_recipient({"identifier": "erased@example.com"})
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 1})
+        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 2})
         self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
         self.assertEqual(
             sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),
@@ -1254,7 +1258,10 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
     def test_erase_recipient_needs_confirmation_for_a_spam_complaint(self, _name, confirm, expected_status):
         MessageRecipientPreference.objects.create(team=self.team, identifier="reported@example.com")
         MessageSuppression.objects.for_team(self.team.id).create(
-            team_id=self.team.id, identifier="reported@example.com", source=SuppressionSource.COMPLAINT, suppressed=True
+            team_id=self.team.id,
+            identifier=" Reported@example.com",
+            source=SuppressionSource.COMPLAINT,
+            suppressed=True,
         )
 
         response = self._erase_recipient({"identifier": "reported@example.com", "confirm_complaints": confirm})
