@@ -23,7 +23,6 @@ from posthog.tasks.email import send_email_sender_domain_sending_stopped
 
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.workflows.backend.services.ses_sender_health import SES_SENDER_HEALTH_FLAG
-from products.workflows.backend.tasks.email_sender_verification import recheck_pending_email_senders
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
 from products.workflows.backend.test.email_domain_api_test_case import ALL_KINDS, DOMAIN, EmailDomainApiTestCase
 from products.workflows.backend.tests.fakes.faults import AwsFault
@@ -120,8 +119,12 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         sender = self.verified_sender(f"hello@{DOMAIN}")
         self.verified_sender(f"hello@{OTHER_DOMAIN}")
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        self.create_sender(f"news@{OTHER_DOMAIN}", team=other_team)
-        recheck_pending_email_senders()
+        other_teams_sender = self.create_sender(f"news@{OTHER_DOMAIN}", team=other_team)
+        verified = self.client.post(
+            f"/api/projects/{other_team.id}/integrations/{other_teams_sender}/email/verify",
+            HTTP_AUTHORIZATION="Bearer admin_key",
+        )
+        assert verified.status_code == status.HTTP_200_OK, verified.json()
         for domain in (DOMAIN, OTHER_DOMAIN):
             self.world.ses.identities[domain].forced_verification_status = "Failed"
         check_ses_sender_health()
