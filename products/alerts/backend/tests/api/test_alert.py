@@ -138,7 +138,15 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert saved.next_check_at is not None
         assert saved.next_check_at <= datetime.now(UTC)
 
-    def test_stored_ongoing_flag_on_insight_excluding_incomplete_periods_is_cleared_not_refused(self) -> None:
+    @parameterized.expand(
+        [
+            ("threshold_alert_clears_the_flag", None, False),
+            ("detector_alert_ignores_the_flag_so_keeps_it", {"type": "zscore", "threshold": 0.95, "window": 30}, True),
+        ]
+    )
+    def test_stored_ongoing_flag_on_insight_excluding_incomplete_periods_is_not_refused(
+        self, _name: str, detector_config: dict[str, Any] | None, flag_kept: bool
+    ) -> None:
         self._keep_the_team_on_insight()
         insight = self.create_trends_insight(interval="day", dateRange={"excludeIncompletePeriods": True})
         response = self.client.post(
@@ -151,6 +159,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
                 "condition": {"type": "absolute_value"},
                 "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
                 "calculation_interval": "daily",
+                "detector_config": detector_config,
             },
             format="json",
         )
@@ -160,14 +169,15 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         ongoing_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
         AlertConfiguration.objects.filter(id=alert_id).update(config=ongoing_config)
 
-        refused = self.client.patch(url, {"config": ongoing_config}, format="json")
-        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
+        if detector_config is None:
+            refused = self.client.patch(url, {"config": ongoing_config}, format="json")
+            assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
 
         disabled = self.client.patch(url, {"enabled": False}, format="json")
         assert disabled.status_code == status.HTTP_200_OK, disabled.content
         saved = AlertConfiguration.objects.get(id=alert_id)
         assert saved.enabled is False
-        assert (saved.config or {}).get("check_ongoing_interval") is False
+        assert (saved.config or {}).get("check_ongoing_interval") is flag_kept
 
     def setUp(self):
         super().setUp()

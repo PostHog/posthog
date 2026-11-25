@@ -346,16 +346,6 @@ def should_default_check_ongoing_interval(
     return False
 
 
-def check_ongoing_interval_excluded(query: dict, config: dict | None) -> bool:
-    """Whether ``config`` turns on ``check_ongoing_interval`` for an insight that excludes incomplete periods."""
-    if not isinstance(config, dict) or not config.get("check_ongoing_interval"):
-        return False
-    if get_from_dict_or_attr(query, "kind") in WRAPPER_NODE_KINDS:
-        query = get_from_dict_or_attr(query, "source")
-    date_range = get_from_dict_or_attr(query, "dateRange") or {}
-    return bool(get_from_dict_or_attr(date_range, "excludeIncompletePeriods"))
-
-
 def validate_alert_config(
     query: dict,
     condition: dict | None,
