@@ -26,6 +26,9 @@ ACTIVATION_WORDS = re.compile(
 OFFER_WORDS = re.compile(
     r"\b(I can|I could|want me to|would you like me to|shall I|should I|happy to|let me know if)\b", re.IGNORECASE
 )
+OFFER_TARGET_WORDS = re.compile(
+    r"\b(status|activat\w*|enabl\w*|(?:turn|switch) (?:it|this) on|set (?:it|this) up)\b", re.IGNORECASE
+)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -71,8 +74,9 @@ def self_driving_sentences(message: str) -> list[str]:
 def suggestion_sentences(message: str) -> list[str]:
     """Sentences that say the user can turn Self-driving on, when the reply also gives a way to do it.
 
-    The way is the activation link anywhere in the reply, or an offer to set it up or check its status next to the
-    mention. Each mention is read with the two sentences after it.
+    The way is the activation link anywhere in the reply, or an offer next to the mention to set it up or check
+    its status. An offer to do something else, such as fixing the code or setting up an alert, does not count.
+    Each mention is read with the two sentences after it.
     """
     sentences = _sentences(message)
     has_link = ACTIVATION_LINK in message
@@ -82,7 +86,9 @@ def suggestion_sentences(message: str) -> list[str]:
             continue
         window = sentences[index : index + 3]
         says_it_can_be_turned_on = [c for c in window if ACTIVATION_WORDS.search(c) or ACTIVATION_LINK in c]
-        offers = [c for c in window if OFFER_WORDS.search(c)]
+        offers = [
+            c for c in window if OFFER_WORDS.search(c) and (OFFER_TARGET_WORDS.search(c) or SELF_DRIVING.search(c))
+        ]
         if says_it_can_be_turned_on and (has_link or offers):
             found.extend(c for c in [*says_it_can_be_turned_on, *offers] if c not in found)
     return found
