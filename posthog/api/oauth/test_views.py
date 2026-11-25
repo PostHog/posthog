@@ -6291,22 +6291,52 @@ class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
                 "https://other.example/oauth/callback/app_a/",
                 False,
             ),
+            (
+                "other_client_route_registered_with_default_port",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_userinfo_and_query",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/?client=app_b",
+                False,
+            ),
+            (
+                "shared_route_with_path_param",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/;app_b",
+                False,
+            ),
+            (
+                "own_client_route_of_a_client_id_with_dot_segments",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/https://attacker.example/t/../../../../app_b/",
+                False,
+                "https://attacker.example/t/../../../../app_b",
+            ),
         ]
     )
     def test_proxy_callback_is_bound_to_the_requesting_client(
-        self, _name: str, registered: str, requested: str, allowed: bool
+        self, _name: str, registered: str, requested: str, allowed: bool, client_id: str = "app_a"
     ) -> None:
-        app = OAuthApplication(client_id="app_a", redirect_uris=registered)
+        app = OAuthApplication(client_id=client_id, redirect_uris=registered)
 
-        result = OAuthValidator().validate_redirect_uri("app_a", requested, SimpleNamespace(client=app))
+        result = OAuthValidator().validate_redirect_uri(client_id, requested, SimpleNamespace(client=app))
 
         assert result is allowed
 
     @parameterized.expand(
         [
             ("shared_route", "https://proxy.example/oauth/callback/", True),
+            ("unrelated_host", "https://app.example/oauth/callback/app_b/", True),
             ("client_route", "https://proxy.example/oauth/callback/app_b/", False),
             ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
+            ("client_route_with_default_port", "https://proxy.example:443/oauth/callback/app_b/", False),
+            ("client_route_with_dot_segment", "https://proxy.example/oauth/x/../callback/app_b/", False),
+            ("client_route_with_ideographic_dot", "https://proxy\u3002example/oauth/callback/app_b/", False),
+            ("other_path_on_proxy_host", "https://proxy.example/somewhere/", False),
         ]
     )
     def test_only_the_shared_proxy_callback_can_be_registered(self, _name: str, redirect_uri: str, valid: bool) -> None:

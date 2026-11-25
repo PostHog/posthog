@@ -1,3 +1,4 @@
+import re
 import copy
 import enum
 import uuid
@@ -40,6 +41,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.security.url_validation import browser_host
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -109,12 +111,16 @@ OIDC_SIGNING_KEY_MISSING_MESSAGE = (
 )
 
 
-def proxy_callback_containing(uri: str) -> str | None:
-    lowered = uri.lower()
-    return next(
-        (callback for callback in settings.OAUTH_PROXY_CALLBACK_URLS if lowered.startswith(callback.lower())),
-        None,
-    )
+# No character here is special in a URL path, so a browser requests "<callback><client_id>/" as written.
+_PROXY_CALLBACK_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def proxy_callbacks_on_host_of(uri: str) -> list[str]:
+    """The OAuth proxy callbacks served by the host that a browser sends this URI to."""
+    host = browser_host(uri)
+    if host is None:
+        return []
+    return [callback for callback in settings.OAUTH_PROXY_CALLBACK_URLS if browser_host(callback) == host]
 
 
 def oidc_signing_key_configured() -> bool:
@@ -528,8 +534,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
-            proxy_callback = proxy_callback_containing(uri)
-            if proxy_callback is not None and uri != proxy_callback:
+            proxy_callbacks = proxy_callbacks_on_host_of(uri)
+            if proxy_callbacks and uri not in proxy_callbacks:
                 raise ValidationError(
                     {
                         "redirect_uris": f"Redirect URI {uri} is reserved for the PostHog OAuth proxy. Use your own callback URL."
@@ -648,13 +654,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return super().allows_grant_type(*grant_types)
 
     def redirect_uri_allowed(self, uri: str) -> bool:
-        proxy_callback = proxy_callback_containing(uri)
-        if proxy_callback is None or uri == proxy_callback:
+        proxy_callbacks = proxy_callbacks_on_host_of(uri)
+        if not proxy_callbacks:
             return super().redirect_uri_allowed(uri)
-        # An application that registered a proxy callback also accepts "<callback><its client_id>/".
-        # The OAuth proxy (services/oauth-proxy) reads the client_id from that path to refuse a code
-        # issued to another client, so no other path under the callback is ever accepted.
-        return proxy_callback in self.redirect_uris.split() and uri == f"{proxy_callback}{self.client_id}/"
+        # Exact strings only: django-oauth-toolkit's parsed comparison lets other spellings through.
+        # services/oauth-proxy keys each pending login by "<callback><client_id>/", so a code issued
+        # to one client is never forwarded for another.
+        registered = [callback for callback in proxy_callbacks if callback in self.redirect_uris.split()]
+        if uri in registered:
+            return True
+        return _PROXY_CALLBACK_CLIENT_ID.fullmatch(self.client_id) is not None and uri in {
+            f"{callback}{self.client_id}/" for callback in registered
+        }
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
