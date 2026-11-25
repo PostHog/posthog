@@ -181,20 +181,28 @@ class TestRenderSectionHtml(SimpleTestCase):
         html = _render_section_html(
             'Drop <a href="https://example.com">sign in</a>', "body", project_id=1, citation_map={}
         )
-        self.assertIn("<h2>Drop &lt;a href=&quot;https://example.com&quot;&gt;sign in&lt;/a&gt;</h2>", html)
+        self.assertIn("<h2>Drop &lt;a href=", html)
+        self.assertNotIn("<a ", html)
 
     @parameterized.expand(
         [
             ("external_link", "[Sign in](https://evil.example/login)"),
             ("lookalike_domain", f"[Sign in]({settings.SITE_URL}.evil.example/login)"),
+            ("posthog_page", f"[Open the trace]({settings.SITE_URL}/shared/abc)"),
             ("autolink", "<https://evil.example/login>"),
             ("image", "![](https://evil.example/pixel.png)"),
         ]
     )
-    def test_drops_non_posthog_links_and_images(self, _name: str, content: str):
+    def test_drops_non_citation_links_and_images(self, _name: str, content: str):
         html = _render_section_html("Summary", content, project_id=1, citation_map={})
         self.assertNotIn("<a ", html)
         self.assertNotIn("<img", html)
+
+    def test_defangs_bare_url_in_title(self):
+        html = _render_section_html(
+            "Action required: https://evil.example/login", "body", project_id=1, citation_map={}
+        )
+        self.assertNotIn("https://evil.example/login", html)
 
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
@@ -257,6 +265,16 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_agent_markup_never_becomes_live_slack_markup(self, _name: str, content: str):
         result = _render_section_mrkdwn("Summary", content, project_id=1, citation_map={})
         self.assertNotIn("<", result)
+
+    @parameterized.expand(
+        [
+            ("title", "Action required: https://evil.example/login", "Body"),
+            ("body", "Summary", "Sign in at https://evil.example/login"),
+        ]
+    )
+    def test_bare_external_urls_are_inert(self, _name: str, title: str, content: str):
+        result = _render_section_mrkdwn(title, content, project_id=1, citation_map={})
+        self.assertIn("`https://evil.example/login`", result)
 
     def test_keeps_citation_links_live(self):
         citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")

@@ -8,10 +8,7 @@ email HTML body and Slack Block Kit payloads from that shape.
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from html import escape
 from urllib.parse import quote, urlencode
-
-from django.conf import settings
 
 import structlog
 from markdown_it import MarkdownIt
@@ -19,6 +16,8 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import sanitize_email_string
+from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
@@ -40,14 +39,19 @@ _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 
 
 # The agent writes the markdown, but it reads customer trace content, so a prompt injection can steer
-# what it writes. html=False escapes raw HTML, images are off so nothing loads a remote URL, and links
-# render only when they point at PostHog, which is where every citation link goes.
-class _PostHogLinksMarkdownIt(MarkdownIt):
+# what it writes. Both renderers make only the citation links clickable: html=False escapes raw HTML,
+# images are off, `strip_external_links_markdown` makes bare external URLs inert, and links render only
+# when they point at a cited trace.
+class _CitationLinksMarkdownIt(MarkdownIt):
+    def __init__(self, citation_urls: set[str]):
+        super().__init__("commonmark", {"html": False})
+        self.enable("table").disable("image")
+        self._citation_urls = {self.normalizeLink(url) for url in citation_urls}
+
     def validateLink(self, url: str) -> bool:
-        return url.startswith(settings.SITE_URL.rstrip("/") + "/")
+        return url in self._citation_urls
 
 
-_md = _PostHogLinksMarkdownIt("commonmark", {"html": False}).enable("table").disable("image")
 _slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
@@ -296,26 +300,26 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
 
 def _render_section_html(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
-    content = _strip_redundant_leading_heading(content, title)
+    content = strip_external_links_markdown(_strip_redundant_leading_heading(content, title))
     content_with_links = _linkify_citations(content, project_id, citation_map)
-    html_content = _md.render(content_with_links)
-    html_content = _inline_email_styles(html_content)
-    return f"<h2>{escape(title)}</h2>\n{html_content}\n"
+    md = _CitationLinksMarkdownIt({_make_citation_link(project_id, link) for link in citation_map.values()})
+    html_content = _inline_email_styles(md.render(content_with_links))
+    return f"<h2>{sanitize_email_string(title)}</h2>\n{html_content}\n"
 
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
-    content = _strip_redundant_leading_heading(content, title)
+    content = strip_external_links_markdown(_strip_redundant_leading_heading(content, title))
     content, placeholders = _citation_placeholders(content.replace("&", "&amp;"), citation_map)
-    # Same threat as in the email. Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs
-    # a `<`, so every `<` left after conversion is escaped and only citation links are written back.
+    # Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs a `<`, so every `<` left
+    # after conversion is escaped and only citation links are written back.
     mrkdwn_content = _slack_converter.convert(content).replace("<", "&lt;")
     for placeholder, cited_id in placeholders.items():
         link = citation_map[cited_id]
         mrkdwn_content = mrkdwn_content.replace(
             placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
         )
-    return f"*{escape_slack_mrkdwn(title)}*\n{mrkdwn_content}"
+    return f"*{escape_slack_mrkdwn(strip_external_links_markdown(title))}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
@@ -493,7 +497,7 @@ def deliver_slack_report(
                 blocks.append(
                     {
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000]},
+                        "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000], "verbatim": True},
                     }
                 )
 
@@ -504,6 +508,7 @@ def deliver_slack_report(
                 channel=channel_id,
                 blocks=blocks,
                 text=escape_slack_mrkdwn(header_text),
+                parse="none",
                 unfurl_links=False,
                 unfurl_media=False,
             )
@@ -517,6 +522,7 @@ def deliver_slack_report(
                         channel=channel_id,
                         thread_ts=thread_ts,
                         text=mrkdwn_text[:3000],
+                        parse="none",
                         unfurl_links=False,
                         unfurl_media=False,
                     )
