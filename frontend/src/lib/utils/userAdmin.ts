@@ -17,6 +17,12 @@ const POSTHOG_CLOUD_REGIONS = new Map<string, Region.US | Region.EU>([
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
 const EU_ORG_MEMBERS_VIEW = 'eu_org_members'
 
+export function getCurrentCloudRegion(
+    currentOrigin: string = window.location.origin
+): Region.US | Region.EU | undefined {
+    return POSTHOG_CLOUD_REGIONS.get(new URL(currentOrigin).hostname)
+}
+
 function getAdminOrigin(region: Region.US | Region.EU, currentOrigin: string): string {
     const currentUrl = new URL(currentOrigin)
     return POSTHOG_CLOUD_REGIONS.has(currentUrl.hostname) ? `https://${CLOUD_HOSTNAMES[region]}` : currentUrl.origin
@@ -43,7 +49,7 @@ export function canLogInAsFromCurrentOrigin(
     region: Region.US | Region.EU,
     currentOrigin: string = window.location.origin
 ): boolean {
-    const currentRegion = POSTHOG_CLOUD_REGIONS.get(new URL(currentOrigin).hostname)
+    const currentRegion = getCurrentCloudRegion(currentOrigin)
     return currentRegion === undefined || currentRegion === region
 }
 
