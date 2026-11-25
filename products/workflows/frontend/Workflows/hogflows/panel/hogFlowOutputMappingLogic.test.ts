@@ -564,6 +564,11 @@ describe('hogFlowOutputMappingLogic', () => {
                 logic.actions.setAgentField(0, 'rating')
 
                 expect(logic.values.mappings).toEqual([{ key: 'score', result_path: 'output.rating', spread: true }])
+                expect(wfLogic.values.workflow.actions.find((a) => a.id === 'action-rename')?.output_variable).toEqual({
+                    key: 'score',
+                    result_path: 'output.rating',
+                    spread: true,
+                })
                 expect(wfLogic.values.workflow.variables).toEqual(variables)
             })
 
