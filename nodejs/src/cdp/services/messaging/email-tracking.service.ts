@@ -72,7 +72,7 @@ const withSesLinkIndexTag = (openingTag: string, attributes: Attribute[], linkIn
     // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
     // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
     // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
-    const value = existing.value ?? ''
+    const value = (existing.value ?? '').replaceAll('"', '&quot;')
     return replaceAttribute(openingTag, existing, `ses:tags="${value ? `${value};` : ''}${tag}"`)
 }
 

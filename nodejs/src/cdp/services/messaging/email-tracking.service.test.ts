@@ -262,6 +262,11 @@ describe('EmailTrackingService', () => {
                     '<a name="top">a<a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
                 [
+                    'an unquoted ses:tags value holding a double quote',
+                    '<a href="https://example.com/a" ses:tags=campaign:blue"suffix>a</a>',
+                    '<a href="https://example.com/a" ses:tags="campaign:blue&quot;suffix;phl:0">a</a>',
+                ],
+                [
                     'an anchor that never closes',
                     '<a href="https://example.com/a">a',
                     '<a href="https://example.com/a" ses:tags="phl:0">a',
@@ -463,6 +468,12 @@ describe('EmailTrackingService', () => {
                     '<svg><title/></svg><a href="https://example.com/reset">x</a><svg><title>Logo</title></svg>',
                     sensitiveInvocation,
                     '<svg><title/></svg><a href="https://example.com/reset" ses:no-track>x</a><svg><title>Logo</title></svg>',
+                ],
+                [
+                    'a sensitive template whose style ends in an unquoted value with a slash',
+                    `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset">x</a>`,
+                    sensitiveInvocation,
+                    `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset" ses:no-track>x</a>`,
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',

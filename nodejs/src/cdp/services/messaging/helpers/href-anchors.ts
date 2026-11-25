@@ -59,11 +59,21 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
                 break
             }
             const { attributes } = readOpeningTag(html.slice(position, cut + 1), attributesStart - position)
-            tag = { attributes: attributes.filter(({ end }) => end <= cut - position), end: cut }
+            tag = {
+                attributes: attributes
+                    .filter(({ end }) => end <= cut - position)
+                    .map((attribute) => ({
+                        ...attribute,
+                        start: attribute.start + position,
+                        end: attribute.end + position,
+                    })),
+                end: cut,
+            }
         }
         const name = tagName[2].toLowerCase()
         const isEndTag = tagName[1] === '/'
-        if (!isEndTag && RAW_TEXT_ELEMENTS.includes(name) && html[tag.end - 1] !== '/') {
+        const isSelfClosed = html[tag.end - 1] === '/' && (tag.attributes.at(-1)?.end ?? attributesStart) < tag.end
+        if (!isEndTag && !isSelfClosed && RAW_TEXT_ELEMENTS.includes(name)) {
             const end = rawTextEnd(name, tag.end + 1)
             position = end === -1 ? tag.end + 1 : end
             continue
