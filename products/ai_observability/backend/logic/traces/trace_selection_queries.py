@@ -21,7 +21,8 @@ from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 
-from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
+from .trace_expression_queries import EVENTS_COLUMNS, TRACE_EVENT_NAMES, grouped, trace_errored
+from .trace_queries import FEEDBACK_EVENT_NAMES
 from .trace_selection import (
     QUERY_SCOPED_FILTERS,
     InvalidTraceSelectionError,
@@ -185,6 +186,36 @@ def _in_page(selection: TraceSelection, after: TracePosition | None) -> ast.Expr
     return _all(exprs)
 
 
+def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.Expr]) -> ast.SelectQuery:
+    """One row per trace the selection holds, with `trace_id`, `first_timestamp`, `last_timestamp` and the `extra`
+    per-trace aggregates. A trace belongs when it overlaps the window, so every read over it counts the same traces."""
+    query = parse_select(
+        """
+        SELECT
+            properties.$ai_trace_id AS trace_id,
+            min(timestamp) AS first_timestamp,
+            max(timestamp) AS last_timestamp
+        FROM events
+        WHERE {event_condition}
+        GROUP BY trace_id
+        HAVING countIf(event IN {trace_events}) > 0
+            AND countIf({membership}) > 0
+            AND first_timestamp <= {window_end}
+            AND last_timestamp >= {window_start}
+        """,
+        placeholders={
+            "event_condition": _event_condition(team, selection),
+            "trace_events": _events_in(TRACE_EVENT_NAMES),
+            "membership": _all(_property_filters(team, selection)),
+            "window_start": ast.Constant(value=selection.window.start),
+            "window_end": ast.Constant(value=selection.window.end),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    query.select.extend(ast.Alias(alias=name, expr=expr) for name, expr in extra.items())
+    return query
+
+
 def _selection_query(
     team: Team, selection: TraceSelection, after: TracePosition | None, limit: int
 ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -200,31 +231,22 @@ def _selection_query(
             count() AS total,
             countIf(has_error) AS errors,
             countIf(has_feedback) AS feedback
-        FROM (
-            SELECT
-                properties.$ai_trace_id AS trace_id,
-                min(timestamp) AS first_timestamp,
-                max(timestamp) AS last_timestamp,
-                countIf(properties.$ai_is_error = 'true') > 0 AS has_error,
-                countIf(event IN {feedback_events}) > 0 AS has_feedback
-            FROM events
-            WHERE {event_condition}
-            GROUP BY trace_id
-            HAVING countIf(event IN {trace_events}) > 0
-                AND countIf({membership}) > 0
-                AND first_timestamp <= {window_end}
-                AND last_timestamp >= {window_start}
-        )
+        FROM {traces}
         """,
         placeholders={
             "take": ast.Constant(value=limit + 1),
             "in_page": _in_page(selection, after),
-            "feedback_events": _events_in(FEEDBACK_EVENT_NAMES),
-            "event_condition": _event_condition(team, selection),
-            "trace_events": _events_in(TRACE_EVENT_NAMES),
-            "membership": _all(_property_filters(team, selection)),
-            "window_start": ast.Constant(value=selection.window.start),
-            "window_end": ast.Constant(value=selection.window.end),
+            "traces": grouped_traces(
+                team,
+                selection,
+                {
+                    "has_error": trace_errored(EVENTS_COLUMNS, grouped),
+                    "has_feedback": parse_expr(
+                        "countIf(event IN {feedback_events}) > 0",
+                        placeholders={"feedback_events": _events_in(FEEDBACK_EVENT_NAMES)},
+                    ),
+                },
+            ),
         },
     )
 
@@ -236,7 +258,9 @@ def _reads_beyond_posthog_tables(prop: Mapping[str, Any]) -> bool:
     )
 
 
-def _database(team: Team, selection: TraceSelection) -> Database | None:
+def selection_database(team: Team, selection: TraceSelection) -> Database | None:
+    """The catalog of PostHog's own tables, which skips loading every warehouse table, when no filter of the selection
+    reads beyond them. None when one does, so the read loads the full catalog."""
     test_account_filters = (team.test_account_filters or []) if filters_test_accounts(team, selection) else []
     filters = [prop.model_dump() for prop in selection.properties] + list(test_account_filters)
     if any(_reads_beyond_posthog_tables(prop) for prop in filters):
@@ -258,7 +282,7 @@ def load_selection_page(
             context=HogQLContext(
                 team_id=team.pk,
                 user=user,
-                database=_database(team, selection),
+                database=selection_database(team, selection),
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),
             settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),

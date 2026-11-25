@@ -1890,6 +1890,13 @@ export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
     id: string
 }
 
+export interface TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi {
+    /** Organization role whose members inherit these properties. */
+    role_id: string
+    /** Ordered account properties shown to members of this role. */
+    pinned_properties: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1908,6 +1915,8 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
     /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
     default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+    /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+    role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi[]
 }
 
 /**
@@ -3897,7 +3906,7 @@ export interface ProjectBackwardCompatApi {
     readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
     readonly flag_calls_only_in_flag_evaluations: boolean
@@ -4795,7 +4804,7 @@ export interface PatchedProjectBackwardCompatApi {
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
     readonly flag_calls_only_in_flag_evaluations?: boolean
@@ -5964,7 +5973,7 @@ export interface UploadedMediaStartUploadApi {
      */
     name: string
     /**
-     * Library to add this image to once uploaded, e.g. 'email'.
+     * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
      * @maxLength 100
      */
     purpose: string
@@ -7925,7 +7934,7 @@ export const UploadedMediaListPurpose = {
 } as const
 
 /**
- * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
  */
 export type UploadedMediaCreateBodyPurpose =
     (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
@@ -7934,12 +7943,13 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
     purpose?: UploadedMediaCreateBodyPurpose
 }
 

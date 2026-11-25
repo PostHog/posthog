@@ -361,6 +361,11 @@ export interface CohortHistoryBuildApi {
 /**
  * * `history_over_limit` - History over limit
  * * `too_large_to_build` - Too large to build
+ * * `unsupported_criteria` - Unsupported criteria
+ * * `action_criteria` - Action criteria
+ * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+ * * `members_over_limit` - Members over limit
+ * * `test_account_filter` - Test account filter
  */
 export type CohortRealtimeUnavailableReasonEnumApi =
     (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
@@ -368,10 +373,15 @@ export type CohortRealtimeUnavailableReasonEnumApi =
 export const CohortRealtimeUnavailableReasonEnumApi = {
     HistoryOverLimit: 'history_over_limit',
     TooLargeToBuild: 'too_large_to_build',
+    UnsupportedCriteria: 'unsupported_criteria',
+    ActionCriteria: 'action_criteria',
+    IncludesNonRealtimeCohort: 'includes_non_realtime_cohort',
+    MembersOverLimit: 'members_over_limit',
+    TestAccountFilter: 'test_account_filter',
 } as const
 
 export interface CohortRealtimeReadinessApi {
-    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
      * * `static` - Static
      * * `person_properties` - Person properties
@@ -389,10 +399,15 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+    /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
      *
      * * `history_over_limit` - History over limit
-     * * `too_large_to_build` - Too large to build */
+     * * `too_large_to_build` - Too large to build
+     * * `unsupported_criteria` - Unsupported criteria
+     * * `action_criteria` - Action criteria
+     * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
+     * * `members_over_limit` - Members over limit
+     * * `test_account_filter` - Test account filter */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
      * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.

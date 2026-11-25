@@ -20,8 +20,8 @@ from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
-    posthog_feature_flag_enabled,
 )
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
@@ -57,7 +57,7 @@ from products.aeo.backend.facade.api import (
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
-    AEO_CITATION_TRACKING_FLAG,
+    AI_VISIBILITY_ACCESS_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
@@ -103,6 +103,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
     PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
@@ -583,6 +584,28 @@ class AEOPromptSetTopicCountsSerializer(AEOPromptSetCountsSerializer):
         }
 
 
+class AEOPromptSetEngineTopicCountsSerializer(DataclassSerializer):
+    mention_rate = serializers.FloatField(
+        read_only=True, help_text="Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'."
+    )
+
+    class Meta:
+        dataclass = PromptSetEngineTopicCounts
+        ref_name = "AEOPromptSetEngineTopicCounts"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "topic": {
+                "help_text": "Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'."
+            },
+            "answers": {
+                "help_text": "Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'."
+            },
+            "mentioned": {
+                "help_text": "Of those answers, how many name the brand. A cited answer counts as a mention."
+            },
+        }
+
+
 class AEOPromptSetDomainSerializer(DataclassSerializer):
     class Meta:
         dataclass = PromptSetDomain
@@ -643,6 +666,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
+    )
+    engine_topics = AEOPromptSetEngineTopicCountsSerializer(
+        many=True,
+        help_text="The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero.",
     )
     top_domains = AEOPromptSetDomainSerializer(
         many=True,
@@ -1302,13 +1329,8 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
 
 
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = AI_VISIBILITY_ACCESS_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
 
 class _WebAnalyticsReadAccessPermission(AccessControlPermission):
@@ -1350,6 +1372,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             APIScopePermission(),
             _WebAnalyticsReadAccessPermission(),
             TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
         ]
 
     @validated_request(

@@ -19,10 +19,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { metricsDashboardImportsCreate, metricsDashboardImportsList } from 'products/metrics/frontend/generated/api'
+import {
+    metricsDashboardImportsCreate,
+    metricsDashboardImportsDismissCreate,
+    metricsDashboardImportsInputRetrieve,
+    metricsDashboardImportsList,
+} from 'products/metrics/frontend/generated/api'
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
+    DashboardImportInputApi,
     DashboardImportPanelApi,
     DashboardImportSourceEnumApi,
     PanelImportOutcomeEnumApi,
@@ -65,6 +71,7 @@ export interface metricsDashboardImportLogicValues {
     importDisabledReason: string | null
     isModalOpen: boolean
     recentImports: DashboardImportApi[]
+    retrying: boolean
     runningImports: DashboardImportApi[]
     screenshot: string | null
     screenshotError: string | null
@@ -91,6 +98,12 @@ export interface metricsDashboardImportLogicActions {
     closeImportModal: () => {
         value: true
     }
+    dismissImport: (dashboardImport: DashboardImportApi) => {
+        dashboardImport: DashboardImportApi
+    }
+    dismissImportSuccess: (importId: string) => {
+        importId: string
+    }
     loadRecentImports: () => {
         value: true
     }
@@ -104,6 +117,12 @@ export interface metricsDashboardImportLogicActions {
         dashboardId: number
     }
     resetImport: () => {
+        value: true
+    }
+    retryImport: (dashboardImport: DashboardImportApi) => {
+        dashboardImport: DashboardImportApi
+    }
+    retryImportDone: () => {
         value: true
     }
     setDashboardName: (dashboardName: string) => {
@@ -187,6 +206,10 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
         openImportedDashboard: (dashboardId: number) => ({ dashboardId }),
         backToInput: true,
         resetImport: true,
+        retryImport: (dashboardImport: DashboardImportApi) => ({ dashboardImport }),
+        retryImportDone: true,
+        dismissImport: (dashboardImport: DashboardImportApi) => ({ dashboardImport }),
+        dismissImportSuccess: (importId: string) => ({ importId }),
     }),
     reducers({
         isModalOpen: [false, { openImportModal: () => true, openImport: () => true, closeImportModal: () => false }],
@@ -221,6 +244,7 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 resetImport: () => null,
             },
         ],
+        retrying: [false, { retryImport: () => true, retryImportDone: () => false, closeImportModal: () => false }],
         starting: [
             false,
             { startImport: () => true, startImportSuccess: () => false, startImportFailure: () => false },
@@ -252,6 +276,7 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
             [] as DashboardImportApi[],
             {
                 setRecentImports: (_, { recentImports }) => recentImports,
+                dismissImportSuccess: (state, { importId }) => state.filter((item) => item.id !== importId),
                 // A started import shows in the list at once, before the next refresh.
                 startImportSuccess: (state, { dashboardImport }) =>
                     dashboardImport.id
@@ -409,6 +434,47 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 cache.disposables.dispose(POLL_KEY)
             }
         },
+        retryImport: async ({ dashboardImport }, breakpoint) => {
+            // A failed import keeps what it read, so the form starts from it. An expired input (404) starts it empty.
+            let input: DashboardImportInputApi | null = null
+            if (dashboardImport.id) {
+                try {
+                    input = await metricsDashboardImportsInputRetrieve(String(values.currentTeamId), dashboardImport.id)
+                } catch (error) {
+                    if (!(error instanceof ApiError && error.status === 404)) {
+                        actions.retryImportDone()
+                        lemonToast.error('The import could not be loaded again. Try again.')
+                        return
+                    }
+                }
+            }
+            breakpoint()
+            // The user can close the dialog or open another import while the input loads.
+            if (!values.isModalOpen || values.currentImport?.id !== dashboardImport.id) {
+                actions.retryImportDone()
+                return
+            }
+            actions.backToInput()
+            if (input) {
+                fillForm(input, actions)
+            }
+            actions.retryImportDone()
+        },
+        dismissImport: async ({ dashboardImport }) => {
+            if (!dashboardImport.id) {
+                return
+            }
+            try {
+                await metricsDashboardImportsDismissCreate(String(values.currentTeamId), dashboardImport.id)
+            } catch {
+                lemonToast.error('The import was not dismissed. Try again.')
+                return
+            }
+            if (values.isModalOpen && values.currentImport?.id === dashboardImport.id) {
+                actions.closeImportModal()
+            }
+            actions.dismissImportSuccess(dashboardImport.id)
+        },
         openImportedDashboard: ({ dashboardId }) => {
             actions.closeImportModal()
             router.actions.push(urls.dashboard(dashboardId))
@@ -441,6 +507,23 @@ function startPolling(cache: Record<string, any>, loadRecentImports: () => void)
         const intervalId = setInterval(loadRecentImports, POLL_INTERVAL_MS)
         return () => clearInterval(intervalId)
     }, POLL_KEY)
+}
+
+function fillForm(
+    input: DashboardImportInputApi,
+    actions: {
+        setDashboardName: (name: string) => void
+        setGrafanaJson: (grafanaJson: string) => void
+        setScreenshot: (screenshot: string) => void
+    }
+): void {
+    actions.setDashboardName(input.name ?? '')
+    if (input.grafana_json) {
+        actions.setGrafanaJson(input.grafana_json)
+    }
+    if (input.image_base64) {
+        actions.setScreenshot(`data:${input.image_content_type ?? 'image/png'};base64,${input.image_base64}`)
+    }
 }
 
 function notifyFinished(

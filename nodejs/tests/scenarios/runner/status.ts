@@ -9,6 +9,7 @@ import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measuremen
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
+import { DependencyLoss, dependencyReasonOf } from './dependency-watch'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -102,8 +103,8 @@ export function admissionsOf(
 export type Verdict = {
     admissions: Admission[]
     minOffered: number
-    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
-    down: string[]
+    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits' | 'steps'>
+    down: DependencyLoss[]
     convergence: Convergence
     invariants: InvariantResult[]
     timeline: ValveTimelineEntry[]
@@ -290,8 +291,9 @@ function unrampedStatusOf({
     status: Status
     statusReason: string
 } {
-    if (down.length > 0) {
-        return { status: 'invalid', statusReason: `dependencies went away: ${down.join(', ')}` }
+    const lost = dependencyReasonOf(down, units.steps)
+    if (lost !== undefined) {
+        return { status: 'invalid', statusReason: lost }
     }
     const refused = admissions.filter(({ passed }) => !passed)
     if (refused.length > 0) {

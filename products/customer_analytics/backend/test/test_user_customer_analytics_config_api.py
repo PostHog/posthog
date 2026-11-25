@@ -19,6 +19,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
@@ -28,15 +29,36 @@ from products.customer_analytics.backend.models import (
 )
 
 DISABLED_TASK_DIGEST = {"enabled": False, "send_time": "09:00", "cadence": "weekdays"}
+PERSONAL_SOURCE: dict[str, Any] = {"kind": "personal", "roles": []}
+PROJECT_DEFAULT_SOURCE: dict[str, Any] = {"kind": "project", "roles": []}
+
+
+def default_entry(
+    pinned_properties: list[dict[str, str]],
+    *,
+    role: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if role is None:
+        return {"source": {"kind": "project", "role": None}, "pinned_properties": pinned_properties}
+    return {"source": {"kind": "role", "role": role}, "pinned_properties": pinned_properties}
 
 
 def config_body(
     pinned_properties: list[dict[str, str]],
     task_digest: dict[str, Any] | None = None,
     account_detail_tabs: dict[str, Any] | None = None,
+    *,
+    pinned_properties_source: dict[str, Any] | None = None,
+    available_default_pinned_properties: list[dict[str, Any]] | None = None,
 ) -> dict:
     return {
         "pinned_properties": pinned_properties,
+        "pinned_properties_source": pinned_properties_source or PERSONAL_SOURCE,
+        "available_default_pinned_properties": (
+            available_default_pinned_properties
+            if available_default_pinned_properties is not None
+            else [default_entry([])]
+        ),
         "task_digest": task_digest or DISABLED_TASK_DIGEST,
         "account_detail_tabs": account_detail_tabs
         or {"ordered_tab_ids": [], "hidden_tab_ids": [], "default_tab_id": None},
@@ -75,16 +97,28 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
 
         inherited = [{"kind": "custom_property", "id": str(default_property.id)}]
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json(), config_body(inherited))
+        self.assertEqual(
+            response.json(),
+            config_body(
+                inherited,
+                pinned_properties_source=PROJECT_DEFAULT_SOURCE,
+                available_default_pinned_properties=[default_entry(inherited)],
+            ),
+        )
         config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
         self.assertEqual(config.properties, {})
 
         default_relationship = self._relationship()
-        project_config.default_pinned_properties = [{"kind": "relationship", "id": str(default_relationship.id)}]
+        updated_defaults = [{"kind": "relationship", "id": str(default_relationship.id)}]
+        project_config.default_pinned_properties = updated_defaults
         project_config.save(update_fields=["default_pinned_properties"])
         self.assertEqual(
             self.client.get(self.endpoint).json(),
-            config_body([{"kind": "relationship", "id": str(default_relationship.id)}]),
+            config_body(
+                updated_defaults,
+                pinned_properties_source=PROJECT_DEFAULT_SOURCE,
+                available_default_pinned_properties=[default_entry(updated_defaults)],
+            ),
         )
         config.refresh_from_db()
         self.assertEqual(config.properties, {})
@@ -98,22 +132,181 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         repeated = self.client.get(self.endpoint)
 
         self.assertEqual(repeated.status_code, status.HTTP_200_OK, repeated.json())
-        self.assertEqual(repeated.json(), config_body([]))
+        self.assertEqual(
+            repeated.json(),
+            config_body(
+                [],
+                pinned_properties_source=PERSONAL_SOURCE,
+                available_default_pinned_properties=[default_entry(updated_defaults)],
+            ),
+        )
         config.refresh_from_db()
         self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
         self.assertEqual(config.updated_at, updated_at)
 
         config.pinned_custom_property_definition_ids = []
         config.save(update_fields=["pinned_custom_property_definition_ids"])
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body(project_config.default_pinned_properties))
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(
+                project_config.default_pinned_properties,
+                pinned_properties_source=PROJECT_DEFAULT_SOURCE,
+                available_default_pinned_properties=[default_entry(updated_defaults)],
+            ),
+        )
         config.refresh_from_db()
         self.assertEqual(config.properties, {"pinned_properties": [], "future_setting": "kept"})
 
         cleared = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
-        self.assertEqual(cleared.json(), config_body([]))
+        self.assertEqual(
+            cleared.json(),
+            config_body(
+                [],
+                pinned_properties_source=PERSONAL_SOURCE,
+                available_default_pinned_properties=[default_entry(updated_defaults)],
+            ),
+        )
         config.refresh_from_db()
         self.assertTrue(config.properties["pinned_properties_override"])
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(
+                [],
+                pinned_properties_source=PERSONAL_SOURCE,
+                available_default_pinned_properties=[default_entry(updated_defaults)],
+            ),
+        )
+
+    def test_get_merges_role_defaults_ahead_of_project_defaults_until_a_personal_save(self) -> None:
+        project_default, shared, csm_only, other_role_only = (self._custom_property() for _ in range(4))
+        csm = Role.objects.create(name="Customer success", organization=self.organization)
+        analytics = Role.objects.create(name="Analytics", organization=self.organization)
+        duplicate_only = Role.objects.create(name="Duplicate only", organization=self.organization)
+        no_defaults = Role.objects.create(name="Support", organization=self.organization)
+        not_my_role = Role.objects.create(name="Billing", organization=self.organization)
+        for role in (csm, analytics, duplicate_only, no_defaults):
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        def pin(definition: CustomPropertyDefinition) -> dict[str, str]:
+            return {"kind": "custom_property", "id": str(definition.id)}
+
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = [pin(project_default)]
+        project_config.role_default_pinned_properties = [
+            {"role_id": str(csm.id), "pinned_properties": [pin(csm_only), pin(shared)]},
+            {"role_id": str(analytics.id), "pinned_properties": [pin(shared)]},
+            {"role_id": str(duplicate_only.id), "pinned_properties": [pin(shared)]},
+            {"role_id": str(not_my_role.id), "pinned_properties": [pin(other_role_only)]},
+        ]
+        project_config.save(update_fields=["default_pinned_properties", "role_default_pinned_properties"])
+
+        expected_available = [
+            default_entry([pin(project_default)]),
+            default_entry([pin(shared)], role={"id": str(analytics.id), "name": "Analytics"}),
+            default_entry([pin(csm_only), pin(shared)], role={"id": str(csm.id), "name": "Customer success"}),
+            default_entry([pin(shared)], role={"id": str(duplicate_only.id), "name": "Duplicate only"}),
+        ]
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(
+                [pin(shared), pin(csm_only)],
+                pinned_properties_source={
+                    "kind": "role",
+                    "roles": [
+                        {"id": str(analytics.id), "name": "Analytics"},
+                        {"id": str(csm.id), "name": "Customer success"},
+                    ],
+                },
+                available_default_pinned_properties=expected_available,
+            ),
+        )
+
+        self.client.patch(self.endpoint, {"pinned_properties": [pin(project_default)]}, format="json")
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(
+                [pin(project_default)],
+                pinned_properties_source=PERSONAL_SOURCE,
+                available_default_pinned_properties=expected_available,
+            ),
+        )
+
+        followed = self.client.patch(
+            self.endpoint, {"followed_default": {"kind": "role", "role_id": str(csm.id)}}, format="json"
+        )
+        self.assertEqual(followed.status_code, status.HTTP_200_OK, followed.json())
+        project_config.role_default_pinned_properties[0]["pinned_properties"] = [pin(shared)]
+        project_config.save(update_fields=["role_default_pinned_properties"])
+        response = self.client.get(self.endpoint).json()
+        self.assertEqual(response["pinned_properties"], [pin(shared)])
+        self.assertEqual(
+            response["pinned_properties_source"],
+            {"kind": "role", "roles": [{"id": str(csm.id), "name": "Customer success"}]},
+        )
+
+        RoleMembership.objects.filter(role=csm, user=self.user).delete()
+        self.assertEqual(self.client.get(self.endpoint).json()["pinned_properties_source"]["kind"], "role")
+        self.assertNotIn(
+            {"id": str(csm.id), "name": "Customer success"},
+            self.client.get(self.endpoint).json()["pinned_properties_source"]["roles"],
+        )
+
+        self.client.patch(self.endpoint, {"followed_default": {"kind": "project"}}, format="json")
+        response = self.client.get(self.endpoint).json()
+        self.assertEqual(response["pinned_properties"], [pin(project_default)])
+        self.assertEqual(response["pinned_properties_source"], {"kind": "project", "roles": []})
+
+        self.client.patch(self.endpoint, {"pinned_properties": [pin(shared)]}, format="json")
+        self.assertEqual(self.client.get(self.endpoint).json()["pinned_properties_source"], PERSONAL_SOURCE)
+
+    @parameterized.expand(
+        [
+            ("role_not_belonged_to", lambda role_id: {"followed_default": {"kind": "role", "role_id": role_id}}),
+            ("role_without_id", lambda role_id: {"followed_default": {"kind": "role"}}),
+            (
+                "combined_with_personal_pins",
+                lambda role_id: {"followed_default": {"kind": "project"}, "pinned_properties": []},
+            ),
+        ]
+    )
+    def test_patch_rejects_invalid_followed_default(self, _name: str, build_body: Any) -> None:
+        other_role = Role.objects.create(name="Billing", organization=self.organization)
+
+        response = self.client.patch(self.endpoint, build_body(str(other_role.id)), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_role_capped_by_pin_limit_is_excluded_from_source_but_offered_as_default(self) -> None:
+        alpha_properties = [self._custom_property() for _ in range(50)]
+        beta_property = self._custom_property()
+        alpha = Role.objects.create(name="Alpha", organization=self.organization)
+        beta = Role.objects.create(name="Beta", organization=self.organization)
+        for role in (alpha, beta):
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        alpha_pins = [{"kind": "custom_property", "id": str(prop.id)} for prop in alpha_properties]
+        beta_pins = [{"kind": "custom_property", "id": str(beta_property.id)}]
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.role_default_pinned_properties = [
+            {"role_id": str(alpha.id), "pinned_properties": alpha_pins},
+            {"role_id": str(beta.id), "pinned_properties": beta_pins},
+        ]
+        project_config.save(update_fields=["role_default_pinned_properties"])
+
+        response = self.client.get(self.endpoint)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            response.json(),
+            config_body(
+                alpha_pins,
+                pinned_properties_source={"kind": "role", "roles": [{"id": str(alpha.id), "name": "Alpha"}]},
+                available_default_pinned_properties=[
+                    default_entry([]),
+                    default_entry(alpha_pins, role={"id": str(alpha.id), "name": "Alpha"}),
+                    default_entry(beta_pins, role={"id": str(beta.id), "name": "Beta"}),
+                ],
+            ),
+        )
 
     def test_get_migrates_legacy_custom_property_ids_in_order(self) -> None:
         first = self._custom_property()
@@ -157,23 +350,31 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(config.properties["pinned_properties"], pinned_properties)
         self.assertEqual(config.pinned_custom_property_definition_ids, [first_custom.id, second_custom.id])
 
+        project_defaults = [{"kind": "relationship", "id": str(relationship.id)}]
         project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        project_config.default_pinned_properties = [{"kind": "relationship", "id": str(relationship.id)}]
+        project_config.default_pinned_properties = project_defaults
         project_config.save(update_fields=["default_pinned_properties"])
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned_properties))
+        expected_with_defaults = config_body(
+            pinned_properties,
+            available_default_pinned_properties=[default_entry(project_defaults)],
+        )
+        self.assertEqual(self.client.get(self.endpoint).json(), expected_with_defaults)
 
         payload: dict[str, object] | None
         for payload in ({}, None):
             with self.subTest(payload=payload):
                 unchanged = self.client.patch(self.endpoint, payload, format="json")
                 self.assertEqual(unchanged.status_code, status.HTTP_200_OK, unchanged.json())
-                self.assertEqual(unchanged.json(), config_body(pinned_properties))
-                self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned_properties))
+                self.assertEqual(unchanged.json(), expected_with_defaults)
+                self.assertEqual(self.client.get(self.endpoint).json(), expected_with_defaults)
 
         cleared = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
 
         self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.json())
-        self.assertEqual(cleared.json(), config_body([]))
+        self.assertEqual(
+            cleared.json(),
+            config_body([], available_default_pinned_properties=[default_entry(project_defaults)]),
+        )
         config.refresh_from_db()
         self.assertEqual(config.properties["pinned_properties"], [])
         self.assertTrue(config.properties["pinned_properties_override"])
@@ -195,12 +396,18 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             "testtest",
         )
         self.client.force_login(other_user)
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body([], pinned_properties_source=PROJECT_DEFAULT_SOURCE),
+        )
 
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         self.client.force_login(self.user)
         other_team_endpoint = f"/api/projects/{other_team.id}/user_customer_analytics_config/@me/"
-        self.assertEqual(self.client.get(other_team_endpoint).json(), config_body([]))
+        self.assertEqual(
+            self.client.get(other_team_endpoint).json(),
+            config_body([], pinned_properties_source=PROJECT_DEFAULT_SOURCE),
+        )
 
         self.assertEqual(
             UserCustomerAnalyticsConfig.objects.unscoped().filter(team_id=self.team.id, user_id=self.user.id).count(),
@@ -230,7 +437,12 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
 
         self.assertEqual(
             response.json(),
-            config_body(inherited, {"enabled": True, "send_time": "07:30", "cadence": "weekdays"}),
+            config_body(
+                inherited,
+                {"enabled": True, "send_time": "07:30", "cadence": "weekdays"},
+                pinned_properties_source=PROJECT_DEFAULT_SOURCE,
+                available_default_pinned_properties=[default_entry(inherited)],
+            ),
         )
         config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
         self.assertNotIn("pinned_properties", config.properties)
@@ -273,7 +485,10 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["attr"], f"task_digest__{field}")
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body([]))
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body([], pinned_properties_source=PROJECT_DEFAULT_SOURCE),
+        )
 
     def test_patch_account_detail_tabs_preserves_other_configuration(self) -> None:
         pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
@@ -333,11 +548,30 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         reread = self.client.get(environment_endpoint)
 
         self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
-        self.assertEqual(first.json(), config_body(inherited))
+        self.assertEqual(
+            first.json(),
+            config_body(
+                inherited,
+                pinned_properties_source=PROJECT_DEFAULT_SOURCE,
+                available_default_pinned_properties=[default_entry(inherited)],
+            ),
+        )
         self.assertEqual(saved.status_code, status.HTTP_200_OK, saved.json())
         self.assertEqual(reread.status_code, status.HTTP_200_OK, reread.json())
-        self.assertEqual(reread.json(), config_body(pinned))
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned))
+        self.assertEqual(
+            reread.json(),
+            config_body(
+                pinned,
+                available_default_pinned_properties=[default_entry(inherited)],
+            ),
+        )
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(
+                pinned,
+                available_default_pinned_properties=[default_entry(inherited)],
+            ),
+        )
         config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
         self.assertEqual(config.team_id, self.team.id)
         self.assertEqual(UserCustomerAnalyticsConfig.objects.unscoped().filter(user_id=self.user.id).count(), 1)
@@ -480,15 +714,34 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         ]
         self.organization.save()
         viewer = User.objects.create_and_join(self.organization, "sidebar-viewer@example.com", "testtest")
+        viewer_membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
             resource="customer_analytics",
             resource_id=None,
             access_level="viewer",
-            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+            organization_member=viewer_membership,
         )
+        role = Role.objects.create(name="Support", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=viewer, organization_member=viewer_membership)
+        project_default_pin = {"kind": "custom_property", "id": str(self._custom_property().id)}
+        role_default_pin = {"kind": "custom_property", "id": str(self._custom_property().id)}
+        project_config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        project_config.default_pinned_properties = [project_default_pin]
+        project_config.role_default_pinned_properties = [
+            {"role_id": str(role.id), "pinned_properties": [role_default_pin]}
+        ]
+        project_config.save(update_fields=["default_pinned_properties", "role_default_pinned_properties"])
+
+        expected_available = [
+            default_entry([project_default_pin]),
+            default_entry([role_default_pin], role={"id": str(role.id), "name": "Support"}),
+        ]
         self.client.force_login(viewer)
         pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
         response = self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned))
+        self.assertEqual(
+            self.client.get(self.endpoint).json(),
+            config_body(pinned, available_default_pinned_properties=expected_available),
+        )

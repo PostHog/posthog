@@ -491,6 +491,31 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    @parameterized.expand([("on_create", True), ("on_first_passing_rule", False)])
+    def test_default_report_stays_off_without_ai_approval(self, _name: str, create_with_rule: bool) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        url = f"/api/environments/{self.team.id}/evaluations/"
+        rule = {"operator": "gte", "threshold": 7}
+        response = self.client.post(
+            url,
+            {
+                "name": "Response score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 7;"},
+                "output_type": "numeric",
+                "output_config": {"min": 0, "max": 10, **({"passing_rule": rule} if create_with_rule else {})},
+                "enabled": True,
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        evaluation_id = response.json()["id"]
+        if not create_with_rule:
+            self.assertFalse(EvaluationReport.objects.filter(evaluation_id=evaluation_id).exists())
+            response = self.client.patch(f"{url}{evaluation_id}/", {"output_config": {"passing_rule": rule}})
+            self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.get(evaluation_id=evaluation_id).enabled)
+
     @parameterized.expand(
         [
             (output_type, enabled, frequency)
