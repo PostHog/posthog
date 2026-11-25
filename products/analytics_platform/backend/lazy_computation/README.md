@@ -303,5 +303,5 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 ## TODOs
 
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
-- Crashed PENDING jobs are marked FAILED, not STALE. Only the staff invalidate endpoint (`precompute_debug`) sets STALE.
+- Crashed PENDING jobs are marked FAILED, not STALE. STALE is set by the staff invalidate endpoint (`precompute_debug`) and by `expire_ready_jobs_covering`.
 - Add posthog logging for state transitions

@@ -152,13 +152,14 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("threshold_daily", None, "day", _NOW),
-            ("detector_daily", _THRESHOLD_DETECTOR, "day", _NOW),
-            ("detector_hourly_off_the_hour", _ZSCORE_DETECTOR, "hour", "2024-01-15T12:37:00Z"),
+            ("threshold_daily", None, "day", _NOW, False),
+            ("detector_daily", _THRESHOLD_DETECTOR, "day", _NOW, False),
+            ("detector_daily_past_the_refresh_window", {"type": "zscore", "window": 7}, "day", _NOW, True),
+            ("detector_hourly_off_the_hour", _ZSCORE_DETECTOR, "hour", "2024-01-15T12:37:00Z", False),
         ]
     )
     def test_first_check_builds_stored_values_and_later_checks_reuse_them(
-        self, _name: str, detector: dict[str, Any] | None, interval: str, now: str
+        self, _name: str, detector: dict[str, Any] | None, interval: str, now: str, verified: bool
     ) -> None:
         alert = self._alert(detector=detector, interval=interval)
         with time_machine.travel(now, tick=False):
@@ -175,6 +176,13 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert self._jobs() == jobs_after_build
         assert (cold_properties["outcome"], cold_properties["freshly_built"]) == ("match", True)
         assert (warm_properties["outcome"], warm_properties["freshly_built"]) == ("match", False)
+        assert (cold_properties["verified"], cold_properties["stale_days"]) == (verified, 0)
+        assert (cold_properties["verify_duration_ms"] is not None) == verified
+        assert (warm_properties["verified"], warm_properties["stale_days"], warm_properties["verify_duration_ms"]) == (
+            False,
+            0,
+            None,
+        )
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
         assert cold_properties["insight_kind"] == "trends"
@@ -213,6 +221,23 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert shadowed == live
         assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
+
+    def test_a_failed_verification_is_recorded_and_never_changes_the_check(self) -> None:
+        alert = self._alert(detector={"type": "zscore", "window": 7}, interval="day")
+        with time_machine.travel(_NOW, tick=False):
+            live = check_alert_for_insight(alert)
+            with patch(
+                "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.execute_hogql_query",
+                side_effect=Exception("count query timed out"),
+            ):
+                shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["verified"], properties["verify_error"]) == (
+            "match",
+            False,
+            "Exception",
+        )
 
     @parameterized.expand(
         [
