@@ -143,6 +143,7 @@ class TestChannelApprovalInteractivity(_ChannelApprovalTestBase):
         row = SlackChannel.objects.get(slack_workspace_id=self.slack_team_id, slack_channel_id=self.slack_channel_id)
         assert row.approved_at is not None
         assert row.approved_by_id == self.member_user.id
+        assert row.updated_by_id == self.member_user.id
 
         self._assert_outcome_posted(mock_slack_cls, "enabled the PostHog Slack app")
         self._assert_ephemeral_deleted(mock_post)

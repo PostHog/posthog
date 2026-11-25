@@ -9,8 +9,6 @@ Who may change what:
 import re
 from typing import Any
 
-from django.utils import timezone
-
 from posthog.models import User
 
 from products.slack_app.backend.analytics import capture_slack_event
@@ -118,14 +116,14 @@ def update_personal_settings(integration: WorkspaceIntegration, user: User, *, r
 
 
 def _channel_settings(row: SlackChannel) -> SlackChannelSettings:
-    updated_by = row.settings_updated_by
+    updated_by = row.updated_by
     return SlackChannelSettings(
         slack_channel_id=row.slack_channel_id,
         default_integration_id=row.default_integration_id,
         default_repository=row.default_repository,
         untagged_question_mode=row.untagged_question_mode,
         updated_by_name=(updated_by.first_name or updated_by.email) if updated_by else None,
-        updated_at=row.settings_updated_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -134,7 +132,7 @@ def list_channel_settings(integration: WorkspaceIntegration) -> tuple[SlackChann
     rows = (
         SlackChannel.objects.filter(slack_workspace_id=_workspace_id(integration))
         .exclude(default_integration__isnull=True, default_repository__isnull=True, untagged_question_mode__isnull=True)
-        .select_related("settings_updated_by")
+        .select_related("updated_by")
         .order_by("slack_channel_id")
     )
     return tuple(_channel_settings(row) for row in rows)
@@ -168,8 +166,7 @@ def update_channel_settings(
             "default_integration_id": default_integration_id,
             "default_repository": repository,
             "untagged_question_mode": untagged_question_mode.value if untagged_question_mode else None,
-            "settings_updated_by": user,
-            "settings_updated_at": timezone.now(),
+            "updated_by": user,
         },
     )
     _capture_change(

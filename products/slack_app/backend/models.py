@@ -395,16 +395,17 @@ class SlackChannel(UUIDModel):
         help_text="What PostHog does with top-level questions in this channel that do not tag the app.",
     )
     # db_constraint=False: a foreign key constraint to posthog_user locks that hot table when the column is added.
-    settings_updated_by = models.ForeignKey(
+    # Every write to the row sets this, the approval click included, so it always names who made the
+    # change that ``updated_at`` records.
+    updated_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         db_constraint=False,
         related_name="+",
-        help_text="The PostHog user who last changed this channel's settings.",
+        help_text="The PostHog user who last changed this row.",
     )
-    settings_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
