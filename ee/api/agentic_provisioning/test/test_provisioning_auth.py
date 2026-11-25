@@ -11,7 +11,9 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
+from posthog.api.oauth.provisioning_review import ORGANIZATION_LINK_REQUIRED_MESSAGE
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -312,6 +314,23 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             assert response.json()["error"]["code"] == "forbidden"
             assert "IP address" in response.json()["error"]["message"]
 
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_bearer_from_unlinked_self_registered_partner_is_refused_and_rechecked(self, mock_refresh):
+        token = self._get_bearer_token()
+        OAuthApplication.objects.filter(pk=self.partner.pk).update(
+            is_cimd_client=True, organization=None, organization_link_issuer=""
+        )
+        self.addCleanup(real_cache.delete, _cache_key(self.partner.client_id))
+        real_cache.delete(_cache_key(self.partner.client_id))
+
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
+            res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+
+        assert res.status_code == 401
+        assert res.json()["error"]["message"] == ORGANIZATION_LINK_REQUIRED_MESSAGE
+        # Without the re-read, a partner that links its organization later keeps getting this refusal.
+        mock_refresh.delay.assert_called_once_with(self.partner.client_id)
+
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()
 
@@ -410,13 +429,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("stale_cache_fires_refresh", False, 1),
-            ("fresh_cache_skips_refresh", True, 0),
+            ("stale_cache_fires_refresh", False, False, 1),
+            ("fresh_cache_skips_refresh", True, False, 0),
+            # The re-read is how this region learns of a link made since its last one, so refusing first would refuse forever.
+            ("refused_without_organization_still_fires_refresh", False, True, 1),
         ]
     )
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_cimd_provisioning_partner_refreshes_metadata_only_when_stale(
-        self, _name, cache_is_fresh, expected_delay_calls, mock_refresh
+        self, _name, cache_is_fresh, organization_required, expected_delay_calls, mock_refresh
     ):
         cimd_url = "https://example.com/api/oauth/wizard/refresh-on-auth"
         cimd_app = OAuthApplication.objects.create(
@@ -440,9 +461,10 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         else:
             real_cache.delete(_cache_key(cimd_url))
 
-        partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_required):
+            partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
 
-        assert partner == cimd_app
+        assert partner == (None if organization_required else cimd_app)
         assert mock_refresh.delay.call_count == expected_delay_calls
         if expected_delay_calls:
             mock_refresh.delay.assert_called_once_with(cimd_url)
