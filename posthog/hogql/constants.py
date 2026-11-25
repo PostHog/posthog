@@ -211,7 +211,7 @@ def cap_flag_call_max_memory_usage(max_memory_usage: int | None) -> int:
 
 
 def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
-    """Cap `max_memory_usage` in printed top-level settings, and spill sorts and aggregations at half the cap."""
+    """Cap `max_memory_usage` in a ClickHouse settings dict, and spill sorts and aggregations at half the cap."""
     max_memory_usage = cap_flag_call_max_memory_usage(settings.get("max_memory_usage"))
     settings["max_memory_usage"] = max_memory_usage
     spill_after_bytes = max_memory_usage // 2
@@ -227,8 +227,6 @@ def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
 
 
 # Settings applied on top of all HogQL queries.
-
-
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2

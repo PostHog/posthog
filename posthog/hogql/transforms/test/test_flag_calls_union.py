@@ -1352,6 +1352,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
                     "max_bytes_ratio_before_external_group_by=0",
                 ],
             ),
+            (
+                "lower_spill_threshold_stays",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=512 * 1024**2),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=536870912"],
+            ),
         ]
     )
     def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
