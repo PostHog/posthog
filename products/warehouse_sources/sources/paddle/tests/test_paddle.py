@@ -159,6 +159,111 @@ ENDPOINT_ROWS: dict[str, dict[str, Any]] = {
 }
 
 
+FANOUT_CASES = [
+    # (table, parent path, child path template, extra list params sent to parent and child)
+    ("customer_addresses", "/customers", "/customers/{}/addresses", {"status": "active,archived"}),
+    ("customer_businesses", "/customers", "/customers/{}/businesses", {"status": "active,archived"}),
+    ("subscription_history", "/subscriptions", "/subscriptions/{}/history", {}),
+]
+
+
+def _fanout_network(parent_path: str, child_template: str) -> Any:
+    parent_ids = ["p_1", "p_2"]
+    page_two = f"{PADDLE_BASE_URL}{parent_path}?after=p_1"
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == parent_path:
+            if request.param("after") == "p_1":
+                return _response([{"id": "p_2"}])
+            return _response([{"id": "p_1"}], next_url=page_two)
+        for parent_id in parent_ids:
+            child_path = child_template.format(parent_id)
+            if request.path != child_path:
+                continue
+            # p_1 has two child pages, p_2 has one.
+            if parent_id == "p_1" and request.param("after") is None:
+                return _response(
+                    [{"id": "c_1", "parent": parent_id}], next_url=f"{PADDLE_BASE_URL}{child_path}?after=c_1"
+                )
+            child_id = "c_2" if parent_id == "p_1" else "c_3"
+            return _response([{"id": child_id, "parent": parent_id}])
+        raise AssertionError(f"unexpected request {request.url}")
+
+    return respond
+
+
+class TestFanout:
+    @pytest.mark.parametrize("table, parent_path, child_template, list_params", FANOUT_CASES)
+    def test_walks_every_parent_and_child_page(
+        self, table: str, parent_path: str, child_template: str, list_params: dict[str, str]
+    ) -> None:
+        result = _driver().run(table, _fanout_network(parent_path, child_template))
+
+        assert result.raised is None
+        assert [(row["parent"], row["id"]) for row in result.rows] == [("p_1", "c_1"), ("p_1", "c_2"), ("p_2", "c_3")]
+        assert result.paths == [
+            parent_path,
+            child_template.format("p_1"),
+            child_template.format("p_1"),
+            parent_path,
+            child_template.format("p_2"),
+        ]
+        first_requests = [result.requests[0], result.requests[1]]
+        for request in first_requests:
+            assert request.param("per_page") == "200"
+            assert request.param("order_by") == "id[ASC]"
+            for name, value in list_params.items():
+                assert request.param(name) == value
+            if not list_params:
+                assert request.param("status") is None
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    @pytest.mark.parametrize(
+        "inputs, expected_filter",
+        [
+            ({}, None),
+            ({"should_use_incremental_field": False, "db_incremental_field_last_value": "2026-07-01T00:00:00Z"}, None),
+            (
+                {"should_use_incremental_field": True, "db_incremental_field_last_value": "2026-07-01T02:00:00+02:00"},
+                "2026-07-01T00:00:00Z",
+            ),
+        ],
+    )
+    def test_subscription_history_filters_children_on_occurred_at(
+        self, inputs: dict[str, Any], expected_filter: str | None
+    ) -> None:
+        result = _driver().run(
+            "subscription_history", _fanout_network("/subscriptions", "/subscriptions/{}/history"), **inputs
+        )
+
+        assert result.raised is None
+        parent_requests = [r for r in result.requests if r.path == "/subscriptions"]
+        child_first_pages = [r for r in result.requests if r.path.endswith("/history") and r.param("after") is None]
+        assert [r.param("occurred_at[GTE]") for r in child_first_pages] == [expected_filter, expected_filter]
+        assert all(r.param("occurred_at[GTE]") is None for r in parent_requests)
+
+    def test_resume_continues_the_saved_child_page(self) -> None:
+        saved_child_url = f"{PADDLE_BASE_URL}/customers/p_1/addresses?after=c_1"
+        resume_state = PaddleResumeConfig(
+            fanout_state={
+                "completed": [],
+                "current": "customers/p_1/addresses",
+                "child_state": {"next_url": saved_child_url},
+                "parent": None,
+            }
+        )
+
+        result = _driver().run(
+            "customer_addresses", _fanout_network("/customers", "/customers/{}/addresses"), resume_state=resume_state
+        )
+
+        assert result.raised is None
+        # c_1 was already written before the interruption, so only the rows after it are read again.
+        assert [(row["parent"], row["id"]) for row in result.rows] == [("p_1", "c_2"), ("p_2", "c_3")]
+        assert result.requests[1].query == {"after": ("c_1",)}
+
+
 class TestEndpointRows:
     @pytest.mark.parametrize("schema_name", list(ENDPOINT_ROWS))
     def test_rows_reach_the_pipeline_with_their_keys(self, schema_name: str) -> None:
@@ -172,6 +277,27 @@ class TestEndpointRows:
         # The pipeline deduplicates and partitions on these columns, so each row must carry them.
         assert set(result.response.primary_keys or []) <= row.keys()
         assert set(result.response.partition_keys or []) <= row.keys()
+
+
+class TestDiscountGroups:
+    def test_reads_the_hyphenated_path(self) -> None:
+        row = {
+            "id": "dsg_01gtf15svsqzgp9325ss4ebmwt",
+            "name": "Spring sale",
+            "status": "active",
+            "import_meta": None,
+            "created_at": "2026-03-01T10:00:00Z",
+            "updated_at": "2026-03-01T10:00:00Z",
+        }
+
+        result = _driver().run("discount_groups", [_response([row])])
+
+        assert result.raised is None
+        assert result.rows == [row]
+        assert result.paths == ["/discount-groups"]
+        assert result.requests[0].param("order_by") == "id[ASC]"
+        assert result.response is not None
+        assert result.response.partition_keys == ["created_at"]
 
 
 class TestIncremental:
@@ -286,6 +412,11 @@ class TestValidateCredentials:
                 ["/customers", "/discounts", "/prices", "/products", "/subscriptions", "/transactions", "/adjustments"],
             ),
             ("explore_metrics", ["/metrics/explore/entities"]),
+            ("discount_groups", ["/discount-groups"]),
+            # Fan-out tables have no list path without a parent id, so the check reads the parent.
+            ("customer_addresses", ["/customers"]),
+            ("customer_businesses", ["/customers"]),
+            ("subscription_history", ["/subscriptions"]),
         ],
     )
     def test_probed_paths(self, table_name: str | None, expected_paths: list[str]) -> None:
