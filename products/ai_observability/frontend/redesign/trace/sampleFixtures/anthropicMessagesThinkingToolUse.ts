@@ -184,7 +184,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(input, output), error: null }],
+        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, waitMs: null, ...messagesSides(input, output), error: null }],
         activeTurnId: TRACE_ID,
     },
     timeline: {

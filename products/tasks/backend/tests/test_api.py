@@ -53,6 +53,7 @@ from posthog.temporal.oauth import (
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
 
@@ -3874,30 +3875,102 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("implementation", "implementation", ["acme/web", "acme/assets"]),
-            ("discussion", "discussion", None),
+            ("implementation", "implementation", True, False, ["acme/web", "acme/assets"], "default"),
+            ("implementation_without_image_default", "implementation", False, False, ["acme/web", "acme/assets"], None),
+            (
+                "implementation_with_requested_image",
+                "implementation",
+                True,
+                True,
+                ["acme/web", "acme/assets"],
+                "requested",
+            ),
+            ("discussion", "discussion", True, False, None, None),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_inbox_started_implementation_run_gets_the_extra_repositories(
-        self, _name, relationship, expected_access, _mock_workflow
+    def test_inbox_started_implementation_run_gets_the_project_defaults(
+        self, _name, relationship, image_default, request_image, expected_access, expected_image, _mock_workflow
     ):
         from products.signals.backend.models import SignalReport, SignalTeamConfig
 
+        default_image_id = uuid.uuid4()
         SignalTeamConfig.objects.create(
-            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+            team=self.team,
+            implementation_repositories=["acme/assets", "other-owner/assets"],
+            implementation_custom_image_id=default_image_id if image_default else None,
         )
+        with team_scope(self.team.id):
+            requested_image = SandboxCustomImage.objects.create(
+                team=self.team,
+                name="Requested image",
+                status=SandboxCustomImage.Status.READY,
+                modal_image_name="posthog-test-image:latest",
+            )
         report = SignalReport.objects.create(team=self.team)
         create_response = self._post_signal_report_task(report.id, relationship)
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=create_response.json()["id"])
 
-        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        run_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"custom_image_id": str(requested_image.id)} if request_image else {},
+            format="json",
+        )
 
         self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
         run = TaskRun.objects.get(task=task)
         self.assertEqual(run.state.get("github_access_repositories"), expected_access)
         self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
+        self.assertEqual(
+            run.state.get("custom_image_id"),
+            {"default": str(default_image_id), "requested": str(requested_image.id), None: None}[expected_image],
+        )
+
+    @parameterized.expand(
+        [
+            ("discussion_with_code_access", "discussion", True, True, True),
+            ("discussion_without_code_access", "discussion", False, True, False),
+            ("discussion_without_github", "discussion", True, False, False),
+            ("research", "research", True, True, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_report_discussion_run_gets_the_image_default_with_code_access(
+        self, _name, relationship, code_access, github_connected, expects_image, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        self._desktop_access_enabled = code_access
+        integration = (
+            Integration.objects.create(team=self.team, kind="github", integration_id="gh-defaults", config={})
+            if github_connected
+            else None
+        )
+        default_image_id = uuid.uuid4()
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image_id)
+        report = SignalReport.objects.create(team=self.team)
+        if relationship == "research":
+            task = Task.objects.create(
+                team=self.team,
+                title="Research report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile="signals.research",
+                signal_report=report,
+                github_integration=integration,
+                created_by=self.user,
+            )
+        else:
+            create_response = self._post_signal_report_task(report.id, relationship)
+            self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+            task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("custom_image_id"), str(default_image_id) if expects_image else None)
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
@@ -5095,10 +5168,9 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], field)
 
-    # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @mock_anti_ssrf_dns_lookup()
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_url_allowed):
+    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_dns_lookup):
         task = self.create_task()
         servers = [
             {
@@ -5130,9 +5202,9 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("imported_mcp_servers", task_run.state)
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @mock_anti_ssrf_dns_lookup()
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_url_allowed):
+    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_dns_lookup):
         task = self.create_task()
         servers = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}]
 
@@ -5272,8 +5344,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
-    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+    @mock_anti_ssrf_dns_lookup()
+    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_dns_lookup):
         task = self.create_task()
         body: dict = {"environment": "cloud", "relayed_mcp_servers": relayed}
         if imported is not None:
@@ -5299,8 +5371,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
-    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+    @mock_anti_ssrf_dns_lookup()
+    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_dns_lookup):
         task = self.create_task()
         body: dict = {"relayed_mcp_servers": relayed}
         if imported is not None:

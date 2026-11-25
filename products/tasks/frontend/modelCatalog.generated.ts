@@ -220,6 +220,19 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '≈0.05×',
         costSummary: 'Input $0.13 · Output $0.26 per 1M tokens',
+        retired: true,
+    },
+    {
+        id: 'deepseek-ai/deepseek-v4.1-flash-1017',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: [],
+        label: 'DeepSeek V4.1 Flash',
+        cost: {
+            inputPerMtok: 0.3,
+            outputPerMtok: 1.2,
+        },
+        costMultiplier: '≈0.14×',
+        costSummary: 'Input $0.30 · Output $1.20 per 1M tokens',
     },
     {
         id: 'deepseek-ai/deepseek-v4.1-flash-1017-fast',

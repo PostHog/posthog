@@ -9,7 +9,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BreakdownFilter, EventsNode, HogQLQuery, TrendsFilter, TrendsQuery
+from posthog.schema import BreakdownFilter, EventsNode, HogQLQuery, IntervalType, TrendsFilter, TrendsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
@@ -201,6 +201,35 @@ class TestFrameConverters(SimpleTestCase):
             ("(none) / us", {"client": "(none)", "region": "us"}, [7]),
         ]
 
+    def test_pivot_counts_the_column_names_every_series_repeats(self) -> None:
+        clients = [f"client-{n}" for n in range(MAX_PIVOT_SERIES - 1)]
+        frame = Frame(
+            name=None,
+            labels={},
+            fields=[
+                FrameField(name="t", type="time", values=[1] * len(clients)),
+                FrameField(name="client", type="string", values=clients),
+                FrameField(name="n" * 10_000, type="number", values=[1] * len(clients)),
+            ],
+            meta=FrameMeta(),
+        )
+
+        assert pivot_long(frame) == [frame]
+
+    def test_trends_hours_repeated_by_the_autumn_clock_change_stay_an_hour_apart(self) -> None:
+        days = ["2026-11-01 00:00:00", "2026-11-01 01:00:00", "2026-11-01 01:00:00", "2026-11-01 02:00:00"]
+        result = {
+            "results": [{"label": "$pageview", "order": 0, "days": days, "data": [1, 2, 3, 4]}],
+            "timezone": "America/New_York",
+        }
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.HOUR)
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query.model_dump(), result)
+
+        assert frames is not None
+        times = frames[0]["fields"][0]["values"]
+        assert [later - earlier for earlier, later in zip(times, times[1:])] == [3_600_000] * 3
+
     @parameterized.expand(
         [
             ("too_many_series", [f"client-{n}" for n in range(MAX_PIVOT_SERIES + 1)], 1),
@@ -228,7 +257,14 @@ class TestFrameConverters(SimpleTestCase):
         [
             ("dotted_labels", "{{k8s.pod.name}} p{{ p }}", {"k8s.pod.name": "web-1", "p": "99"}, "web-1 p99"),
             ("missing_label_is_empty", "{{job}}-{{nope}}", {"job": "api"}, "api-"),
+            (
+                "label_names_with_dashes_and_spaces",
+                "{{client-name}} / {{ browser name }}",
+                {"client-name": "codex", "browser name": "Chrome"},
+                "codex / Chrome",
+            ),
             ("long_names_are_cut", "{{x}}" * 200, {"x": "y" * 10_000}, "y" * MAX_LEGEND_NAME),
+            ("unclosed_label_of_spaces", "{{" + " " * 5000 + "x", {}, ("{{" + " " * 5000 + "x")[:MAX_LEGEND_NAME]),
         ]
     )
     def test_legend_template(self, _name: str, template: str, labels: dict[str, str], expected: str) -> None:
@@ -256,6 +292,23 @@ class TestFrameConverters(SimpleTestCase):
         result = {"results": {"resultType": "vector", "result": [{"metric": {"job": "api"}, "value": [30, "4"]}]}}
 
         assert _shape(frames_for(QueryBatchLanguage.LOGQL, {}, result)) == [("api", {"job": "api"}, [[30_000], [4.0]])]
+
+    def test_log_streams_in_the_same_millisecond_stay_newest_first(self) -> None:
+        result = {
+            "results": {
+                "resultType": "streams",
+                "result": [
+                    {"stream": {"service": "api"}, "values": [["1000000100", "older"]]},
+                    {"stream": {"service": "web"}, "values": [["1000000900", "newer"]]},
+                ],
+            }
+        }
+
+        frames = frames_for(QueryBatchLanguage.LOGQL, {}, result)
+
+        assert frames is not None
+        assert frames[0]["fields"][1]["values"] == ["newer", "older"]
+        assert frames[0]["fields"][0]["values"] == [1000, 1000]
 
     def test_log_streams_are_one_table_newest_first(self) -> None:
         result = {
@@ -304,9 +357,17 @@ class TestFrameConverters(SimpleTestCase):
         assert frames is not None
         assert frames[0]["meta"]["interval"] is None
 
-    @parameterized.expand([("cached", list), ("fresh", tuple)])
-    def test_hogql_html_tags_become_text_and_a_link_column(self, _name: str, sequence: type) -> None:
-        link = sequence(["__hx_tag", "a", "href", "https://example.com/x", "children", sequence(["f", "Jul ", "2026"])])
+    @parameterized.expand(
+        [
+            ("cached", list, ["href", "https://example.com/x"], "https://example.com/x"),
+            ("fresh", tuple, ["href", "https://example.com/x"], "https://example.com/x"),
+            ("attribute_values_that_read_as_keys", list, ["title", "href", "href", "children"], "children"),
+        ]
+    )
+    def test_hogql_html_tags_become_text_and_a_link_column(
+        self, _name: str, sequence: type, attributes: list[str], href: str
+    ) -> None:
+        link = sequence(["__hx_tag", "a", *attributes, "children", sequence(["f", "Jul ", "2026"])])
         result = {
             "columns": ["month", "n"],
             "types": [["month", "String"], ["n", "UInt64"]],
@@ -315,7 +376,7 @@ class TestFrameConverters(SimpleTestCase):
 
         frames = frames_for(QueryBatchLanguage.HOGQL, {"kind": "HogQLQuery"}, result)
 
-        assert _shape(frames) == [(None, {}, [["Jul 2026"], ["https://example.com/x"], [1]])]
+        assert _shape(frames) == [(None, {}, [["Jul 2026"], [href], [1]])]
 
     def test_hogql_column_types_follow_the_scalar_type(self) -> None:
         result = {
