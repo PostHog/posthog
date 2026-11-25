@@ -257,11 +257,13 @@ describe('provider edge', () => {
             pick: '1:0',
         })
 
-        const answer = send(ALICE)
-        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+        let answered = false
+        const answer = send(ALICE).finally(() => (answered = true))
+        const accepted = await hold.accepted!(AbortSignal.timeout(2000))
+        const pending = !answered
         await hold.release()
 
-        expect(await answer).toBe('sent')
+        expect({ accepted, pending, answer: await answer }).toEqual({ accepted: true, pending: true, answer: 'sent' })
     })
 
     it('stops applying a fault once its time window passes', async () => {

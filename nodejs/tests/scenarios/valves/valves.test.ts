@@ -664,6 +664,40 @@ describe('valves', () => {
             expect(otherSeed.outcomes).not.toEqual(first.outcomes)
         })
 
+        it('lists a unit the fault hits while the valve releases it', async () => {
+            let late: Promise<string> | undefined
+            const valves = createValves({ pollMs: 5 })
+            await valves.start(
+                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
+                {
+                    ...onEdge(),
+                    seed: 1,
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await onEdge().environment.actuate(action)
+                            return {
+                                ...hold,
+                                release: async () => {
+                                    late = send(undefined, 'run-1-2@www.example.com')
+                                    await waitForExpect(() => expect(truth.records).toHaveLength(2), 2000, 5)
+                                    await hold.release()
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const first = await send()
+            await valves.releaseAll()
+
+            expect({ first, late: await late, unitIds: valves.fired()[0].unitIds }).toEqual({
+                first: 'MessageRejected',
+                late: 'MessageRejected',
+                unitIds: ['run-1-1', 'run-1-2'],
+            })
+        })
+
         it.each([
             ['rejected', 'MessageRejected'],
             ['bounce', 'sent'],

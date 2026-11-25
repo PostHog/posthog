@@ -321,16 +321,16 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } finally {
             await releaseBoundary()
             if (actuation) {
-                const hits = await actuation.hits?.().catch(() => undefined)
-                if (hits) {
-                    unitIds.set(record, hits)
-                }
                 try {
                     await actuation.release()
                     record.releasedAt = now()
                     journal()
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                }
+                const hits = await actuation.hits?.().catch(() => undefined)
+                if (hits) {
+                    unitIds.set(record, hits)
                 }
             }
         }
