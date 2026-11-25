@@ -41,12 +41,19 @@ export function InboxSetupGithubSkipDialog({ canConnectGithub }: InboxSetupGithu
                 </div>
             }
         >
-            <div className="@container flex flex-col gap-3 text-sm text-secondary">
-                <InboxGithubAccessReasons className="grid gap-x-6 gap-y-3 @lg:grid-cols-2" />
+            <div className="flex flex-col gap-3 text-sm text-secondary">
+                <InboxGithubAccessReasons
+                    pullRequests={{
+                        title: 'Pull requests only when you ask.',
+                        description:
+                            'We open one when you click Implement with PostHog on a report, or after you turn on PR generation. You review and merge each one.',
+                    }}
+                />
                 <p className="m-0 flex items-start gap-1.5">
                     <IconLock className="mt-0.5 shrink-0 text-base" />
                     <span>
-                        Read about code access, storage and GitHub permissions in the{' '}
+                        We don't train models on your code. Read about code access, storage and GitHub permissions in
+                        the{' '}
                         <Link
                             to="https://posthog.com/docs/self-driving/security"
                             target="_blank"

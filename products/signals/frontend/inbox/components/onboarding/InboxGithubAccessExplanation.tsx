@@ -50,7 +50,11 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
                         className="flex w-128 max-w-full flex-col gap-3 p-4 text-sm text-secondary"
                     >
                         <InboxGithubAccessReasons
-                            className="space-y-3"
+                            pullRequests={{
+                                title: 'You review every change.',
+                                description:
+                                    'Fixes arrive as pull requests for you to review and merge. You can turn off PR generation in settings.',
+                            }}
                             action={
                                 <LemonButton
                                     size="xsmall"

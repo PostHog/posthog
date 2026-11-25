@@ -518,7 +518,7 @@ export const GithubOptionalSkipConfirmation: Story = {
         const page = within(document.body)
         // The dialog is in the document one frame before it turns visible.
         await waitFor(() => expect(page.getByText('Activate without GitHub?')).toBeVisible())
-        await expect(page.getByText('Find root causes')).toBeVisible()
+        await expect(page.getByText('Pull requests only when you ask.')).toBeVisible()
         await expect(page.getByText('security docs')).toBeVisible()
     },
 }
