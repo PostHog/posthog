@@ -325,7 +325,10 @@ def _is_literal_public_url(url: str) -> bool:
         return False
     if _is_internal(host) or _resolves_to_its_address(host):
         return False
-    return not any(_names_an_address(layer) for layer in _decoded_layers(url))
+    layers = list(_decoded_layers(url))
+    # The URL parser maps full-width digits and dots such as `。` to ASCII, so a non-ASCII name that the checks below
+    # split apart can still name an address.
+    return all(layer.isascii() for layer in layers) and not any(map(_names_an_address, layers))
 
 
 def _resolves_to_its_address(host: str) -> bool:

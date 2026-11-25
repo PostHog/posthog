@@ -888,6 +888,12 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             ("hex_id_in_the_path", post_to("https://api.example.com/orders/1a2b3c4d"), True),
+            (
+                "unicode_dot_name_in_the_query",
+                post_to("https://api.example.com/go?to=http://localtest\u3002me/x"),
+                False,
+            ),
+            ("encoded_unicode_dot_in_the_query", post_to("https://api.example.com/go?to=localtest%E3%80%82me"), False),
             ("cluster_short_name", post_to("http://redis.posthog:6379/x"), False),
             ("localhost_tld", post_to("http://app.localhost:3000/x"), False),
             ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
