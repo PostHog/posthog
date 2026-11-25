@@ -76,8 +76,7 @@ pub fn is_severed(e: &sqlx::Error) -> bool {
 
 /// A connection whose query timed out may sit on a socket that never answers. sqlx pings a
 /// connection it takes back, and that ping would wait on the same socket while it holds the
-/// pool slot, so a timed-out connection leaves the pool instead. A severed connection leaves
-/// too, because it cannot carry another query.
+/// pool slot, so a timed-out connection leaves the pool instead.
 pub fn release_or_discard<T>(
     conn: PoolConnection<Postgres>,
     outcome: Result<Result<T, sqlx::Error>, Elapsed>,
@@ -281,9 +280,8 @@ async fn fetch_person_row(
     release_or_discard(conn, outcome, "load_person")
 }
 
-/// A closed pgbouncer pod closes every connection through it, and the pool hands out recently
-/// used ones without a ping, so each connection is pinged here. One deadline covers the whole
-/// retry, so the caller's per-key lock is never held past a single deadline.
+/// The pool skips the ping on recently used connections, and a leaving pgbouncer pod closes many
+/// at once. One deadline covers the whole retry, so the caller's per-key lock waits one deadline.
 async fn refetch_on_live_connection(
     pool: &PgPool,
     sql: &str,

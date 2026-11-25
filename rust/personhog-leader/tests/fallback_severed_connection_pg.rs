@@ -15,8 +15,7 @@ const KEY: PersonCacheKey = PersonCacheKey {
     person_id: 7,
 };
 
-/// Forwards to Postgres and can close every open connection, the way clients see a pgbouncer
-/// pod leave its Service. New connections then reach Postgres, or hang when `hang_new` is set.
+/// Closing its open connections is what pooled clients see when a pgbouncer pod leaves.
 struct Pooler {
     addr: SocketAddr,
     links: Arc<Mutex<Vec<JoinHandle<()>>>>,
