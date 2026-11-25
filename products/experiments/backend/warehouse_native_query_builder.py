@@ -178,6 +178,7 @@ class WarehouseNativeQueryBuilder:
         AND {rows}.exposure_time <= {_timestamp_literal(self.date_to)}
         AND {rows}.variant IN ({variants})
         AND {rows}.entity_id IS NOT NULL
+        AND {rows}.entity_id != ''
     GROUP BY {rows}.entity_id
 )""",
         ]
@@ -317,7 +318,7 @@ ORDER BY 1, 2"""
 {left_out} AS (
     SELECT
         CASE
-            WHEN {rows}.entity_id IS NULL THEN 'empty_id'
+            WHEN {rows}.entity_id IS NULL OR {rows}.entity_id = '' THEN 'empty_id'
             WHEN {unknown_variant} THEN 'unknown_variant'
             WHEN {rows}.exposure_time < {_timestamp_literal(self.date_from)} THEN 'before_window'
             WHEN {rows}.exposure_time > {_timestamp_literal(self.date_to)} THEN 'after_window'

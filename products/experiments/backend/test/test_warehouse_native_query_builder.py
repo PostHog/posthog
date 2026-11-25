@@ -213,6 +213,33 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
         assert {row[0]: int(row[-1]) for row in rows} == expected
 
+    def test_an_empty_string_id_is_left_out_like_a_null_one(self) -> None:
+        # A LEFT JOIN with a COALESCE in the customer's query gives '' instead of NULL, and '' IS NOT NULL.
+        self.warehouse.execute("CREATE TABLE exposure_text (entity_id VARCHAR, variant VARCHAR, timestamp TIMESTAMP)")
+        self.warehouse.executemany(
+            "INSERT INTO exposure_text VALUES (?, ?, ?)",
+            [
+                ("", "control", "2026-01-02 00:00:00"),
+                ("", "test", "2026-01-03 00:00:00"),
+                ("9", "test", "2026-01-04 00:00:00"),
+            ],
+        )
+        builder = WarehouseNativeQueryBuilder(
+            exposure=ExperimentWarehouseNativeExposureConfig(
+                connection_id="connection", query="SELECT * FROM exposure_text", unit=UNIT
+            ),
+            variants=("control", "test"),
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        )
+
+        exposures = self._rows(builder.build_exposures("UTC"))
+        left_out = self._rows(builder.build_exposure_rows_left_out())
+
+        assert [(variant, int(count)) for _, variant, count in exposures] == [("test", 1)]
+        assert {(reason, value, int(count)) for reason, value, count in left_out} == {("empty_id", None, 2)}
+
     def test_exposure_rows_left_out_by_reason(self) -> None:
         statement = WarehouseNativeQueryBuilder(
             exposure=ExperimentWarehouseNativeExposureConfig(
