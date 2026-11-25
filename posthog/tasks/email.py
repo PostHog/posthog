@@ -62,6 +62,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -749,9 +752,24 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     broken.sort(key=lambda entry: (entry.hog_function.name or "", entry.hog_function.id))
 
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
+    # A creator may have left the organization, or kept organization membership while losing access
+    # to this project. The email names the project, the destinations and the filter errors, so a
+    # creator is included by effective access to this team, not by organization membership.
     for entry in broken:
         creator = entry.hog_function.created_by
-        if creator and creator.is_active and creator not in recipients and _can_open_project(creator, team):
+        if not creator or not creator.is_active or creator in recipients:
+            continue
+        creator_membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user=creator
+        ).first()
+        if not creator_membership:
+            continue
+        effective_level = (
+            UserPermissions(creator)
+            .team(team)
+            .effective_membership_level_for_parent_membership(creator_membership.organization, creator_membership)
+        )
+        if effective_level is not None:
             recipients.add(creator)
     if not recipients:
         return
@@ -779,21 +797,6 @@ def send_hog_function_filters_uncompilable(team_id: int, hog_function_ids: list[
     for user in recipients:
         message.add_user_recipient(user)
     message.send()
-
-
-def _can_open_project(user: User, team: Team) -> bool:
-    # A creator may have left the organization, or kept organization membership while losing access
-    # to this project. These emails name the project and what broke in it, so a creator is included
-    # by effective access to this team, not by organization membership.
-    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
-    if not membership:
-        return False
-    effective_level = (
-        UserPermissions(user)
-        .team(team)
-        .effective_membership_level_for_parent_membership(membership.organization, membership)
-    )
-    return effective_level is not None
 
 
 def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
@@ -1028,11 +1031,9 @@ def send_workflow_email_sender_unusable(
     team = Team.objects.get(id=team_id)
     recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
     creator = User.objects.filter(id=created_by_id, is_active=True).first() if created_by_id else None
-    if creator and creator not in recipients and _can_open_project(creator, team):
+    if creator:
         recipients.add(creator)
-    from products.workflows.backend.facade.api import users_who_can_view_workflow  # noqa: PLC0415
-
-    viewers = users_who_can_view_workflow(team=team, workflow_id=hog_flow_id, users=recipients)
+    viewers = _users_who_can_view_workflow(team, hog_flow_id, created_by_id, recipients)
     if not viewers:
         return
     senders_digest = hashlib.sha256("|".join(sorted(str(sender_id) for sender_id in sender_ids)).encode()).hexdigest()
@@ -1052,6 +1053,35 @@ def send_workflow_email_sender_unusable(
     for user in viewers:
         message.add_user_recipient(user)
     message.send()
+
+
+def _users_who_can_view_workflow(
+    team: Team, hog_flow_id: str, created_by_id: int | None, users: Collection[User]
+) -> list[User]:
+    """The `users` that the workflow detail route lets view this workflow, checked the way that route checks them."""
+    workflows = Resource(type=ResourceType.HOG_FLOW, project_id=team.id)
+    workflow = Resource(type=ResourceType.HOG_FLOW, id=hog_flow_id, project_id=team.id, created_by_id=created_by_id)
+    with authorization.authorization_session():
+        return [
+            user
+            for user in users
+            if _can_view_workflow(Subject(user_id=user.pk), Resource.project(team.id), workflows, workflow)
+        ]
+
+
+def _can_view_workflow(subject: Subject, project: Resource, workflows: Resource, workflow: Resource) -> bool:
+    in_project, on_workflows, on_workflow = authorization.check(
+        [
+            CheckRequest(resource=resource, action=Action.VIEW, subject=subject)
+            for resource in (project, workflows, workflow)
+        ]
+    )
+    return in_project and on_workflow and (on_workflows or _granted(subject, workflows, workflow))
+
+
+def _granted(subject: Subject, workflows: Resource, workflow: Resource) -> bool:
+    allowed = authorization.list_objects(resource=workflows, action=Action.VIEW, subject=subject)
+    return allowed.complete and not allowed.excluded and workflow.id in allowed.ids
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

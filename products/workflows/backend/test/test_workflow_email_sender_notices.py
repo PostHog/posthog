@@ -161,6 +161,7 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
                 [("creator", "workflows", "none"), ("creator", "this_workflow", "viewer")],
                 ["org_admin", "project_admin", "creator"],
             ),
+            ("creator_lost_project_access", False, [("creator", "project", "none")], ["org_admin", "project_admin"]),
         ]
     )
     def test_emails_exactly_the_people_who_can_open_the_workflow(
@@ -189,8 +190,8 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         for who, scope, level in rules:
             AccessControl.objects.create(
                 team=self.team,
-                resource="hog_flow",
-                resource_id=str(flow.id) if scope == "this_workflow" else None,
+                resource="project" if scope == "project" else "hog_flow",
+                resource_id={"project": str(self.team.id), "this_workflow": str(flow.id)}.get(scope),
                 access_level=level,
                 organization_member=members.get(who),
             )
