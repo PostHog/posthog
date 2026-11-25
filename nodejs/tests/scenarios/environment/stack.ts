@@ -156,7 +156,7 @@ export async function onAnonymousVolumes(
     return moving.filter((service) => !volumes.has(`${project}_${NAMED_VOLUMES[service]}`))
 }
 
-export type ExistingServices = { running: string[]; stopped: string[] }
+export type ExistingServices = { running: string[]; stopped: string[]; containers: string[] }
 
 // A one-shot service such as kafka-init has restart policy "no" and exits 0 when it is done. Any other container
 // that is not running would start again as it is, with the mounts of the worktree that made it.
@@ -203,7 +203,35 @@ export async function existingServices(
             .map(([, service]) => service)
     )
     const running = new Set(listed.filter(([, , state]) => state === 'running').map(([, service]) => service))
-    return { running: [...running].filter((service) => !stopped.has(service)).sort(), stopped: [...stopped].sort() }
+    return {
+        running: [...running].filter((service) => !stopped.has(service)).sort(),
+        stopped: [...stopped].sort(),
+        containers: listed.filter(([, service]) => running.has(service) && !stopped.has(service)).map(([id]) => id),
+    }
+}
+
+// A kept container that stops after the check above is started again by compose as it is, with the mounts of the
+// worktree that made it. Its start time shows that.
+export async function startTimes(
+    docker: string,
+    containers: string[],
+    signal?: AbortSignal
+): Promise<Map<string, string>> {
+    if (containers.length === 0) {
+        return new Map()
+    }
+    const { stdout } = await promisify(execFile)(
+        docker,
+        [
+            'inspect',
+            '--format',
+            '{{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.State.StartedAt}}',
+            ...containers,
+        ],
+        { timeout: 10_000, signal }
+    )
+    const lines = stdout.split('\n').filter((line) => line !== '')
+    return new Map(lines.map((line) => [line.split(' ')[0], line]))
 }
 
 export async function startStack(
@@ -227,7 +255,7 @@ export async function startStack(
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
     const { yaml, project } = keepRunningContainers(readFileSync(config, 'utf8'))
     writeFileSync(config, yaml)
-    const { running: kept, stopped } = await existingServices(docker, project, signal)
+    const { running: kept, stopped, containers } = await existingServices(docker, project, signal)
     if (stopped.length > 0) {
         throw new StackNotReadyError(
             `The dev services ${stopped.join(', ')} have containers that are not running and are not finished one-shot jobs. The runner keeps only running services, because a stopped container starts again with the mounts of the worktree that made it and the volumes it had. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, or start the stack with \`hogli start\` while no other worktree uses it, then run again.`
@@ -244,8 +272,16 @@ export async function startStack(
             `Keeping the existing dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
         )
     }
+    const started = await startTimes(docker, containers, signal)
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
+    const now = await startTimes(docker, containers, signal).catch(() => new Map<string, string>())
+    const restarted = [...started].filter(([id, line]) => now.get(id) !== line).map(([, line]) => line.split(' ')[1])
+    if (restarted.length > 0) {
+        throw new StackNotReadyError(
+            `The dev services ${[...new Set(restarted)].sort().join(', ')} started again while the runner started the stack, so they may run with the mounts of the worktree that made them. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, then run again.`
+        )
+    }
 }
 
 export type MigratedTable = { url: string; table: string }
