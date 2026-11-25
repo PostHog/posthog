@@ -270,7 +270,7 @@ class StripeSource(
         return SourceConfig(
             name=ExternalDataSourceType.STRIPE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
-            caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
+            caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between a Restricted API key (recommended) or OAuth. If you choose the former, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
@@ -279,7 +279,7 @@ class StripeSource(
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
             """,
             iconPath="/static/services/stripe.png",
-            docsUrl="https://posthog.com/docs/cdp/sources/stripe",
+            docsUrl="https://posthog.com/docs/data-pipelines/sources/stripe#prerequisites",
             fields=cast(
                 list[FieldType],
                 [
