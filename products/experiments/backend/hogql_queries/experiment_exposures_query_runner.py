@@ -705,9 +705,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 ]
             )
         else:
-            exposure_params = get_exposure_config_params_for_builder(
-                self.exposure_criteria, self.team, self.experiment.start_date
-            )
+            exposure_params = get_exposure_config_params_for_builder(self.exposure_criteria, self.experiment.start_date)
             multiple_variant_handling = exposure_params.multiple_variant_handling
             # Set limit to avoid being cut-off by the default 100 rows limit
             query = self._get_exposure_query(exposure_params)
