@@ -4,6 +4,7 @@ disable-model-invocation: true
 description: >
   Checks each chunk for issues the other reviewers missed. Uses their findings to avoid repeating them.
 metadata:
+  audience: internal
   owner_team: review_hog
   skill_type: blind_spots
 ---

@@ -1,5 +1,7 @@
 ---
 name: inbox-exploration
+metadata:
+  audience: customer
 description: >
   Explore PostHog's Inbox and act on what it surfaces — the place where signal reports cluster into
   actionable issues and trends. Use when the user asks "what's in my inbox?", "what should I look at?",

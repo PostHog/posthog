@@ -1,5 +1,8 @@
 ---
 name: building-notebook-apps
+metadata:
+  audience: customer
+  feature_flag: notebook-app-builder
 description: Build or edit an interactive app from a PostHog notebook. Use when someone asks to build an app, turn analysis into an app, arrange notebook outputs into a presentation, add app controls or widgets, or publish an app layout.
 ---
 

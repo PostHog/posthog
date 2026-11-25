@@ -1,5 +1,7 @@
 ---
 name: authoring-log-alerts
+metadata:
+  audience: customer
 description: >
   Author useful, low-noise log alerts on services in a PostHog project. Use when the user asks to set up
   alerts for their logs, suggest alerts they should add, or evaluate whether a service is worth monitoring.

@@ -1,5 +1,7 @@
 ---
 name: querying-posthog-data
+metadata:
+  audience: customer
 description: >
   Explains how to query PostHog data, defaulting to typed runners for supported product analytics.
   Read it before you write HogQL/SQL.

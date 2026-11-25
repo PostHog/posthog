@@ -1,5 +1,7 @@
 ---
 name: exploring-llm-costs
+metadata:
+  audience: customer
 description: >
   Investigate LLM spend in PostHog — total cost over time, cost by model,
   provider, user, trace, or custom dimension, token and cache-hit economics,

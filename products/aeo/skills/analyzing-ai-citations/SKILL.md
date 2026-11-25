@@ -1,5 +1,8 @@
 ---
 name: analyzing-ai-citations
+metadata:
+  audience: customer
+  feature_flag: aeo-citation-tracking
 description: >
   Answer AI citation and answer engine optimization (AEO) questions in PostHog: whether
   AI answer engines (ChatGPT, Claude, and an Exa retrieval baseline) cite the project's

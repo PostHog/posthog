@@ -1,5 +1,7 @@
 ---
 name: setting-up-supabase-auth-emails
+metadata:
+  audience: customer
 description: 'Connect a Supabase project so its auth emails send through PostHog email templates via the Supabase Send Email Hook, in an order that never breaks a sign-up. Use when asked to set up, connect, test, or fix Supabase auth emails, Supabase email templates, or the Supabase Send Email Hook, or when Supabase shows "email rate limit exceeded" or an auth email error.'
 ---
 

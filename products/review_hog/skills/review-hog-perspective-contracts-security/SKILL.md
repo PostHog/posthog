@@ -4,6 +4,7 @@ disable-model-invocation: true
 description: >
   Checks security, input validation, and API compatibility. Reports security and contract issues only.
 metadata:
+  audience: internal
   owner_team: review_hog
   perspective: contracts_security
 ---

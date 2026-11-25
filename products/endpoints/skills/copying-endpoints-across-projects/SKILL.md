@@ -1,5 +1,7 @@
 ---
 name: copying-endpoints-across-projects
+metadata:
+  audience: customer
 description: >
   Copy a PostHog endpoint (a saved HogQL/insight query exposed as an API route) to another project
   in the same organization, or duplicate it under a new name in the same project. Use when the user

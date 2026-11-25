@@ -1,5 +1,7 @@
 ---
 name: implementing-api-surveys
+metadata:
+  audience: customer
 description: >
   Implements a PostHog API (headless) survey inside the user's own codebase so it renders with
   their UI components and captures the exact events PostHog expects, then verifies the first

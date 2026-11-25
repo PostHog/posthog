@@ -1,5 +1,7 @@
 ---
 name: exploring-ai-failures
+metadata:
+  audience: customer
 description: >
   Find where an AI/LLM application is failing in production and surface the failure patterns, working from
   real traces. Use when someone wants to understand what's going wrong with an AI feature, find and

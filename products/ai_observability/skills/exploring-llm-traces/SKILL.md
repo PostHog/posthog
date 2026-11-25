@@ -1,5 +1,7 @@
 ---
 name: exploring-llm-traces
+metadata:
+  audience: customer
 description: >
   Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
   Use when the user pastes a trace or session URL (e.g. /ai-observability/traces/<id> or /ai-observability/sessions/<id>),

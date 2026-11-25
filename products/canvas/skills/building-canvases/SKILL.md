@@ -1,5 +1,8 @@
 ---
 name: building-canvases
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Create or edit a PostHog freeform canvas — a sandboxed browser application (data board, document,
   form, small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use

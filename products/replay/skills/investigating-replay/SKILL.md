@@ -1,5 +1,7 @@
 ---
 name: investigating-replay
+metadata:
+  audience: customer
 description: >
   Investigates a session recording by gathering metadata, person profile,
   same-session events, and linked error tracking issues in one pass.

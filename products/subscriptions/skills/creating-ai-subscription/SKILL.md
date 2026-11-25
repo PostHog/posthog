@@ -1,5 +1,7 @@
 ---
 name: creating-ai-subscription
+metadata:
+  audience: customer
 description: >
   Create a recurring AI-generated PostHog report — schedule a free-text prompt to
   run on a cron, with the LLM-synthesized markdown delivered to email, Slack, or Microsoft Teams

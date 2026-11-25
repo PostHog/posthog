@@ -1,5 +1,7 @@
 ---
 name: skills-store
+metadata:
+  audience: customer
 description: >-
   Discover and use shared team skills stored in PostHog.
   Use when the user asks to list, browse, load, or manage "shared skills",

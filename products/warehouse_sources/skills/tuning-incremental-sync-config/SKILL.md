@@ -1,5 +1,7 @@
 ---
 name: tuning-incremental-sync-config
+metadata:
+  audience: customer
 description: >
   Change the sync configuration of an existing data warehouse schema — switch sync_type, pick a different
   incremental_field, set primary_key_columns, choose cdc_table_mode, or change sync_frequency. Use when the user

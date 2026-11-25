@@ -1,5 +1,7 @@
 ---
 name: finding-replay-for-issue
+metadata:
+  audience: customer
 description: >
   Finds the most informative session recording linked to an error tracking issue.
   Use when a user has an error tracking issue ID and wants to watch a replay showing

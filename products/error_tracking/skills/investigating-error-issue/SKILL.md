@@ -1,5 +1,7 @@
 ---
 name: investigating-error-issue
+metadata:
+  audience: customer
 description: >
   Investigates a single PostHog error tracking issue end-to-end. Use when
   the user provides an issue ID or pastes an issue URL
