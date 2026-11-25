@@ -306,7 +306,7 @@ class UserImpersonationPanel(Panel):
     record = "user"
     key = "log-in-as"
     title = "Log in as user"
-    owner = DEV_EXPERIENCE
+    owner = None
     operation_keys = frozenset({"log-in"})
     order = 40
 
