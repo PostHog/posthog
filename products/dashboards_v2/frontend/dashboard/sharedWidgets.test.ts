@@ -3,7 +3,7 @@ import { loadDashboard, saveDashboard } from './sharedWidgets'
 import { everyTile } from './tileTree'
 
 describe('sharedWidgets', () => {
-    it.each(['signups', 'constructor'])(
+    it.each(['signups', 'constructor', '__proto__'])(
         "loads a shared widget onto each tile with that tile's own parts, and saves it back once (ref %s)",
         (ref) => {
             const document: DashboardDocument = {

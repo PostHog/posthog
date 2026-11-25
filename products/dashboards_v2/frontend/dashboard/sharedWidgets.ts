@@ -41,9 +41,14 @@ function saveTiles(tiles: Tile[], widgets: Record<string, SharedWidget>): Docume
             return tile
         }
         const { ref, parts, appearance, ...content } = widget
-        // A ref such as `constructor` would otherwise find the object's prototype and never be stored.
+        // A ref such as `constructor` or `__proto__` would otherwise reach the object's prototype and never be stored.
         if (!Object.hasOwn(widgets, ref)) {
-            widgets[ref] = content
+            Object.defineProperty(widgets, ref, {
+                value: content,
+                enumerable: true,
+                writable: true,
+                configurable: true,
+            })
         }
         return { ...tile, widget: { ref, ...(parts && { parts }), ...(appearance && { appearance }) } }
     })
