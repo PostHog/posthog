@@ -134,6 +134,9 @@ def delete_persons_async(
     organization_id: str | None,
     was_impersonated: bool,
     unmatched_distinct_ids: list[str] | None = None,
+    # Accepted and ignored so that workers already run this release before producers send it.
+    # During a rolling deploy, a worker on an older release raises TypeError on an unknown keyword.
+    slot_deferrals: int = 0,
 ) -> None:
     unmatched_distinct_ids = unmatched_distinct_ids or []
     retries = self.request.retries
