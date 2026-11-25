@@ -676,7 +676,13 @@ export interface WarehouseSuggestionNote {
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
  */
-export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+export type QueryScanFindingKind =
+    | 'no_event_filter'
+    | 'no_start_date'
+    | 'persons_join'
+    | 'repeated_cte_expansion'
+    | 'cross_join_equality'
+    | 'date_arrays_before_breakdown_limit'
 
 /** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
 export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
@@ -7092,6 +7098,8 @@ export type ExperimentExposureHealthFindingCode =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7133,6 +7141,8 @@ export type ExperimentExposureHealthCheckKey =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 

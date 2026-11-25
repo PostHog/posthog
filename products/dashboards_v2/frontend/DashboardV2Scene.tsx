@@ -61,6 +61,7 @@ function DashboardV2(): JSX.Element {
             onEdit: applyDashboardEdit,
             onActiveTabChange: setActiveTab,
             history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
+            refresh: {},
         }),
         [
             dashboard,
