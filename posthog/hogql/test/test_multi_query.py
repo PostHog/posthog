@@ -16,6 +16,7 @@ from posthog.hogql.multi_query import (
     SharingQuery,
     execute_group,
     is_query_sharing_enabled,
+    normalise_for_sharing,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
@@ -198,6 +199,118 @@ class TestMultiQueryPlanner(SimpleTestCase):
             for i, order in enumerate(("calls DESC", "calls"))
         ]
         self.assertEqual(len(MultiQueryPlanner([SameAggregationTopNRule()]).plan(queries).groups), 1)
+
+    @parameterized.expand(
+        [
+            (
+                "group_by_alias",
+                "SELECT toDate(timestamp) AS day, count() AS n FROM events WHERE event = 'a' GROUP BY day ORDER BY day",
+                "SELECT toDate(timestamp) AS day, count() AS n FROM events WHERE event = 'a' GROUP BY toDate(timestamp) ORDER BY day",
+            ),
+            (
+                "table_alias",
+                "SELECT count() AS n FROM events AS e WHERE e.event = 'a' AND e.timestamp >= '2026-01-01'",
+                "SELECT count() AS n FROM events WHERE event = 'a' AND timestamp >= '2026-01-01'",
+            ),
+            (
+                "table_alias_keeps_output_name",
+                "SELECT count(e.properties.$browser) FROM events AS e",
+                "SELECT count(properties.$browser) AS `count(e.properties.$browser)` FROM events",
+            ),
+            (
+                "table_alias_and_group_by_alias",
+                "SELECT toStartOfWeek(e.timestamp) AS week, count() AS n FROM events AS e GROUP BY week",
+                "SELECT toStartOfWeek(timestamp) AS week, count() AS n FROM events GROUP BY toStartOfWeek(timestamp)",
+            ),
+            ("select_alias_captures_field", "SELECT count() AS event FROM events AS e WHERE e.event = 'a'", None),
+            ("select_alias_names_table", "SELECT e.event AS e, count() AS n FROM events AS e GROUP BY e.event", None),
+            (
+                "subquery_rebinds_names",
+                "SELECT count() AS n FROM events AS e WHERE e.event IN (SELECT event FROM events AS e)",
+                None,
+            ),
+            ("lambda_rebinds_names", "SELECT arrayMap(e -> e.x, [e.event]) AS xs FROM events AS e", None),
+            ("joined_source", "SELECT count() AS n FROM events AS e JOIN persons AS p ON e.person_id = p.id", None),
+            (
+                "alias_expression_names_alias",
+                "SELECT toDate(timestamp) AS timestamp, count() AS n FROM events GROUP BY timestamp",
+                None,
+            ),
+            (
+                "duplicate_aliases",
+                "SELECT toDate(timestamp) AS day, toStartOfMonth(timestamp) AS day, count() AS n FROM events GROUP BY day",
+                None,
+            ),
+        ]
+    )
+    def test_normalise_for_sharing(self, _name: str, sql: str, expected_sql: str | None) -> None:
+        query = clone_expr(parse_select(sql), clear_types=True, clear_locations=True)
+        expected = clone_expr(parse_select(expected_sql or sql), clear_types=True, clear_locations=True)
+        self.assertEqual(normalise_for_sharing(query, None), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "count_fusion",
+                "SELECT toStartOfWeek(e.timestamp) AS week, count() AS n FROM events AS e WHERE e.event = 'a' GROUP BY week ORDER BY week",
+                "SELECT toStartOfWeek(timestamp) AS w, count() AS signups FROM events WHERE event = 'b' GROUP BY toStartOfWeek(timestamp) ORDER BY w",
+                ("2026-01-04", 3, 2),
+                {
+                    "0": BatchQueryResult(columns=("week", "n"), types=("Date", "UInt64"), rows=(("2026-01-04", 3),)),
+                    "1": BatchQueryResult(
+                        columns=("w", "signups"), types=("Date", "UInt64"), rows=(("2026-01-04", 2),)
+                    ),
+                },
+            ),
+            (
+                "same_aggregation_top_n",
+                "SELECT e.event AS name, count() AS n FROM events AS e GROUP BY name ORDER BY n DESC LIMIT 2",
+                "SELECT event AS name, count() AS n FROM events GROUP BY event ORDER BY n LIMIT 2",
+                ("a", 3, 1, 1),
+                {
+                    "0": BatchQueryResult(columns=("name", "n"), types=("String", "UInt64"), rows=()),
+                    "1": BatchQueryResult(columns=("name", "n"), types=("String", "UInt64"), rows=(("a", 3),)),
+                },
+            ),
+        ]
+    )
+    def test_spellings_of_one_query_share_and_keep_their_output(
+        self,
+        rule: str,
+        first: str,
+        second: str,
+        shared_row: tuple[object, ...],
+        expected: dict[str, BatchQueryResult],
+    ) -> None:
+        inputs = [
+            SharingQuery(query_id=str(i), query=parse_select(sql), context_key="same-request", sharing_enabled=True)
+            for i, sql in enumerate((first, second))
+        ]
+        plan = MultiQueryPlanner([SameAggregationTopNRule(), CountFusionRule()]).plan(inputs)
+        self.assertEqual([(g.rule, g.query_ids) for g in plan.groups], [(rule, ("0", "1"))])
+        width = len(shared_row)
+        result = BatchQueryResult(
+            columns=tuple(f"c{i}" for i in range(width)),
+            types=(("Date" if rule == "count_fusion" else "String"), *("UInt64",) * (width - 1)),
+            rows=(shared_row,),
+        )
+        self.assertEqual(plan.groups[0].split(result), expected)
+
+    def test_queries_no_rule_shares_run_as_written(self) -> None:
+        inputs = [
+            SharingQuery(
+                query_id=str(i),
+                query=parse_select(f"SELECT uniq(e.person_id) AS users FROM events AS e WHERE e.event = '{event}'"),
+                context_key="same-request",
+                sharing_enabled=True,
+            )
+            for i, event in enumerate(("a", "b"))
+        ]
+        plan = MultiQueryPlanner([SameAggregationTopNRule(), CountFusionRule()]).plan(inputs)
+        self.assertEqual(
+            [g.query for g in plan.groups],
+            [clone_expr(q.query, clear_types=True, clear_locations=True) for q in inputs],
+        )
 
     def test_grouped_consumers_keep_their_default_limit(self) -> None:
         class PairRule:

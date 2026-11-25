@@ -1,9 +1,9 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import fields
 
 from posthog.hogql import ast
 from posthog.hogql.batch import BatchQueryResult, CountBatchPlanner
-from posthog.hogql.multi_query import ExecutionGroup, RuleProposals, RuleRejection, SharingQuery
+from posthog.hogql.multi_query import ExecutionGroup, RuleProposals, RuleRejection, SharingQuery, ast_nodes
 from posthog.hogql.visitor import clone_expr
 
 from posthog.dataclasses import frozen
@@ -26,20 +26,6 @@ class CountFusionRule:
                 if len(s.query_ids) == 1
             ),
         )
-
-
-def _nodes(value: object) -> Iterator[ast.AST]:
-    if isinstance(value, ast.AST):
-        yield value
-        for member in fields(value):
-            if member.name not in ("type", "start", "end"):
-                yield from _nodes(getattr(value, member.name))
-    elif isinstance(value, list | tuple):
-        for item in value:
-            yield from _nodes(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _nodes(item)
 
 
 class _GroupingBounds:
@@ -258,7 +244,7 @@ class SameAggregationTopNRule:
             ):
                 return "nested inputs must be deterministic projections and filters"
         found_aggregate = False
-        for child in _nodes(node):
+        for child in ast_nodes(node):
             if isinstance(child, ast.Field) and any(
                 isinstance(p, str) and p.startswith(cls.prefix) for p in child.chain
             ):

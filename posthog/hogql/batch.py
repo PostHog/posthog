@@ -88,6 +88,11 @@ class BatchPlan:
 
 
 class CountBatchPlanner:
+    # Each function maps one timestamp to one bucket, so a fused query keys its rows the same way each separate one does.
+    bucket_functions = frozenset(
+        {"toDate", "toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
+    )
+
     def __init__(self, max_group_size: int = 8) -> None:
         if not 2 <= max_group_size <= 32:
             raise ValueError("max_group_size must be between 2 and 32")
@@ -178,6 +183,15 @@ class CountBatchPlanner:
         )
 
     @classmethod
+    def _bucket(cls, expr: ast.Expr) -> bool:
+        # A second argument (a week mode or timezone) changes which bucket a row lands in, so only one is accepted.
+        return (
+            isinstance(expr, ast.Call)
+            and expr.name in cls.bucket_functions
+            and expr == ast.Call(name=expr.name, args=[ast.Field(chain=["timestamp"])])
+        )
+
+    @classmethod
     def _candidate(cls, query_id: str, query: ast.SelectQuery | ast.SelectSetQuery) -> _CountQuery | str:
         if not isinstance(query, ast.SelectQuery):
             return "set operations run separately"
@@ -187,16 +201,16 @@ class CountBatchPlanner:
         if query.select_from != ast.JoinExpr(table=ast.Field(chain=["events"])):
             return "only an unaliased events source without joins or sampling can combine"
 
-        day = ast.Call(name="toDate", args=[ast.Field(chain=["timestamp"])])
-        if query.group_by not in (None, [day]):
-            return "only totals or GROUP BY toDate(timestamp) can combine"
-        grouped = bool(query.group_by)
+        if query.group_by is not None and not (len(query.group_by) == 1 and cls._bucket(query.group_by[0])):
+            return "only totals or GROUP BY one date bucket of timestamp, without a mode or timezone, can combine"
+        bucket = query.group_by[0] if query.group_by else None
+        grouped = bucket is not None
         if len(query.select) != 1 + int(grouped):
-            return "select one count and, for daily queries, the day"
+            return "select one count and, for bucketed queries, the bucket"
         columns: list[str] = []
         count_position = -1
         argument: ast.Field | None = None
-        day_alias: str | None = None
+        bucket_alias: str | None = None
         for index, selected in enumerate(query.select):
             expr = selected.expr if isinstance(selected, ast.Alias) else selected
             alias = selected.alias if isinstance(selected, ast.Alias) else None
@@ -214,14 +228,16 @@ class CountBatchPlanner:
                     else None
                 )
                 columns.append(alias or HogQLPrinter(context=HogQLContext()).visit(expr))
-            elif grouped and expr == day:
-                day_alias = alias
-                columns.append(alias or "toDate(timestamp)")
+            elif grouped and expr == bucket:
+                bucket_alias = alias
+                columns.append(alias or HogQLPrinter(context=HogQLContext()).visit(expr))
             else:
-                return "only count(), count(column), and the day expression can combine"
+                return "only count(), count(column), and the bucket expression can combine"
         if (
             count_position < 0
-            or (grouped and all((item.expr if isinstance(item, ast.Alias) else item) != day for item in query.select))
+            or (
+                grouped and all((item.expr if isinstance(item, ast.Alias) else item) != bucket for item in query.select)
+            )
             or len(set(columns)) != len(columns)
         ):
             return "select exactly one count and use distinct output names"
@@ -231,12 +247,13 @@ class CountBatchPlanner:
         order: str | None = None
         if query.order_by:
             if not grouped or len(query.order_by) != 1:
-                return "only ordering by the day can combine"
+                return "only ordering by the bucket can combine"
             ordering = query.order_by[0]
             if ordering.with_fill or not (
-                ordering.expr == day or (day_alias is not None and ordering.expr == ast.Field(chain=[day_alias]))
+                ordering.expr == bucket
+                or (bucket_alias is not None and ordering.expr == ast.Field(chain=[bucket_alias]))
             ):
-                return "only ordering by the day without WITH FILL can combine"
+                return "only ordering by the bucket without WITH FILL can combine"
             order = ordering.order
 
         if query.where is not None and not cls._predicate(query.where):
@@ -260,15 +277,15 @@ class CountBatchPlanner:
     def _deduplicate(counts: list[_CountQuery]) -> BatchStep:
         first = counts[0]
         query = clone_expr(first.query)
-        grouped = bool(query.group_by)
-        day = ast.Call(name="toDate", args=[ast.Field(chain=["timestamp"])])
+        bucket = query.group_by[0] if query.group_by else None
+        grouped = bucket is not None
         selected = query.select[first.count_position]
         aggregate = selected.expr if isinstance(selected, ast.Alias) else selected
         # Keep count(column) intact so ClickHouse can still use its count optimizations.
-        query.select = [ast.Alias(alias="__batch_day", expr=day)] if grouped else []
+        query.select = [ast.Alias(alias="__batch_bucket", expr=clone_expr(bucket))] if bucket is not None else []
         query.select.append(ast.Alias(alias="__batch_count_0", expr=aggregate))
-        if query.order_by:
-            query.order_by[0].expr = clone_expr(day)
+        if query.order_by and bucket is not None:
+            query.order_by[0].expr = clone_expr(bucket)
         return BatchStep(
             query_ids=tuple(count.query_id for count in counts),
             query=query,
@@ -281,9 +298,11 @@ class CountBatchPlanner:
     @staticmethod
     def _combine(counts: list[_CountQuery]) -> BatchStep:
         first = counts[0]
-        grouped = bool(first.query.group_by)
-        day = ast.Call(name="toDate", args=[ast.Field(chain=["timestamp"])])
-        select: list[ast.Expr] = [ast.Alias(alias="__batch_day", expr=day)] if grouped else []
+        bucket = first.query.group_by[0] if first.query.group_by else None
+        grouped = bucket is not None
+        select: list[ast.Expr] = (
+            [ast.Alias(alias="__batch_bucket", expr=clone_expr(bucket))] if bucket is not None else []
+        )
         projections: list[_CountProjection] = []
         aggregates: dict[str, int] = {}
 
@@ -334,9 +353,9 @@ class CountBatchPlanner:
             select=select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=clone_expr(CountBatchPlanner._and(where_parts)) if where_parts else None,
-            group_by=[day] if grouped else None,
-            order_by=[ast.OrderExpr(expr=day, order=first.query.order_by[0].order)]
-            if first.order and first.query.order_by
+            group_by=[clone_expr(bucket)] if bucket is not None else None,
+            order_by=[ast.OrderExpr(expr=clone_expr(bucket), order=first.query.order_by[0].order)]
+            if bucket is not None and first.order and first.query.order_by
             else None,
         )
         return BatchStep(

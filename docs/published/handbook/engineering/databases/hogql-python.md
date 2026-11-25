@@ -127,8 +127,10 @@ For an isolated fixture without application services, use `--synthetic` (and opt
 This mode substitutes a `system.numbers` fixture exposing `timestamp`, `event` (`purchase` or `signup`), `distinct_id`, and `properties.browser` (`Chrome` or `Firefox`), across January 1–7, 2026.
 Its measurements demonstrate repeated work on generated data, not savings on application tables.
 
-The combining rule accepts a single unaliased `events` source and either a total or `GROUP BY toDate(timestamp)` with the day selected.
-Grouping and day ordering must match. Timestamp bounds may be absent, one-sided, overlapping, or disjoint; literal bounds retain their exact operators and timezone arguments inside each aggregate.
+The combining rule accepts a single unaliased `events` source and either a total or a `GROUP BY` on one date bucket of `timestamp`, with the bucket selected.
+The buckets are `toDate`, `toStartOfDay`, `toStartOfWeek`, `toStartOfMonth`, `toStartOfQuarter`, and `toStartOfYear`, each with `timestamp` as its only argument.
+A week mode or timezone argument, and other functions such as `toStartOfHour`, remain separate.
+Grouping and bucket ordering must match. Timestamp bounds may be absent, one-sided, overlapping, or disjoint; literal bounds retain their exact operators and timezone arguments inside each aggregate.
 Each aggregate applies its own full filter. The shared scan reads the union of the original filters, with common conditions factored out for pruning.
 Without a restricting filter, the scan can read the entire project; this is allowed, not a promise of a speedup.
 Simple comparisons on event fields and properties are supported. Joins, other aggregates, arbitrary count expressions, relative time, CTEs, limits, settings, and unsupported expressions remain separate, with a reason in the plan.
@@ -144,6 +146,13 @@ The optional synthetic SQL adapter is not the production HogQL compiler and must
 ### Experimental aggregation sharing
 
 `posthog.hogql.multi_query.MultiQueryPlanner` accepts an ordered registry of sharing rules and returns independent execution groups, per-consumer result routers, and rejection reasons. Rules operate on cloned ASTs and do not execute queries or manage caches. The existing count planner is available through `CountFusionRule`.
+
+Before the rules run, the planner rewrites each top-level query to one spelling, so that queries which differ only in how they are written can match.
+A `GROUP BY` entry that names a SELECT alias becomes the aliased expression, so `GROUP BY day` matches `GROUP BY toDate(timestamp)`.
+A plain `FROM events AS e` source loses its alias, and `e.event` becomes `event`.
+An unaliased output whose text changes keeps its original name.
+The rewrite is skipped when a name could bind differently: a subquery, a lambda, a join, duplicate SELECT aliases, or a SELECT alias named like the table alias or a rewritten column.
+Queries that no rule shares run as written.
 
 `SameAggregationTopNRule` combines pairs with identical input, projection, grouping, and `HAVING`, but different output rankings and limits. It computes the aggregation once, ranks each consumer in ClickHouse, and returns only the requested rows with routing metadata. Each limit must be a positive literal no greater than 1,000. Output aliases must match; ordering must reference selected outputs. It supports a conservative function allowlist over `events`, including expanded deterministic projection/filter subqueries. Opaque views, joins, relative time, windowed inputs, nested limits, offsets, `WITH TIES`, settings, and unknown functions remain separate. Grouping keys must be `event`, a date bucket of `timestamp` such as `toDate(timestamp)`, or expressions built only from those. Other groupings, including properties and raw timestamps, remain separate, because the shared query sorts every group where a separate query keeps only its top rows.
 
