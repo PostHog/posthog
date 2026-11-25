@@ -1,4 +1,4 @@
-"""Bills warehouse rows synced.
+"""Bills warehouse rows synced, and the egress of delivering them to external destinations.
 
 Two meters split the same set of completed jobs. `rows_synced` is what a customer pays
 for; `free_historical_rows_synced` is the rest, currently a source's first week of
@@ -8,12 +8,17 @@ collector classifies one job as it finishes.
 
 All three read the rules from here, and `tests/test_billing.py` runs the period queries
 and the per-job classifier over the same jobs to check they still agree.
+
+Egress is metered separately: the bytes each external destination received, recorded per
+delivered batch in `ExternalDataDestinationDelivery` and summed over the same completed,
+billable jobs.
 """
 
 from datetime import UTC, datetime, timedelta
 
 from django.db.models import F, Q, QuerySet, Sum
 
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
@@ -89,3 +94,16 @@ def get_free_historical_rows_synced_by_team(begin: datetime, end: datetime) -> l
     if not (FREE_PERIOD_START <= begin < FREE_PERIOD_END):
         jobs = jobs.filter(pipeline__created_at__gte=end - FREE_HISTORICAL_WINDOW)
     return _by_team(jobs)
+
+
+def get_destination_bytes_exported_by_team(begin: datetime, end: datetime) -> list:
+    """Egress to external destinations, per team, for the completed billable jobs in the period.
+
+    Not subject to the free historical window, which only covers rows synced.
+    """
+    return list(
+        ExternalDataDestinationDelivery.objects.unscoped()
+        .filter(job__in=_completed_billable_jobs(begin, end))
+        .values("team_id")
+        .annotate(total=Sum("bytes_exported"))
+    )

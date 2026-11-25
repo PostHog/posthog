@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from posthog.schema import AgentMode
+from posthog.schema import AgentMode, AssistantTool
 
 from products.alerts.backend.max_tools import UpsertAlertTool
 
@@ -11,7 +11,8 @@ from ee.hogai.chat_agent.executables import (
     ChatAgentPlanToolsExecutable,
     ChatAgentToolsExecutable,
 )
-from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
+from ee.hogai.registry import get_contextual_tool_class
+from ee.hogai.tools import CreateInsightTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
 
 from ..factory import AgentModeDefinition
@@ -57,7 +58,12 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        return [CreateInsightTool, UpsertDashboardTool, UpsertAlertTool]
+        # The dashboards product registers this tool under its AssistantTool name, so core looks it up
+        # there instead of importing the product.
+        upsert_dashboard_tool = get_contextual_tool_class(AssistantTool.UPSERT_DASHBOARD)
+        if upsert_dashboard_tool is None:
+            raise RuntimeError("No MaxTool is registered for the upsert_dashboard tool")
+        return [CreateInsightTool, upsert_dashboard_tool, UpsertAlertTool]
 
 
 product_analytics_agent = AgentModeDefinition(

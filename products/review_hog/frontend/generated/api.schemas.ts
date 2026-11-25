@@ -340,7 +340,7 @@ export interface ReviewRepositoryApi {
     readonly review_drafts: boolean
     /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False gives each pull request its reviews only when it opens or is marked ready. */
     readonly review_pushes: boolean
-    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
     readonly deep_review_gated_prs: boolean
     /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
     readonly people: readonly ReviewRepositoryPersonApi[]
@@ -376,7 +376,7 @@ export interface ReviewRepositoryWriteApi {
     flash_for?: AutomaticFlashForEnumApi | null
     /** True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value. */
     review_drafts?: boolean
-    /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+    /** True gives a pull request one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. The first case works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
     deep_review_gated_prs?: boolean
     /** True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value. */
     review_pushes?: boolean
@@ -566,7 +566,7 @@ export interface ReviewRepositoryOverviewEntryApi {
     review_drafts: boolean
     /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. */
     review_pushes: boolean
-    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
     deep_review_gated_prs: boolean
     /** Whether auto-approval reviews this repository in this project. Only then can its size, restricted-path and tier rules make an automatic review a Deep review. */
     auto_approval: boolean
@@ -1518,7 +1518,7 @@ export const ReviewTriggerRequestRunModeEnumApi = {
 export interface ReviewTriggerRequestApi {
     /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
     pr_url: string
-    /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
+    /** What to run on the pull request. 'flash' (default) runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. 'review' runs a Deep review and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
      *
      * * `review` - Review
      * * `review_only` - Review only
@@ -1871,7 +1871,7 @@ export type CodeReviewReviewsPrStatusRetrieveParams = {
      */
     requested_at?: string
     /**
-     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
+     * The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.
      *
      * * `review` - Review
      * * `review_only` - Review only

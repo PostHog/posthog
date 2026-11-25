@@ -10,11 +10,11 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
-import { getUserAdminUrl } from 'lib/utils/userAdmin'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { columnValueFilter } from '../columnValueFilter'
+import { AccountMemberImpersonateButton } from './AccountMemberImpersonateButton'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -95,25 +95,7 @@ export function AccountRelatedUsersExpansion({
             title: 'Actions',
             key: 'actions',
             width: 0,
-            render: (_, member) => {
-                const adminUrl = getUserAdminUrl(member.region, member.user.id)
-
-                return (
-                    <LemonButton
-                        type="secondary"
-                        size="xsmall"
-                        to={adminUrl}
-                        targetBlank
-                        tooltip="Open this user in admin to impersonate them."
-                        data-attr="customer-analytics-account-user-admin-link"
-                        onClick={() =>
-                            posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })
-                        }
-                    >
-                        Impersonate
-                    </LemonButton>
-                )
-            },
+            render: (_, member) => <AccountMemberImpersonateButton member={member} />,
         })
     }
 

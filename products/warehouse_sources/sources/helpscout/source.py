@@ -68,9 +68,9 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             # The linked OAuth integration was deleted while the source still references it.
             # Retrying can never resolve this, so ask the user to reconnect.
             "Integration not found": "The linked Help Scout integration no longer exists. Please reconnect your Help Scout account.",
-            # The Help Scout app isn't configured on this PostHog instance, so the source can't
-            # refresh its access token. Deterministic, so retrying never resolves it.
-            "Help Scout app not configured": "The Help Scout app is not configured on this PostHog instance. Please contact support.",
+            # "Help Scout app not configured" is not here on purpose. It means the worker that ran the job
+            # has no Help Scout client credentials, which is a PostHog fault that the customer can't fix,
+            # so it must not disable the schema.
         }
 
     @property

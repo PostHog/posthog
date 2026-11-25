@@ -1,6 +1,7 @@
 import re
 import uuid
 import dataclasses
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.db.models.manager import BaseManager
 
 import boto3
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -372,6 +374,12 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
         }
 
+    def to_representation(self, instance: DataWarehouseTable) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.team_credential is None:
+            data["credential"] = None
+        return data
+
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
         return get_data_warehouse_table_name(table.external_data_source, table.name)
@@ -580,12 +588,30 @@ class FileUploadResponseSerializer(serializers.Serializer):
     size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
 
 
-class UploadedFileSerializer(serializers.Serializer):
-    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
-    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
+class UploadOptionsSerializer(serializers.Serializer):
+    notebook_cell = serializers.RegexField(
+        r"^[A-Za-z0-9_-]{1,12}/[^\x00-\x1f\x7f]{1,128}$",
+        required=False,
+        help_text="Notebook short ID and cell ID separated by a slash. On create, associates the new table with "
+        "that cell. On replace, requires the table to have been created for that cell.",
+    )
     file_format = serializers.ChoiceField(
         choices=UploadedFileFormat.choices, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
     )
+
+
+@extend_schema_field(OpenApiTypes.BINARY)
+class BinaryUploadField(serializers.FileField):
+    pass
+
+
+class InlineUploadSerializer(UploadOptionsSerializer):
+    file = BinaryUploadField()
+
+
+class UploadedFileSerializer(UploadOptionsSerializer):
+    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
+    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
 
     def validate_filename(self, filename: str) -> str:
         # upload_file only ever returns a safe name, so anything else did not come from it.
@@ -607,15 +633,20 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+class CreateTableFromFileSerializer(InlineUploadSerializer):
+    table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
+
+
+INCLUDE_TABLE_COLUMNS = OpenApiParameter(
+    "include_columns", bool, description="Include table columns. Disable for lightweight table lookups.", default=True
+)
+
+
 @extend_schema_view(
+    retrieve=extend_schema(parameters=[INCLUDE_TABLE_COLUMNS]),
     list=extend_schema(
         parameters=[
-            OpenApiParameter(
-                "include_columns",
-                bool,
-                description="Include table columns. Disable for lightweight table existence or name lookups.",
-                default=True,
-            ),
+            INCLUDE_TABLE_COLUMNS,
             OpenApiParameter(
                 "pending_source",
                 bool,
@@ -623,7 +654,7 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 default=False,
             ),
         ]
-    )
+    ),
 )
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -706,9 +737,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
-            if instance.credential is None:
+            if instance.credential_id is None:
                 raise serializers.ValidationError(
                     {"credential": "This table reads from PostHog's own storage, so it has no credential to change."}
+                )
+            credential = instance.team_credential
+            if credential is None:
+                raise serializers.ValidationError(
+                    {"credential": "This table's credential can't be changed. Contact support to fix this table."}
                 )
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
@@ -718,7 +754,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             if access_secret is not None and len(access_secret.strip()) == 0:
                 raise serializers.ValidationError("Access secret can't be blank")
 
-            credential = instance.credential
             if access_key is not None:
                 credential.access_key = access_key
             if access_secret is not None:
@@ -916,10 +951,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """Store an uploaded file for a new warehouse table and FileUpload source.
 
-        Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
-        this returns an `upload_id` the caller passes back to build the table. The file is written under
-        a team-scoped prefix, so a table can only ever read back its own team's uploads.
+        Returns an upload ID for a subsequent create or replacement.
         """
+        upload = self._receive_upload(request)
+        if isinstance(upload, response.Response):
+            return upload
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=FileUploadResponseSerializer(
+                {**dataclasses.asdict(upload), "size_bytes": request.FILES["file"].size}
+            ).data,
+        )
+
+    def _receive_upload(self, request: request.Request) -> UploadedFileRef | response.Response:
         if not settings.DATAWAREHOUSE_BUCKET:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -983,17 +1027,29 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         if upload_id is None:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
 
-        return response.Response(
-            status=status.HTTP_201_CREATED,
-            data=FileUploadResponseSerializer(
-                {
-                    "upload_id": upload_id,
-                    "filename": safe_filename,
-                    "file_format": file_format,
-                    "size_bytes": file.size,
-                }
-            ).data,
-        )
+        return UploadedFileRef(upload_id=upload_id, filename=safe_filename, file_format=file_format)
+
+    def _save_with_upload(
+        self, request: request.Request, save: Callable[[dict[str, Any]], response.Response]
+    ) -> response.Response:
+        upload = self._receive_upload(request)
+        if isinstance(upload, response.Response):
+            return upload
+        fields: dict[str, Any] = {
+            key: request.data[key] for key in ("table_name", "notebook_cell") if key in request.data
+        }
+        saved = False
+        try:
+            result = save({**fields, **dataclasses.asdict(upload)})
+            saved = status.is_success(result.status_code)
+            return result
+        finally:
+            if not saved:
+                # A failed sync can already have adopted this request's file.
+                try:
+                    discard_unused_upload(self.team_id, upload)
+                except Exception as error:
+                    capture_exception(error)
 
     @extend_schema(
         request=CreateTableFromUploadSerializer,
@@ -1013,6 +1069,21 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         For a team with object storage sources, the table also gets a file upload source. Its first
         sync imports the file and turns the same table row into a managed table.
         """
+        return self._create_table_from_upload(request.data)
+
+    @extend_schema(request={"multipart/form-data": CreateTableFromFileSerializer}, responses={201: TableSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser],
+    )
+    def create_from_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Create a warehouse table from the file in this request."""
+        return self._save_with_upload(request, self._create_table_from_upload)
+
+    def _create_table_from_upload(self, data: dict[str, Any]) -> response.Response:
+        request = self.request
         # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
         # queryable url_pattern. Missing either would create a table whose every query fails.
         if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
@@ -1021,7 +1092,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": "Object storage must be available to create a table from a file."},
             )
 
-        serializer = CreateTableFromUploadSerializer(data=request.data)
+        serializer = CreateTableFromUploadSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         upload_id = str(serializer.validated_data["upload_id"])
         filename = serializer.validated_data["filename"]
@@ -1066,7 +1137,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table.save()
         log_table_activity(table, "created")
         # The table reads the file in place until the source's first sync imports it.
-        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        create_file_upload_source(
+            self.team_id, table.pk, upload, read_settings, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
@@ -1089,15 +1162,29 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def replace_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
+        return self._replace_table_from_upload(table, request.data)
+
+    @extend_schema(request={"multipart/form-data": InlineUploadSerializer}, responses={202: TableSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser],
+    )
+    def replace_with_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Replace the rows of a file-upload table with the file in this request."""
+        table: DataWarehouseTable = self.get_object()
+        return self._save_with_upload(request, lambda data: self._replace_table_from_upload(table, data))
+
+    def _replace_table_from_upload(self, table: DataWarehouseTable, data: dict[str, Any]) -> response.Response:
         if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Object storage must be available to replace a table's file."},
             )
 
-        serializer = UploadedFileSerializer(data=request.data)
+        serializer = UploadedFileSerializer(data=data)
         serializer.is_valid(raise_exception=True)
-        file_format = serializer.validated_data["file_format"]
 
         if not can_replace_file(self.team_id, table.pk):
             return response.Response(
@@ -1108,15 +1195,22 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         upload = UploadedFileRef(
             upload_id=str(serializer.validated_data["upload_id"]),
             filename=serializer.validated_data["filename"],
-            file_format=file_format,
+            file_format=serializer.validated_data["file_format"],
         )
         missing = _missing_upload_response(self.team_id, upload)
         if missing is not None:
             return missing
-        return self._replace_file_with_upload(table, upload, status.HTTP_202_ACCEPTED)
+        return self._replace_file_with_upload(
+            table, upload, status.HTTP_202_ACCEPTED, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
     def _replace_file_with_upload(
-        self, table: DataWarehouseTable, upload: UploadedFileRef, success_status: int
+        self,
+        table: DataWarehouseTable,
+        upload: UploadedFileRef,
+        success_status: int,
+        *,
+        notebook_cell: str | None = None,
     ) -> response.Response:
         # Read the new file in place first, so a file the import can't read never replaces a working one.
         try:
@@ -1127,7 +1221,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         try:
-            replace_file_upload(self.team_id, table.pk, upload, read_settings)
+            replace_file_upload(self.team_id, table.pk, upload, read_settings, notebook_cell=notebook_cell)
         except FileUploadSourceError as e:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 

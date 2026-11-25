@@ -28,6 +28,7 @@ from products.workflows.backend.facade.contracts import (
     ContactsCohortFilled,
     ContactsCohortGone,
     ContactsImportAccessLost,
+    ContactsPartMissing,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -257,13 +258,13 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _stage(self, emails: list[str], **kwargs: Any) -> ProviderContactsResult:
+    def _stage(self, emails: list[str], *, create_people: bool = False, **kwargs: Any) -> ProviderContactsResult:
         return provider_contacts.stage_provider_contacts(
             self.team.id,
             self.user.id,
             [{"email": email} for email in emails],
             import_key="run-1/list-0",
-            create_people=False,
+            create_people=create_people,
             send_events=True,
             cohort_name="Contacts",
             cohort_description="Imported from a test list.",
@@ -349,6 +350,18 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             )
         capture.assert_not_called()
 
+    def test_a_missing_part_leaves_the_cohort_as_it_is(self) -> None:
+        staged, members = self._stage_ada_after_a_fill_with_bea()
+        assert staged.cohort_id is not None
+        self.storage.objects.clear()
+
+        with self.assertRaises(ContactsPartMissing):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        assert self._clickhouse_members(staged.cohort_id) == members
+
     def test_a_cohort_deleted_while_the_list_was_sent_is_left_alone(self) -> None:
         staged, members = self._stage_ada_after_a_fill_with_bea()
         assert staged.cohort_id is not None
@@ -398,6 +411,23 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
         assert self._clickhouse_members(staged.cohort_id) == members
 
+    @patch.object(provider_contacts.time, "sleep", side_effect=AssertionError("waited for people"))
+    def test_a_part_told_not_to_wait_reports_only_the_people_who_exist(self, _sleep: MagicMock) -> None:
+        create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "ada@example.com"})
+        flush_persons_and_events()
+        staged = self._stage(["ada@example.com", "bea@example.com"], create_people=True)
+
+        outcome = provider_contacts.import_contact_chunk(
+            self.team.id,
+            staged.storage_prefix,
+            0,
+            send_events=False,
+            created_by_id=self.user.id,
+            wait_for_people=False,
+        )
+
+        assert outcome == ContactChunkOutcome(people=2, found=1, new_people=1)
+
     @patch.object(provider_contacts, "capture_batch_internal")
     def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
         for name in ("ada", "bea"):
@@ -414,10 +444,11 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             return CaptureInternalResult(status_code=200, ok=uuids)
 
         capture.side_effect = acknowledge_all_but_the_last
-        with self.assertRaises(provider_contacts.ContactsCaptureFailed):
+        with self.assertRaises(provider_contacts.ContactsCaptureFailed) as failed:
             provider_contacts.import_contact_chunk(
                 self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
             )
+        assert (failed.exception.acknowledged, failed.exception.new_people) == (1, 0)
         outcome = provider_contacts.import_contact_chunk(
             self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
         )

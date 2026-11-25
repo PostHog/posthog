@@ -5,17 +5,17 @@ import { Button } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
-import { TodayPromptRow } from './TodayPromptRow'
+import { TodayPromptItem } from './TodayPromptItem'
 import { todayPromptsLogic } from './todayPromptsLogic'
 
 const AI_ICON = { glyph: <IconSparkles /> }
 
 export function TodayAiRow(): JSX.Element | null {
-    const { aiEnabled, aiPromptDismissed, canEnableAi, aiAccessRequested, requestingAiAccess } =
+    const { aiEnabled, aiPromptDismissed, canEnableAi, aiAccessRequested, requestingAiAccess, dataProcessingLocked } =
         useValues(todayPromptsLogic)
     const { dismissPrompt, acceptDataProcessing, requestAiAccess } = useActions(todayPromptsLogic)
 
-    if (aiEnabled || aiPromptDismissed) {
+    if (aiEnabled || aiPromptDismissed || dataProcessingLocked) {
         return null
     }
     const notNow = (
@@ -25,7 +25,7 @@ export function TodayAiRow(): JSX.Element | null {
     )
     if (canEnableAi) {
         return (
-            <TodayPromptRow
+            <TodayPromptItem
                 icon={AI_ICON}
                 title="Turn on PostHog AI"
                 meta="Get reports on what needs you, and fixes for them. You approve this for the whole organization."
@@ -52,7 +52,7 @@ export function TodayAiRow(): JSX.Element | null {
         )
     }
     return (
-        <TodayPromptRow
+        <TodayPromptItem
             icon={AI_ICON}
             title="PostHog AI is off"
             meta={

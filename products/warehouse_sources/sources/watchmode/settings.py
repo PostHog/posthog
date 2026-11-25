@@ -20,6 +20,10 @@ class WatchmodeEndpointConfig:
     paginated: bool = False
     # True when the response is one object, synced as one row, instead of a list.
     single_object: bool = False
+    # Set for per-title endpoints that page with limit/offset instead of returning every row at once.
+    offset_page_size: Optional[int] = None
+    # True for the release calendar, which is read in date windows instead of pages.
+    date_windowed: bool = False
     params: dict[str, Any] = field(default_factory=dict)
     fanout: Optional[DependentEndpointConfig] = None
     # Read by the shared fan-out builder; no Watchmode endpoint syncs incrementally.
@@ -34,14 +38,21 @@ _TITLES_PARAMS: dict[str, Any] = {"sort_by": "release_date_asc"}
 _MISSING_TITLE_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
-def _title_fanout(include_title_id: bool = True) -> DependentEndpointConfig:
+# Seasons and episodes exist only for series, so the other title types would cost a request each for nothing.
+_SERIES_TITLE_TYPES = "tv_series,tv_miniseries"
+
+
+def _title_fanout(include_title_id: bool = True, title_types: Optional[str] = None) -> DependentEndpointConfig:
+    parent_params: dict[str, Any] = {**_TITLES_PARAMS, "limit": WATCHMODE_PAGE_LIMIT}
+    if title_types is not None:
+        parent_params["types"] = title_types
     return DependentEndpointConfig(
         parent_name="titles",
         resolve_param="title_id",
         resolve_field="id",
         include_from_parent=["id"] if include_title_id else [],
         parent_field_renames={"id": "title_id"} if include_title_id else {},
-        parent_params={**_TITLES_PARAMS, "limit": WATCHMODE_PAGE_LIMIT},
+        parent_params=parent_params,
         child_response_actions=_MISSING_TITLE_IGNORE,
     )
 
@@ -109,6 +120,29 @@ WATCHMODE_ENDPOINTS: dict[str, WatchmodeEndpointConfig] = {
         # A person can act and direct in the same title, or hold several crew jobs.
         primary_keys=("title_id", "person_id", "type", "role"),
         fanout=_title_fanout(),
+    ),
+    "title_seasons": WatchmodeEndpointConfig(
+        name="title_seasons",
+        path="/v1/title/{title_id}/seasons/",
+        primary_keys=("title_id", "id"),
+        fanout=_title_fanout(title_types=_SERIES_TITLE_TYPES),
+    ),
+    "title_episodes": WatchmodeEndpointConfig(
+        name="title_episodes",
+        path="/v1/title/{title_id}/episodes/",
+        primary_keys=("title_id", "id"),
+        # Documented maximum `limit` for the episodes endpoint.
+        offset_page_size=500,
+        fanout=_title_fanout(title_types=_SERIES_TITLE_TYPES),
+    ),
+    "title_release_dates": WatchmodeEndpointConfig(
+        name="title_release_dates",
+        path="/v1/title-release-dates/",
+        # One row per title, country and release kind. A series has one streaming row per season, and a
+        # title can come to several services in one country, so the season, service and date are part of
+        # the row identity. Theatrical rows have no service and no season.
+        primary_keys=("id", "region", "type", "release_date", "provider_id", "season"),
+        date_windowed=True,
     ),
 }
 

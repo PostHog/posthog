@@ -53,8 +53,9 @@ from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.testing import home_tab_config_exists
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -722,11 +723,11 @@ def team_api_test_factory():
             )
 
         def test_update_home_tab_dashboard(self):
-            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            self.assertFalse(home_tab_config_exists(team_id=self.team.id))
             response = self.client.get("/api/environments/@current/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIsNone(response.json()["home_tab_dashboard"])
-            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            self.assertFalse(home_tab_config_exists(team_id=self.team.id))
 
             d = Dashboard.objects.create(name="Test", team=self.team)
 
@@ -735,7 +736,7 @@ def team_api_test_factory():
 
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertEqual(response_data["home_tab_dashboard"], d.id)
-            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+            self.assertEqual(dashboards_api.home_tab_dashboard_id(team_id=self.team.pk), d.id)
 
             changes = [
                 change
@@ -751,7 +752,7 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertIsNone(response.json()["home_tab_dashboard"])
-            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            self.assertIsNone(dashboards_api.home_tab_dashboard_id(team_id=self.team.pk))
             changes = [
                 change
                 for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
@@ -3573,6 +3574,18 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    def test_settings_as_of_reads_the_current_home_tab_dashboard(self):
+        dashboard = Dashboard.objects.create(name="Home", team=self.team)
+        with time_machine.travel("2025-04-01T00:00:00Z", tick=False):
+            r = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": dashboard.id})
+            assert r.status_code == status.HTTP_200_OK, r.json()
+
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-04-02T00:00:00Z&scope=home_tab_dashboard"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"home_tab_dashboard": dashboard.id}
 
     @parameterized.expand(
         [

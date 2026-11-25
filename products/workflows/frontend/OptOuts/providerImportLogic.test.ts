@@ -7,6 +7,8 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { suppressionListLogic } from '../Suppression/suppressionListLogic'
+import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 
@@ -100,6 +102,7 @@ describe('providerImportLogic', () => {
                     return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
                 },
                 '/api/projects/:team_id/messaging_provider_imports/:id/': () => [200, retrieved],
+                '/api/environments/:team_id/messaging_templates/': () => [200, { results: [] }],
             },
             post: {
                 '/api/projects/:team_id/messaging_provider_imports/': async ({ request }) => {
@@ -146,7 +149,150 @@ describe('providerImportLogic', () => {
         expect(logic.values.importSettings).toEqual({})
     })
 
+    it('fills the latest run from its details, since the list leaves out items, retries a failed fetch, and fetches a finished one once', async () => {
+        const item = { label: 'Welcome email', status: 'created' as const, url: null, notes: [] }
+        const listed = importRun('completed')
+        runResponses = [[200, [listed]]]
+        let retrieveCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => {
+                    retrieveCalls += 1
+                    if (retrieveCalls === 1) {
+                        return [500, { detail: 'boom' }]
+                    }
+                    return [200, { ...listed, steps: [{ ...listed.steps[0], items: [item] }] }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        await expectLogic(logic, () => logic.actions.loadImportRuns()).toDispatchActions(['loadImportRunsSuccess'])
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([])
+
+        await jest.advanceTimersByTimeAsync(2000)
+        await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess'])
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([item])
+
+        await jest.advanceTimersByTimeAsync(10000)
+        await expectLogic(logic, () => logic.actions.loadImportRuns()).toDispatchActions(['loadImportRunsSuccess'])
+
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([item])
+        expect(retrieveCalls).toBe(2)
+    })
+
+    it('stops retrying details that keep failing, says so once, and tries again when the window opens', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        runResponses = [[200, [importRun('completed')]]]
+        let retrieveCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => {
+                    retrieveCalls += 1
+                    return [500, { detail: 'boom' }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.loadImportRuns()
+        await jest.advanceTimersByTimeAsync(30000)
+
+        expect(retrieveCalls).toBe(6)
+        expect(toastError).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => logic.actions.openImportModal()).toDispatchActions(['loadImportRunsSuccess'])
+        expect(retrieveCalls).toBe(7)
+        toastError.mockRestore()
+    })
+
+    it('blocks the start as soon as a ticked step loses a step it needs', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
+                    200,
+                    [
+                        {
+                            ...PROVIDER_WITH_SETTINGS,
+                            settings: [],
+                            steps: [
+                                { key: 'suppressions', label: 'Suppression list', description: '', needs: [] },
+                                { key: 'opt_outs', label: 'Unsubscribed contacts', description: '', needs: [] },
+                                {
+                                    key: 'contacts',
+                                    label: 'Contacts',
+                                    description: '',
+                                    needs: ['suppressions', 'opt_outs'],
+                                },
+                            ],
+                        },
+                    ],
+                ],
+            },
+        })
+        logic.actions.loadImportProviders()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.cannotStartImportReason).toBeNull()
+
+        logic.actions.toggleImportStep('suppressions')
+        logic.actions.toggleImportStep('opt_outs')
+
+        expect(logic.values.unmetStepNeeds).toEqual({ contacts: ['Suppression list', 'Unsubscribed contacts'] })
+        expect(logic.values.cannotStartImportReason).toEqual(
+            'Contacts needs Suppression list and Unsubscribed contacts selected too'
+        )
+        logic.actions.setImportFormValue('api_key', 're_key')
+        logic.actions.submitImportForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(startBodies).toEqual([])
+
+        logic.actions.toggleImportStep('suppressions')
+        expect(logic.values.unmetStepNeeds).toEqual({ contacts: ['Unsubscribed contacts'] })
+
+        logic.actions.toggleImportStep('opt_outs')
+        expect(logic.values.cannotStartImportReason).toBeNull()
+
+        logic.actions.setImportFormValue('api_key', '   ')
+        logic.actions.submitImportForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(startBodies).toEqual([])
+    })
+
+    it('reloads the suppression list behind the window when it closes during an import', async () => {
+        let suppressionLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_suppressions/suppressions/': () => {
+                    suppressionLoads += 1
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+        const suppressions = suppressionListLogic()
+        await expectLogic(suppressions, () => {
+            suppressions.mount()
+        }).toDispatchActions(['loadSuppressionsSuccess'])
+        expect(suppressionLoads).toBe(1)
+
+        logic.actions.closeImportModal()
+        await expectLogic(suppressions).toFinishAllListeners()
+        expect(suppressionLoads).toBe(1)
+
+        logic.actions.setTrackedImportRunIds(['run-1'])
+        await expectLogic(suppressions, () => logic.actions.closeImportModal()).toDispatchActions([
+            'loadSuppressionsSuccess',
+        ])
+        expect(suppressionLoads).toBe(2)
+        suppressions.unmount()
+    })
+
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
+        const templatesLogic = messageTemplatesLogic()
+        await expectLogic(templatesLogic, () => {
+            templatesLogic.mount()
+        }).toDispatchActions(['loadTemplatesSuccess'])
         await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
         jest.useFakeTimers()
         logic.actions.toggleImportStep('categories')
@@ -170,6 +316,8 @@ describe('providerImportLogic', () => {
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
         expect(customerIOLogic.values.stepCompletion.step1).toBe('completed')
+        await expectLogic(templatesLogic).toDispatchActions(['loadTemplates'])
+        templatesLogic.unmount()
 
         const callsWhenFinished = listCalls
         await jest.advanceTimersByTimeAsync(10000)
@@ -263,17 +411,55 @@ describe('providerImportLogic', () => {
     })
 
     it('asks which tool to import from only when there is more than one', async () => {
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedProvider?.key).toBe('customerio')
+        expect(logic.values.importButtonLabel).toBe('Import from Customer.io')
 
         const resend = { ...PROVIDER_OPTION, key: 'resend', label: 'Resend', retains_credentials: false }
         logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
         expect(logic.values.selectedProvider).toBeNull()
+        expect(logic.values.importButtonLabel).toBe('Import from another tool')
 
         logic.actions.setImportFormValue('api_key', 'a-key-for-another-tool')
         logic.actions.selectProvider('resend')
         expect(logic.values.selectedProvider?.key).toBe('resend')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.importForm.api_key).toBe('')
+    })
+
+    it.each([
+        ['workflows', true],
+        ['templates', true],
+        ['transactional', false],
+    ] as const)(
+        'opens straight on Customer.io from the %s page when it is the only tool, with automations: %s',
+        async (entryPoint, showsAutomationImport) => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openImportModal(null, entryPoint)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.showsAutomationImport).toBe(showsAutomationImport)
+            expect(logic.values.selectedProvider?.key).toBe('customerio')
+        }
+    )
+
+    it('lists the tools by name, whatever order the API sends', () => {
+        const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
+        logic.actions.loadImportProvidersSuccess([
+            tool('sendgrid', 'SendGrid'),
+            PROVIDER_OPTION,
+            tool('resend', 'Resend'),
+            tool('mailgun', 'Mailgun'),
+            tool('a-postmark', 'Postmark'),
+        ] as any)
+
+        expect(logic.values.orderedImportProviders.map((provider) => provider.label)).toEqual([
+            'Customer.io',
+            'Mailgun',
+            'Postmark',
+            'Resend',
+            'SendGrid',
+        ])
     })
 })

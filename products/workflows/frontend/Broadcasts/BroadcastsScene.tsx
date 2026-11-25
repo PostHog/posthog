@@ -25,6 +25,8 @@ import {
     MessagingNavTabKey,
     isMessagingSetupTab,
 } from '../messagingTabs'
+import { ImportFromAnotherToolButton } from '../OptOuts/ImportFromAnotherToolButton'
+import { ProviderImportModal } from '../OptOuts/ProviderImportModal'
 import { SendCalendar } from '../SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
 import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
@@ -72,25 +74,31 @@ export function BroadcastsScene(): JSX.Element {
                 resourceType={{ type: 'broadcasts' }}
                 actions={
                     currentTab === 'broadcasts' || currentTab === 'calendar' ? (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Workflow}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            {todayRailNav ? (
-                                <Button data-attr="new-broadcast" onClick={startNewBroadcast} variant="primary">
-                                    New broadcast
-                                </Button>
-                            ) : (
-                                <LemonButton
-                                    data-attr="new-broadcast"
-                                    onClick={startNewBroadcast}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New broadcast
-                                </LemonButton>
-                            )}
-                        </AccessControlAction>
+                        <>
+                            <ImportFromAnotherToolButton
+                                entryPoint="broadcasts"
+                                dataAttr="broadcasts-import-from-another-tool"
+                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                {todayRailNav ? (
+                                    <Button data-attr="new-broadcast" onClick={startNewBroadcast} variant="primary">
+                                        New broadcast
+                                    </Button>
+                                ) : (
+                                    <LemonButton
+                                        data-attr="new-broadcast"
+                                        onClick={startNewBroadcast}
+                                        type="primary"
+                                        size="small"
+                                    >
+                                        New broadcast
+                                    </LemonButton>
+                                )}
+                            </AccessControlAction>
+                        </>
                     ) : (
                         <MessagingTabActions tab={currentTab} channelsUrl={urls.broadcasts('channels')} />
                     )
@@ -132,6 +140,7 @@ export function BroadcastsScene(): JSX.Element {
                 ]}
                 sceneInset
             />
+            <ProviderImportModal />
             {/* The calendar can start a workflow, and its template picker lives in this modal. */}
             <NewWorkflowModal />
         </SceneContent>

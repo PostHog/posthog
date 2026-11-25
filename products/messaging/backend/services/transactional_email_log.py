@@ -14,6 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -38,8 +39,10 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailStatsCounts,
     TransactionalEmailStatsOverTime,
     TransactionalEmailStatsRow,
+    TransactionalEmailTracking,
 )
 from products.messaging.backend.models.email_status_sql import (
+    EMAIL_CLICKS_UNTRACKED_REASON,
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
@@ -63,7 +66,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
 
@@ -95,6 +97,12 @@ _MESSAGE_COLUMNS = f"""
     countIf(status = 'opened') > 0 AS was_opened,
     countIf(status = 'clicked') > 0 AS was_clicked
 """.strip()
+_TRACKING_REASONS = {
+    "untracked_reason": EMAIL_UNTRACKED_REASON,
+    "clicks_untracked_reason": EMAIL_CLICKS_UNTRACKED_REASON,
+}
+_OPENS_OFF = "status = 'sent' AND reason = %(untracked_reason)s"
+_CLICKS_OFF = "status = 'sent' AND reason IN (%(untracked_reason)s, %(clicks_untracked_reason)s)"
 
 
 @frozen
@@ -117,8 +125,10 @@ def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
     return message_created_at(team_id, message_id, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
-def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
-    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+def _execute(
+    team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None, *, query_type: str
+) -> list[tuple]:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY, query_type=query_type)
     # The log is read by a person looking at the page, or by an agent answering one.
     return cast(
         list,
@@ -292,6 +302,7 @@ def list_transactional_emails(
         """,
         params,
         settings or None,
+        query_type="transactional_email_log_list",
     )
     has_more = len(rows) > limit
     return _build_entries(team_id, rows[:limit]), has_more
@@ -305,13 +316,19 @@ def get_transactional_email(
     queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
-    params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}
+    params = {
+        "message_id": str(message_id),
+        "start": queued - _CLOCK_SKEW,
+        "end": queued + _CLOCK_SKEW,
+        **_TRACKING_REASONS,
+    }
     where = "team_id = %(team_id)s AND message_id = %(message_id)s AND created_at >= %(start)s AND created_at < %(end)s"
 
     rows = _execute(
         team_id,
         f"SELECT {_MESSAGE_COLUMNS} FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {where} GROUP BY message_id",
         params,
+        query_type="transactional_email_log_detail",
     )
     entries = _build_entries(team_id, rows)
     if not entries or (access is not None and not access.allows(entries[0].workflow_id)):
@@ -322,15 +339,22 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT {_STATUS}, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT
+            {_STATUS},
+            status_at,
+            {EMAIL_STATUS_SHOWN_REASON} AS shown_reason,
+            max({_OPENS_OFF}) AS opens_off,
+            max({_CLICKS_OFF}) AS clicks_off
+        FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
         GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
         """,
         params,
+        query_type="transactional_email_log_timeline",
     )
     timeline: list[TransactionalEmailLogEvent] = []
-    for kind, at, reason in events:
+    for kind, at, reason, *_tracking in events:
         if kind not in EmailLogEventKind.values:
             continue
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
@@ -354,6 +378,10 @@ def get_transactional_email(
         # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
         # the copy itself shows whether the content was withheld.
         sensitive=bool(template and template.sensitive),
+        tracking=TransactionalEmailTracking(
+            opens=not any(opens_off for *_, opens_off, _ in events),
+            clicks=not any(clicks_off for *_, clicks_off in events),
+        ),
     )
 
 
@@ -398,6 +426,7 @@ def transactional_email_stats(
         """,
         params,
         _GROUP_AS_READ,
+        query_type="transactional_email_stats",
     )
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
@@ -534,6 +563,7 @@ def transactional_email_stats_over_time(
             """,
             params,
             _GROUP_AS_READ,
+            query_type="transactional_email_stats_over_time",
         )
 
     current: dict[datetime, TransactionalEmailStatsCounts] = {}
@@ -618,9 +648,9 @@ def transactional_email_impact(
         "start": period.start,
         "end": period.end,
         "workflow_id": workflow_id,
-        "untracked_reason": EMAIL_UNTRACKED_REASON,
+        **_TRACKING_REASONS,
     }
-    [(sent, delivered, opened, clicked, not_clicked, untracked)] = _execute(
+    [(sent, delivered, opened, clicked, not_clicked, untracked, clicks_untracked)] = _execute(
         team.id,
         f"""
         SELECT
@@ -628,12 +658,14 @@ def transactional_email_impact(
             countIf(delivery_status IN ('delivered', 'complained')),
             countIf(was_opened),
             countIf(was_clicked),
-            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked),
-            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND was_untracked)
+            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked AND NOT clicks_off),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND opens_off),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND clicks_off AND NOT opens_off)
         FROM (
             SELECT
                 {_MESSAGE_COLUMNS},
-                countIf(status = 'sent' AND reason = %(untracked_reason)s) > 0 AS was_untracked
+                countIf({_OPENS_OFF}) > 0 AS opens_off,
+                countIf({_CLICKS_OFF}) > 0 AS clicks_off
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
@@ -642,6 +674,7 @@ def transactional_email_impact(
         """,
         params,
         _GROUP_AS_READ,
+        query_type="transactional_email_impact_funnel",
     )
     if not event:
         return TransactionalEmailImpact(
@@ -651,11 +684,12 @@ def transactional_email_impact(
             clicked=clicked,
             not_clicked=not_clicked,
             untracked=untracked,
+            clicks_untracked=clicks_untracked,
             window_days=IMPACT_WINDOW_DAYS,
             after_click=None,
             without_click=None,
         )
-    sends = _sends_to_follow(team, user, workflow_id, period)
+    sends = _sends_to_follow(team, workflow_id, period)
     converted = _converted_sends(team, user, event, sends)
     return TransactionalEmailImpact(
         sent=sent,
@@ -664,6 +698,7 @@ def transactional_email_impact(
         clicked=clicked,
         not_clicked=not_clicked,
         untracked=untracked,
+        clicks_untracked=clicks_untracked,
         window_days=IMPACT_WINDOW_DAYS,
         after_click=_conversions_of([send for send in sends if send.clicked], converted),
         without_click=_conversions_of([send for send in sends if not send.clicked], converted),
@@ -674,12 +709,11 @@ def transactional_email_impact(
 class _FollowedSend:
     message_id: str
     distinct_id: str
-    recipient: str
     clicked: bool
     since: datetime
 
 
-def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
+def _sends_to_follow(team: Team, workflow_id: str, period: _Period) -> list[_FollowedSend]:
     rows = _execute(
         team.id,
         f"""
@@ -688,18 +722,26 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
             SELECT
                 {_MESSAGE_COLUMNS},
                 minIf(status_at, status = 'clicked') AS first_clicked_at,
-                minIf(status_at, status = 'sent') AS first_sent_at
+                minIf(status_at, status = 'sent') AS first_sent_at,
+                countIf({_CLICKS_OFF}) > 0 AS clicks_off
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
-          AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
+          AND (was_clicked OR (delivery_status IN ('delivered', 'complained') AND NOT clicks_off))
         ORDER BY queued_at DESC
         LIMIT %(limit)s BY was_clicked
         """,
-        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        {
+            "start": period.start,
+            "end": period.end,
+            "workflow_id": workflow_id,
+            "limit": MAX_RESULTS_RECIPIENTS,
+            **_TRACKING_REASONS,
+        },
         _GROUP_AS_READ,
+        query_type="transactional_email_impact_sends",
     )
     assets = fetch_message_assets_for_invocations(team.id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW)
     distinct_ids = {
@@ -707,12 +749,10 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         for asset in assets
         if asset.function_id == workflow_id and asset.distinct_id
     }
-    persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
     return [
         _FollowedSend(
             message_id=message_id,
             distinct_id=distinct_ids[message_id],
-            recipient=persons.get(distinct_ids[message_id], f"distinct:{distinct_ids[message_id]}"),
             clicked=bool(was_clicked),
             since=since.replace(tzinfo=UTC),
         )
@@ -724,7 +764,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
     for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
-        converted |= _converted_in_batch(team, user, event, batch)
+        converted |= {batch[index - 1].message_id for index in _converted_in_batch(team, user, event, batch)}
     return converted
 
 
@@ -751,49 +791,28 @@ def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Call
 
 
 def _query_bytes_of(send: _FollowedSend) -> int:
-    return (
-        _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
-        + _escaped_literal_bytes(send.recipient)
-        + _escaped_literal_bytes(send.message_id)
-        + _SINCE_MS_LITERAL_BYTES
-    )
+    return _escaped_literal_bytes(send.distinct_id) + _SINCE_MS_LITERAL_BYTES
 
 
 def _escaped_literal_bytes(value: str) -> int:
     return 2 * len(value.encode()) + len("'', ")
 
 
-def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
+def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[int]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
     end = max(send.since for send in sends) + window + timedelta(seconds=1)
     response = execute_hogql_query(
-        """
-        SELECT DISTINCT sends.message_id
-        FROM ("""
-        + _RECIPIENT_EVENTS
-        + """) AS conversions
-        INNER JOIN (
-            SELECT
-                tupleElement(send, 1) AS message_id,
-                tupleElement(send, 2) AS recipient,
-                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
-            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
-        ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.timestamp >= sends.since
-          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
-        LIMIT {limit}
-        """,
+        _IMPACT_CONVERSIONS,
         team=team,
         user=user,
         placeholders={
-            "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
-            "message_ids": ast.Constant(value=[send.message_id for send in sends]),
-            "recipients": ast.Constant(value=[send.recipient for send in sends]),
+            "revenue": ast.Constant(value=None),
+            "send_distinct_ids": ast.Constant(value=[send.distinct_id for send in sends]),
+            "distinct_ids": parse_select("SELECT distinct_id FROM sends"),
             "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
             "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(sends)),
@@ -801,7 +820,7 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         query_type="transactional_email_impact_conversions",
         workload=Workload.ONLINE,
     )
-    return {message_id for (message_id,) in response.results or []}
+    return {position for (position,) in response.results or []}
 
 
 def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> TransactionalEmailConversions:
@@ -845,6 +864,43 @@ _RECIPIENT_EVENTS = """
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
+
+
+_IMPACT_CONVERSIONS = (
+    """
+    WITH
+        sends AS (
+            SELECT
+                tupleElement(send, 1) AS position,
+                tupleElement(send, 2) AS distinct_id,
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (
+                SELECT arrayJoin(arrayZip(arrayEnumerate(batch_distinct_ids), batch_distinct_ids, batch_since_ms)) AS send
+                FROM (SELECT {send_distinct_ids} AS batch_distinct_ids, {since_ms} AS batch_since_ms)
+            )
+        ),
+        recipients AS (
+            SELECT
+                sends.position AS position,
+                sends.since AS since,
+                if(persons.distinct_id != '', toString(persons.person_id), concat('distinct:', sends.distinct_id))
+                    AS recipient
+            FROM sends
+            LEFT JOIN (
+                SELECT distinct_id, person_id FROM person_distinct_ids
+                WHERE distinct_id IN (SELECT distinct_id FROM sends)
+            ) AS persons ON persons.distinct_id = sends.distinct_id
+        )
+    SELECT DISTINCT recipients.position
+    FROM ("""
+    + _RECIPIENT_EVENTS
+    + """) AS conversions
+    INNER JOIN recipients ON conversions.recipient = recipients.recipient
+    WHERE conversions.timestamp >= recipients.since
+      AND conversions.timestamp <= recipients.since + toIntervalSecond({window_seconds})
+    LIMIT {limit}
+    """
+)
 
 
 @frozen

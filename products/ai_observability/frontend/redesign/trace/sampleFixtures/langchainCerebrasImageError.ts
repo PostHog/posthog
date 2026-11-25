@@ -124,6 +124,7 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
         totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree,
     initialNodeId: GENERATION_ID,
@@ -169,7 +170,13 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
     thread: {
         status: 'ready',
         turns: [
-            { id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(cerebrasLabelMessages, []), error: ERROR_MESSAGE },
+            {
+                id: TRACE_ID,
+                timestamp: TIMESTAMP,
+                waitMs: null,
+                ...messagesSides(cerebrasLabelMessages, []),
+                error: ERROR_MESSAGE,
+            },
         ],
         activeTurnId: TRACE_ID,
     },

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 
-import type { LoadedCard } from '../cards'
+import { type LoadedCard, stepsOf } from '../cards'
+import type { ScorecardPair } from '../runner/pair'
 import type { RunVerdict } from '../runner/runner'
 import type { Provenance } from './provenance'
 
@@ -13,14 +14,24 @@ export type ScorecardProperties = { run_id: string; ended_at: string } & Record<
 
 function invariantProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries([
-        ...result.invariants.flatMap(({ name, passed, observed, gate, violation, unitIds }) => [
-            [`inv_${name}_passed`, passed],
-            [`inv_${name}_observed`, observed],
-            [`inv_${name}_gate`, gate ?? null],
-            [`inv_${name}_violation`, violation ?? null],
-            [`inv_${name}_ids`, unitIds],
-        ]),
-        ['invariants_failed', result.invariants.filter(({ passed }) => !passed).map(({ name }) => name)],
+        ...result.invariants.flatMap(
+            ({ name, passed, observed, gate, violation, unitIds, unjudged, missing, extra }) => [
+                [`inv_${name}_passed`, passed],
+                [`inv_${name}_observed`, observed],
+                [`inv_${name}_gate`, gate ?? null],
+                [`inv_${name}_violation`, violation ?? null],
+                [`inv_${name}_ids`, unitIds],
+                ...(unjudged === undefined ? [] : [[`inv_${name}_unjudged`, unjudged]]),
+                ...(missing === undefined ? [] : [[`inv_${name}_missing_ids`, missing]]),
+                ...(extra === undefined ? [] : [[`inv_${name}_extra_ids`, extra]]),
+            ]
+        ),
+        [
+            'invariants_failed',
+            result.invariants
+                .filter(({ passed, unjudged }) => !passed && unjudged === undefined)
+                .map(({ name }) => name),
+        ],
     ])
 }
 
@@ -40,20 +51,77 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
     )
 }
 
-const stepsOfRamp = (steps: NonNullable<RunVerdict['units']>['steps']): unknown[] =>
-    steps.map(({ scale, startedAt, endedAt, waitedFor }) => ({
-        scale,
-        started_at: new Date(startedAt).toISOString(),
-        ended_at: new Date(endedAt).toISOString(),
-        stretched:
-            waitedFor === undefined
-                ? null
-                : `held the ${scale}x rate past its planned end until the ${steps[waitedFor].scale}x step was judged`,
-    }))
+type Readings = NonNullable<NonNullable<RunVerdict['ramp']>['readings']>[number]
 
-function rampProperties({ ramp, units }: RunVerdict): Record<string, Property> {
+const barsOf = (readings: Readings | undefined): unknown[] | null =>
+    readings?.map((reading) => ({
+        name: reading.name,
+        unit: reading.unit,
+        limit: reading.limit,
+        value: reading.value,
+        key: reading.value === null ? null : (reading.key ?? null),
+        part: reading.value === null ? null : reading.part,
+        passed: reading.passed,
+        unjudged: reading.value === null ? reading.unjudged : null,
+    })) ?? null
+
+function onTimeOf(readings: Readings | undefined): boolean | null {
+    if (readings === undefined || readings.length === 0) {
+        return null
+    }
+    if (readings.some(({ passed }) => passed === false)) {
+        return false
+    }
+    return readings.some(({ passed }) => passed === null) ? null : true
+}
+
+const stepsOfRamp = (
+    steps: NonNullable<RunVerdict['units']>['steps'],
+    { rates, readings }: Pick<NonNullable<RunVerdict['ramp']>, 'rates' | 'readings'>
+): unknown[] =>
+    steps.map(({ index, scale, startedAt, endedAt, waitedFor }) => {
+        const rated = rates?.find((step) => step.index === index)
+        return {
+            scale,
+            started_at: new Date(startedAt).toISOString(),
+            ended_at: new Date(endedAt).toISOString(),
+            stretched:
+                waitedFor === undefined
+                    ? null
+                    : `held the ${scale}x rate past its planned end until the ${steps[waitedFor].scale}x step was judged`,
+            expected: rated?.expected ?? null,
+            lost: rated?.lost ?? null,
+            loss_rate: rated?.lossRate ?? null,
+            sent: rated?.sent ?? null,
+            duplicates: rated?.duplicates ?? null,
+            duplicate_rate: rated?.duplicateRate ?? null,
+            refused: rated?.refused ?? null,
+            refused_rate: rated?.refusedRate ?? null,
+            on_time: onTimeOf(readings?.[index]),
+            bars: barsOf(readings?.[index]),
+        }
+    })
+
+function ranToEnd({ units }: RunVerdict, { card }: Pick<LoadedCard, 'card'>): boolean | null {
+    const planned = stepsOf(card.drive)
+    const steps = units?.steps ?? []
+    const last = steps.at(-1)
+    if (last === undefined) {
+        return null
+    }
+    const { fromMs, toMs } = planned[planned.length - 1]
+    return steps.length === planned.length && last.endedAt - last.startedAt >= toMs - fromMs
+}
+
+function rampProperties(result: RunVerdict, loaded: Pick<LoadedCard, 'card'>): Record<string, Property> {
+    const { ramp, units } = result
+    const stop = ramp?.stop
     return {
-        ramp_steps: ramp && units ? stepsOfRamp(units.steps) : null,
+        ramp_steps: ramp && units ? stepsOfRamp(units.steps, ramp) : null,
+        ramp_ran_to_end: ramp ? ranToEnd(result, loaded) : null,
+        ramp_stop: stop?.failure ?? null,
+        ramp_stop_scale: stop?.scale ?? null,
+        ramp_stop_reason: stop?.reason ?? null,
         ramp_end: ramp?.end ?? null,
         ramp_sustained_scale: ramp?.sustainedScale ?? null,
         ramp_broke_scale: ramp?.broke?.scale ?? null,
@@ -66,10 +134,27 @@ function rampProperties({ ramp, units }: RunVerdict): Record<string, Property> {
     }
 }
 
+const pairProperties = ({
+    role,
+    attribution,
+    reason,
+    controlRunId,
+    faultedRunId,
+    runs,
+}: ScorecardPair): Record<string, Property> => ({
+    pair_role: role,
+    pair_attribution: attribution,
+    pair_reason: reason,
+    pair_control_run_id: controlRunId,
+    pair_faulted_run_id: faultedRunId,
+    pair_runs: runs,
+})
+
 export function scorecardOf(
     result: RunVerdict,
     { card, profile }: LoadedCard,
-    provenance: Provenance
+    provenance: Provenance,
+    pair?: ScorecardPair
 ): ScorecardProperties {
     const versions = [provenance.runnerVersion, provenance.generatorVersion, provenance.valvesVersion]
     const fingerprint = versions.includes(null)
@@ -108,12 +193,14 @@ export function scorecardOf(
         duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,
         units_target: result.units?.targetUnits ?? null,
         units_offered: result.units?.offeredUnits ?? null,
+        send_retries: result.units?.sendRetries ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
         janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
-        ...(card.drive.stopOnBreak === true ? rampProperties(result) : {}),
+        ...(card.drive.stopOnBreak === true ? rampProperties(result, { card }) : {}),
+        ...(pair && pairProperties(pair)),
         admissions: result.admissions,
         bars: result.bars,
         valve_timeline: result.timeline,

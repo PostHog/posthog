@@ -143,12 +143,38 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
-                max_anomaly_rate: params.max_anomaly_rate,
                 offset: params.offset,
                 only_flagged: params.only_flagged,
                 order: params.order,
                 search: params.search,
+                viewed_within_days: params.viewed_within_days,
             },
+        })
+        return result
+    },
+})
+
+const InboxMonitorPrSchema = () => {
+    const SignalsMonitorPrCreateBody = orvalSchemas.SignalsMonitorPrCreateBody()
+    return SignalsMonitorPrCreateBody
+}
+
+const inboxMonitorPr = (): ToolBase<ReturnType<typeof InboxMonitorPrSchema>, Schemas.MonitorPRResponse> => ({
+    name: 'inbox-monitor-pr',
+    schema: InboxMonitorPrSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxMonitorPrSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.pr_url !== undefined) {
+            body['pr_url'] = params.pr_url
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<Schemas.MonitorPRResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/monitor_pr/`,
+            body,
         })
         return result
     },
@@ -405,11 +431,12 @@ const inboxReportArtefactsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                type: params.type,
             },
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/inbox'),
-            "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
+            "Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
         )
     },
 })
@@ -883,6 +910,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 plan: params.plan,
+                pr_targets: params.pr_targets,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
@@ -911,7 +939,7 @@ const inboxReportsList = (): ToolBase<
                 pickResponseFields(item, [
                     'id',
                     'title',
-                    'summary',
+                    'summary_lead',
                     'metrics',
                     'tags',
                     'status',
@@ -970,7 +998,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1136,7 +1164,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1606,6 +1634,9 @@ const inboxSourceFilterPreview = (): ToolBase<
         if (params.expression !== undefined) {
             body['expression'] = params.expression
         }
+        if (params.scope_ids !== undefined) {
+            body['scope_ids'] = params.scope_ids
+        }
         const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
@@ -1878,6 +1909,7 @@ const scoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -3545,6 +3577,7 @@ const signalsScoutConfigList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
                 search: params.search,
+                source_product: params.source_product,
                 tags: params.tags,
             },
         })
@@ -4195,6 +4228,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
+    'inbox-monitor-pr': inboxMonitorPr,
     'inbox-my-settings-get': inboxMySettingsGet,
     'inbox-my-settings-update': inboxMySettingsUpdate,
     'inbox-ranking-outcomes-list': inboxRankingOutcomesList,

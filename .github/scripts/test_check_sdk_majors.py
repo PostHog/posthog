@@ -289,8 +289,8 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
     (acceptance_tests / "requirements.txt").write_text(f"posthoganalytics=={django_major}.0.1\n")
     clitools = root / "tools" / "infra-scripts" / "clitools"
     clitools.mkdir(parents=True)
-    (clitools / "requirements.txt").write_text("-c constraints.txt\nposthog>=7.91.4\n")
-    (clitools / "constraints.txt").write_text("posthog<8\n")
+    (clitools / "requirements.txt").write_text("-c constraints.txt\nposthog>=8.0.1\n")
+    (clitools / "constraints.txt").write_text("posthog<9\n")
 
 
 @pytest.mark.parametrize(

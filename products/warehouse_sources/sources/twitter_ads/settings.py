@@ -52,6 +52,10 @@ ACCOUNT_ACCESS_DENIED = (
 )
 MISSING_INTEGRATION = "The connected X Ads integration is missing or disconnected. Reconnect your X account."
 MISSING_APP = "The PostHog X Ads app is not configured. Contact support."
+STATS_ENTITY_REJECTED = (
+    "X Ads rejected a stats request for a single entity and day. "
+    "Some stats could not be imported. Contact support before re-enabling the sync."
+)
 
 PRIMARY_KEYS = {
     **{table: ["id"] for table in ENTITY_TABLES},

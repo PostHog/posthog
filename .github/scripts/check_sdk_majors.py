@@ -36,7 +36,7 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 # Django package is also called posthog) and `posthog` everywhere else.
 EXPECTED_MAJORS = {
     "posthoganalytics": 8,
-    "posthog": 7,
+    "posthog": 8,
     "posthog-node": 6,
     "posthog-js": 1,
     "@posthog/react": 1,
