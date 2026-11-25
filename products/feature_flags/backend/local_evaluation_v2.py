@@ -13,7 +13,6 @@ The entry lives in Redis only. A reader decides from Redis alone whether a team 
 an object-storage copy would outlive every expiry.
 """
 
-import json
 import time
 from collections import defaultdict
 from typing import Any
@@ -270,7 +269,7 @@ def verify_team_flag_definitions_v2(
         return {"status": "mismatch", "issue": "STALE_ENTRY", "details": "Entry for a team that holds no v2 flag"}
     if cached_data is None:
         return {"status": "miss", "issue": "CACHE_MISS", "details": "No cache entry found", "db_data": expected}
-    expected_json = json.dumps(expected, sort_keys=True)
-    if etag != cache._compute_etag(expected_json) or cached_data != json.loads(expected_json):
+    expected_etag = cache.compute_etag(expected)
+    if etag != expected_etag or cache.compute_etag(cached_data) != expected_etag:
         return {"status": "mismatch", "issue": "DATA_MISMATCH", "details": "Body or ETag differs", "db_data": expected}
     return {"status": "match", "issue": "", "details": ""}

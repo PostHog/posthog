@@ -70,7 +70,7 @@ def update_team_flags_cache(team_id: int) -> None:
         return
 
     update_flag_caches(team)
-    # After the legacy entry, and unable to fail it.
+    # Runs after the legacy write. It catches its own errors, so a v2 failure leaves the legacy entry as written.
     update_flag_definitions_v2_cache(team, skip_if_unchanged=True, entry_expected=False)
 
 
