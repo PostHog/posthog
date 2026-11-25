@@ -42,6 +42,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.rate_limit import ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
@@ -712,6 +713,16 @@ class DataWarehouseSavedQuerySerializer(
         )
         return view
 
+    def _throttle_rename_planning(self) -> None:
+        request = self.context.get("request")
+        view = self.context.get("view")
+        if request is None:
+            return
+        for throttle_class in (ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle):
+            throttle = throttle_class()
+            if not throttle.allow_request(request, view):
+                raise exceptions.Throttled(wait=throttle.wait())
+
     def update(self, instance: Any, validated_data: Any) -> Any:
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -806,9 +817,11 @@ class DataWarehouseSavedQuerySerializer(
                     and validated_data["name"] != instance.name
                     and is_authored_model(instance)
                     and instance.engine.has_lineage.available
-                    and modeling_api.rename_needs_plan(instance.team, instance.id, validated_data["name"])
                 ):
-                    raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
+                    # The check runs the full team-wide planner, so it shares the rename actions' buckets.
+                    self._throttle_rename_planning()
+                    if modeling_api.rename_needs_plan(instance.team, instance.id, validated_data["name"]):
+                        raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
                 # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
                 # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
                 # takes on this row for its job's foreign key, which deadlocks the two. It still
