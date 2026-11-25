@@ -590,9 +590,7 @@ class QueryBatch:
                     return None
             return planned
 
-        with planned_cache_reads(
-            team=self._team, distinct_id=str(self._user.distinct_id), keys=chunk, plan=plan_unserved
-        ) as planned_queries:
+        with planned_cache_reads(team=self._team, user=self._user, keys=chunk, plan=plan_unserved) as planned_queries:
             for index in chunk:
                 item = inputs[index]
                 if index in duplicates:
