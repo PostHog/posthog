@@ -677,7 +677,7 @@ def _send_via_smtp(
                 # Django's contract returns the accepted count, but some backends return None.
                 # Treat only an explicit 0 as rejection — a non-zero count or a None (backend that
                 # returns nothing after a non-raising handoff) means the provider took the email.
-                # Built on the first SMTP send, so a relay outage cannot block emails the flag routes to Workflows.
+                # Built on the first SMTP send, so a relay outage cannot block emails that Workflows sends.
                 if connection is None:
                     klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
                     connection = klass(
@@ -915,7 +915,7 @@ def _send_email_now(
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
-    # Unused. Retries the previous release queued still pass it.
+    # Only marks retries for workers on the previous release, which route by the flag.
     workflows_only: bool = False,
 ) -> list[str]:
     try:
@@ -940,13 +940,20 @@ def _send_email_now(
                 will_retry=_send_will_retry(retry_in_worker),
             )
     except RETRYABLE_HTTP_SEND_ERRORS as err:
+        # Workers on the previous release route by the flag, so mark a retry that Workflows may have queued.
+        # Set only when true, so a worker on the previous release never gets an argument it does not know.
+        sticky = (
+            {"workflows_only": True}
+            if workflows_only or (not use_http and isinstance(err, WorkflowsEmailError))
+            else {}
+        )
         if not retry_in_worker:
             task = _worker_send_task()
             if task is not None:
                 # After the last wait, Celery raises `err` instead of scheduling another attempt.
                 countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
                 raise task.retry(
-                    kwargs=task.request.kwargs or {},
+                    kwargs={**(task.request.kwargs or {}), **sticky},
                     exc=err,
                     countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
                     max_retries=len(countdowns),
@@ -965,6 +972,7 @@ def _send_email_now(
                 "reply_to": reply_to,
                 "use_http": use_http,
                 "properties": properties,
+                **sticky,
             }
         )
         return []

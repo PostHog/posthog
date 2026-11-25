@@ -795,6 +795,23 @@ class TestEmail(BaseTest):
         # A worker still on the previous release rejects an argument it does not know.
         self.assertNotIn("retry_in_worker", retry_kwargs)
 
+    @patch.object(_send_email, "apply_async")
+    @patch("posthog.email.requests.post", side_effect=requests.ReadTimeout("no response"))
+    def test_a_rendered_email_retry_stays_on_workflows_for_previous_release_workers(
+        self, _post: MagicMock, mock_apply_async: MagicMock
+    ) -> None:
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(
+                campaign_key="sticky_retry", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("sticky@posthog.com")
+            message.send(send_async=False)
+
+        self.assertIs(mock_apply_async.call_args.kwargs["kwargs"]["workflows_only"], True)
+
     @parameterized.expand(
         [
             ("first_attempt_waits_10s", False, 0, 10, True, 1.0, 0.0),
