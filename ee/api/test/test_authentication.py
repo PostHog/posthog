@@ -274,7 +274,8 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
 
-    def test_a_replayed_authorization_code_is_rejected(self) -> None:
+    @parameterized.expand([("identical", ""), ("trailing_space", " ")])
+    def test_a_replayed_authorization_code_is_rejected(self, _name: str, padding: str) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
@@ -284,7 +285,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(first.status_code, 302)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
-        replayed = self._complete_oidc_login("member@example.com", code=code)
+        replayed = self._complete_oidc_login("member@example.com", code=f"{code}{padding}")
         self.assertEqual(replayed.status_code, 302)
         query = parse_qs(urlparse(replayed["Location"]).query)
         self.assertEqual(query["error_code"], ["social_login_failure"])

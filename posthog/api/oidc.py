@@ -66,6 +66,18 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         self.authentication_started_at = int(time.time())
         return super().auth_complete(*args, **kwargs)
 
+    def _normalized_authorization_code(self) -> str | None:
+        """The callback's code, stripped in `self.data` so the claim and the exchange use the same value.
+
+        An IdP that matches codes leniently would otherwise redeem a padded replay of a claimed code.
+        """
+        code = self.data.get("code")
+        if not isinstance(code, str):
+            return None
+        normalized = code.strip()
+        self.data["code"] = normalized
+        return normalized or None
+
     def _claim_authorization_code(self, code: str) -> None:
         """Refuse an authorization code that already reached the callback.
 
@@ -83,8 +95,12 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         if not claimed:
             raise AuthFailed(self, "This sign-in link has already been used. Start the sign-in again.")
 
+    def auth_complete_params(self, state: str | None = None) -> dict[str, Any]:
+        self._normalized_authorization_code()
+        return super().auth_complete_params(state)
+
     def request_access_token(self, *args: Any, **kwargs: Any) -> dict[Any, Any]:
-        code = self.data.get("code")
+        code = self._normalized_authorization_code()
         if code:
             self._claim_authorization_code(code)
         return super().request_access_token(*args, **kwargs)
