@@ -9661,10 +9661,10 @@ Note: Fetched the complete official v2 reference and extracted top-level and nes
 
 Re-audited 2026-11-19 against: <https://www.membrain.com/developers/api-documentation>
 
-- [ ] `Quotes (GET /quotes/)` — quotes attached to companies and sales projects, with ChangedFromDate filter, for quote-to-order analysis (high)
-- [ ] `Quote rows (GET /quoteRows/)` — line items per quote, the quote-side match for the synced order_rows (high)
-- [ ] `Sales teams (GET /salesTeams/)` — resolve sales team IDs on companies and users for team-level reporting (high)
-- [ ] `Flows (GET /flows/); Flow processes (GET /flowProcesses/)` — flow records and their process and stage definitions, the fifth process type next to the four we sync (medium)
+- [x] `Quotes (GET /quotes/)` — quotes attached to companies and sales projects, with ChangedFromDate filter, for quote-to-order analysis (high)
+- [x] `Quote rows (GET /quoteRows/)` — line items per quote, the quote-side match for the synced order_rows (high)
+- [x] `Sales teams (GET /salesTeams/)` — resolve sales team IDs on companies and users for team-level reporting (high)
+- [x] `Flows (GET /flows/); Flow processes (GET /flowProcesses/)` — flow records and their process and stage definitions, the fifth process type next to the four we sync (medium)
 - [ ] `Custom metrics (GET /customMetrics/); Custom metric datas (GET /customMetricDatas/)` — user-defined KPI definitions and their data points (medium)
 - [ ] `Attitudes (GET /attitudes/); Influences (GET /influences/)` — resolve contact attitude and influence IDs used in stakeholder mapping (medium)
 - [ ] `Documents (GET /documents/)` — document metadata attached to companies, prospects and projects (binary content not returned by the list) (low)
