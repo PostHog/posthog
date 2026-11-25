@@ -119,11 +119,16 @@ A repository that owes nothing posts nothing.
 The quarantine dialog has a "Notify the owning team in Slack" switch, on by default.
 When it is on, the first identifier of the request carries `notify_owners: true`, so the theme variants of one story send one notice.
 The API field `notify_owners` defaults to false, so scripts and agents that quarantine in bulk post nothing unless they ask.
-A Celery task, `notify quarantine owners`, runs after the row commits.
+The row is marked `owner_notice_pending`, and a Celery task, `notify quarantine owners`, is queued to run 3 minutes after the row commits.
+Notices for one repository wait until the quarantines stop coming in, so a person working through several snapshots, or a job that quarantines many stories, sends one post per owning team instead of one per snapshot.
+A task that runs while the newest pending row is less than 3 minutes old does nothing, because that row's task runs later.
+The first task after that takes every pending row and posts them grouped by owning team and by who quarantined, with theme variants of one story shown once.
+The task of the oldest pending row checks again once the burst should be over, so a lost task does not drop the burst.
+When the oldest pending row has waited 10 minutes, the next task posts even if newer rows keep arriving.
 It finds the owner with the same lookup as the flakiness page, and posts to the channel the digest uses, so a team that opted out of the digest gets no notice either.
-The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.
+The message names the person who quarantined and shows each story, its reason, its expiry, and a button to its snapshot.
 It works for Storybook runs only, and it is best effort: a story no team owns, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
-The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
+Each task expires 15 minutes after it is due, and a pending row older than 30 minutes is dropped without a post, so a backed-up queue does not post old news.
 The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
 
 ### Automatic quarantine

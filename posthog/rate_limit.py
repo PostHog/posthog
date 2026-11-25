@@ -2304,12 +2304,12 @@ class EmailForwardingChallengeThrottle(UserRateThrottle):
 
 class ComposeTicketBurstThrottle(UserRateThrottle):
     scope = "compose_ticket_burst"
-    rate = "10/minute"
+    rate = "30/minute"
 
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
-    rate = "60/hour"
+    rate = "180/hour"
 
 
 class TicketNoteBurstThrottle(UserRateThrottle):

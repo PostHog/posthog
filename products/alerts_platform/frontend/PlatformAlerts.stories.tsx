@@ -83,6 +83,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     schedule_restriction: null,
     next_check_at: null,
     legacy_configuration_id: null,
+    owner: 'platform',
     alerts: [],
 }
 
@@ -364,6 +365,38 @@ export const ListPaginatedGroupsExpanded: Story = {
         canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
         await within(canvasElement).findByText('service_name=checkout severity_text=error')
         await within(canvasElement).findByText('1-50 of 51 alerts')
+    },
+}
+
+// Native clicks rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+export const ListRowMenuDisabledAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Enable alert')
+        await userEvent.hover(
+            document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-snooze-1h"]') as HTMLElement
+        )
+        await within(document.body).findByText('Enable the alert first')
+    },
+}
+
+export const ListRowMenuSourceOwnedOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Disable alert')
+    },
+}
+
+export const ListRowMenuSnoozedAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('p95 latency above 500 ms')
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Unsnooze')
     },
 }
 
