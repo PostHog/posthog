@@ -32,7 +32,8 @@ class PreferenceLinkRevoked(Exception):
 
 
 def erase_recipient(team_id: int, identifier: str, confirm_complaints: bool) -> ErasedRecipient:
-    """Hard-delete the team's preference rows that email sends treat as this address, and its suppression rows.
+    """Hard-delete every preference and suppression row the team holds for the address, ignoring case and
+    surrounding whitespace.
 
     Also records the erase, so preference links minted before it stop working. Raises
     `ComplaintConfirmationRequired`, and deletes nothing, when the address is suppressed for a spam complaint
@@ -40,7 +41,7 @@ def erase_recipient(team_id: int, identifier: str, confirm_complaints: bool) -> 
     """
     address = normalize(identifier)
     with _recipient_lock(team_id, address):
-        suppressions_deleted = hard_delete_suppressions(team_id, identifier, confirm_complaints)
+        suppressions_deleted = hard_delete_suppressions(team_id, address, confirm_complaints)
         preferences_deleted, _ = (
             MessageRecipientPreference.objects.filter(team_id=team_id)
             .annotate(normalized_identifier=normalized_identifier())

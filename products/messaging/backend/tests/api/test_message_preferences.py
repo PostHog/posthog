@@ -1234,7 +1234,10 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
                 preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
             )
         MessageSuppression.objects.for_team(self.team.id).create(
-            team_id=self.team.id, identifier="erased@example.com", suppressed=False, deleted=True
+            team_id=self.team.id, identifier="erased@example.com", suppressed=True
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier=" Erased@example.com\u00a0", suppressed=False, deleted=True
         )
         other_team = self.create_team_with_organization(organization=self.organization)
         MessageRecipientPreference.objects.create(team=other_team, identifier="erased@example.com")
@@ -1243,7 +1246,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         repeat = self._erase_recipient({"identifier": "erased@example.com"})
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 1})
+        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 2})
         self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
         self.assertEqual(
             sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),
@@ -1256,12 +1259,12 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         MessageRecipientPreference.objects.create(team=self.team, identifier="reported@example.com")
         MessageSuppression.objects.for_team(self.team.id).create(
             team_id=self.team.id,
-            identifier="reported@example.com",
+            identifier=" Reported@example.com",
             source=SuppressionSource.COMPLAINT,
             suppressed=True,
         )
 
-        response = self._erase_recipient({"identifier": " Reported@Example.com ", "confirm_complaints": confirm})
+        response = self._erase_recipient({"identifier": "reported@example.com", "confirm_complaints": confirm})
 
         self.assertEqual(response.status_code, expected_status)
         kept = expected_status == 400
