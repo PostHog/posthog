@@ -32,8 +32,11 @@ class TestGetSchemas:
         assert [f["field"] for f in schemas["api_requests"].incremental_fields] == ["request_start"]
         assert schemas["daily_service_metrics"].supports_incremental is True
         assert [f["field"] for f in schemas["daily_service_metrics"].incremental_fields] == ["day"]
+        # Each run re-reads the late-arrival window, so append would duplicate those events.
+        assert schemas["ai_cost_events"].supports_incremental is True
+        assert schemas["ai_cost_events"].supports_append is False
         # The lookup list endpoints have no server-side timestamp filter, so they must stay full refresh.
-        for name in set(schemas) - {"api_requests", "daily_service_metrics"}:
+        for name in set(schemas) - {"api_requests", "daily_service_metrics", "ai_cost_events"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 

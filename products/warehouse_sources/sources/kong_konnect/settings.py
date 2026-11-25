@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
@@ -16,6 +17,9 @@ REGION_BASE_URLS: dict[str, str] = {
 
 DEFAULT_REGION = "us"
 
+# Identity (org users and teams) is served from one global host, not from the regional ones.
+GLOBAL_BASE_URL = "https://global.api.konghq.com"
+
 # `size` is hard-capped at 1000 per page by the API.
 MAX_PAGE_SIZE = 1000
 
@@ -26,6 +30,10 @@ DEFAULT_INITIAL_LOOKBACK_DAYS = 30
 
 # Page-number (`page[size]`/`page[number]`) and cursor (`page[size]`/`page[after]`) list endpoints.
 LIST_PAGE_SIZE = 100
+
+# AI Cost Management accepts a usage event up to 72 hours after its `time` (plus 5 minutes of clock
+# skew), so incremental reads start this far before the watermark and the merge drops the repeats.
+AI_COST_EVENTS_LATE_ARRIVAL = timedelta(hours=73)
 
 # Core entity list endpoints cap `size` at 1000 and paginate with an opaque `offset` token.
 CORE_ENTITY_PAGE_SIZE = 1000
@@ -60,12 +68,14 @@ class KongKonnectEndpointConfig:
     should_sync_default: bool = True
     # `analytics` is the time-windowed POST query; `metrics` is the per-day aggregate POST query;
     # `page_number` is a `page[number]` list; `cursor` is a `page[after]` list; `core_entity` fans out
-    # over every control plane.
-    kind: Literal["analytics", "metrics", "page_number", "cursor", "core_entity"] = "analytics"
+    # over every control plane; `ai_cost_events` is the time-filtered AI Cost Management event list.
+    kind: Literal["analytics", "metrics", "page_number", "cursor", "core_entity", "ai_cost_events"] = "analytics"
     # Konnect versions each API separately, so the path prefix is per endpoint.
     api_version: Literal["v1", "v2", "v3"] = "v2"
+    host: Literal["regional", "global"] = "regional"
     sort: Optional[str] = None
-    # A child endpoint fans out over the rows of `parent` (an endpoint of the same kind). `{id}` in `path`
+    # A child endpoint fans out over the rows of `parent` (an endpoint of the same kind, or a
+    # `FANOUT_PARENT_ENDPOINTS` entry). `{id}` in `path`
     # is the parent row ID, which is copied onto each child row as `parent_id_field`.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
@@ -296,6 +306,124 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         primary_keys=["id"],
         incremental_fields=[],
         description="Metering & Billing customer subscriptions, with their plan, status, and current billing period.",
+    ),
+    # AI Cost Management v1. Events sort and filter on `time`; `source` and `id` identify an invocation,
+    # and a producer that resends it with another `time` stores a second event, so `time` is in the key.
+    "ai_cost_events": KongKonnectEndpointConfig(
+        name="ai_cost_events",
+        path="/ai-cost-management/events",
+        kind="ai_cost_events",
+        api_version="v1",
+        sort="time",
+        partition_key="time",
+        primary_keys=["source", "id", "time"],
+        incremental_fields=[
+            {
+                "label": "time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "time",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        description="AI model usage and cost events from Konnect AI Cost Management, one row per model invocation.",
+    ),
+    "ai_cost_budgets": KongKonnectEndpointConfig(
+        name="ai_cost_budgets",
+        path="/ai-cost-management/budgets",
+        kind="cursor",
+        api_version="v1",
+        sort="created_at",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="AI Cost Management budgets: spending limits and exemptions, with the usage each one covers.",
+    ),
+    # Sorted on `value` because the default `consumed_share` order moves as usage arrives during the read.
+    "ai_cost_budget_balances": KongKonnectEndpointConfig(
+        name="ai_cost_budget_balances",
+        path="/ai-cost-management/budget-balances",
+        kind="cursor",
+        api_version="v1",
+        sort="value",
+        primary_keys=["budget_id", "value"],
+        incremental_fields=[],
+        description="Current balance of each AI Cost Management limit budget: spend, remaining amount, and "
+        "projected spend in the budget window.",
+    ),
+    # Portal Management v3 fans out over every developer portal in the region.
+    "portal_applications": KongKonnectEndpointConfig(
+        name="portal_applications",
+        path="/portals/{id}/applications",
+        kind="page_number",
+        api_version="v3",
+        sort="created_at",
+        parent="portals",
+        parent_id_field="portal_id",
+        partition_key="created_at",
+        primary_keys=["portal_id", "id"],
+        incremental_fields=[],
+        description="Developer applications in each Dev Portal, with their auth strategy and registration count.",
+    ),
+    "portal_application_registrations": KongKonnectEndpointConfig(
+        name="portal_application_registrations",
+        path="/portals/{id}/application-registrations",
+        kind="page_number",
+        api_version="v3",
+        sort="created_at",
+        parent="portals",
+        parent_id_field="portal_id",
+        partition_key="created_at",
+        primary_keys=["portal_id", "id"],
+        incremental_fields=[],
+        description="Registrations of Dev Portal applications for APIs, with their approval status.",
+    ),
+    # Identity v3. These lists accept no sort parameter.
+    "users": KongKonnectEndpointConfig(
+        name="users",
+        path="/users",
+        kind="page_number",
+        api_version="v3",
+        host="global",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Users in your Konnect organization.",
+    ),
+    "teams": KongKonnectEndpointConfig(
+        name="teams",
+        path="/teams",
+        kind="page_number",
+        api_version="v3",
+        host="global",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Teams in your Konnect organization.",
+    ),
+    "team_users": KongKonnectEndpointConfig(
+        name="team_users",
+        path="/teams/{id}/users",
+        kind="page_number",
+        api_version="v3",
+        host="global",
+        parent="teams",
+        parent_id_field="team_id",
+        primary_keys=["team_id", "id"],
+        incremental_fields=[],
+        description="Members of each Konnect team, one row per user per team.",
+    ),
+}
+
+# Parents that a fan-out reads but that are not tables themselves.
+FANOUT_PARENT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
+    "portals": KongKonnectEndpointConfig(
+        name="portals",
+        path="/portals",
+        kind="page_number",
+        api_version="v3",
+        sort="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
     ),
 }
 

@@ -414,6 +414,7 @@ class TestLookupRows:
                 "scorecard_id",
                 "https://us.api.konghq.com/v1/scorecards",
                 "https://us.api.konghq.com/v1/scorecards/{id}/catalog-services",
+                "name",
             ),
             (
                 "page_number_child_on_v2",
@@ -421,11 +422,28 @@ class TestLookupRows:
                 "api_product_id",
                 "https://us.api.konghq.com/v2/api-products",
                 "https://us.api.konghq.com/v2/api-products/{id}/product-versions",
+                "name",
+            ),
+            (
+                "child_of_portals_which_are_not_a_table",
+                "portal_application_registrations",
+                "portal_id",
+                "https://us.api.konghq.com/v3/portals",
+                "https://us.api.konghq.com/v3/portals/{id}/application-registrations",
+                "created_at",
+            ),
+            (
+                "identity_child_on_global_host_without_sort",
+                "team_users",
+                "team_id",
+                "https://global.api.konghq.com/v3/teams",
+                "https://global.api.konghq.com/v3/teams/{id}/users",
+                None,
             ),
         ]
     )
     def test_page_number_children_fan_out_over_parents(
-        self, _name: str, endpoint: str, parent_id_field: str, parent_url: str, child_url: str
+        self, _name: str, endpoint: str, parent_id_field: str, parent_url: str, child_url: str, sort: str | None
     ) -> None:
         result = _driver().run(
             endpoint,
@@ -443,7 +461,7 @@ class TestLookupRows:
             child_url.format(id="p-1"),
             child_url.format(id="p-gone"),
         ]
-        assert result.params("sort") == ["name", "name", "name"]
+        assert result.params("sort") == [sort, sort, sort]
 
     @parameterized.expand(
         [
@@ -501,6 +519,119 @@ class TestLookupRows:
             "/v1/realms/realm-a/consumers",
         ]
         assert result.params("page[after]") == [None, None, "abc=="]
+
+
+def _ai_cost_page(ids: list[str], next_link: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": [
+                {"id": event_id, "source": "//control-planes/cp-a", "time": "2026-06-14T00:00:00.000Z"}
+                for event_id in ids
+            ],
+            "meta": {"page": {"next": next_link, "previous": None, "size": LIST_PAGE_SIZE}},
+        }
+    )
+
+
+NEXT_EVENTS_LINK = (
+    "/v1/ai-cost-management/events?filter%5Btime%5D%5Bgte%5D=2026-06-12T11%3A00%3A00Z"
+    "&sort=time&page%5Bsize%5D=100&page%5Bafter%5D=cur-2"
+)
+
+
+class TestAiCostEvents:
+    @parameterized.expand(
+        [
+            (
+                "incremental_rereads_late_arrival_window",
+                {"incremental_field": "time", "db_incremental_field_last_value": datetime(2026, 6, 15, 12, tzinfo=UTC)},
+                "2026-06-12T11:00:00Z",
+            ),
+            ("full_refresh_walks_back_lookback", {"should_use_incremental_field": False}, "2026-06-12T12:00:00Z"),
+            (
+                "future_watermark_clamped_to_now",
+                {"incremental_field": "time", "db_incremental_field_last_value": datetime(2027, 1, 1, tzinfo=UTC)},
+                "2026-06-15T12:00:00Z",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_first_request_filters_on_time_ascending(
+        self, _name: str, inputs: dict[str, Any], expected_start: str
+    ) -> None:
+        result = _driver(lookback_days=3).run("ai_cost_events", [_ai_cost_page([], None)], **inputs)
+
+        assert result.raised is None
+        assert result.paths == ["/v1/ai-cost-management/events"]
+        assert result.params("filter[time][gte]") == [expected_start]
+        assert result.params("sort") == ["time"]
+
+    def test_follows_next_links_and_stages_each_before_its_page(self) -> None:
+        result = _driver().run(
+            "ai_cost_events",
+            [
+                _ai_cost_page(["e-1"], "/v1/ai-cost-management/events?sort=time&page%5Bafter%5D=cur-1"),
+                # A page can be empty when it reaches the API's byte budget, and still have a next page.
+                _ai_cost_page([], NEXT_EVENTS_LINK),
+                _ai_cost_page(["e-2"], None),
+            ],
+            incremental_field="time",
+            db_incremental_field_last_value=datetime(2026, 6, 15, 12, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e-1", "e-2"]
+        assert result.params("page[after]") == [None, "cur-1", "cur-2"]
+        assert result.params("filter[time][gte]")[2] == "2026-06-12T11:00:00Z"
+        assert [state.next_page for state in result.saved_states] == [
+            "/v1/ai-cost-management/events?sort=time&page%5Bafter%5D=cur-1",
+            NEXT_EVENTS_LINK,
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["source", "id", "time"]
+
+    def test_resume_continues_from_saved_link(self) -> None:
+        result = _driver().run(
+            "ai_cost_events",
+            [_ai_cost_page(["e-3"], None)],
+            resume_state=KongKonnectResumeConfig(next_page=NEXT_EVENTS_LINK),
+            incremental_field="time",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.params("page[after]") == ["cur-2"]
+        assert result.params("filter[time][gte]") == ["2026-06-12T11:00:00Z"]
+
+
+class TestAiCostBudgetBalances:
+    def test_pages_keep_evaluated_at_and_rows_key_on_budget(self) -> None:
+        next_link = (
+            "/v1/ai-cost-management/budget-balances?sort=value&page%5Bsize%5D=100"
+            "&evaluated_at=2026-06-15T12%3A00%3A00Z&page%5Bafter%5D=cur-1"
+        )
+        result = _driver().run(
+            "ai_cost_budget_balances",
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"budget": {"id": "b-1"}, "value": None, "consumed_share": "0.5"}],
+                        "meta": {"evaluated_at": "2026-06-15T12:00:00Z", "page": {"next": next_link}},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [{"budget": {"id": "b-2"}, "value": "principal/p-1", "consumed_share": "1.2"}],
+                        "meta": {"evaluated_at": "2026-06-15T12:00:00Z", "page": {"next": None}},
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["budget_id"], row["value"]) for row in result.rows] == [("b-1", ""), ("b-2", "principal/p-1")]
+        assert result.params("evaluated_at") == [None, "2026-06-15T12:00:00Z"]
+        assert result.params("sort") == ["value", "value"]
 
 
 if __name__ == "__main__":

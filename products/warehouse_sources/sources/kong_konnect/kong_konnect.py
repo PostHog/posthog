@@ -2,16 +2,19 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.kong_konnect.settings import (
+    AI_COST_EVENTS_LATE_ARRIVAL,
     CONTROL_PLANE_GROUP_CLUSTER_TYPE,
     CORE_ENTITY_PAGE_SIZE,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
+    FANOUT_PARENT_ENDPOINTS,
+    GLOBAL_BASE_URL,
     KONG_KONNECT_ENDPOINTS,
     LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -24,7 +27,9 @@ from products.warehouse_sources.sources.kong_konnect.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
+    resolve_incremental_start,
     retry_with_deadline,
 )
 
@@ -43,6 +48,8 @@ class KongKonnectResumeConfig:
     start: str | None = None
     end: str | None = None
     offset: int = 0
+    # The `meta.page.next` link of the AI Cost Management event page after the last one yielded.
+    next_page: str | None = None
 
 
 def _format_datetime(value: Any) -> str:
@@ -73,7 +80,9 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-def _get_base_url(region: str, api_version: str = "v2") -> str:
+def _get_base_url(region: str, api_version: str = "v2", host: str = "regional") -> str:
+    if host == "global":
+        return f"{GLOBAL_BASE_URL}/{api_version}"
     return f"{REGION_BASE_URLS.get(region, REGION_BASE_URLS['us'])}/{api_version}"
 
 
@@ -200,6 +209,10 @@ def _iter_page_number(
         page_number += 1
 
 
+def _link_params(link: str) -> dict[str, str]:
+    return dict(parse_qsl(urlparse(link).query, keep_blank_values=True))
+
+
 def _next_page_after(data: dict[str, Any]) -> str | None:
     # `meta.next` is a URI path such as `/v1/realms?page[after]=...`, so read the cursor out of it.
     next_uri = (data.get("meta") or {}).get("next")
@@ -212,10 +225,13 @@ def _next_page_after(data: dict[str, Any]) -> str | None:
 def _iter_cursor(
     session: requests.Session,
     url: str,
+    sort: str | None,
     logger: FilteringBoundLogger,
     allow_not_found: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     params: dict[str, Any] = {"page[size]": LIST_PAGE_SIZE}
+    if sort:
+        params["sort"] = sort
     while True:
         data = _get_json(session, url, params, logger, allow_not_found=allow_not_found)
         if data is None:
@@ -224,6 +240,13 @@ def _iter_cursor(
 
         if rows:
             yield rows
+
+        # AI Cost Management links carry every request parameter, including the `evaluated_at` that pins
+        # the budget windows of a balance list, so the next request uses the link as it is.
+        page_next = ((data.get("meta") or {}).get("page") or {}).get("next")
+        if page_next:
+            params = _link_params(page_next)
+            continue
 
         page_after = _next_page_after(data)
         if not page_after:
@@ -315,7 +338,7 @@ def _iter_list(
     allow_not_found: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint_config.kind == "cursor":
-        return _iter_cursor(session, url, logger, allow_not_found=allow_not_found)
+        return _iter_cursor(session, url, endpoint_config.sort, logger, allow_not_found=allow_not_found)
     return _iter_page_number(session, url, endpoint_config.sort, logger, allow_not_found=allow_not_found)
 
 
@@ -326,13 +349,15 @@ def _iter_top_level(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    base_url = _get_base_url(region, endpoint_config.api_version)
+    base_url = _get_base_url(region, endpoint_config.api_version, endpoint_config.host)
 
     if endpoint_config.parent is None or endpoint_config.parent_id_field is None:
         yield from _iter_list(session, f"{base_url}{endpoint_config.path}", endpoint_config, logger)
         return
 
-    parent_config = KONG_KONNECT_ENDPOINTS[endpoint_config.parent]
+    parent_config = (
+        KONG_KONNECT_ENDPOINTS.get(endpoint_config.parent) or FANOUT_PARENT_ENDPOINTS[endpoint_config.parent]
+    )
     for parents in _iter_list(session, f"{base_url}{parent_config.path}", parent_config, logger):
         for parent in parents:
             child_url = f"{base_url}{endpoint_config.path.replace('{id}', parent['id'])}"
@@ -362,7 +387,66 @@ def get_lookup_rows(
         pages = _iter_top_level(session, region, endpoint_config, logger, resumable_source_manager)
 
     for rows in pages:
-        yield [_without_fields(row, endpoint_config.excluded_fields) for row in rows]
+        rows = [_without_fields(row, endpoint_config.excluded_fields) for row in rows]
+        if endpoint == "ai_cost_budget_balances":
+            rows = [_shape_budget_balance(row) for row in rows]
+        yield rows
+
+
+def _shape_budget_balance(row: dict[str, Any]) -> dict[str, Any]:
+    # `budget` is a reference ({"id": ...}) unless the list is expanded. A budget without `each` has one
+    # balance with a null `value`; an empty string keeps the primary key non-null.
+    budget = row.get("budget")
+    budget_id = budget.get("id") if isinstance(budget, dict) else None
+    return {**row, "budget_id": budget_id, "value": row.get("value") or ""}
+
+
+def get_ai_cost_events(
+    api_token: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    lookback_days: int = DEFAULT_INITIAL_LOOKBACK_DAYS,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint_config = KONG_KONNECT_ENDPOINTS["ai_cost_events"]
+    url = f"{_get_base_url(region, endpoint_config.api_version)}{endpoint_config.path}"
+    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    params: dict[str, Any]
+    if resume is not None and resume.next_page:
+        params = _link_params(resume.next_page)
+    else:
+        start = resolve_incremental_start(
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            default=timedelta(days=lookback_days),
+            lookback=AI_COST_EVENTS_LATE_ARRIVAL,
+        )
+        params = {
+            "page[size]": LIST_PAGE_SIZE,
+            "sort": endpoint_config.sort,
+            "filter[time][gte]": format_datetime(start, "iso_z"),
+        }
+
+    while True:
+        data = _get_json(session, url, params, logger) or {}
+        rows = data.get("data") or []
+        page_next = ((data.get("meta") or {}).get("page") or {}).get("next")
+
+        if page_next:
+            resumable_source_manager.save_state(KongKonnectResumeConfig(next_page=page_next))
+        if rows:
+            yield rows
+        elif page_next:
+            # A page can come back short or empty when it reaches the API's byte budget.
+            resumable_source_manager.safe_point()
+
+        if not page_next:
+            break
+        params = _link_params(page_next)
 
 
 def validate_credentials(api_token: str, region: str) -> bool:
@@ -513,6 +597,16 @@ def kong_konnect_source(
     def items() -> Iterator[list[dict[str, Any]]]:
         if endpoint_config.kind == "metrics":
             return get_daily_service_metrics(
+                api_token=api_token,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                lookback_days=lookback_days,
+            )
+        if endpoint_config.kind == "ai_cost_events":
+            return get_ai_cost_events(
                 api_token=api_token,
                 region=region,
                 logger=logger,

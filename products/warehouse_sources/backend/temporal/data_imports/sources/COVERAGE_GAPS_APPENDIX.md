@@ -8610,7 +8610,7 @@ Note: Parsed the official OpenAPI document served by Swagger UI and compared its
 
 ## KongKonnect — gaps
 
-Today (20): `api_product_versions`, `api_products`, `api_requests`, `catalog_services`, `consumer_group_members`, `consumer_groups`, `consumers`, `control_planes`, `daily_service_metrics`, `meters`, `plugins`, `realm_consumers`, `realms`, `routes`, `scorecard_services`, `scorecards`, `services`, `subscriptions`, `targets`, `upstreams`
+Today (28): `ai_cost_budget_balances`, `ai_cost_budgets`, `ai_cost_events`, `api_product_versions`, `api_products`, `api_requests`, `catalog_services`, `consumer_group_members`, `consumer_groups`, `consumers`, `control_planes`, `daily_service_metrics`, `meters`, `plugins`, `portal_application_registrations`, `portal_applications`, `realm_consumers`, `realms`, `routes`, `scorecard_services`, `scorecards`, `services`, `subscriptions`, `targets`, `team_users`, `teams`, `upstreams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/main/api-specs/konnect/analytics-requests/v2/openapi.yaml>
 
@@ -8631,11 +8631,11 @@ Note: Kong publishes 25 separate Konnect OpenAPI specs under https://github.com/
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/main/api-specs/konnect/ai-cost-management/v1/openapi.yaml>
 
-- [ ] `AI cost usage events (GET /ai-cost-management/events)` — per-request AI usage and cost events, newest first, with filter and cursor paging (AI Cost Management v1) (high)
-- [ ] `AI budgets and balances (GET /ai-cost-management/budgets; GET /ai-cost-management/budget-balances)` — spend limits and how much of each is consumed (medium)
-- [ ] `Portal applications and registrations (GET /portals/{portalId}/applications; GET /portals/{portalId}/application-registrations)` — developer portal apps and their registration status against API products we already sync; fan-out over GET /portals (medium)
+- [x] `AI cost usage events (GET /ai-cost-management/events)` — per-request AI usage and cost events, newest first, with filter and cursor paging (AI Cost Management v1) (high). Added as `ai_cost_events` (incremental on `time`, re-reads the 72-hour late-arrival window).
+- [x] `AI budgets and balances (GET /ai-cost-management/budgets; GET /ai-cost-management/budget-balances)` — spend limits and how much of each is consumed (medium). Added as `ai_cost_budgets` and `ai_cost_budget_balances`.
+- [x] `Portal applications and registrations (GET /portals/{portalId}/applications; GET /portals/{portalId}/application-registrations)` — developer portal apps and their registration status against API products we already sync; fan-out over GET /portals (medium). Added as `portal_applications` and `portal_application_registrations`.
 - [ ] `Portal developers and teams (GET /portals/{portalId}/developers; GET /portals/{portalId}/teams)` — who consumes the portal, to attribute applications to people and teams (low)
-- [ ] `Org users and teams (GET /users; GET /teams; GET /teams/{teamId}/users)` — Konnect organization users, teams and membership from Identity v3 (global base URL) (low)
+- [x] `Org users and teams (GET /users; GET /teams; GET /teams/{teamId}/users)` — Konnect organization users, teams and membership from Identity v3 (global base URL) (low). Added as `users`, `teams` and `team_users`.
 - [ ] `Cloud gateway networks and configurations (GET /cloud-gateways/networks; GET /cloud-gateways/configurations)` — dedicated cloud gateway infrastructure inventory (low)
 
 Note (2026-11-19): Listed the 34 Konnect specs on GitHub and diffed the ones the earlier audit skipped: ai-cost-management, portal-management v3, identity v3, cloud-gateways, application-auth-strategies, organizations and others. Portal routes are regional (us, eu, au, me, in, sg base URLs) and the portal ones need a portalId fan-out. Excluded audit-logs (config only), API keys and tokens, DCR providers, custom domains, quotas, mesh and event-gateway config. AI cost events may need a time filter; check the filter syntax in the spec.
