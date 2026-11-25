@@ -2373,10 +2373,10 @@ Diffed against: <https://graphql.braintreepayments.com/reference/>
 - [x] `Query.recurringBillingSubscriptions` — recurring revenue / subscription state, unavailable from one-off transactions (high)
 - [ ] `Query.report.transactionLevelFees (TransactionLevelFeeReport)` — per-transaction processing fees — the net-revenue side of transactions we already sync (high). Not a table: the field is deprecated in favour of `report.paymentLevelFees`, and both return only a `url` to a per-date report file rather than a connection of rows.
 - [x] `Merchant.merchantAccounts (MerchantAccountConnection)` — lookup resolving the merchantAccountId carried on every transaction (high)
-- [ ] `Query.recurringBillingSubscriptionPlans` — lookup resolving the plan a subscription references (high)
-- [ ] `Query.verifications (VerificationConnection)` — payment method verification attempts and decline reasons (medium)
-- [ ] `search.payments (PaymentConnection)` — superset of all payment types, including ones never surfacing as card transactions (medium)
-- [ ] `Query.report.paymentLevelFees (PaymentLevelFeeReport)` — fee breakdown for non-transaction payment types (medium)
+- [x] `Query.recurringBillingSubscriptionPlans` — lookup resolving the plan a subscription references (high)
+- [x] `Query.verifications (VerificationConnection)` — payment method verification attempts and decline reasons (medium)
+- [ ] `search.payments (PaymentConnection)` — superset of all payment types, including ones never surfacing as card transactions (medium) Skipped: only Transaction and Refund implement the Payment interface, and both are already synced tables, so this would duplicate their rows.
+- [ ] `Query.report.paymentLevelFees (PaymentLevelFeeReport)` — fee breakdown for non-transaction payment types (medium) Skipped: returns only a url to a per-date report file, not a connection of rows.
 - [ ] `Transaction.statusHistory / status event fields` — state transition timeline (authorized → settled → settlement declined); only the current status is synced today (medium)
 - [ ] `Query.recurringBillingSubscriptionPlanAddOns and ...PlanDiscounts` — lookups for add-on and discount lines priced into subscriptions (low)
 

@@ -306,6 +306,7 @@ describe("model classification", () => {
 
   it.each([
     "deepseek-ai/deepseek-v4-flash-0731",
+    "deepseek-ai/deepseek-v4.1-flash-1017",
     "zai-org/glm-5.3",
     "zai-org/glm-5.3-flash",
   ])("offers %s from the offline fallback list", (id) => {

@@ -463,6 +463,12 @@ def _conversion_window(conversion: Optional[Mapping]) -> timedelta:
     return timedelta(minutes=minutes) if minutes else DEFAULT_CONVERSION_WINDOW
 
 
+def scout_conversion_window(basis: ConversionBasis) -> Optional[timedelta]:
+    """The window a run has to convert, or None when a suggestion aimed at this conversion would be refused."""
+    window = _conversion_window(basis.conversion)
+    return window if _has_goal(basis.conversion) and window <= MAX_MEASURABLE_CONVERSION_WINDOW else None
+
+
 def conversion_evidence_error(
     *, hog_flow_id: UUID, evidence: Mapping, changes: Mapping, live: Mapping, base_version: int, now: datetime
 ) -> Optional[str]:
