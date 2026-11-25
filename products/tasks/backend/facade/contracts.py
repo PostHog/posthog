@@ -552,6 +552,7 @@ class TaskCommentEntryDTO:
     id: UUID
     content: str
     content_truncated: bool
+    content_offset: int
     content_next_offset: int | None
     author: str | None
     created_at: datetime

@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -56,6 +56,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
@@ -137,6 +138,18 @@ def request_subject(request: Request) -> Optional[Subject]:
     """
     user = getattr(request, "user", None)
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def filter_visible_project_objects[M: Model](
+    queryset: QuerySet[M], *, team_id: int, include_all_if_admin: bool, user_id: int | None = None
+) -> QuerySet[M]:
+    """Filter rows already scoped to the project for the given user, or the current request's user."""
+    return filter_queryset(
+        queryset,
+        resource=Resource(type=ResourceType(cast(str, model_to_resource(queryset.model))), project_id=team_id),
+        subject=Subject(user_id=user_id) if user_id is not None else None,
+        include_all_if_admin=include_all_if_admin,
+    )
 
 
 def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:

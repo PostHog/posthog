@@ -120,7 +120,7 @@ def resolved_exposure_event(experiment: Experiment) -> str:
     if experiment.is_rule_linked:
         return EXPERIMENT_EXPOSURE_EVENT
     # A draft has no start_date, so the setup UI shows the event that the draft would count if it launched now.
-    return resolve_default_exposure_event(experiment.team, experiment.start_date or timezone.now())
+    return resolve_default_exposure_event(experiment.start_date or timezone.now())
 
 
 def _with_split_percent(variants: list) -> list:

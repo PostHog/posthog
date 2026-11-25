@@ -458,7 +458,7 @@ class BatchExportsDebugger:
                 parameters["include_events"] = []
 
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
-            if batch_exports_read_new_events_table():
+            if batch_exports_read_new_events_table(team_id):
                 filters_str = ""
                 if filters:
                     filters_str, extra_query_parameters = compose_filters_clause(

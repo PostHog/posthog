@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api'
+import { ApiError, isAbortError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 
 import type { LoadFailure } from '../trace/types'
@@ -15,7 +15,7 @@ export async function readOrFailure<T>(request: Promise<T>): Promise<{ value: T 
         return { value: await request }
     } catch (error) {
         const failure = toLoadFailure(error)
-        if (failure === 'failed' && shouldReportApiFailure(error)) {
+        if (failure === 'failed' && !isAbortError(error) && shouldReportApiFailure(error)) {
             posthog.captureException(error)
         }
         return { failure }

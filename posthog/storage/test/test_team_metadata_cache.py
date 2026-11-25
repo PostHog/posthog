@@ -457,6 +457,8 @@ class TestVerifyTeamMetadata(BaseTest):
             ("null_counts_as_not_set", True),
             ("flags_blocked_hosts", ["example.com"]),
             ("flags_blocked_ips", ["203.0.113.7"]),
+            ("flags_allowed_hosts", ["example.org"]),
+            ("flags_allowed_ips", ["198.51.100.0/24"]),
             ("realtime_cohort_level", "serving"),
         ]
     )
@@ -482,7 +484,14 @@ class TestVerifyTeamMetadata(BaseTest):
             (
                 "team_with_values",
                 True,
-                ["flags_blocked_hosts", "flags_blocked_ips", "null_counts_as_not_set", "realtime_cohort_level"],
+                [
+                    "flags_allowed_hosts",
+                    "flags_allowed_ips",
+                    "flags_blocked_hosts",
+                    "flags_blocked_ips",
+                    "null_counts_as_not_set",
+                    "realtime_cohort_level",
+                ],
             ),
         ]
     )
@@ -495,13 +504,24 @@ class TestVerifyTeamMetadata(BaseTest):
         TeamFeatureFlagsConfig.objects.filter(team=self.team).update(null_counts_as_not_set=team_has_values)
         if team_has_values:
             TeamFeatureFlagPolicyConfig.objects.create(
-                team=self.team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.7"]
+                team=self.team,
+                blocked_hosts=["example.com"],
+                blocked_ips=["203.0.113.7"],
+                allowed_hosts=["example.org"],
+                allowed_ips=["198.51.100.0/24"],
             )
             RealtimeCohortTeamAccess.objects.create(
                 team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
             )
         cached_data = _serialize_team_to_metadata(self.team)
-        for key in ("flags_blocked_hosts", "flags_blocked_ips", "null_counts_as_not_set", "realtime_cohort_level"):
+        for key in (
+            "flags_allowed_hosts",
+            "flags_allowed_ips",
+            "flags_blocked_hosts",
+            "flags_blocked_ips",
+            "null_counts_as_not_set",
+            "realtime_cohort_level",
+        ):
             del cached_data[key]
         mock_get_metadata.return_value = cached_data
 
@@ -567,7 +587,11 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
             },
         )
         TeamFeatureFlagPolicyConfig.objects.create(
-            team=gated_team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.0/24"]
+            team=gated_team,
+            blocked_hosts=["example.com"],
+            blocked_ips=["203.0.113.0/24"],
+            allowed_hosts=["example.org"],
+            allowed_ips=["198.51.100.7"],
         )
         RealtimeCohortTeamAccess.objects.create(
             team=gated_team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
@@ -600,11 +624,15 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
                 "null_counts_as_not_set",
                 "flags_blocked_hosts",
                 "flags_blocked_ips",
+                "flags_allowed_hosts",
+                "flags_allowed_ips",
                 "realtime_cohort_level",
             ):
                 self.assertEqual(batch_result[team.id][field], single_result[field])
         self.assertEqual(batch_result[gated_team.id]["flags_blocked_hosts"], ["example.com"])
         self.assertEqual(batch_result[gated_team.id]["flags_blocked_ips"], ["203.0.113.0/24"])
+        self.assertEqual(batch_result[gated_team.id]["flags_allowed_hosts"], ["example.org"])
+        self.assertEqual(batch_result[gated_team.id]["flags_allowed_ips"], ["198.51.100.7"])
         self.assertEqual(batch_result[ungated_team.id]["flags_blocked_hosts"], [])
         self.assertEqual(batch_result[gated_team.id]["realtime_cohort_level"], "serving")
         self.assertEqual(batch_result[ungated_team.id]["realtime_cohort_level"], "off")

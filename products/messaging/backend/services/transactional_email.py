@@ -222,7 +222,8 @@ COPIES_NOT_ALLOWED = "A marketing email can't have `cc` or `bcc` recipients. Sen
 
 SANDBOX_FIELDS_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send `cc`, `bcc` or `attachments`. Remove those fields, or verify a sending domain at {setup_url}."
+    "can't send `cc`, `bcc`, `attachments` or reply headers. Remove those fields, or verify a sending domain at "
+    "{setup_url}."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
@@ -965,6 +966,11 @@ def _accepted_send(
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.reply_headers:
+        accepted["thread"] = {
+            "inReplyTo": email.reply_headers.in_reply_to,
+            "references": list(email.reply_headers.references),
+        }
     return accepted, sandbox_warning
 
 
@@ -1029,7 +1035,7 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
 
 
 def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
-    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments}
+    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments, "reply_headers": email.reply_headers}
     return next((field for field, value in fields.items() if value), None)
 
 
