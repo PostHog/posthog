@@ -101,13 +101,14 @@ class TurnSides:
         """The input and output a turn shows: what its trace added, not the history every generation or state input
         carries."""
         output_source = latest_generation or first_generation
+        state_input = _added_input(state.input, None) if state else None
         return cls(
             input=_conversation_or(
-                _added_input(state.input, None) if state else None,
+                state_input,
                 lambda: _added_input(first_generation.input if first_generation else None, latest_generation_input),
             ),
             output=_conversation_or(
-                state.output if state else None,
+                _added_output(state.output, state_input) if state and state_input else None,
                 lambda: output_source.output if output_source else _NOTHING_READ,
             ),
         )
@@ -159,7 +160,10 @@ def _conversation_or(state_side: StepSide | None, fallback: Callable[[], StepSid
         and state_side.value.messages
     ):
         return state_side
-    return fallback()
+    read = fallback()
+    if state_side is not None and shown(read) is None and read.unread is None:
+        return state_side
+    return read
 
 
 def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
@@ -180,7 +184,19 @@ def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
                 value=_messages([*anchor, *after]),
                 unread=_cut_into_turn(latest_start, latest.unread) or cut_in_first,
             )
-    return Side(value=_messages(anchor), unread=cut_in_first)
+    return Side(value=_messages(anchor), unread=cut_in_first or (latest.unread if latest else None))
+
+
+def _added_output(output: StepSide, added_input: StepSide) -> StepSide:
+    """A state output that repeats the conversation is cut to what follows the turn's own input."""
+    if not isinstance(output.value, contracts.TraceMessagesSide) or not isinstance(
+        added_input.value, contracts.TraceMessagesSide
+    ):
+        return output
+    asked = added_input.value.messages
+    start = _last_run_start(output.value.messages, asked) if asked else None
+    answer = output.value.messages[start + len(asked) :] if start is not None else []
+    return Side(value=_messages(answer), unread=output.unread) if answer else output
 
 
 def _cut_into_turn(start: int, unread: Unreadable | None) -> Unreadable | None:
