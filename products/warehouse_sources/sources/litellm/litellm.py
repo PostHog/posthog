@@ -299,9 +299,9 @@ class _PagesWithoutTotalPaginator(PageNumberPaginator):
     """Page numbers for a list that returns no page count.
 
     A page with fewer or more rows than asked for is the last one. Rows that the page before
-    already held are dropped: a delete between two requests shifts one row onto the next page, and
-    proxies that do not page the list yet ignore `page` and send the whole list again. A page with
-    no new rows ends the walk.
+    already held are dropped: an insert ahead of the offset between two requests pushes one row
+    onto the next page, and proxies that do not page the list yet ignore `page` and send the whole
+    list again. A page with no new rows ends the walk.
     """
 
     def __init__(self, page_size: int, primary_key: str) -> None:
