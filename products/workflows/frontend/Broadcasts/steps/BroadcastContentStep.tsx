@@ -193,7 +193,7 @@ export function BroadcastContentStep(): JSX.Element {
                     bordered
                     data-attr="broadcast-tracking-toggle"
                 />
-                {emailSettings.trackingEnabled && (
+                {emailSettings.trackingEnabled && !emailSettings.sensitive && (
                     <RunLinkTagSwitch
                         label="Connect clicks to sessions"
                         checked={emailSettings.runLinkTagEnabled}

@@ -559,11 +559,12 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { stored: {}, connected: true },
-        { stored: { run_link_tag_enabled: false }, connected: false },
+        { stored: {}, connected: true, sensitive: false },
+        { stored: { run_link_tag_enabled: false }, connected: false, sensitive: false },
+        { stored: { sensitive: true }, connected: true, sensitive: true },
     ])(
         'reads $stored from a saved email as connecting clicks to sessions: $connected',
-        async ({ stored, connected }) => {
+        async ({ stored, connected, sensitive }) => {
             latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
             const emailStep = latest.actions[1]
             latest.actions[1] = { ...emailStep, config: { ...emailStep.config, ...stored } }
@@ -572,7 +573,7 @@ describe('broadcastWizardLogic', () => {
             draftLogic.mount()
             await expectLogic(draftLogic).toFinishAllListeners()
 
-            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected, sensitive })
             draftLogic.unmount()
         }
     )

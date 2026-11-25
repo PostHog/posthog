@@ -190,6 +190,8 @@ export interface BroadcastEmailSettings {
     trackingEnabled: boolean
     /** Connects tracked clicks to the sessions they start, unless the project turned that off. */
     runLinkTagEnabled: boolean
+    /** Read only: set on a step marked sensitive through the API, whose sends never connect clicks to sessions. */
+    sensitive?: boolean
     utmTagsEnabled: boolean
     /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
     skipFrequencyCap: boolean
@@ -329,6 +331,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         runLinkTagEnabled: config.run_link_tag_enabled !== false,
+        sensitive: config.sensitive === true,
         utmTagsEnabled: config.utm_tags_enabled === true,
         skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
