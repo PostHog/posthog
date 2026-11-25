@@ -41,7 +41,7 @@ def test_json_schema_type_label(prop: dict, expected: str) -> None:
     assert json_schema_type_label(prop) == expected
 
 
-# A literal module name lets static checks (hoglint) see that the fixture replaces no real module.
+# A literal module name lets static checks (Hoglint) see that the fixture replaces no real module.
 FAKE_MODULE = "_test_schema_models"
 
 

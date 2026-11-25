@@ -28,7 +28,7 @@ def lint_product(name: str, verbose: bool = True, structure: dict | None = None)
       strict  — all structure rules enforced
       lenient — subset of rules enforced (see product_structure.yaml)
 
-    The boundaries between products are hoglint's (`hoglint check`), not this lint's.
+    The boundaries between products are Hoglint's (`hoglint check`), not this lint's.
 
     Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
     """

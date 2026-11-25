@@ -5,9 +5,9 @@ Scores each product across two actionable dimensions:
   1. Models     — move models into products/
   2. Codegen    — schema annotations, generated TS client adoption
 
-The boundaries between products are hoglint's: `hoglint check` reports them. The report also
-shows, without a score, whether a product passes hoglint's Isolated level, and the
-debt hoglint attributes to it.
+The boundaries between products are Hoglint's: `hoglint check` reports them. The report also
+shows, without a score, whether a product passes Hoglint's Isolated level, and the
+debt Hoglint attributes to it.
 
 Run from repo root:
     bin/hogli product:maturity          # single product detail
@@ -253,7 +253,7 @@ def score_product(
     """Compute all dimension scores for a single product.
 
     The --all caller reads the model assignments, the product.yaml files, the ledger and the
-    hoglint debt once and threads them in; a single-product run leaves them None and reads on demand.
+    Hoglint debt once and threads them in; a single-product run leaves them None and reads on demand.
     """
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
-"""Sort hoglint's new rows by the lines a change touches, for the hook and the CI step.
+"""Sort Hoglint's new rows by the lines a change touches, for the hook and the CI step.
 
 A row belongs to a change only when its place is a line the change adds or edits, so the script
-reads the change's diff at zero context. It reads hoglint's full view (`--all`) from stdout alone,
+reads the change's diff at zero context. It reads Hoglint's full view (`--all`) from stdout alone,
 because the default view can cut the list short and stderr can hold lines that are not part of
 the report.
 
 An advisory row comes from a rule with `report = "advisory"` in the policy. It never blocks, in
-the hook or in CI, and the ledger does not record it, so hoglint prints every one of them in the
+the hook or in CI, and the ledger does not record it, so Hoglint prints every one of them in the
 full view, master's included. The script shows only the ones on changed lines.
 
 CI mode reads `hoglint compare --all` or `hoglint check --all`. It prints a warning annotation
@@ -16,13 +16,13 @@ for each row on a line the pull request changes, and a notice annotation for eac
 such a line. The step summary splits what the pull request adds into the rows that block and the
 rows that only report. It shows compare's own new findings, ledger lines and code growth in the
 group of their rule, the annotated rows, the other rows and the count of advisory rows. It always
-exits 0: hoglint's own exit decides the step.
+exits 0: Hoglint's own exit decides the step.
 
 Hook mode (`--hook`) reads `hoglint check --index --all` and the staged diff, and prints what the
-developer reads instead of hoglint's output. It exits 1 to block the commit, and 0 otherwise.
+developer reads instead of Hoglint's output. It exits 1 to block the commit, and 0 otherwise.
 A row on a staged line blocks. New ledger debt or a new exception blocks when the commit also
-stages other files. hoglint judges ledger growth, except when a policy file is staged, because
-hoglint then skips that check; the script then reads the staged ledger diff itself. An advisory
+stages other files. Hoglint judges ledger growth, except when a policy file is staged, because
+Hoglint then skips that check; the script then reads the staged ledger diff itself. An advisory
 row on a staged line gets one line that says what to do, and never blocks. `--hoglint` names the
 command the hook ran, so that a `hoglint explain` hint is a command the developer can run.
 
@@ -67,7 +67,7 @@ HUNK = re.compile(r"^@@ -\d+(?:,(?P<old>\d+))? \+(?P<start>\d+)(?:,(?P<new>\d+))
 OCTAL = re.compile(r"[0-7]{3}")
 
 # The causes of an unknown that the change under check added. An extractor unknown never blocks,
-# because the fault is in hoglint. Inherited unknowns came before the change, and no row shows them.
+# because the fault is in Hoglint. Inherited unknowns came before the change, and no row shows them.
 CHANGE_CAUSES = ("introduced", "ambiguous")
 EXTRACTOR_CAUSE = "extractor"
 
@@ -95,7 +95,7 @@ ACCEPTED_TITLE = re.compile(r"^\d+ findings? accepted by the ledger$")
 COMPARE_SECTIONS = ("findings new (", "ledger lines added (", "code growth (fails) (")
 
 LEDGER_FILE = "hoglint.ledger"
-# A change to one of these makes hoglint skip its own ledger growth check.
+# A change to one of these makes Hoglint skip its own ledger growth check.
 POLICY_FILES = ("hoglint.toml", "hoglint.exceptions.toml")
 POLICY_DIRS = ("tools/hoglint/",)
 EXCEPTIONS_FILE = "hoglint.exceptions.toml"
@@ -138,7 +138,7 @@ class Block:
 
 @dataclass(frozen=True)
 class Row:
-    """A new finding or a new unknown, with the lines hoglint prints for it. `cause` is empty for
+    """A new finding or a new unknown, with the lines Hoglint prints for it. `cause` is empty for
     a finding. A row without a path or without a line has no place on a changed line."""
 
     rule: str
@@ -334,7 +334,7 @@ def advice(row: Row) -> str:
 
 def runnable(text: str, hoglint: str) -> str:
     """hoglint's hints name the command `hoglint`, which is not on PATH when the hook found
-    hoglint in the flox venv, so the hints name the command the hook ran instead."""
+    Hoglint in the flox venv, so the hints name the command the hook ran instead."""
     return text.replace("see: hoglint ", f"see: {hoglint} ").replace("`hoglint ", f"`{hoglint} ")
 
 
@@ -403,7 +403,7 @@ class FullView:
         return rows
 
     def unknowns(self) -> list[Row]:
-        """The unknowns a change can own or that hoglint caused, each with its own rule's ways out."""
+        """The unknowns a change can own or that Hoglint caused, each with its own rule's ways out."""
         block = self.block(UNKNOWNS_TITLE)
         if block is None:
             return []
@@ -470,7 +470,7 @@ class FullView:
         return out
 
     def render(self, rows: list[Row]) -> list[str]:
-        """Each row with hoglint's lines for it; a finding rule's why and ways out once per rule."""
+        """Each row with Hoglint's lines for it; a finding rule's why and ways out once per rule."""
         out: list[str] = []
         explained: set[str] = set()
         for row in rows:
@@ -587,7 +587,7 @@ class ShadowReport:
         return [row for row in self.view.advisory_rows() if self.changed.covers(row)]
 
     def annotations(self) -> list[str]:
-        # A blocking row carries hoglint's why and fixes, because the diff is where the author reads it.
+        # A blocking row carries Hoglint's why and fixes, because the diff is where the author reads it.
         out = [
             annotation("warning", row, f"hoglint {row.rule}", "\n".join([row.message, *row.advice()]))
             for row in self.own_rows()
@@ -612,14 +612,14 @@ class ShadowReport:
         return out
 
     def did_not_run(self) -> str:
-        """The first line hoglint wrote, and the next one when the first only opens a list, such
+        """The first line Hoglint wrote, and the next one when the first only opens a list, such
         as `config error:`."""
         lines = [line.strip() for line in (self.view.output or self.stderr).splitlines() if line.strip()]
         first = " ".join(lines[:2]) if len(lines) > 1 and lines[0].endswith(":") else (lines or ["no output"])[0]
         return f"hoglint did not run (exit {self.status}): {first}"
 
     def intro(self, blocks: bool) -> str:
-        """What hoglint's exit means for this check. A non-zero exit with no row in the blocking
+        """What Hoglint's exit means for this check. A non-zero exit with no row in the blocking
         section comes from a line elsewhere in the log, such as a stale ledger line or a failed
         level claim."""
         command = f"hoglint compare --base {self.base}" if self.base else "hoglint check"
@@ -679,7 +679,7 @@ def more_rows(total: int) -> list[str]:
 
 
 def fenced(lines: list[str]) -> list[str]:
-    """A text block. hoglint echoes string literals from the code it reads, so the fence is longer
+    """A text block. Hoglint echoes string literals from the code it reads, so the fence is longer
     than any backtick run in the lines, and no line can close it early."""
     longest = max((len(run) for line in lines for run in re.findall(r"`+", line)), default=0)
     fence = "`" * max(3, longest + 1)
@@ -732,7 +732,7 @@ def report_findings(args: argparse.Namespace, changed: ChangedLines) -> None:
     output, stderr = read(args.output), read(args.stderr)
     report = ShadowReport(output, stderr, args.status, changed, args.base)
     print("::group::hoglint output")
-    # hoglint prints the PR's paths as they are, and a path may hold a line break followed by a
+    # Hoglint prints the PR's paths as they are, and a path may hold a line break followed by a
     # workflow command, so the runner reads no command until the echo ends.
     resume = secrets.token_hex(16)
     print(f"::stop-commands::{resume}")

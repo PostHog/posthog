@@ -143,9 +143,9 @@ rules:
     # the boundary linter's policy and hook, and the docs that state the rules. A small edit
     # here can quietly reopen what a guard closed, so the paths are sensitive and the reviewer
     # assigner requests devex for every change. Busy files that most PRs touch (lib/api.ts,
-    # pyproject.toml, the hoglint ledger, setup receivers and frozen dataclass baselines) stay
-    # out, so that the review requests stay rare. hoglint's runner script and its test hold the
-    # pin that decides which hoglint every rule runs on, so they are guards too.
+    # pyproject.toml, the Hoglint ledger, setup receivers and frozen dataclass baselines) stay
+    # out, so that the review requests stay rare. Hoglint's runner script and its test hold the
+    # pin that decides which Hoglint every rule runs on, so they are guards too.
     - match:
           - '/.github/scripts/check-no-new-ee-files.py'
           - '/.github/scripts/hoglint_run.py'

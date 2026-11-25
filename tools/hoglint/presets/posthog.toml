@@ -1,5 +1,5 @@
 # PostHog preset: fields, assignments, zones, exports, registries, rules and levels.
-# Nothing here is built into hoglint core. The repo root hoglint.toml extends it next to the
+# Nothing here is built into Hoglint core. The repo root hoglint.toml extends it next to the
 # Django and PostHog packs (`hoglint:django`, `hoglint:posthog`) and adds discovery, `[django]`,
 # providers, the ledger and outputs.
 schema = 1
@@ -984,7 +984,7 @@ example    = { finding = "@receiver(post_save, sender=Invoice)  # in another pro
 kinds      = ["signal"]
 select     = "crosses-package and dst.tier == 'product'"
 contexts   = { exclude = ["test"] }
-# A receiver whose sender hoglint cannot place (a variable, a call, no sender on a signal that does
+# A receiver whose sender Hoglint cannot place (a variable, a call, no sender on a signal that does
 # not resolve) is an item, not a finding. With no sender on a signal it can place, the signal's module
 # is the sender.
 on_unresolved = "incomplete"
@@ -1316,7 +1316,7 @@ requires     = ["reached-watched", "wiring-watched", "presentation-uses-facade",
 strict       = ["reached-watched", "wiring-watched", "presentation-uses-facade", "has-facade"]
 # Presentation that reaches another product past its door is lint only.
 within_group = ["presentation-uses-facade"]
-# No product claims the level: hoglint judges every product, and one that passes gets the test
+# No product claims the level: Hoglint judges every product, and one that passes gets the test
 # skip. The ledger's `level:isolated` line records each product that passes, so a change that makes
 # one fail shows as a moved ledger line. Its watched set is what the coverage rules need, every file
 # under the zones below, and the package `__init__.py` files above them; `hoglint watched` prints it.

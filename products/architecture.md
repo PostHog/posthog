@@ -8,7 +8,7 @@ This document defines the future architectural direction for our Django monolith
 - Using **frozen dataclasses** as the stable interface between products
 - Introducing **facades** as the only public interface for products
 - Enforcing **isolation** between products to avoid accidental cross-product coupling
-- Enabling **selective testing** via Turbo (task caching) and hoglint (boundary enforcement)
+- Enabling **selective testing** via Turbo (task caching) and Hoglint (boundary enforcement)
 
 This is a forward-looking design document, not a migration guide.
 
@@ -19,7 +19,7 @@ Different tools use different names for the same concept:
 - **Product** — a self-contained feature area under `products/<name>/`. This is the unit of isolation, ownership, and selective testing.
 - **Django app** — the backend implementation of a product (`products/<name>/backend/`). Registered in `INSTALLED_APPS` via `AppConfig`.
 - **Turbo package** — the build/test unit defined by `package.json`. One product = one Turbo package.
-- **hoglint package** — the boundary unit in hoglint's PostHog preset (`tools/hoglint/presets/posthog.toml`). Maps 1:1 to a product. Most code under `posthog/`, `ee/` and `common/` is the `core` package.
+- **Hoglint package** — the boundary unit in Hoglint's PostHog preset (`tools/hoglint/presets/posthog.toml`). Maps 1:1 to a product. Most code under `posthog/`, `ee/` and `common/` is the `core` package.
 
 This document uses **"product"** when talking about boundaries and architecture, and **"Django app"** only for Django-specific mechanics (models, migrations, `apps.py`).
 
@@ -37,24 +37,24 @@ Turbo provides task-level caching so that:
 - Only tests affected by a change run
 - Contract files (frozen dataclasses, enums) determine whether downstream products need retesting
 
-hoglint enforces the Python boundaries between products with the rules of its PostHog preset (`tools/hoglint/presets/posthog.toml`).
+Hoglint enforces the Python boundaries between products with the rules of its PostHog preset (`tools/hoglint/presets/posthog.toml`).
 Existing violations are debt in the generated `hoglint.ledger`, and a change must not add new ones.
 
 To benefit from selective testing, we must introduce architectural boundaries inside the Django monolith.
 
-# 2. Turbo + hoglint (Initial Scope: Single Product)
+# 2. Turbo + Hoglint (Initial Scope: Single Product)
 
 We will begin by wiring up **one product** to:
 
 - Validate the folder structure
 - Test contract-based selective testing with Turbo
-- Verify boundary enforcement with hoglint
+- Verify boundary enforcement with Hoglint
 - Build the foundation for incremental test selection
 
 Focus:
 
 - One product = one Turbo package with `backend:test`
-- hoglint judges its Isolated level for every product; `turbo-discover` reads the verdict and the product's watched set from `hoglint watched`, and skips the full Django test suite for a change that leaves the watched set alone
+- Hoglint judges its Isolated level for every product; `turbo-discover` reads the verdict and the product's watched set from `hoglint watched`, and skips the full Django test suite for a change that leaves the watched set alone
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) sits above the facade, outside the contract surface — but a product is only soundly skippable once that presentation is thin and reaches internals exclusively through the facade (see [What makes the skip sound](#what-makes-the-skip-sound)); an unsealed presentation that still holds business logic is not
@@ -69,11 +69,11 @@ But this document is about foundational structure, not full rollout.
 ### What makes the skip sound
 
 Skipping the full suite for an isolated product is a claim that _a change inside the product can only break the product's own tests._
-hoglint proves the import half of that claim.
-Every product file that code outside the product reaches is in the product's watched set (`reached-watched`), which hoglint derives from the tree.
+Hoglint proves the import half of that claim.
+Every product file that code outside the product reaches is in the product's watched set (`reached-watched`), which Hoglint derives from the tree.
 It cannot prove the other half.
 A product's HTTP API is exercised **in-process** by tests (the Django test client dispatches into the view stack in the same process, not over a real socket), and cross-cutting tests — permissions, schema, activity-log, "every viewset does X" — reach a product's endpoints by URL.
-That couples them to the product's live behavior with **zero imports**, so it is invisible to hoglint and to any import-graph audit.
+That couples them to the product's live behavior with **zero imports**, so it is invisible to Hoglint and to any import-graph audit.
 "No importers" is necessary, not sufficient.
 
 Because this channel can't be enumerated, it is closed by construction rather than inspection:
@@ -93,7 +93,7 @@ Because this channel can't be enumerated, it is closed by construction rather th
    - a module that core settings name by dotted path, such as a middleware;
    - a module that core's request pipeline imports (see below).
 
-   hoglint's `wiring-watched` rule finds each of them and puts it in the watched set; a module it cannot place makes the level fail.
+   Hoglint's `wiring-watched` rule finds each of them and puts it in the watched set; a module it cannot place makes the level fail.
    It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
@@ -102,7 +102,7 @@ The genuine exception is a product with essentially no Django-side logic (a thin
 
 A product with a thin presentation can still be unsafe to skip when its facade returns decisions that core enforces on every request, such as access checks, and the tests for those decisions live outside the product.
 A change behind its facade changes what core does, and only the full suite tests that.
-hoglint's `request-path` rule lists every product module that core's request pipeline imports: the modules that settings name for the per-request pipeline, the view base class, and the product code they import.
+Hoglint's `request-path` rule lists every product module that core's request pipeline imports: the modules that settings name for the per-request pipeline, the view base class, and the product code they import.
 `wiring-watched` puts each of those modules in the watched set, so a change to one runs the full suite.
 
 ### Wiring couplings
@@ -114,13 +114,13 @@ These cross the boundary as classes — allowed only under all three rules:
    The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn` and `Interceptor` (the worker in `posthog/temporal/common/worker.py` registers each one), and Celery's `@shared_task`.
    Core code may rely only on the base's interface, never on product-specific members.
    Extending the list is a core PR: define the base and validate at the registration point.
-   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; hoglint's `facade-no-drf` rule enforces both, and `hoglint.ledger` holds the existing violations) — their soundness is governed by the presentation rules above.
+   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; Hoglint's `facade-no-drf` rule enforces both, and `hoglint.ledger` holds the existing violations) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
    The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies).
    A wiring location is in an isolated product's watched set while a test outside the product can execute what lives there, so such a change still re-runs the full suite.
    The full suite matters only while such a test exists.
    For `backend/hogql_queries/` that is measured.
-   Core dispatches runners by query kind, so hoglint's `drives` rule reads the dispatch and records every outside test that runs one of the product's kinds.
+   Core dispatches runners by query kind, so Hoglint's `drives` rule reads the dispatch and records every outside test that runs one of the product's kinds.
    `wiring-watched` then puts every file such a test drives, and the location's entry, in the watched set.
    Nothing is declared. Move the driving tests into the product, and the inputs may let those files go.
    A location with several subtrees may be watched one subtree at a time.
@@ -130,7 +130,7 @@ These cross the boundary as classes — allowed only under all three rules:
    For each of them, `wiring-watched` asks for at least one watched file in the location.
 3. **Validated registration.**
    A registration point accepts only implementations of its base and rejects anything else.
-   A static check such as hoglint reads only the source; _what an object is_ can only be checked at runtime, at the door.
+   A static check such as Hoglint reads only the source; _what an object is_ can only be checked at runtime, at the door.
    `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
    Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
    The Temporal worker validates every product's declaration (see [Temporal](#temporal)), and refuses to start when a `facade/temporal.py` has none.
@@ -166,7 +166,7 @@ Only a person can accept a new hand-out, with a reviewed exception in `hoglint.e
 Each use of these classes outside the product is a `model-crossings` row, which only reports (see the next paragraphs).
 
 **The consumer side is default-deny.**
-A product model may appear in code outside its product only in a shape that hoglint's `model-crossings` rule identifies as instance-free.
+A product model may appear in code outside its product only in a shape that Hoglint's `model-crossings` rule identifies as instance-free.
 These shapes are allowed:
 
 - an annotation, on an argument, a return, or a variable;
@@ -194,7 +194,7 @@ The consumer keeps the orchestration and the ids.
 **`apps.get_model` is ratcheted for every product model.**
 `apps.get_model('label', 'Class')` reaches a model through the Django app registry.
 It leaves no import edge, so an import-graph check cannot see it.
-hoglint's `get-model` rule therefore counts every reference from outside the owning product to any product's model, not only the allowance classes.
+Hoglint's `get-model` rule therefore counts every reference from outside the owning product to any product's model, not only the allowance classes.
 Test modules stay out of scope, which is a blind spot, not permission.
 A core test fixture that reaches a model this way is not counted here and, with no import edge, not selected by snob when the model changes.
 Seed product rows through a facade write function, or through a `facade/testing.py` helper for fixture-only needs, instead; a test that reaches any other module past the facade is a `public-surface` finding.
@@ -237,7 +237,7 @@ The one exception is a rule that DevEx introduces: findings that already exist a
 **Inbound webhook consumers are a designated location of the same kind.**
 A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.
 `posthog/ingress/` discovers that module through `load_product_modules("webhook_consumers")` on the first delivery, and its registry validates each consumer at build: an unknown provider app, a name already taken for that provider, or an event type the provider does not declare raises.
-No class crosses, because a consumer is a plain function behind a frozen contract, and hoglint's `webhook-consumers-use-facade` rule lets the module reach product backend code only through a facade.
+No class crosses, because a consumer is a plain function behind a frozen contract, and Hoglint's `webhook-consumers-use-facade` rule lets the module reach product backend code only through a facade.
 See [posthog/ingress/README.md](/posthog/ingress/README.md).
 
 Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
@@ -344,7 +344,7 @@ myproduct/
 ### Which locations are fixed, and which are yours
 
 Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, `webhook_consumers.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
-hoglint's watched set holds them, and its `presentation-uses-facade` rule holds the HTTP surface inside them by shape: `routes.py` and `presentation/` reach product code only through `facade/` or their own product's `presentation/`.
+Hoglint's watched set holds them, and its `presentation-uses-facade` rule holds the HTTP surface inside them by shape: `routes.py` and `presentation/` reach product code only through `facade/` or their own product's `presentation/`.
 Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
 
 Everything else under `backend/` is internal implementation.
@@ -412,7 +412,7 @@ If input and output shapes are identical, reuse the same dataclass.
 
 # 5. Facades: The Public Interface
 
-Each product exposes a facade via the `backend/facade/` package — the only place core and other products may import from (hoglint's `public-surface` rule reports any other import).
+Each product exposes a facade via the `backend/facade/` package — the only place core and other products may import from (Hoglint's `public-surface` rule reports any other import).
 `api.py` holds the data capabilities: functions that accept and return contracts.
 Capability submodules (`queries.py`, `max_tools.py`, `tasks.py`, …) exist only to re-export wiring implementations — see [Wiring couplings](#wiring-couplings) — and contain no logic of their own.
 `temporal.py` holds the product's Temporal declaration, and `temporal_client.py` and `temporal_workflow.py` hold named functions that start, signal or call its workflows — see [Temporal](#temporal).
@@ -427,7 +427,7 @@ Capability submodules (`queries.py`, `max_tools.py`, `tasks.py`, …) exist only
 ### Do NOT:
 
 - Implement business logic (use `logic.py`)
-- Change state: no writes, row locks or transactions, and no reads that leave the team scope. The whole operation goes into `logic.py`, and the facade calls it (hoglint's `facade-no-state` rule)
+- Change state: no writes, row locks or transactions, and no reads that leave the team scope. The whole operation goes into `logic.py`, and the facade calls it (Hoglint's `facade-no-state` rule)
 - Import DRF, HTTP, or serializers
 - Expose Django models or return ORM instances
 
@@ -506,9 +506,9 @@ Responsibilities:
 - Convert frozen dataclasses → JSON responses
 - No business logic
 
-Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. hoglint's `presentation-uses-facade` rule enforces this in CI.
+Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. Hoglint's `presentation-uses-facade` rule enforces this in CI.
 
-`backend/routes.py` exists to hand the views to core's router (`register_routes(routers)`), nothing else. hoglint counts it as presentation, so the same rule holds it. A product whose routes still register views from `backend/api/` carries that import as debt in `hoglint.ledger` until `hogli product:isolate:move` relocates them.
+`backend/routes.py` exists to hand the views to core's router (`register_routes(routers)`), nothing else. Hoglint counts it as presentation, so the same rule holds it. A product whose routes still register views from `backend/api/` carries that import as debt in `hoglint.ledger` until `hogli product:isolate:move` relocates them.
 
 ### Where do cross-cutting utilities go?
 
@@ -588,7 +588,7 @@ No. Views only call facades, and facades only return frozen dataclasses. The pre
 
 `backend/management/commands/` is an entrypoint, the same as presentation and `tasks/`. A command reads its arguments, calls the facade, and writes its output through `self.stdout` and `self.stderr`. Do not put business logic in a command.
 
-hoglint's `thin-commands` rule holds this: a command that imports its own product's `models`, `logic` or `tasks` past the facade is a finding. Dev seeders that the preset marks as test code are out of its scope.
+Hoglint's `thin-commands` rule holds this: a command that imports its own product's `models`, `logic` or `tasks` past the facade is a finding. Dev seeders that the preset marks as test code are out of its scope.
 
 A command sometimes needs a capability that the facade does not have. Add the necessary facade function. Do not import `logic` or `models` in the command.
 
@@ -648,9 +648,9 @@ def process_artifact(artifact: Artifact) -> None:
     ...
 ```
 
-### What hoglint enforces
+### What Hoglint enforces
 
-hoglint reads every Python file and checks the couplings between packages against the rules of the PostHog preset (`tools/hoglint/presets/posthog.toml`), which the root `hoglint.toml` extends.
+Hoglint reads every Python file and checks the couplings between packages against the rules of the PostHog preset (`tools/hoglint/presets/posthog.toml`), which the root `hoglint.toml` extends.
 The main boundary rules:
 
 - `public-surface`: code outside a product reaches only what the product exports, which is its facade and the registration modules core loads. Core production code may also reach a declared permanent interface (the preset's `permanent` assign).
@@ -666,8 +666,8 @@ The other rules block. Their existing violations are debt in `hoglint.ledger`.
 The pre-commit hook runs `hoglint check --index` on the lines a commit changes, and CI runs `hoglint compare` against the parent commit, so a change cannot add new debt.
 Run `hoglint check` locally.
 
-hoglint judges its Isolated level for every product, and a product that passes it gets the test skip: `hoglint.ledger` records it as a `level:isolated <product>` line, and `hoglint watched --level isolated` prints its watched files.
-The level fails on what hoglint cannot place for the watched set (`reached-watched`, `wiring-watched`), presentation past its facade (`presentation-uses-facade`), and a missing facade (`has-facade`).
+Hoglint judges its Isolated level for every product, and a product that passes it gets the test skip: `hoglint.ledger` records it as a `level:isolated <product>` line, and `hoglint watched --level isolated` prints its watched files.
+The level fails on what Hoglint cannot place for the watched set (`reached-watched`, `wiring-watched`), presentation past its facade (`presentation-uses-facade`), and a missing facade (`has-facade`).
 
 > [!TIP]
 > Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
@@ -685,9 +685,9 @@ project = models.ForeignKey(Project, ...)
 
 Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse query name (`filter(visualreview__...)`), migration dependencies, and app loading order dependencies. No import checker can see the accessor, yet any caller can traverse it.
 
-**Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and hoglint's `reverse-accessor` rule reports it too. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
+**Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and Hoglint's `reverse-accessor` rule reports it too. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
 
-hoglint's `reverse-accessor` rule enforces this: `hoglint.ledger` holds every existing cross-boundary reverse accessor, next to the other debt. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it. After you seal one, run `hoglint ledger shrink` to drop its stale line.
+Hoglint's `reverse-accessor` rule enforces this: `hoglint.ledger` holds every existing cross-boundary reverse accessor, next to the other debt. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it. After you seal one, run `hoglint ledger shrink` to drop its stale line.
 
 `db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 
@@ -699,7 +699,7 @@ Each product is a Turborepo package with tasks defined in its `package.json`.
 ## Watched files vs. implementation files
 
 **Watched files** decide whether the full Django suite and the products that depend on this one run.
-hoglint derives them for every product that passes its Isolated level, and `hoglint watched --level isolated` prints them:
+Hoglint derives them for every product that passes its Isolated level, and `hoglint watched --level isolated` prints them:
 
 - every file of `backend/facade/`, `backend/presentation/` and `backend/migrations/`, and `backend/routes.py`
 - every product file that code outside the product reaches past the facade (`reached-watched`)
@@ -712,7 +712,7 @@ hoglint derives them for every product that passes its Isolated level, and `hogl
 
 Other products depend on a product's **watched files only**. When none of them changed, downstream products don't need retesting.
 
-**Import boundaries** are reported by hoglint's `public-surface` rule (see [What hoglint enforces](#what-hoglint-enforces)). This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
+**Import boundaries** are reported by Hoglint's `public-surface` rule (see [What Hoglint enforces](#what-hoglint-enforces)). This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
 
 **Dependency rules for contract files (keep them pure):**
 
@@ -759,6 +759,6 @@ This document outlines the **future direction** of our codebase:
 - Business logic isolated and testable
 - DRF presentation decoupled from core logic
 - Turbo for task caching and selective test execution
-- hoglint for Python boundary enforcement
+- Hoglint for Python boundary enforcement
 
 This architecture reduces coupling, enables selective testing, and keeps the system maintainable as we grow.

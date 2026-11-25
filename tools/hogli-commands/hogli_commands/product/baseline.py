@@ -1,6 +1,6 @@
 """Isolation baseline ratchet: the entry gate for new products.
 
-hoglint judges hoglint's Isolated level for every product, and `hoglint check --write-ledger`
+Hoglint judges Hoglint's Isolated level for every product, and `hoglint check --write-ledger`
 records each product that passes as a `level:isolated <product>` line in `hoglint.ledger`. A product
 that passes gets the test skip. Nothing stops a new product from failing the level, so this ratchet
 makes that a reviewed decision.
@@ -50,7 +50,7 @@ HEADER = """\
 
 
 def products_not_passing() -> list[str]:
-    """Every backend product the ledger does not record as passing hoglint's Isolated level."""
+    """Every backend product the ledger does not record as passing Hoglint's Isolated level."""
     passes = IsolatedPasses.read(REPO_ROOT).products
     return [product_dir.name for product_dir in backend_product_dirs() if product_dir.name not in passes]
 

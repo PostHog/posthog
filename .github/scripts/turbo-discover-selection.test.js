@@ -466,7 +466,7 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
     }
 })
 
-// --- Isolation from hoglint's watched answer ---
+// --- Isolation from Hoglint's watched answer ---
 
 // One answer in `hoglint watched`'s format 1: canvas claims the level and passes, tasks claims it
 // and fails, and data_warehouse passes without a claim.
@@ -494,7 +494,7 @@ const watchedAnswer = (extra) =>
         ...extra,
     })
 
-// No product claims the level: hoglint judges every one, and only a product that passes isolates.
+// No product claims the level: Hoglint judges every one, and only a product that passes isolates.
 test('only a product that passes the Isolated level is isolated', () => {
     const read = parseWatchedAnswer(watchedAnswer())
     assert.equal(read.status, 'ok')
@@ -771,7 +771,7 @@ for (const { label, files = ['shared/impl.py'], links, watchedFile = LINKED, cha
         }
         const fileMap = { [watchedFile]: ['posthog/api/canvas.py'] }
         const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
-        // The selector loads hoglint's answer only for a diff that reaches a product, so the change must reach it.
+        // The selector loads Hoglint's answer only for a diff that reaches a product, so the change must reach it.
         assert.deepEqual(productsReachedByFiles([changed], ALL_PRODUCTS, root), ['canvas'])
         const previous = process.cwd()
         process.chdir(root)

@@ -1,9 +1,9 @@
-"""What hoglint says about each product: the Isolated level and the debt it carries.
+"""What Hoglint says about each product: the Isolated level and the debt it carries.
 
 The Isolated level comes from the ledger: a `level:isolated <product>` line in `hoglint.ledger` says
-hoglint judged the product and it passes. No product claims the level; one that passes gets the
+Hoglint judged the product and it passes. No product claims the level; one that passes gets the
 test skip. The debt comes from `hoglint query --by package --json`, which groups finding rows by the
-source module's `package` label, hoglint's own attribution. A row's status is `accepted` (in the
+source module's `package` label, Hoglint's own attribution. A row's status is `accepted` (in the
 ledger), `new` (blocks) or `advisory` (its rule never blocks, so it is no debt).
 """
 

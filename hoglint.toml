@@ -1,4 +1,4 @@
-# hoglint for PostHog: the Django pack, the PostHog pack, the PostHog preset and the owners provider.
+# Hoglint for PostHog: the Django pack, the PostHog pack, the PostHog preset and the owners provider.
 # Run from the repo root: `hoglint check`. `hoglint help hook` says what the pre-commit hook checks.
 schema = 1
 extends = ["hoglint:django", "hoglint:posthog", "tools/hoglint/presets/posthog.toml"]
@@ -15,7 +15,7 @@ exclude      = [
   "products/signals/eval/**",
   "tools/infra-scripts/**",
 ]
-# Third-party packages hoglint reads: they ship installed apps, models and migrations, or
+# Third-party packages Hoglint reads: they ship installed apps, models and migrations, or
 # Temporal's decorators.
 external     = ["django", "rest_framework", "oauth2_provider", "social_django", "axes", "django_otp", "two_factor", "temporalio"]
 
@@ -29,7 +29,7 @@ receiver_decorators  = ["django.dispatch.dispatcher.receiver", "posthog.models.s
 oracles              = ["registry", "migration-loader"]
 # Functions that install a callback into another package: a call or decorator naming one is an
 # `installs` edge. Exact names; add a new hook here. `callables` names the arguments that hand the
-# hook a callable (keyword and position); hoglint watches the module that defines it and what its
+# hook a callable (keyword and position); Hoglint watches the module that defines it and what its
 # body imports. The other arguments are data.
 hooks = [
   { name = "ee.hogai.artifacts.handlers.base.register_handler", callables = ["handler_class", 0] },

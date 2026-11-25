@@ -26,7 +26,7 @@
 // call to the old name, and master breaks on a combination neither run held.
 //
 //   1. A product change claims its own lane plus its direct importers, rather
-//      than every backend lane. The hoglint map is the real Python import graph
+//      than every backend lane. The Hoglint map is the real Python import graph
 //      (`hoglint map` reads the imports that `hoglint compare` checks in CI), so for
 //      a product it walked, the products that import it are known from the
 //      files. A product absent from that map has no known importer set and
@@ -46,7 +46,7 @@
 //      cross-cutting tests reach a product's endpoints by URL, in process,
 //      with no import for any graph to see. A lane only has to answer whether
 //      another PR can reference the symbols this one changed, which is the
-//      import half that hoglint does check. So a product too unsealed to skip
+//      import half that Hoglint does check. So a product too unsealed to skip
 //      the suite still has a bounded importer set, and gets a lane from it.
 //
 //      Which of the product's own files seed that cascade is the narrower
@@ -57,8 +57,8 @@
 //      to its internals keeps its own lane without cascading. This makes the
 //      set load-bearing for correctness: a file other products import that the
 //      set misses puts those products in a parallel lane, which is why
-//      hoglint's reached-watched rule puts every such file in it. A product
-//      that is not isolated, or a run in which hoglint gives no complete
+//      Hoglint's reached-watched rule puts every such file in it. A product
+//      that is not isolated, or a run in which Hoglint gives no complete
 //      answer, cascades on every backend file.
 //
 //   2. The cascade names direct importers rather than the transitive closure.
@@ -75,7 +75,7 @@
 //   3. A warehouse source vendor directory (products/warehouse_sources/sources/
 //      <vendor>/, every directory there except the SDK) claims only the vendor
 //      lane, not the warehouse_sources product lane. A vendor imports nothing but
-//      the SDK and third-party packages, and hoglint and a repo invariant
+//      the SDK and third-party packages, and Hoglint and a repo invariant
 //      enforce that, so no code outside the vendor can reference its
 //      symbols. That makes the SDK the vendors' only direct import, and narrowing
 //      2 already bounds a cascade at direct importers. The lane is therefore
@@ -1295,7 +1295,7 @@ function isInProductWorkspace(product, file, productWorkspaces) {
 //      filter, but a filter tuned to over-run is not a safe source for lane
 //      assignment, while an --ignore is a statement that the suite does not
 //      cover the path at all.
-//   2. The product is absent from the hoglint map, the real Python import graph,
+//   2. The product is absent from the Hoglint map, the real Python import graph,
 //      so no Python file under a source root imports it.
 //
 // A product satisfying both cannot fail another product's backend suite, so
@@ -1331,7 +1331,7 @@ function loadBackendDetachedProducts(repoRoot, products, importGraph) {
     return detached
 }
 
-// A product the hoglint map walked has a known importer set. One absent from the
+// A product the Hoglint map walked has a known importer set. One absent from the
 // map (no Python with an import edge under a source root, or excluded by
 // hoglint.toml), or a map that could not be read at all, has none.
 function isMapped(product, importGraph) {
@@ -2092,7 +2092,7 @@ function applyRustNonCrateLanes(file, targets, context) {
 
 function computeTargets(changedFiles, context) {
     const { products, rustInventory, productWorkspaces = new Map(), deletedFiles = new Set() } = context
-    // hoglint answers these, and buildContext runs it on first read. Destructuring them here
+    // Hoglint answers these, and buildContext runs it on first read. Destructuring them here
     // would run it for every change set, so only a change to a product's backend reads them.
     const contractSurfaces = () => context.contractSurfaces ?? new Map()
     const backendDetachedProducts = () => context.backendDetachedProducts ?? new Set()
@@ -2324,7 +2324,7 @@ function computeTargets(changedFiles, context) {
                     targets.add(WAREHOUSE_SOURCE_VENDORS)
                 }
                 if (isBackend && deletedFiles.has(file)) {
-                    // The hoglint map is read from the head tree, so a deleted or
+                    // The Hoglint map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are
                     // unknown. The PR that removes a facade module beside a
                     // caller it missed is the exact conflict lanes exist for.
@@ -2359,7 +2359,7 @@ function computeTargets(changedFiles, context) {
                     // product can be too unsealed to skip the suite and still
                     // have a bounded importer set.
                     //
-                    // The bound only holds for a product the hoglint map walked.
+                    // The bound only holds for a product the Hoglint map walked.
                     // One absent from the map has no known importer set, so
                     // it still widens below.
                     targets.add(pyProduct(product))
@@ -2466,7 +2466,7 @@ function computeTargets(changedFiles, context) {
     return [...targets].sort()
 }
 
-// The hoglint map is the real Python import graph (`hoglint map` reads the imports
+// The Hoglint map is the real Python import graph (`hoglint map` reads the imports
 // that `hoglint compare` checks in CI, so it cannot drift from what is
 // importable). Turbo-style dashed names cross the boundary in both directions;
 // product directories are underscored.
@@ -3154,8 +3154,8 @@ function buildContext(repoRoot) {
         warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
     }
-    // hoglint answers these, and a run takes most of a minute. A docs-only or frontend-only
-    // change never reads them, so it never runs hoglint.
+    // Hoglint answers these, and a run takes most of a minute. A docs-only or frontend-only
+    // change never reads them, so it never runs Hoglint.
     defineLazyField(context, 'importGraph', () => loadImportMap(repoRoot))
     defineLazyField(context, 'mappedProducts', () => listMappedProducts(products, context.importGraph))
     defineLazyField(context, 'backendDetachedProducts', () =>

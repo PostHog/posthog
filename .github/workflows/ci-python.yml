@@ -753,7 +753,7 @@ jobs:
               run: python tools/test_warehouse_sources_vendor_selection.py
 
             # A pull request diff that stays inside vendor directories runs only those vendors.
-            # A vendor cannot import another vendor (hoglint's sources-vendors-* rules enforce that), so the
+            # A vendor cannot import another vendor (Hoglint's sources-vendors-* rules enforce that), so the
             # other vendors cannot change. Any other file (the SDK, the conftest.py and other
             # files at the top of the plugin directory, the product, a manifest, this workflow)
             # selects the full run. The hourly run and a manual run have no pull request diff to
@@ -781,7 +781,7 @@ jobs:
             # vendor rules read every import, tests included, and fail a vendor that imports a sibling
             # vendor or anything but the SDK. A finding on a line the pull request adds or edits
             # becomes a warning annotation, an advisory row on such a line becomes a notice, and the
-            # step summary lists the rest. hoglint's exit decides the step.
+            # step summary lists the rest. Hoglint's exit decides the step.
             - name: Check boundaries (hoglint)
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"

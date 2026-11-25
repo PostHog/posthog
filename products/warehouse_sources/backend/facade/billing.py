@@ -1,7 +1,7 @@
 """Billing-facing exports for warehouse_sources.
 
 The usage reporter (posthog/tasks/usage_report.py) lives in the ``posthog`` module,
-which may only import ``products.warehouse_sources`` through the facade (hoglint's ``public-surface``).
+which may only import ``products.warehouse_sources`` through the facade (Hoglint's ``public-surface``).
 """
 
 from products.warehouse_sources.backend.billing import (

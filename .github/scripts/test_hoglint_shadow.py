@@ -7,22 +7,22 @@ import pytest
 from hoglint_shadow import ChangedLines, HookFilter, ShadowReport, StagedChange, git_diff, report_findings
 from parameterized import parameterized
 
-# Real hoglint output and the real git diff of the same state. In the `.out` files every line is
+# Real Hoglint output and the real git diff of the same state. In the `.out` files every line is
 # verbatim; the advisory list keeps its first row and the probes' rows, and each list of inherited
 # unknowns keeps its first two rows.
-# From hoglint 0.2.3 on the policy where public-surface, model-crossings and get-model only report:
-# - advisory: `check --index --all` with shadow_probe.py added, a public-surface crossing. hoglint
+# From Hoglint 0.2.3 on the policy where public-surface, model-crossings and get-model only report:
+# - advisory: `check --index --all` with shadow_probe.py added, a public-surface crossing. Hoglint
 #   exits 0, and the row is in the advisory list.
 # - both: the same, with an import of Django added to visual_review's contracts at line 863, a
 #   contracts-no-django finding that blocks.
 # - compare: `compare --base HEAD --all` of the same staged change.
 # - names: new files with a crossing each, one with a non-ASCII name and one with a space in it.
 # - ledger: the contracts edit, and the ledger rewritten with `--record-growth` and staged.
-# From hoglint 0.2.2, from a scratch worktree, on rules that still block:
+# From Hoglint 0.2.2, from a scratch worktree, on rules that still block:
 # - rename: a facade function renamed, which breaks importers in files the commit does not stage.
 # - config-error: stderr of `check --all` on a config with an unknown section.
 # - placement: two new files where `temporal-placement` forbids them, one of them empty.
-# - owned: one such new file in a directory with owners, so hoglint prints `at (no line)  [team]`.
+# - owned: one such new file in a directory with owners, so Hoglint prints `at (no line)  [team]`.
 FIXTURES = Path(__file__).parent / "fixtures" / "hoglint-shadow"
 
 PROBE = "products/visual_review/backend/logic/shadow_probe.py"
@@ -58,7 +58,7 @@ EXCEPTION_FIELDS = (
 EXCEPTION_SPACED = EXCEPTIONS_TEXT + "\n[[ exception ]]\n" + EXCEPTION_FIELDS
 EXCEPTION_INLINE = EXCEPTIONS_TEXT + "exception = [ { " + EXCEPTION_FIELDS.strip().replace("\n", ", ") + " } ]\n"
 
-# hoglint writes this line to stderr while it fills its pack memo (`core/memo.py`, MEMO_FILL).
+# Hoglint writes this line to stderr while it fills its pack memo (`core/memo.py`, MEMO_FILL).
 MEMO_FILL = "hoglint: the pack memo is empty, so this check fills it. This check is slower than the next ones."
 
 
@@ -165,7 +165,7 @@ class TestHookFilter:
     def test_ledger_growth_blocks_even_when_a_policy_change_hides_it_from_hoglint(
         self, _name: str, staged: list[str], expected: int
     ) -> None:
-        # With a policy change, hoglint judges no ledger growth and exits 0, so the glue reads the
+        # With a policy change, Hoglint judges no ledger growth and exits 0, so the glue reads the
         # staged ledger diff itself.
         code, _text = hook("hoglint: no new problems.\n", fixture("ledger.diff"), staged, status=0)
         assert code == expected
@@ -178,7 +178,7 @@ class TestHookFilter:
         assert hook("hoglint: no new problems.\n", diff, [PRESET, LEDGER, CONTRACTS], status=0)[0] == 0
 
     def test_a_rename_with_its_re_recorded_ledger_passes(self) -> None:
-        # Without a policy file staged, hoglint judges ledger growth, and it knows a move: this
+        # Without a policy file staged, Hoglint judges ledger growth, and it knows a move: this
         # rename plus `hoglint check --write-ledger` exits 0. The moved line's key names the new
         # module, so a key-by-key reading of the diff would call it new debt.
         old = "public-surface\tposthog.temporal.ai_observability.ACTIVITIES\tposthog.temporal.tests.ai.test_module_integrity"
@@ -263,7 +263,7 @@ class TestHookFilter:
         assert expected in text.splitlines()
 
     def test_extractor_unknowns_and_rows_without_a_place_are_printed_and_counted(self) -> None:
-        # No real run produced these two rows. They follow hoglint 0.2.2's format strings in
+        # No real run produced these two rows. They follow Hoglint 0.2.2's format strings in
         # report.py: `unknown_line` with the extractor cause, and `place` for a finding with no path.
         no_place = [
             "  contracts-no-django: products.visual_review.backend.facade.contracts reaches django.db: products.visual_review.backend.facade.contracts -> django.db",

@@ -57,12 +57,12 @@ if [ -f .github/scripts/check-comment-density.sh ]; then
     bash .github/scripts/check-comment-density.sh || true
 fi
 
-# hoglint checks the staged tree for new boundary problems (`hoglint help hook`). A missing command
+# Hoglint checks the staged tree for new boundary problems (`hoglint help hook`). A missing command
 # lets the commit through with one line, because CI runs the full check. A GUI client may not have
 # the dev env on PATH, so the flox venv is the fallback. husky runs this file with `sh -e`, so each
 # command that can fail carries its own `||`.
 #
-# hoglint runs once, in the full view, because the default view can cut the list short, and the
+# Hoglint runs once, in the full view, because the default view can cut the list short, and the
 # script decides from the staged diff: a finding blocks only on a line this commit adds or edits,
 # and CI's `hoglint compare` judges the rest. stderr goes to its own file, so that
 # no stray line ends up inside the report the script reads. The script prints its `hoglint explain`

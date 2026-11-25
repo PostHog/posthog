@@ -78,7 +78,7 @@ const CONTEXT = {
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
-// A graph the hoglint map walked all three products into, so their importer sets
+// A graph the Hoglint map walked all three products into, so their importer sets
 // are known. The base CONTEXT deliberately holds none, which covers the case
 // where a product sits outside the map and has to keep widening. Keys and
 // values are product directory names, the shape productGraphFromImportMap emits.
@@ -1652,7 +1652,7 @@ test('the crate inventory holds every crate the determinator can name', () => {
     assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
-// A hoglint run takes most of a minute, and no lane of a docs or frontend change reads its
+// A Hoglint run takes most of a minute, and no lane of a docs or frontend change reads its
 // answer. A field read eagerly again (a destructure, a spread, a call in buildContext) fails here.
 test('only a product backend change runs hoglint', () => {
     const turboDiscover = require('./turbo-discover')
@@ -1912,7 +1912,7 @@ test('editing the declarations of the backend test task always cascades', () => 
 })
 
 // Isolation and the contract surface come from one answer, the one turbo-discover
-// reads: a product that fails the level, or a run in which hoglint gave no
+// reads: a product that fails the level, or a run in which Hoglint gave no
 // complete answer, has no surface and cascades on every backend file.
 test('only a product hoglint reports isolated gets a contract surface', () => {
     const watched = {
@@ -2108,9 +2108,9 @@ test('files no vendor check reads keep their own lanes but not the vendor lane',
 })
 
 // The base CONTEXT keeps an empty import graph, so no product is mapped in it.
-// A product the hoglint map did not walk has no bounded importer set: any
+// A product the Hoglint map did not walk has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
-// The hoglint map is read from the head tree, so a file the PR deleted has no
+// The Hoglint map is read from the head tree, so a file the PR deleted has no
 // importer edge left; alpha's known importers are not enough to bound its lane.
 test('a deleted product python file widens to every backend target', () => {
     const file = 'products/alpha/backend/facade/api.py'
@@ -2128,7 +2128,7 @@ test('a product absent from the import graph widens to every backend target', ()
 })
 
 // The lane only has to answer whether another PR can reference the symbols this
-// one changed, and the hoglint map answers exactly that. Isolation is the stronger,
+// one changed, and the Hoglint map answers exactly that. Isolation is the stronger,
 // separate claim that the product's own suite is sufficient, which lets CI
 // skip the full Django suite, and which products/architecture.md says an import
 // graph cannot prove. A product can be too unsealed for that and still be bounded
@@ -2331,7 +2331,7 @@ test('the vendored workspace files claim only the product lane', () => {
 })
 
 // delta stands in for products/desktop: an app imported from another
-// repository that pytest.ini ignores and the hoglint map never walks. Its
+// repository that pytest.ini ignores and the Hoglint map never walks. Its
 // vendored .py files read as backend to the layout rules, so without the
 // detachment check they claim every backend lane for suites that never run on
 // them.

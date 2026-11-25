@@ -9,15 +9,15 @@
 // of its watched files. Products changed by Turbo's Git affectedness query are
 // selected for product tests. Any change in a product that is not isolated
 // triggers the full test suite (all products + Django), and so does an
-// answer hoglint could not give.
+// answer Hoglint could not give.
 //
 // Lib packages are the other kind of workspace package with a backend:test task:
 // the Python distributions under packages/ (@posthog/owners-yaml and the like). They
 // never become matrix entries, because their own tests run in ci-python.yml.
-// They matter here as cascade sources. Each one is a uv distribution, so hoglint
+// They matter here as cascade sources. Each one is a uv distribution, so Hoglint
 // resolves an import of it as third-party and records no edge to it, which means
 // nothing declares who its consumers are. A changed lib's direct consumers come
-// from scanning products/ for its import statements, and the hoglint map then
+// from scanning products/ for its import statements, and the Hoglint map then
 // supplies the product-to-product closure over those consumers. The same scan
 // covers posthog/, ee/ and common/, where an importer has no product id to
 // select, so the only sound answer there is the full suite.
@@ -368,9 +368,9 @@ function testlessProducts(testTasks) {
 // A product's contract is its watched set: the files `hoglint watched` names
 // because code outside the product runs or reaches them, every file of its
 // facade, presentation and migrations, and the package __init__.py files
-// above them. hoglint derives the set from the tree; nobody keeps a list.
+// above them. Hoglint derives the set from the tree; nobody keeps a list.
 //
-// One `hoglint watched --map` run writes both answers. hoglint_run.py pins hoglint
+// One `hoglint watched --map` run writes both answers. hoglint_run.py pins Hoglint
 // and Django in its PEP 723 block and runs under `uv run --no-project`, so the
 // callers need uv and nothing from the Python project.
 const HOGLINT_RUN_SCRIPT = path.join(__dirname, 'hoglint_run.py')
@@ -422,7 +422,7 @@ function listChangedFiles(base, head) {
         .filter(Boolean)
 }
 
-// Collapse hoglint's file map ({ file: [files that import it] }) into
+// Collapse Hoglint's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
 // product that owns a file in the map is a key, with or without cross-product
@@ -512,7 +512,7 @@ const WATCHED_FORMAT = 1
 // A cold run takes about a minute. Past this the run counts as failed.
 const HOGLINT_TIMEOUT_MS = 6 * 60 * 1000
 
-// No product is isolated when hoglint gives no complete answer: more tests, never fewer.
+// No product is isolated when Hoglint gives no complete answer: more tests, never fewer.
 function unreadWatchedSets(status, digest = null) {
     return { status, digest, isolated: new Set(), watched: new Map() }
 }
@@ -520,7 +520,7 @@ function unreadWatchedSets(status, digest = null) {
 const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // Reads the JSON of `hoglint watched` into { status, digest, isolated, watched }:
-//   status    'ok'; 'incomplete' when hoglint says an unknown can make a set too small;
+//   status    'ok'; 'incomplete' when Hoglint says an unknown can make a set too small;
 //             'unavailable' when the text is no answer in the format this script reads
 //   digest    the start of the answer's sha256: the same tree, policy and engine give the
 //             same bytes, so the digest names the sets a selection read
@@ -562,7 +562,7 @@ function parseWatchedAnswer(text) {
     return { status: 'ok', digest, isolated, watched }
 }
 
-// hoglint map exits 0 and reads no import from a file it cannot parse, so a
+// Hoglint map exits 0 and reads no import from a file it cannot parse, so a
 // syntax error hides that file's imports. That cannot under-test here: a file broken on master
 // fails ruff and every import of it, and a file the PR broke sits in a product
 // Turbo already selects.
@@ -712,7 +712,7 @@ function runHoglint(repoRoot) {
     try {
         execFileSync(
             'uv',
-            // No level has `claimed_by`, so hoglint needs the level named.
+            // No level has `claimed_by`, so Hoglint needs the level named.
             ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'watched', '--level', 'isolated', '--out', watchedFile, '--map', mapFile],
             { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS }
         )
@@ -749,7 +749,7 @@ function loadWatchedSets(repoRoot = process.cwd()) {
 }
 
 // What the selection telemetry records of the run: whether the answer was read, and which.
-// Empty when no hoglint run happened in this process.
+// Empty when no Hoglint run happened in this process.
 function watchedTelemetry(repoRoot = process.cwd()) {
     const answer = hoglintByRoot.get(repoRoot)
     return {
@@ -797,7 +797,7 @@ function contractCascadeIsDirect({ applies, disabled }) {
     return applies && !disabled
 }
 
-// Products that depend on `products` per the hoglint map, transitively unless
+// Products that depend on `products` per the Hoglint map, transitively unless
 // `direct`, or null when the map cannot be read. Callers treat null as
 // "unknown dependents" and widen.
 function importDependentProducts(products, allProductSet, { direct = false } = {}) {
@@ -816,7 +816,7 @@ function importDependentProducts(products, allProductSet, { direct = false } = {
     return importDependents(products, importGraph, { direct }).filter((p) => allProductSet.has(p))
 }
 
-// The files that make hoglint's policy or engine. A diff that changes one would be
+// The files that make Hoglint's policy or engine. A diff that changes one would be
 // judged by watched sets that its own change computed.
 const WATCHED_POLICY_FILES = ['hoglint.toml', 'pyproject.toml', '.github/scripts/hoglint_run.py']
 const WATCHED_POLICY_DIRS = ['tools/hoglint/']
@@ -840,7 +840,7 @@ function isProductInputFile(file) {
 }
 
 // A non-Python product input: a seed, a template or a manifest that product or core code reads,
-// or the product's package.json or turbo.json, which decide what Turbo selects. hoglint watches
+// or the product's package.json or turbo.json, which decide what Turbo selects. Hoglint watches
 // Python modules only, so a change to one counts as a watched change.
 function isProductDataFile(file) {
     return !file.endsWith('.py') && isProductInputFile(file)
@@ -926,7 +926,7 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
 
 // What a diff with no legacy edit runs for the products it reached: the ones Turbo's affected
 // query reports, and every product a changed product file sits in.
-// Pure: hoglint's answer, the diff and the dependent cascade come in as arguments.
+// Pure: Hoglint's answer, the diff and the dependent cascade come in as arguments.
 //   affectedProducts  the products Turbo's affected query reports, dashed names
 //   allProducts       every product
 //   watched           parseWatchedAnswer's result
@@ -1186,8 +1186,8 @@ function productPrefix(product) {
 }
 
 // --- Lib package consumers (import scan) ---
-// The hoglint map cannot answer who uses a lib package: the package is a uv
-// distribution, so hoglint resolves `import owners_yaml` as third-party and records
+// The Hoglint map cannot answer who uses a lib package: the package is a uv
+// distribution, so Hoglint resolves `import owners_yaml` as third-party and records
 // no edge to it. The import statements themselves are the only record, and unlike
 // a declared edge they cannot drift from what the code does.
 //
@@ -2256,7 +2256,7 @@ if (legacyChanged) {
     console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
     logAffectedReasons('backend:test', affectedTestTasks)
 
-    // hoglint runs only when a product changed, or below when a lib change reaches one.
+    // Hoglint runs only when a product changed, or below when a lib change reaches one.
     const watched =
         affectedProducts.length > 0 || productsReachedByFiles(changedFiles, allProducts).length > 0 ? loadWatchedSets() : null
     if (watched !== null) {

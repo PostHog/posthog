@@ -1,7 +1,7 @@
 """Check framework and all product lint checks.
 
 Lint checks are pass/fail structural correctness checks. They answer "is anything
-broken?" — missing files, broken scripts, misplaced code. hoglint holds the
+broken?" — missing files, broken scripts, misplaced code. Hoglint holds the
 boundaries between products (hoglint.toml).
 
 Progress/maturity scoring lives in maturity.py instead.
@@ -285,7 +285,7 @@ class MisplacedFilesCheck(ProductCheck):
     # names are deliberately not: which internal packages a product has (`logic/`,
     # `services/`, `reviewer/`) is its own business, and the thing that must not
     # drift — presentation code outside presentation/ — is enforced by shape in
-    # hoglint's `presentation-uses-facade` rule: routes.py and presentation/ reach product
+    # Hoglint's `presentation-uses-facade` rule: routes.py and presentation/ reach product
     # code only through the facade, so a view anywhere else cannot be routed.
 
     def run(self, ctx: CheckContext) -> CheckResult:

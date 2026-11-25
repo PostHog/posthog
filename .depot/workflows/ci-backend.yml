@@ -382,7 +382,7 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads hoglint's watched sets and import map for isolation
+                        # turbo-discover reads Hoglint's watched sets and import map for isolation
                         # and the dependent cascade, and repo-checks runs `hoglint compare`, which
                         # judges the policy, the ledger and the exceptions, so a policy-only PR
                         # must still dispatch both.
@@ -621,7 +621,7 @@ jobs:
                         # this tree, and the backend filter matches only the ones the test setup imports.
                         - 'tools/hogli-commands/**'
                       hoglint:
-                        # hoglint reads every Python file under the repo root (hoglint.toml
+                        # Hoglint reads every Python file under the repo root (hoglint.toml
                         # `source_roots`), and the backend filter leaves some of them out, such as
                         # bin/, rust/, nodejs/ and the root scripts. A change to any of them must
                         # still run `hoglint compare` in repo-checks.
@@ -915,7 +915,7 @@ jobs:
               uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/hoglint_run.py under `uv run
             # --no-project` for `hoglint watched --map`: which products are isolated, their
-            # watched files and the dependent cascade. The script pins hoglint and Django, so
+            # watched files and the dependent cascade. The script pins Hoglint and Django, so
             # no Python project sync is needed. A missing uv makes no product isolated and
             # widens the cascade to every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
@@ -1758,7 +1758,7 @@ jobs:
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         # hoglint: Python the backend filter leaves out still needs `hoglint compare`.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true' || needs.changes.outputs.hoglint == 'true') && github.event_name != 'schedule'
-        # Room for the hoglint step's own 5-minute cap and the scaffold check on top of the other checks.
+        # Room for the Hoglint step's own 5-minute cap and the scaffold check on top of the other checks.
         timeout-minutes: 15
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1827,12 +1827,12 @@ jobs:
             # reports. A finding on a line the pull request adds or edits becomes an annotation, and
             # the step summary splits the rows that block from the rows that only report. The full
             # view (`--all`) lists every row, which the default view can cut short. The script only
-            # reports; hoglint's exit decides the step. It runs before the scaffold, which edits
+            # reports; Hoglint's exit decides the step. It runs before the scaffold, which edits
             # tracked files that compare would read as part of the change. Exit 1 (violations) and 2
             # (a blocking incomplete result or a config error) come from the tree, so they are a
             # deterministic failure. Exit 2 with a line about "the base engine" is not: compare
             # could not install, start or ask the engine the base pins, which a retry can fix. That
-            # case and any other status (3: hoglint could not run, 124 or 137: the timeout) set
+            # case and any other status (3: Hoglint could not run, 124 or 137: the timeout) set
             # `transient`, so the job fails without cancelling the rest of the run.
             - name: Check boundaries (hoglint)
               id: hoglint
@@ -1857,7 +1857,7 @@ jobs:
                   exit "$status"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
-            # A bootstrapped product must pass hoglint from its first commit, its Isolated level
+            # A bootstrapped product must pass Hoglint from its first commit, its Isolated level
             # included. Bootstrap writes the product's level line into this job's copy of the
             # ledger, so a plain check also proves that bootstrap leaves the ledger complete.
             - name: Check the scaffold product (hoglint)
@@ -1919,7 +1919,7 @@ jobs:
               run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
-            # A hoglint step that could not finish says so with `transient`, and is not one.
+            # A Hoglint step that could not finish says so with `transient`, and is not one.
             - name: Flag deterministic failure
               id: deterministic-failure
               if: failure() && steps.setup-complete.outcome == 'success' && steps.hoglint.outputs.transient != 'true' && steps.hoglint-scaffold.outputs.transient != 'true'
