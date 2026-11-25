@@ -2622,9 +2622,9 @@ describe('EmailService', () => {
             })
 
             it('publishes clicks_untracked on the sent row of a sensitive transactional email', async () => {
+                send([])
                 sendAsTransactionalEmail()
                 invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
-                bucket.answer = 'pass'
 
                 const result = await sender().executeSendEmail(invocation)
 
