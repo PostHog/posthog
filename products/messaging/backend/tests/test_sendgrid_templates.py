@@ -356,7 +356,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
-            ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
+            ("dynamic", "dynamic", "<a href={{{unsubscribe}}}#top>Leave</a>"),
             ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
             (
                 "next_to_one_that_converts",
