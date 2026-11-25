@@ -678,8 +678,10 @@ describe('scenario environment', () => {
                 optionAfterAt: withSetting({
                     DATABASE_URL: 'postgres://cluster-a:5432/posthog?application_name=runner@box&connect_timeout=5',
                 }),
-                kafkaPrefix: hashOf({ ...MACHINE, KAFKA_PREFIX: 'b_' }, STATE_DIR),
-                kafkaTuning: hashOf({ ...MACHINE, KAFKA_CONSUMER_FETCH_WAIT_MAX_MS: '500' }, STATE_DIR),
+                urlInQueryPassword: withSetting({
+                    DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?password=x,https://example.com/one',
+                }),
+                emptyCaFile: withSetting({ DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?sslrootcert=' }),
                 otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
                 otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
             }).toEqual({
@@ -709,8 +711,12 @@ describe('scenario environment', () => {
                         DATABASE_URL: 'postgres://cluster-a:5432/posthog?application_name=runner@box&connect_timeout=9',
                     })
                 ),
-                kafkaPrefix: expect.not.stringMatching(here),
-                kafkaTuning: expect.not.stringMatching(here),
+                urlInQueryPassword: withSetting({
+                    DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?password=y,https://example.com/two',
+                }),
+                emptyCaFile: expect.not.stringMatching(
+                    withSetting({ DATABASE_URL: 'postgres://posthog@cluster-a:5432/posthog?sslrootcert=/srv/a/ca.pem' })
+                ),
                 otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
                 otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
             })

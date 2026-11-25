@@ -333,7 +333,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                         unitIds.set(record, hits)
                     }
                 } catch (error) {
-                    record.error = [record.error, `unit ids unreadable: ${(error as Error).message}`]
+                    record.error = [
+                        record.error,
+                        `unit ids unreadable: ${error instanceof Error ? error.message : String(error)}`,
+                    ]
                         .filter(Boolean)
                         .join('; ')
                 }

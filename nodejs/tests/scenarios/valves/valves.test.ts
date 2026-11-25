@@ -18,6 +18,7 @@ import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
@@ -697,54 +698,92 @@ describe('valves', () => {
             })
         })
 
-        it('records why a fault lists no units when the edge cannot say which it hit', async () => {
-            const valves = createValves({ pollMs: 5 })
-            await valves.start(
-                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
-                {
-                    ...onEdge(),
-                    environment: {
-                        actuate: async (action) => ({
-                            ...(await onEdge().environment.actuate(action)),
-                            hits: () => Promise.reject(new Error('the edge process exited')),
-                        }),
-                    },
-                }
-            )
-            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
-            await send()
-            await valves.releaseAll()
+        describe('through an edge process', () => {
+            let edgeProcess: EdgeProcess
+            const onEdgeProcess = (): ValveContext => ({
+                ...onEdge(),
+                environment: {
+                    actuate: (action) =>
+                        action.kind === 'edge.fault'
+                            ? edgeProcess.hold(action.rule)
+                            : Promise.reject(new Error(`no ${action.kind} here`)),
+                },
+            })
 
-            expect(valves.fired()).toEqual([
-                expect.objectContaining({
-                    error: 'unit ids unreadable: the edge process exited',
-                    releasedAt: expect.any(String),
-                }),
-            ])
-            expect(valves.fired()[0].unitIds).toBeUndefined()
-        })
+            beforeEach(async () => {
+                edgeProcess = await startEdgeProcess({ port: 0 })
+            })
 
-        it('lists a fault whose apply failed after it began, with its error', async () => {
-            const valves = createValves({ pollMs: 5 })
-            await valves.start(
-                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
-                {
-                    ...onEdge(),
-                    environment: {
-                        actuate: () => Promise.reject(new Error('the read replica refused the connection')),
-                    },
-                }
-            )
-            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
-            await valves.releaseAll()
+            afterEach(async () => {
+                await edgeProcess.close()
+            })
 
-            expect(valves.fired()).toEqual([
-                expect.objectContaining({
-                    valve: 'ses.reject',
-                    intentAt: expect.any(String),
-                    error: 'the read replica refused the connection',
-                }),
-            ])
+            it('records why a fault lists no units when its edge process is gone after release', async () => {
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    {
+                        ...onEdgeProcess(),
+                        environment: {
+                            actuate: async (action) => {
+                                const hold = await onEdgeProcess().environment.actuate(action)
+                                return {
+                                    ...hold,
+                                    release: async () => {
+                                        await hold.release()
+                                        await edgeProcess.close()
+                                    },
+                                }
+                            },
+                        },
+                    }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        error: expect.stringContaining('unit ids unreadable: the provider edge process exited'),
+                        releasedAt: expect.any(String),
+                    }),
+                ])
+                expect(valves.fired()[0].unitIds).toBeUndefined()
+            })
+
+            it('lists a fault whose edge process was gone before it applied, with its error', async () => {
+                await edgeProcess.close()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    onEdgeProcess()
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        valve: 'ses.reject',
+                        intentAt: expect.any(String),
+                        error: expect.any(String),
+                    }),
+                ])
+            })
         })
 
         it.each([
