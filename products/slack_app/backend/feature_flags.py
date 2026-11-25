@@ -39,6 +39,8 @@ from __future__ import annotations
 import json
 from urllib.parse import urlsplit
 
+from django.core.cache import cache
+
 import structlog
 import posthoganalytics
 
@@ -62,6 +64,7 @@ SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
+WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -244,12 +247,21 @@ def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distin
 
 def is_slack_app_web_settings_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the settings that people change on the web: channel settings apply only while it is on. The
-    decision is about the workspace's organization, not about one person, so no distinct ID is passed."""
-    return _workspace_flag_enabled(
+    decision is about the workspace's organization, not about one person, so no distinct ID is passed.
+
+    The Slack webhook can check it more than once for one message, and a remote evaluation can take seconds, so
+    the decision is kept for a minute."""
+    cache_key = f"slack_app_web_settings_flag:{_organization_id(integration)}:{integration.integration_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    enabled = _workspace_flag_enabled(
         SLACK_APP_WEB_SETTINGS_FLAG,
         integration,
         failure_log_key="slack_app_web_settings_feature_flag_check_failed",
     )
+    cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
+    return enabled
 
 
 def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:

@@ -27,13 +27,18 @@ export function SlackAppChannelSettingsModal({ integration }: { integration: Int
     return (
         <LemonModal
             isOpen={channelDraft !== null}
-            onClose={closeChannelModal}
+            // A save in flight closes the modal when it finishes, so the modal stays open until then.
+            onClose={channelSaving ? undefined : closeChannelModal}
             width={520}
             title={title}
-            description="A channel setting wins over each person's own setting. Anyone in the project can change it."
+            description="A channel's project and repository win over each person's own. Anyone in your organization can change them."
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeChannelModal}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeChannelModal}
+                        disabledReason={channelSaving ? 'Saving' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton

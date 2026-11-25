@@ -2250,7 +2250,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'slack-app-channels',
                 title: 'Channel settings',
                 description:
-                    "Set a default project, repository and question mode for a Slack channel. A channel setting wins over each person's own setting. Anyone in the project can change it.",
+                    "Set a default project, repository and question mode for a Slack channel. The project and repository win over each person's own, and the question mode can only make things stricter. Each organization keeps its own channel settings.",
                 component: <SlackAppChannelSettings />,
                 keywords: ['slack', 'channel', 'repository', 'project', 'questions'],
             },

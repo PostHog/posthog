@@ -11,12 +11,11 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
 import type { IntegrationType } from '~/types'
 
-import type { SlackAppChannelSettingsApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
+import type { SlackAppChannelSettingsApi, SlackChannelQuestionModeEnumApi } from '../generated/api.schemas'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 import { slackChannelLabel } from './slackChannelLabel'
 
-const QUESTION_MODE_TAGS: Record<SlackUntaggedModeEnumApi, string> = {
-    auto: 'Answers questions',
+const QUESTION_MODE_TAGS: Record<SlackChannelQuestionModeEnumApi, string> = {
     ask: 'Asks before answering',
     never: '@-mentions only',
 }

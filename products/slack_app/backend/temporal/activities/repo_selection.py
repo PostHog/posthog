@@ -13,11 +13,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_jev_needs_repo_enabled,
-    is_slack_app_web_settings_enabled,
-)
-from products.slack_app.backend.services.channel_settings import load_channel_defaults
+from products.slack_app.backend.feature_flags import is_slack_app_jev_needs_repo_enabled
+from products.slack_app.backend.services.channel_settings import channel_default_repository
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -168,9 +165,8 @@ def _with_channel_repository(
     replaces the discovery agent."""
     if outcome.mode != "agent_needed":
         return outcome
-    defaults = load_channel_defaults(inputs.slack_team_id, inputs.event.get("channel"))
-    repository = defaults.default_repository if defaults else None
-    if repository is None or repository not in all_repos or not is_slack_app_web_settings_enabled(integration):
+    repository = channel_default_repository(integration, inputs.event.get("channel"))
+    if repository is None or repository not in all_repos:
         return outcome
     # pinned: analytics property value, the repository resolution reason
     return PostHogCodeRepoCascadeOutcome(mode="auto", repository=repository, reason="channel_default")

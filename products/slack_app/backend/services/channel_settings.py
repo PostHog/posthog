@@ -1,55 +1,70 @@
-"""Read the settings that people set for one Slack channel on the web, stored on ``SlackChannel``.
+"""Read the channel settings that each organization sets on the web, stored on ``SlackChannelSettings``.
 
-A channel setting wins over the personal and workspace settings. It applies only while the
-``slack-app-web-settings`` flag is on for the workspace's organization. The row is read first, so
-the flag is checked only for a channel that has a setting.
+A Slack workspace can connect to projects in several organizations, and each organization keeps its own row.
+The settings apply only while the ``slack-app-web-settings`` flag is on for the organization of the project in
+question. Rows are read first, so the flag is checked only for a channel that has a setting.
+
+- Project: a row's default project wins over the personal and workspace defaults, for an author who can open it.
+- Repository and question mode: the row of the organization that owns the routed project.
+- Question mode: the stricter of the author's own mode and the channel's, so a channel never opts a person in.
 """
 
-from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationRecord
-
 from products.slack_app.backend.feature_flags import is_slack_app_web_settings_enabled
-from products.slack_app.backend.models import SlackChannel, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackChannelSettings, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_references import read_integration_id
 from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
+STRICTNESS = {UntaggedFollowupMode.AUTO: 0, UntaggedFollowupMode.ASK: 1, UntaggedFollowupMode.NEVER: 2}
 
 
-@frozen
-class ChannelDefaults:
-    default_integration_id: int | None
-    default_repository: str | None
-    untagged_question_mode: UntaggedFollowupMode | None
-
-
-def load_channel_defaults(slack_workspace_id: str, slack_channel_id: str | None) -> ChannelDefaults | None:
+def channel_default_integration_ids(slack_workspace_id: str, slack_channel_id: str | None) -> list[int]:
+    """The default projects that organizations set for this channel, oldest setting first."""
     if not slack_workspace_id or not slack_channel_id:
-        return None
+        return []
+    references = (
+        SlackChannelSettings.objects.filter(
+            slack_workspace_id=slack_workspace_id,
+            slack_channel_id=slack_channel_id,
+            default_integration_id__isnull=False,
+        )
+        .order_by("created_at")
+        .values_list("default_integration_id", flat=True)
+    )
+    return [integration_id for integration_id in map(read_integration_id, references) if integration_id is not None]
+
+
+def _organization_row(integration: WorkspaceIntegration, slack_channel_id: str | None) -> tuple[str | None, str | None]:
+    if not slack_channel_id:
+        return None, None
     row = (
-        SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, slack_channel_id=slack_channel_id)
-        .values_list("default_integration_id", "default_repository", "untagged_question_mode")
+        SlackChannelSettings.objects.filter(
+            slack_workspace_id=integration.integration_id or "",
+            slack_channel_id=slack_channel_id,
+            organization_id=integration.team.organization_id,
+        )
+        .values_list("default_repository", "untagged_question_mode")
         .first()
     )
-    if row is None:
+    return row if row is not None else (None, None)
+
+
+def channel_default_repository(integration: WorkspaceIntegration, slack_channel_id: str | None) -> str | None:
+    repository, _ = _organization_row(integration, slack_channel_id)
+    if repository is None or not is_slack_app_web_settings_enabled(integration):
         return None
-    default_integration_id, default_repository, mode = row
-    return ChannelDefaults(
-        default_integration_id=read_integration_id(default_integration_id),
-        default_repository=default_repository,
-        untagged_question_mode=UntaggedFollowupMode(mode) if mode in UntaggedFollowupMode.values else None,
-    )
+    return repository
 
 
 def resolve_channel_untagged_question_mode(
-    flag_integration: IntegrationRecord, slack_user_id: str | None, slack_channel_id: str | None
+    integration: WorkspaceIntegration, slack_user_id: str | None, slack_channel_id: str | None
 ) -> UntaggedFollowupMode:
-    """The channel's mode when it has one, otherwise the author's own mode."""
-    slack_workspace_id = flag_integration.integration_id or ""
-    defaults = load_channel_defaults(slack_workspace_id, slack_channel_id)
-    if (
-        slack_user_id
-        and defaults is not None
-        and defaults.untagged_question_mode is not None
-        and is_slack_app_web_settings_enabled(flag_integration)
-    ):
-        return defaults.untagged_question_mode
-    return resolve_untagged_question_mode(slack_workspace_id, slack_user_id)
+    """The author's own mode, made stricter by the channel's mode for the organization of ``integration``."""
+    personal = resolve_untagged_question_mode(integration.integration_id or "", slack_user_id)
+    if not slack_user_id or personal == UntaggedFollowupMode.NEVER:
+        return personal
+    _, stored = _organization_row(integration, slack_channel_id)
+    if stored not in UntaggedFollowupMode.values or not is_slack_app_web_settings_enabled(integration):
+        return personal
+    channel = UntaggedFollowupMode(stored)
+    return channel if STRICTNESS[channel] > STRICTNESS[personal] else personal

@@ -147,6 +147,7 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
     resolve_untagged_followup_mode,
+    resolve_untagged_question_mode,
     set_untagged_question_mode,
 )
 from products.slack_app.backend.services.slack_user_info import (
@@ -2626,10 +2627,7 @@ def _route_untagged_question(
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
     # One indexed read, ahead of user resolution, which can call Slack's users.info for every author.
-    if (
-        resolve_channel_untagged_question_mode(workspace_result.candidates[0], slack_user_id, channel)
-        == UntaggedFollowupMode.NEVER
-    ):
+    if resolve_untagged_question_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
 
     resolution = resolve_user_for_workspace(
@@ -2645,6 +2643,9 @@ def _route_untagged_question(
     # No picker: asking which project a question nobody addressed to us belongs to is noise.
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
+        return ROUTE_HANDLED_LOCALLY
+    # The channel's mode belongs to the organization of the routed project, so it is read once the target is known.
+    if resolve_channel_untagged_question_mode(target, slack_user_id, channel) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
     # A post that tags the app also arrives as an ``app_mention``, and the mention pipeline answers that copy.
     if _message_tags_bot(event, target):

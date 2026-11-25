@@ -51,8 +51,10 @@ export interface slackAppSettingsLogicValues {
     channelSaveDisabledReason: string | undefined
     channelSaving: boolean
     channels: SlackAppChannelSettingsApi[] | null
+    channelsLoadFailed: boolean
     channelsLoading: boolean
     isEditingChannel: boolean
+    personalSettingsDisabledReason: string | undefined
     pickedIntegrationId: number | null
     projectNames: Record<number, string>
     repositoryOptions: SlackAppRepositoryOptionsApi | null
@@ -78,7 +80,7 @@ export interface slackAppSettingsLogicActions {
     loadAll: () => {
         value: true
     }
-    loadChannels: () => any
+    loadChannels: (_: void) => void
     loadChannelsFailure: (
         error: string,
         errorObject?: any
@@ -88,10 +90,10 @@ export interface slackAppSettingsLogicActions {
     }
     loadChannelsSuccess: (
         channels: SlackAppChannelSettingsApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         channels: SlackAppChannelSettingsApi[] | null
-        payload?: any
+        payload?: void
     }
     loadRepositoryOptions: () => any
     loadRepositoryOptionsFailure: (
@@ -118,10 +120,10 @@ export interface slackAppSettingsLogicActions {
     }
     loadSettingsSuccess: (
         settings: SlackAppSettingsApi | null,
-        payload?: any
+        payload?: void
     ) => {
         settings: SlackAppSettingsApi | null
-        payload?: any
+        payload?: void
     }
     openChannelModal: (channel: SlackAppChannelSettingsApi | null) => {
         channel: SlackAppChannelSettingsApi | null
@@ -170,6 +172,7 @@ export interface slackAppSettingsLogicMeta {
             pickedIntegrationId: number | null,
             slackIntegrations: IntegrationType[] | undefined
         ) => number | null
+        personalSettingsDisabledReason: (settingsLoading: boolean) => string | undefined
         selectedIntegration: (
             selectedIntegrationId: number | null,
             slackIntegrations: IntegrationType[] | undefined
@@ -245,7 +248,17 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
         ],
         channels: {
             setChannels: (_, { channels }) => channels,
+            selectIntegration: () => null,
         },
+        channelsLoadFailed: [
+            false,
+            {
+                loadChannels: () => false,
+                loadChannelsSuccess: () => false,
+                loadChannelsFailure: () => true,
+                selectIntegration: () => false,
+            },
+        ],
         // Another workspace's settings must not stay on screen, or stay editable, while the new ones load.
         settings: {
             selectIntegration: () => null,
@@ -289,7 +302,7 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
         channels: [
             null as SlackAppChannelSettingsApi[] | null,
             {
-                loadChannels: async () => {
+                loadChannels: async (_: void, breakpoint) => {
                     if (values.selectedIntegrationId === null) {
                         return null
                     }
@@ -297,6 +310,8 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
                         String(values.currentTeamId),
                         String(values.selectedIntegrationId)
                     )
+                    // A later load, after a workspace switch, replaces this response.
+                    breakpoint()
                     return response.channels
                 },
             },
@@ -368,12 +383,16 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
     }),
     listeners(({ actions, values }) => {
         const putChannel = async (slackChannelId: string, change: SlackAppChannelSettingsUpdateApi): Promise<void> => {
+            const integrationId = values.selectedIntegrationId
             const saved = await slackAppSettingsChannelsUpdate(
                 String(values.currentTeamId),
-                String(values.selectedIntegrationId),
+                String(integrationId),
                 slackChannelId,
                 change
             )
+            if (integrationId !== values.selectedIntegrationId) {
+                return
+            }
             const others = (values.channels ?? []).filter((channel) => channel.slack_channel_id !== slackChannelId)
             actions.setChannels(hasChannelSetting(saved) ? [...others, saved] : others)
         }

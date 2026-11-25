@@ -16,7 +16,7 @@ from products.signals.backend.facade import api as signals_facade
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled, is_slack_app_web_settings_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.channel_settings import load_channel_defaults
+from products.slack_app.backend.services.channel_settings import channel_default_integration_ids
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
@@ -240,12 +240,11 @@ def resolve_from_candidates(
                 integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
             )
 
-    channel_defaults = load_channel_defaults(slack_team_id, channel)
-    if channel_defaults is not None and channel_defaults.default_integration_id in candidate_ids:
-        target = candidates_by_id[channel_defaults.default_integration_id]
-        if (accessible_team_ids is None or target.team_id in accessible_team_ids) and is_slack_app_web_settings_enabled(
-            target
-        ):
+    for channel_integration_id in channel_default_integration_ids(slack_team_id, channel):
+        target = candidates_by_id.get(channel_integration_id)
+        if target is None or (accessible_team_ids is not None and target.team_id not in accessible_team_ids):
+            continue
+        if is_slack_app_web_settings_enabled(target):
             return ResolutionResult(integration=target, source="channel_default", candidates=accessible)
 
     if slack_user_id:
@@ -482,6 +481,17 @@ def resolve_user_for_workspace(
         if workspace_result.integration is not None and workspace_result.integration.team_id in accessible_team_ids
         else None
     )
+    if target is None and workspace_result.source == "channel_default":
+        # A channel only suggests a project, so an author who can't open it gets their own default instead.
+        fallback = resolve_from_candidates(
+            reachable_candidates, slack_team_id=slack_team_id, slack_user_id=slack_user_id, user=posthog_user
+        )
+        return UserAndIntegrationsResolution(
+            user=posthog_user,
+            integration=fallback.integration,
+            candidates=reachable_candidates,
+            source=fallback.source,
+        )
     return UserAndIntegrationsResolution(
         user=posthog_user,
         integration=target,

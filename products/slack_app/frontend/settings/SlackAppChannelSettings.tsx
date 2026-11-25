@@ -11,8 +11,9 @@ import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 export function SlackAppChannelSettings(): JSX.Element {
-    const { selectedIntegration, channels, channelsLoading, integrationsLoading } = useValues(slackAppSettingsLogic)
-    const { openChannelModal } = useActions(slackAppSettingsLogic)
+    const { selectedIntegration, channels, channelsLoading, channelsLoadFailed, integrationsLoading } =
+        useValues(slackAppSettingsLogic)
+    const { openChannelModal, loadChannels } = useActions(slackAppSettingsLogic)
 
     if (integrationsLoading && !selectedIntegration) {
         return <LemonSkeleton className="h-40" />
@@ -36,6 +37,8 @@ export function SlackAppChannelSettings(): JSX.Element {
                     size="small"
                     icon={<IconPlus />}
                     onClick={() => openChannelModal(null)}
+                    // Adding before the list loads could replace a channel's settings without showing them first.
+                    disabledReason={channels === null ? 'Wait for the channel list to load' : undefined}
                     data-attr="slack-app-channel-settings-add"
                 >
                     Add channel
@@ -44,6 +47,10 @@ export function SlackAppChannelSettings(): JSX.Element {
             </div>
             {channelsLoading && channels === null ? (
                 <LemonSkeleton className="h-32" />
+            ) : channelsLoadFailed ? (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadChannels() }}>
+                    Couldn't load the channel settings.
+                </LemonBanner>
             ) : (
                 <SlackAppChannelSettingsTable integration={selectedIntegration} />
             )}

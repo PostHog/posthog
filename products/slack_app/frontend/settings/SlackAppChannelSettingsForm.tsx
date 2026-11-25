@@ -8,15 +8,14 @@ import { urls } from 'scenes/urls'
 
 import type { IntegrationType } from '~/types'
 
-import type { SlackUntaggedModeEnumApi } from '../generated/api.schemas'
+import type { SlackChannelQuestionModeEnumApi } from '../generated/api.schemas'
 import { ChannelDraft, slackAppSettingsLogic } from './slackAppSettingsLogic'
 import { SlackChannelSelect } from './SlackChannelSelect'
 
 const INHERIT = 'inherit'
 
-const QUESTION_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi | typeof INHERIT; label: string }[] = [
+const QUESTION_MODE_OPTIONS: { value: SlackChannelQuestionModeEnumApi | typeof INHERIT; label: string }[] = [
     { value: INHERIT, label: "Use each person's setting" },
-    { value: 'auto', label: 'Answer automatically' },
     { value: 'ask', label: 'Ask first' },
     { value: 'never', label: 'Only answer @-mentions' },
 ]
@@ -116,7 +115,7 @@ export function SlackAppChannelSettingsForm({
             </LemonField.Pure>
             <LemonField.Pure
                 label="Questions without a tag"
-                help="What PostHog does with a question in this channel that doesn't tag it."
+                help="What PostHog does with a question in this channel that doesn't tag it. A channel can only make this stricter than each person's own setting."
             >
                 <LemonSelect
                     fullWidth

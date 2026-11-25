@@ -78,7 +78,7 @@ export const WithChannels: Story = {
                 slack_channel_id: 'C1',
                 default_integration_id: 7,
                 default_repository: 'hedgebox/web',
-                untagged_question_mode: 'auto',
+                untagged_question_mode: 'ask',
                 updated_by_name: 'Jamie',
                 updated_at: '2023-01-08T10:00:00Z',
             },
