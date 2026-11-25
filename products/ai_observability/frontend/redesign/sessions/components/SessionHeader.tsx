@@ -35,7 +35,11 @@ export interface SessionHeaderProps {
     onConversationOnlyChange: (conversationOnly: boolean) => void
     /** Left out where the session is not opened from a list. */
     listNavigation?: SessionListNavigation
+    /** Reads the title and the person again after either failed, where no list reload does. */
+    onRetryDetails?: () => void
 }
+
+const RETRY_DETAILS_HINT = "Couldn't load this. Select Retry to try again."
 
 export function SessionHeader({
     sessionId,
@@ -45,12 +49,15 @@ export function SessionHeader({
     conversationOnly,
     onConversationOnlyChange,
     listNavigation,
+    onRetryDetails,
 }: SessionHeaderProps): JSX.Element {
+    const detailsFailed = title.status === 'error' || person.status === 'error'
+    const failedMessage = onRetryDetails ? RETRY_DETAILS_HINT : undefined
     return (
         <header className="flex flex-col gap-1 border-b border-primary px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="min-w-0 flex-1 basis-48 text-base font-semibold">
-                    <SessionTitle title={title} />
+                    <SessionTitle title={title} failedMessage={failedMessage} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     {listNavigation ? (
@@ -107,7 +114,21 @@ export function SessionHeader({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
                 <IdChip id={sessionId} description="session ID" isSensitive />
                 {item ? <span>{sessionFacts(item).join(' · ')}</span> : <LemonSkeleton className="h-4 w-40" />}
-                <TracePersonCell person={person.status === 'ready' ? person.value : null} status={person.status} />
+                <TracePersonCell
+                    person={person.status === 'ready' ? person.value : null}
+                    status={person.status}
+                    failedMessage={failedMessage}
+                />
+                {detailsFailed && onRetryDetails ? (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={onRetryDetails}
+                        data-attr={`${DATA_ATTR}-retry-details`}
+                    >
+                        Retry
+                    </LemonButton>
+                ) : null}
             </div>
         </header>
     )
