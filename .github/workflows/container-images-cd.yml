@@ -696,6 +696,7 @@ jobs:
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
                         - 'products/warehouse_sources/sources/**'
+                        - 'packages/typed-config/**'
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'

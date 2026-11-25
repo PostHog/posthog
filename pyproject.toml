@@ -159,6 +159,8 @@ dependencies = [
     # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
     "owners-yaml",
     "personhog-proto",
+    # The typed config runtime that warehouse source configs are built on.
+    "posthog-typed-config",
     "umap-learn~=0.5.12",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.12.0",
@@ -345,12 +347,13 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.workspace]
-members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]
+members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto", "packages/typed-config"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
 owners-yaml = { workspace = true }
 personhog-proto = { workspace = true }
+posthog-typed-config = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "fa20b806e32cf748dfee3545d8926b9c36aff789" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
@@ -544,10 +547,11 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-# packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
-# loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
-# covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
-exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+# packages/owners-yaml and packages/typed-config: standalone distributions that must build and run
+# with no Django. This config loads the Django and DRF plugins and the app's settings, so it is the
+# wrong checker for them. ty covers them repo-wide instead, and ci-python builds and exercises each
+# wheel in an empty venv.
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|packages/typed-config/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
