@@ -58289,7 +58289,8 @@
                     "isp_withheld_domains",
                     "email_sending_suspended",
                     "email_sending_suspended_at",
-                    "email_sending_suspension_reason"
+                    "email_sending_suspension_reason",
+                    "infrastructure"
                 ],
                 "selectable": true
             },
