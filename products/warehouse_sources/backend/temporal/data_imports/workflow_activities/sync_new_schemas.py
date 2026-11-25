@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema_metadata import (
-    reconcile_schema_metadata_if_supported,
-)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -63,8 +60,8 @@ def _persist_column_metadata(
     engine = get_direct_query_engine(source.direct_engine)
     if engine is not None:
         engine.reconcile_schemas(source=source, source_schemas=schemas, team_id=team_id)
-    else:
-        reconcile_schema_metadata_if_supported(source_impl, source=source, source_schemas=schemas, team_id=team_id)
+    elif source_impl.supports_column_selection:
+        source_impl.reconcile_schema_metadata(source=source, source_schemas=schemas, team_id=team_id)
 
 
 @activity.defn
