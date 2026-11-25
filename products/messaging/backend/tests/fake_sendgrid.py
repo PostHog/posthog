@@ -7,6 +7,10 @@ MESSAGING_SENDGRID_API_URL and MESSAGING_SENDGRID_EU_API_URL at it:
 
 `POST /__control` sets failures and rate limits, or replaces parts of the account, and `GET /__requests` returns what
 it received. A contact export is pending the first time it's checked and ready after that, unless the control says so.
+
+Contact exports, lists and field definitions answer as SendGrid's OpenAPI spec says
+(https://github.com/twilio/sendgrid-oai/tree/main/spec/json). It doesn't say what an export's files look like, so
+`export_shape` covers each way they could.
 """
 
 import io
@@ -18,7 +22,9 @@ import time
 import argparse
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from copy import deepcopy
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -99,6 +105,10 @@ class FakeSendGridState:
         # How "ready" exports fall short: "bytes" cuts the packed file off, "connection" ends an unpacked one early,
         # "rows" leaves out the last contact, and "empty" holds no contacts and counts none.
         self.export_damage: str | None = None
+        # How "ready" exports look where SendGrid's docs don't say: "packed", "files", "bom", "header" ("upper", "lower",
+        # "spaced" or "field_ids"), "reversed", "count" ("stated", "null" or "missing"), "all_columns" and
+        # "ignores_filter".
+        self.export_shape: dict[str, Any] = {}
         # How many checks an export stays pending for, and the status that follows.
         self.export_pending_checks = 1
         self.export_status = "ready"
@@ -151,8 +161,9 @@ class _Handler(BaseHTTPRequestHandler):
                 state.rate_limits.clear()
                 state.requests.clear()
                 state.export_damage, state.export_pending_checks, state.export_status = None, 1, "ready"
+                state.export_shape = {}
             state.account.update(body.get("account", {}))
-            for name in ("export_damage", "export_pending_checks", "export_status"):
+            for name in ("export_damage", "export_pending_checks", "export_status", "export_shape"):
                 if name in body:
                     setattr(state, name, body[name])
             for name in body.get("grow", []):
@@ -188,7 +199,7 @@ class _Handler(BaseHTTPRequestHandler):
         contacts = [
             contact
             for contact in state.account_for(key)["contacts"]
-            if not list_ids or list_ids & set(contact["list_ids"])
+            if not list_ids or state.export_shape.get("ignores_filter") or list_ids & set(contact["list_ids"])
         ]
         with state.lock:
             export_id = f"export-{len(state.exports) + 1}"
@@ -207,11 +218,15 @@ class _Handler(BaseHTTPRequestHandler):
         if status == "failure":
             body["message"] = "export failed"
         if status == "ready":
+            count = 0 if state.export_damage == "empty" else len(export["contacts"])
             # SendGrid documents the count as optional.
-            if state.export_damage != "connection":
-                body["contact_count"] = 0 if state.export_damage == "empty" else len(export["contacts"])
-            empty = state.export_damage == "empty"
-            body["urls"] = [] if empty else [f"{self.server.url}/__exports/{export_id}.csv.gz?signature=secret"]
+            stated = "missing" if state.export_damage == "connection" else state.export_shape.get("count", "stated")
+            if stated != "missing":
+                body["contact_count"] = None if stated == "null" else count
+            files = 0 if state.export_damage == "empty" else state.export_shape.get("files", 1)
+            body["urls"] = [
+                f"{self.server.url}/__exports/{export_id}.csv.gz?signature=secret&part={part}" for part in range(files)
+            ]
         return 200, body, {}
 
     def _send_export_file(self, export_id: str, query: dict[str, str]) -> None:
@@ -229,27 +244,23 @@ class _Handler(BaseHTTPRequestHandler):
             status = self._forced_status("/__exports")
         if status:
             return self._send(status, {}, {"Location": "https://example.com/"} if status == 302 else None)
-        contacts = state.exports[export_id]["contacts"]
-        custom = sorted({name for contact in contacts for name in contact.get("custom_fields", {})})
+        shape = state.export_shape
+        part, files = int(query.get("part", 0)), shape.get("files", 1)
+        contacts = state.exports[export_id]["contacts"][part::files]
+        if state.export_damage == "rows":
+            contacts = contacts[:-1]
+        columns = _export_columns(state.exports[export_id]["contacts"], shape)
         rows = io.StringIO()
-        fields = ["EMAIL", "FIRST_NAME", "LAST_NAME", "CITY", "CONTACT_ID", "CREATED_AT"]
         writer = csv.writer(rows)
-        writer.writerow([*fields, *custom])
-        for contact in contacts[: -1 if state.export_damage == "rows" else None]:
-            own = {**contact, "contact_id": contact["id"], "created_at": "2026-01-01T00:00:00Z"}
-            writer.writerow(
-                [
-                    *(own.get(field.lower(), "") for field in fields),
-                    *(contact.get("custom_fields", {}).get(name, "") for name in custom),
-                ]
-            )
-        payload = gzip.compress(rows.getvalue().encode())
+        writer.writerow([header for header, _ in columns])
+        writer.writerows([[value(contact) for _, value in columns] for contact in contacts])
+        text = ("\ufeff" if shape.get("bom") else "") + rows.getvalue()
+        payload = gzip.compress(text.encode()) if shape.get("packed", True) else text.encode()
         stated_length = len(payload)
         if state.export_damage == "bytes":
             payload = payload[:-12]
             stated_length = len(payload)
         if state.export_damage == "connection":
-            text = rows.getvalue()
             stated_length = len(text.encode())
             payload = text[: text.rindex("\r\n", 0, -2) + 2].encode()
         self.send_response(200)
@@ -336,6 +347,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._token_list(account["lists"], query, path, 1000)
         if path == "/v3/marketing/contacts/count":
             return 200, account["contact_count"], {}
+        if path == "/v3/marketing/field_definitions":
+            names = enumerate(_custom_field_names(account["contacts"]), start=1)
+            custom = [{"id": f"e{number}_T", "name": name, "field_type": "Text"} for number, name in names]
+            return 200, {"custom_fields": custom, "reserved_fields": [], "_metadata": {}}, {}
         if match := re.fullmatch(r"/v3/marketing/contacts/exports/([^/]+)", path):
             return self._export_status(match.group(1))
         if path == "/v3/verified_senders":
@@ -411,6 +426,34 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
+
+
+def _custom_field_names(contacts: list[dict[str, Any]]) -> list[str]:
+    return sorted({name for contact in contacts for name in contact.get("custom_fields", {})})
+
+
+def _export_columns(
+    contacts: list[dict[str, Any]], shape: dict[str, Any]
+) -> list[tuple[str, Callable[[dict[str, Any]], str]]]:
+    fields = ["email", "first_name", "last_name", "city", "contact_id", "created_at"]
+    if shape.get("all_columns"):
+        fields += ["alternate_emails", "phone_number", "external_id", "list_ids", "last_emailed", "email_domains"]
+    headers = {"lower": str.lower, "spaced": lambda name: name.replace("_", " ").title()}
+    in_case = headers.get(shape.get("header", "upper"), str.upper)
+    custom = _custom_field_names(contacts)
+    columns: list[tuple[str, Callable[[dict[str, Any]], str]]] = [
+        (in_case(field), partial(_exported_value, field)) for field in fields
+    ]
+    for number, name in enumerate(custom, start=1):
+        header = f"e{number}_T" if shape.get("header") == "field_ids" else name
+        columns.append((header, lambda contact, name=name: contact.get("custom_fields", {}).get(name, "")))
+    return columns[::-1] if shape.get("reversed") else columns
+
+
+def _exported_value(field: str, contact: dict[str, Any]) -> str:
+    own = {**contact, "contact_id": contact["id"], "created_at": "2026-01-01T00:00:00Z"}
+    value = own.get(field, "")
+    return json.dumps(value) if isinstance(value, list) else str(value)
 
 
 def _without_content(version: dict[str, Any]) -> dict[str, Any]:

@@ -714,12 +714,20 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         assert people["zoe@example.com"]["properties"]["last_name"] == 'O\'Neil, "Zo"\nJr'
         assert run.progress["contacts"]["counts"]["invalid_skipped"] == 1
         assert [request["body"] for request in self._export_requests()] == [
-            {"file_type": "csv"},
-            {"file_type": "csv", "list_ids": ["11111111-0000-4000-8000-000000000001"]},
-            {"file_type": "csv", "list_ids": ["11111111-0000-4000-8000-000000000002"]},
+            {"file_type": "csv", "notifications": {"email": False}},
+            {
+                "file_type": "csv",
+                "notifications": {"email": False},
+                "list_ids": ["11111111-0000-4000-8000-000000000001"],
+            },
+            {
+                "file_type": "csv",
+                "notifications": {"email": False},
+                "list_ids": ["11111111-0000-4000-8000-000000000002"],
+            },
         ]
         downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
-        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret"})] * 3
+        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 3
 
     def test_someone_who_leaves_after_the_opt_out_steps_is_not_mailable(self) -> None:
         run = self._start()
@@ -789,6 +797,74 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         runs.run_step(self.team.id, run.id, "contacts", attempt=2)
 
         assert len(self._cohorts(run)) == 3
+
+    @parameterized.expand(
+        [
+            ("plain", {"packed": False}),
+            ("bom", {"packed": False, "bom": True}),
+            ("several_files", {"files": 3}),
+            ("lowercase_headers", {"header": "lower"}),
+            ("spaced_headers", {"header": "spaced"}),
+            ("custom_fields_by_id", {"header": "field_ids"}),
+            ("columns_in_another_order", {"reversed": True}),
+            ("every_column", {"all_columns": True}),
+            ("no_count", {"count": "missing"}),
+            ("null_count", {"count": "null"}),
+        ]
+    )
+    def test_every_shape_an_export_can_have_imports_the_same_people(self, _name: str, shape: dict[str, Any]) -> None:
+        self.state.account["contacts"][0].update(
+            alternate_emails=["other@example.com"], list_ids=["11111111-0000-4000-8000-000000000001"], external_id="x"
+        )
+        self.state.account["lists"][1]["contact_count"] = 1
+        self.state.export_shape = shape
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        cohorts = self._cohorts(run)
+        assert len(cohorts) == 3
+        assert "ada@example.com" in cohorts["Newsletter (from SendGrid)"]["members"]
+        assert cohorts["Bêta testeurs (from SendGrid)"] == {"members": [], "others": ["unsubscribed@example.com"]}
+        people = {
+            p["properties"]["email"]: p for p in self.people.people(run.progress["contacts"]["people_imports"][0])
+        }
+        assert len(people) == 6
+        assert people["ada@example.com"]["properties"] == {
+            "email": "ada@example.com",
+            "first_name": "Ada",
+            "last_name": "Byron",
+            "city": "Springfield",
+            "Plan": "pro",
+        }
+
+    @parameterized.expand(
+        [
+            ("list_filter_ignored", {"export_shape": {"ignores_filter": True}}, {}, "but SendGrid counts"),
+            ("list_far_short", {}, {"contact_count": 40}, "but SendGrid counts"),
+            ("empty_and_uncounted", {"export_damage": "empty"}, {"contact_count": None}, "holds no"),
+        ]
+    )
+    def test_an_export_that_is_not_its_list_leaves_every_cohort_alone(
+        self, _name: str, state: dict[str, Any], newsletter: dict[str, Any], message: str
+    ) -> None:
+        for number in range(30):
+            self.state.account["contacts"].append(
+                {"id": f"x{number}", "email": f"x{number}@example.com", "list_ids": []}
+            )
+        for name, value in state.items():
+            setattr(self.state, name, value)
+        self.state.account["contact_count"] = {"contact_count": 37}
+        if newsletter:
+            self.state.account["lists"][0].update(newsletter)
+        if newsletter.get("contact_count", 0) is None:
+            self.state.account["contact_count"] = {}
+            for row in self.state.account["lists"]:
+                row["contact_count"] = None
+        run = self._start()
+        with self.assertRaisesRegex(ImportStepError, message):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        assert not self.people.stored
+        assert not Cohort.objects.filter(team_id=self.team.id).exists()
 
     @parameterized.expand([("redirect", 302, "HTTP 302", 0), ("expired_link", 403, "expired", 1)])
     def test_a_refused_download_is_never_followed_and_an_expired_one_starts_a_new_export(
