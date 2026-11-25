@@ -1989,7 +1989,7 @@ Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API 
 
 ## Bexio — gaps
 
-Today (35): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_groups`, `contact_relations`, `contacts`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `tasks`, `taxes`, `timesheets`, `users`
+Today (44): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_branches`, `contact_groups`, `contact_relations`, `contacts`, `countries`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `languages`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payment_types`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `salutations`, `task_priorities`, `task_statuses`, `tasks`, `taxes`, `timesheets`, `titles`, `units`, `users`
 
 Diffed against: <https://docs.bexio.com/>
 
@@ -2001,8 +2001,8 @@ Diffed against: <https://docs.bexio.com/>
 - [x] `Payroll employees (GET /4.0/payroll/employees)` — employee roster for HR and labor cost analysis (medium)
 - [x] `Invoice reminders (GET /2.0/kb_invoice/{invoice_id}/kb_reminder)` — dunning history for overdue invoices (medium)
 - [x] `Bank payments (GET /4.0/banking/payments)` — payments sent from the bank accounts we sync (medium)
-- [ ] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
-- [ ] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
+- [x] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
+- [x] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
 
 Note: Extracted all GET and search routes from the OpenAPI embedded in docs.bexio.com and diffed them against the 24 synced tables and the paths in settings.py. Excluded actions (issue, send, cancel), PDFs, files, permissions, document number helpers and single-record GETs. Document positions and payments need one request per parent document and a document type segment in the path. Payroll needs the payroll scope, and the 3.0 and 4.0 APIs paginate differently from 2.0, so check each route.
 
