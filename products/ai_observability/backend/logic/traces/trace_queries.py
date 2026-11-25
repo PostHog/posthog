@@ -443,7 +443,7 @@ def _has_state(lengths: Iterable[ast.Expr]) -> ast.Expr:
 # subcolumns, which load no state content.
 AI_EVENTS_HAS_STATE = _has_state((ast.Field(chain=["input_state_length"]), ast.Field(chain=["output_state_length"])))
 # The events fallback reads the state from the properties JSON, where a missing key is an empty string.
-_EVENTS_HAS_STATE = _has_state(
+EVENTS_HAS_STATE = _has_state(
     tuple(ast.Call(name="length", args=[ast.Field(chain=[column])]) for column in ("input_state", "output_state"))
 )
 
@@ -463,7 +463,7 @@ def events_placeholders(
         "filter_conditions": events_filter(
             trace_filter=trace_filter, event_filter=event_in(event_names), window=window
         ),
-        "has_state": _EVENTS_HAS_STATE,
+        "has_state": EVENTS_HAS_STATE,
         "read_start": ast.Constant(value=window.start if window is not None else None),
     }
 

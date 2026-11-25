@@ -14,6 +14,7 @@ with workflow.unsafe.imports_passed_through():
     from .activities import get_org_batch_page, push_digest_metrics_activity, run_digest_batch, send_test_digest
     from .types import (
         DATA_CATALOG_DIGEST_THRESHOLD_EXCEEDED_TYPE,
+        NEW_ITEMS_WINDOW,
         DataCatalogWeeklyDigestInput,
         DigestBatchInput,
         DigestBatchResult,
@@ -42,12 +43,13 @@ class DataCatalogWeeklyDigestWorkflow(PostHogWorkflow):
         batch_count = 0
         cursor: str | None = None
         semaphore = asyncio.Semaphore(input.max_concurrent)
+        new_since = (workflow.info().start_time - NEW_ITEMS_WINDOW).isoformat()
 
         async def _run_batch(batch: list[str]) -> DigestBatchResult:
             async with semaphore:
                 return await workflow.execute_activity(
                     run_digest_batch,
-                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
+                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run, new_since=new_since),
                     start_to_close_timeout=timedelta(minutes=30),
                     heartbeat_timeout=timedelta(minutes=5),
                     retry_policy=ACTIVITY_RETRY_POLICY,

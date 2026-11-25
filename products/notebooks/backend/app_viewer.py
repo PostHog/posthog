@@ -10,6 +10,7 @@ from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_serializers import NotebookVariableSerializer
 from products.notebooks.backend.sql_v2_state import (
     NotebookCellState,
     build_dependency_edges,
@@ -19,13 +20,14 @@ from products.notebooks.backend.sql_v2_state import (
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
+    NotebookVariableValue,
     build_notebook_variables,
     substitute_hogql_variables,
 )
 
 
 def plan_viewer_queries(
-    team_id: int, notebook_id: UUID, revision: int, inputs: dict[str, str | int | float | bool | None]
+    team_id: int, notebook_id: UUID, revision: int, inputs: dict[str, NotebookVariableValue]
 ) -> list[AppViewerQuery]:
     release = read_release(team_id, notebook_id)
     if release is None:
@@ -35,16 +37,17 @@ def plan_viewer_queries(
     return resolve_viewer_queries(release, inputs)
 
 
-def resolve_viewer_queries(
-    release: AppRelease, inputs: dict[str, str | int | float | bool | None]
-) -> list[AppViewerQuery]:
+def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[AppViewerQuery]:
     allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
     if inputs.keys() - allowed:
         raise ValidationError("Choose a published app input.")
     defaults = build_notebook_variables(release.variables)
-    variables = build_notebook_variables(
-        [{**var, "value": inputs.get(var["name"], var.get("value"))} for var in release.variables]
+    overrides = NotebookVariableSerializer(
+        data=[{**var, "value": inputs[var["name"]]} for var in release.variables if var["name"] in inputs], many=True
     )
+    overrides.is_valid(raise_exception=True)
+    by_name = {var["name"]: var for var in overrides.validated_data}
+    variables = build_notebook_variables([by_name.get(var["name"], var) for var in release.variables])
     displayed = {
         block["node_id"]
         for block in release.layout["blocks"]

@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -12,7 +13,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackChannelSettings,
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+)
 from products.slack_app.backend.services.integration_resolver import (
     UserAndIntegrationsResolution,
     load_integrations,
@@ -348,6 +354,52 @@ class TestResolveIntegration:
 
         assert result.source == "user_default"
         assert result.integration == self.integration_b
+
+    @pytest.mark.parametrize("flag_on,expected_source", [(True, "channel_default"), (False, "user_default")])
+    def test_channel_default_wins_over_user_default_only_behind_the_flag(self, flag_on, expected_source):
+        SlackSettings.objects.create(
+            default_integration=self.integration_b, slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER
+        )
+        SlackChannelSettings.objects.create(
+            slack_workspace_id=WORKSPACE,
+            slack_channel_id="C_MOBILE",
+            organization=self.organization,
+            default_integration_id=str(self.integration_a.id),
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=flag_on):
+            result = load_integrations(
+                slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER, user=self.user, channel="C_MOBILE"
+            )
+
+        assert result.source == expected_source
+        assert result.integration == (self.integration_a if flag_on else self.integration_b)
+
+    def test_author_who_cannot_open_the_channel_project_gets_their_own_default(self):
+        SlackSettings.objects.create(
+            default_integration=self.integration_b, slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER
+        )
+        SlackChannelSettings.objects.create(
+            slack_workspace_id=WORKSPACE,
+            slack_channel_id="C_MOBILE",
+            organization=self.other_org,
+            default_integration_id=str(self.integration_c.id),
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
+        ):
+            workspace_result = load_integrations(
+                slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER, user=None, channel="C_MOBILE"
+            )
+            result = resolve_user_for_workspace(
+                workspace_result=workspace_result, slack_team_id=WORKSPACE, slack_user_id=SLACK_USER
+            )
+
+        assert workspace_result.source == "channel_default"
+        assert result.user == self.user
+        assert (result.source, result.integration) == ("user_default", self.integration_b)
 
     def test_workspace_default_used_when_no_user_row(self):
         SlackSettings.objects.create(

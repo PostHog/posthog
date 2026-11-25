@@ -177,8 +177,13 @@ async def insert_event_values_in_clickhouse(
         ],
     )
     # In production, materialized views fill the new events tables from the same Kafka topic. Tests write to the legacy
-    # tables, so if using the new schema we copy the rows to both the new tables that batch exports reads from.
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    # tables, so when anything can read the new tables we copy the rows to both the new tables that batch exports reads
+    # from. Batch exports move by their own rollout settings, which do not turn on the project switch.
+    if (
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        or settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE > 0
+        or settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS
+    ):
         uuids = [str(event["uuid"]) for event in events]
         if table == "sharded_events":
             await _mirror_events_into_json_table(

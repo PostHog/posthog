@@ -9,8 +9,10 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import User
+from posthog.models.user_integration import ReauthorizationRequired
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.facade.api import (
@@ -18,6 +20,7 @@ from products.slack_app.backend.facade.api import (
     get_slack_workspace_setup,
     join_slack_setup_channels,
     list_slack_channel_settings,
+    list_slack_repository_options,
     list_slack_setup_channels,
     set_slack_workspace_default_project,
     update_slack_channel_settings,
@@ -29,10 +32,13 @@ from products.slack_app.backend.facade.enums import (
     SlackReactionKind,
     SlackSetupEntry,
     SlackSetupStepKey,
+    SlackThreadJoinMode,
+    SlackUntaggedMode,
 )
 from products.slack_app.backend.facade.types import (
     MAX_CHANNELS_TO_JOIN,
     ChannelCatalogBusy,
+    SlackPersonalSettingsChange,
     SlackReactionChoice,
     SlackSettingsInvalid,
     SlackSetupNotFound,
@@ -126,6 +132,8 @@ class SlackAppJoinChannelsResultSerializer(serializers.Serializer):
     results = SlackAppChannelJoinResultSerializer(many=True, help_text="The result for each channel, in request order.")
 
 
+GITHUB_RECONNECT = "Your GitHub connection has expired. Reconnect GitHub in your personal settings."
+GITHUB_RATE_LIMITED = "GitHub is limiting requests for your account. Try again in a few minutes."
 CHANNEL_LIST_THROTTLED = (
     "Slack's channel list for this workspace is loading in another request, or it was loaded too often recently."
 )
@@ -276,6 +284,31 @@ class SlackAppPersonalSettingsSerializer(serializers.Serializer):
     effective_reactions = SlackAppResolvedReactionsSerializer(
         help_text="The reactions PostHog adds to this person's messages, after the workspace and default fallbacks."
     )
+    default_integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the Slack integration of this person's own default project. Null uses the workspace default.",
+    )
+    project_options = SlackAppProjectOptionSerializer(
+        many=True, help_text="Projects connected to this Slack workspace that this person can open."
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        help_text="What PostHog does with untagged replies in threads this person started.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        help_text="What PostHog does with this person's top-level channel questions that do not tag it.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        help_text="What PostHog does when someone else tags it in a thread this person started.",
+    )
+    auto_model_choice = serializers.BooleanField(
+        help_text="Whether PostHog picks the model for each task this person starts from Slack."
+    )
+    feature_tips_enabled = serializers.BooleanField(
+        help_text="Whether PostHog sends this person short tips about Slack app features."
+    )
 
 
 class SlackAppSettingsSerializer(serializers.Serializer):
@@ -302,7 +335,34 @@ class SlackAppWorkspaceSettingsUpdateSerializer(serializers.Serializer):
 
 class SlackAppPersonalSettingsUpdateSerializer(serializers.Serializer):
     reactions = SlackAppReactionChoicesSerializer(
-        help_text="Replaces this person's reaction choices. A reaction left out inherits the workspace choice."
+        required=False,
+        help_text="Replaces this person's reaction choices. A reaction left out inherits the workspace choice.",
+    )
+    default_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the Slack integration of the project this person's mentions route to. Null uses the workspace default.",
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        help_text="What PostHog does with untagged replies in threads this person started.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        help_text="What PostHog does with this person's top-level channel questions that do not tag it.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        required=False,
+        help_text="What PostHog does when someone else tags it in a thread this person started.",
+    )
+    auto_model_choice = serializers.BooleanField(
+        required=False, help_text="Whether PostHog picks the model for each task this person starts from Slack."
+    )
+    feature_tips_enabled = serializers.BooleanField(
+        required=False, help_text="Whether PostHog sends this person short tips about Slack app features."
     )
 
 
@@ -325,6 +385,16 @@ class SlackAppChannelSettingsSerializer(serializers.Serializer):
         help_text="First name of the person who last changed this channel's settings. Null when unknown.",
     )
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When this channel's settings last changed.")
+
+
+class SlackAppRepositoryOptionsSerializer(serializers.Serializer):
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories as owner/name from this person's own GitHub installs, sorted by name.",
+    )
+    github_connected = serializers.BooleanField(
+        help_text="Whether this person connected a personal GitHub account. False means repositories is empty."
+    )
 
 
 class SlackAppChannelSettingsListSerializer(serializers.Serializer):
@@ -355,9 +425,26 @@ def _reactions(data: dict[str, dict[str, Any]]) -> dict[SlackReactionKind, Slack
     }
 
 
+def _personal_change(data: dict[str, Any]) -> SlackPersonalSettingsChange:
+    fields: dict[str, Any] = {key: data[key] for key in PERSONAL_SETTING_FIELDS if key in data}
+    if "reactions" in data:
+        fields["reactions"] = _reactions(data["reactions"])
+    return SlackPersonalSettingsChange(**fields)
+
+
+PERSONAL_SETTING_FIELDS = (
+    "default_integration_id",
+    "untagged_followup_mode",
+    "untagged_question_mode",
+    "thread_join_mode",
+    "auto_model_choice",
+    "feature_tips_enabled",
+)
+
+
 class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "integration"
-    scope_object_read_actions = ["retrieve", "channels"]
+    scope_object_read_actions = ["retrieve", "channels", "repositories"]
     scope_object_write_actions = ["workspace", "personal", "update_channel"]
 
     def read_object(self) -> IntegrationRecord | None:
@@ -422,7 +509,7 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 self.team_id,
                 self._integration_id(pk),
                 cast(User, request.user),
-                reactions=_reactions(request.validated_data["reactions"]),
+                _personal_change(request.validated_data),
             )
         except SlackSetupNotFound as error:
             raise NotFound() from error
@@ -431,6 +518,27 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except SlackSettingsInvalid as error:
             raise ValidationError(str(error)) from error
         return Response(SlackAppSettingsSerializer(settings).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=SlackAppRepositoryOptionsSerializer),
+            403: OpenApiResponse(description=GITHUB_RECONNECT),
+            429: OpenApiResponse(description=GITHUB_RATE_LIMITED),
+        },
+        summary="List the repositories this person can set as a channel's default repository",
+    )
+    # user:read as well, because the list comes from the person's own GitHub installs, not from the project.
+    @action(detail=True, methods=["get"], url_path="repositories", required_scopes=["integration:read", "user:read"])
+    def repositories(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        try:
+            options = list_slack_repository_options(self.team_id, self._integration_id(pk), cast(User, request.user))
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
+        except ReauthorizationRequired as error:
+            raise PermissionDenied(GITHUB_RECONNECT) from error
+        except GitHubRateLimitError as error:
+            raise Throttled(detail=GITHUB_RATE_LIMITED) from error
+        return Response(SlackAppRepositoryOptionsSerializer(options).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=SlackAppChannelSettingsListSerializer)},
