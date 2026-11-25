@@ -1330,13 +1330,22 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             const stack = JSON.parse(fs.readFileSync(path.join(__dirname, 'stack.json'), 'utf8'))
+            const containers = (stack.services || ['kafka running', 'db running']).map((line, i) => {
+                const [service, state, policy = 'on-failure', code = '0'] = line.split(' ')
+                return { id: 'c' + i, service, state, policy, code }
+            })
             if (args[0] === 'ps') {
-                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.Label "com.docker.compose.service"}} {{.State}}']
+                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}']
                 if (args.slice(1).join(' ') !== lists.join(' ')) {
                     process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
                     process.exit(125)
                 }
-                process.stdout.write((stack.services || ['kafka running', 'db running']).join('\\n') + '\\n')
+                process.stdout.write(containers.map((c) => [c.id, c.service, c.state].join(' ') + '\\n').join(''))
+                process.exit(0)
+            }
+            if (args.slice(0, 3).join(' ') === 'inspect --format {{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}') {
+                const asked = containers.filter((c) => args.slice(3).includes(c.id))
+                process.stdout.write(asked.map((c) => [c.id + '0000', c.policy, c.state, c.code].join(' ') + '\\n').join(''))
                 process.exit(0)
             }
             if (args.join(' ') === 'volume ls --format {{.Name}}') {
@@ -1743,7 +1752,7 @@ describe('scenario environment', () => {
             writeStack({
                 running: false,
                 ready: false,
-                services: ['kafka running', 'db running', 'clickhouse running'],
+                services: ['kafka running', 'kafka-init exited no 0', 'db running', 'clickhouse running'],
                 volumes: ['posthog_clickhouse-data'],
             })
             const said = jest.spyOn(process.stderr, 'write')
@@ -1763,7 +1772,7 @@ describe('scenario environment', () => {
         it.each([
             [
                 'a container that is not running, which would start with its old mounts',
-                ['db running', 'clickhouse exited'],
+                ['db running', 'kafka-init exited no 0', 'clickhouse exited on-failure 0'],
                 ['posthog_clickhouse-data'],
                 'The dev services clickhouse have containers that are not running',
             ],

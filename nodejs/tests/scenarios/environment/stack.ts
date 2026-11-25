@@ -158,35 +158,51 @@ export async function onAnonymousVolumes(
 
 export type ExistingServices = { running: string[]; stopped: string[] }
 
+// A one-shot service such as kafka-init has restart policy "no" and exits 0 when it is done. Any other container
+// that is not running would start again as it is, with the mounts of the worktree that made it.
 export async function existingServices(
     docker: string,
     project: string,
     signal?: AbortSignal
 ): Promise<ExistingServices> {
-    const { stdout } = await promisify(execFile)(
-        docker,
-        [
-            'ps',
-            '--all',
-            '--filter',
-            `label=com.docker.compose.project=${project}`,
-            '--filter',
-            'label=com.docker.compose.oneoff=False',
-            '--format',
-            '{{.Label "com.docker.compose.service"}} {{.State}}',
-        ],
-        { timeout: 10_000, signal }
-    )
-    const running = new Set<string>()
-    const stopped = new Set<string>()
-    for (const line of stdout.split('\n')) {
-        const [service, state] = line.split(' ')
-        if (service && state === 'running') {
-            running.add(service)
-        } else if (service) {
-            stopped.add(service)
-        }
+    const run = async (args: string[]): Promise<string[][]> => {
+        const { stdout } = await promisify(execFile)(docker, args, { timeout: 10_000, signal })
+        return stdout
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => line.split(' '))
     }
+    const listed = await run([
+        'ps',
+        '--all',
+        '--filter',
+        `label=com.docker.compose.project=${project}`,
+        '--filter',
+        'label=com.docker.compose.oneoff=False',
+        '--format',
+        '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}',
+    ])
+    const notRunning = listed.filter(([, , state]) => state !== 'running').map(([id]) => id)
+    const finished =
+        notRunning.length === 0
+            ? []
+            : await run([
+                  'inspect',
+                  '--format',
+                  '{{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}',
+                  ...notRunning,
+              ])
+    const done = new Set(
+        finished
+            .filter(([, policy, status, code]) => policy === 'no' && status === 'exited' && code === '0')
+            .map(([id]) => id)
+    )
+    const stopped = new Set(
+        listed
+            .filter(([id, , state]) => state !== 'running' && ![...done].some((full) => full.startsWith(id)))
+            .map(([, service]) => service)
+    )
+    const running = new Set(listed.filter(([, , state]) => state === 'running').map(([, service]) => service))
     return { running: [...running].filter((service) => !stopped.has(service)).sort(), stopped: [...stopped].sort() }
 }
 
@@ -214,7 +230,7 @@ export async function startStack(
     const { running: kept, stopped } = await existingServices(docker, project, signal)
     if (stopped.length > 0) {
         throw new StackNotReadyError(
-            `The dev services ${stopped.join(', ')} have containers that are not running. The runner keeps only running services, because a stopped container starts again with the mounts of the worktree that made it and the volumes it had. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, or start the stack with \`hogli start\` while no other worktree uses it, then run again.`
+            `The dev services ${stopped.join(', ')} have containers that are not running and are not finished one-shot jobs. The runner keeps only running services, because a stopped container starts again with the mounts of the worktree that made it and the volumes it had. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, or start the stack with \`hogli start\` while no other worktree uses it, then run again.`
         )
     }
     const unmoved = await onAnonymousVolumes(docker, project, kept, signal)
