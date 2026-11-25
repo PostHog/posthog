@@ -42,6 +42,24 @@ pub struct ReleaseInfo {
     metadata: Option<Value>,
 }
 
+impl ReleaseInfo {
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn project(&self) -> &str {
+        &self.project
+    }
+
+    pub fn created_at(&self) -> DateTime<Utc> {
+        self.timestamp
+    }
+}
+
 impl ReleaseRecord {
     pub async fn for_id<'c, E>(e: E, id: Uuid, team_id: i32) -> Result<Option<Self>, sqlx::Error>
     where

@@ -6,15 +6,16 @@ use sqlx::{Acquire, PgConnection};
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::core::types::notification::SeveritySource;
+use crate::core::types::{frames::releases::ReleaseInfo, notification::SeveritySource};
 use crate::{
     app_context::AppContext,
     error::{contain_failure, UnhandledError},
     issue_resolution::{
         infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
-        send_issue_reopened_notification, Issue, IssueFingerprintOverride,
+        send_issue_reopened_notification, Issue, IssueFingerprintOverride, IssueWithFirstSeen,
+        ReleaseCheck,
     },
-    metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
+    metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR, ISSUE_REOPEN_SKIPPED},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
     modes::processing::team_db_slots::acquire_connection,
@@ -29,11 +30,27 @@ use crate::{
 #[derive(Clone)]
 pub struct IssueLinker;
 
+#[derive(Clone)]
+pub struct LoadedIssue {
+    pub issue: Issue,
+    pub first_seen: DateTime<Utc>,
+}
+
+impl From<IssueWithFirstSeen> for LoadedIssue {
+    fn from(loaded: IssueWithFirstSeen) -> Self {
+        let (issue, first_seen) = loaded.into_issue();
+        Self {
+            first_seen: first_seen.unwrap_or(issue.created_at),
+            issue,
+        }
+    }
+}
+
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
         input: &ExceptionEvent<Fingerprinted>,
         ctx: Arc<AppContext>,
-    ) -> Result<Issue, UnhandledError> {
+    ) -> Result<LoadedIssue, UnhandledError> {
         // Extract name and description for the issue
         let name = input
             .proposed_issue_name()
@@ -96,17 +113,17 @@ impl IssueLinker {
         // - Cross-batch `issue_id` cache (inside `resolve_via_id_cache`): keeps the
         //   `(team_id, fingerprint) -> issue_id` mapping warm across batches and
         //   skips the expensive fingerprint JOIN on warm fingerprints.
-        // Status is always read fresh from PG inside the loader, so `IssueSuppression`
-        // and `maybe_reopen` never see stale state.
+        // Each event's own release is then applied in `apply_event_release`.
         let input_for_load = input.clone();
         let ctx_for_load = ctx.clone();
-        let issue: Issue = ctx
+        let loaded: LoadedIssue = ctx
             .batch_issue_cache
             .try_get_with(key, async move {
                 resolve_via_id_cache(input_for_load, &ctx_for_load).await
             })
             .await
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+        let issue = apply_event_release(&ctx, loaded, &input).await?;
 
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
@@ -118,21 +135,21 @@ impl IssueLinker {
 
 // Resolves an issue by going through the cross-batch `issue_id` cache:
 // - On cache miss we run `fetch_or_create_issue` (the only place that fires
-//   `created` / `reopened` alerts) and return the freshly-loaded Issue directly,
+//   `created` alerts) and return the freshly-loaded Issue directly,
 //   avoiding a redundant PK lookup.
-// - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
+// - On cache hit we re-read by id (cheap PK lookup) so
 //   suppression and reopen always see current PG state.
 async fn resolve_via_id_cache(
     input: Arc<ExceptionEvent<Fingerprinted>>,
     ctx: &LinkingStage,
-) -> Result<Issue, UnhandledError> {
+) -> Result<LoadedIssue, UnhandledError> {
     let fingerprint = input.fingerprint().value().to_string();
     let key = (input.team_id(), fingerprint.clone());
 
     // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly
     // resolved Issue in a slot when we run the loader ourselves. That lets us reuse it
     // below and skip a redundant `Issue::load` on the cache-miss path.
-    let just_resolved: Arc<std::sync::Mutex<Option<Issue>>> = Default::default();
+    let just_resolved: Arc<std::sync::Mutex<Option<LoadedIssue>>> = Default::default();
     let slot = just_resolved.clone();
     let app_ctx = ctx.app_context.clone();
     let cloned_input = input.clone();
@@ -140,9 +157,9 @@ async fn resolve_via_id_cache(
     let issue_id: Uuid = ctx
         .issue_cache
         .try_get_with(key.clone(), async move {
-            let issue = IssueLinker::fetch_or_create_issue(&cloned_input, app_ctx).await?;
-            let id = issue.id;
-            *slot.lock().expect("just_resolved mutex poisoned") = Some(issue);
+            let loaded = IssueLinker::fetch_or_create_issue(&cloned_input, app_ctx).await?;
+            let id = loaded.issue.id;
+            *slot.lock().expect("just_resolved mutex poisoned") = Some(loaded);
             Ok::<Uuid, UnhandledError>(id)
         })
         .await
@@ -158,16 +175,12 @@ async fn resolve_via_id_cache(
     }
 
     // Cache hit (or we were deduped against a concurrent caller). Refresh by id.
-    match load_and_maybe_reopen(
-        ctx.app_context.as_ref(),
-        input.team_id(),
-        issue_id,
-        &fingerprint,
-        &input,
-    )
-    .await?
-    {
-        Some(issue) => Ok(issue),
+    let app_ctx = ctx.app_context.as_ref();
+    match Issue::load(&app_ctx.posthog_pool, input.team_id(), issue_id).await? {
+        Some(issue) => Ok(LoadedIssue {
+            first_seen: issue.created_at,
+            issue,
+        }),
         None => {
             // Cached id no longer exists in PG. Invalidate and run the slow path.
             ctx.issue_cache.invalidate(&key).await;
@@ -176,22 +189,61 @@ async fn resolve_via_id_cache(
     }
 }
 
-// Loads the issue by id (fast PK lookup) and runs the reopen side effects if the issue
-// is currently in a non-active, non-suppressed state. Returns `None` if the cached id
-// is dangling (issue was deleted), so the caller can invalidate and fall back to a full
-// resolve.
-async fn load_and_maybe_reopen(
-    context: &AppContext,
-    team_id: i32,
-    issue_id: Uuid,
-    fingerprint: &str,
-    event_properties: &ExceptionEvent<Fingerprinted>,
-) -> Result<Option<Issue>, UnhandledError> {
-    let mut conn = context.posthog_pool.acquire().await?;
-    let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
-        return Ok(None);
-    };
+// Applies this event's release to its issue. Events of a fingerprint share the issue loaded for
+// the batch, so the decision runs per event, against the newest state this batch wrote.
+async fn apply_event_release(
+    ctx: &LinkingStage,
+    loaded: LoadedIssue,
+    input: &Arc<ExceptionEvent<Fingerprinted>>,
+) -> Result<Issue, UnhandledError> {
+    let issue = ctx
+        .batch_issue_state
+        .lock()
+        .expect("batch issue state mutex poisoned")
+        .get(&loaded.issue.id)
+        .cloned()
+        .unwrap_or(loaded.issue);
+    let release = input.release();
+    // Most events land on an active issue, and those must not pay for a transaction.
+    match issue.release_check(release.map(ReleaseInfo::created_at)) {
+        ReleaseCheck::Unchanged => return Ok(issue),
+        ReleaseCheck::StaysResolved => {
+            metrics::counter!(ISSUE_REOPEN_SKIPPED, "reason" => "older_release").increment(1);
+            return Ok(issue);
+        }
+        ReleaseCheck::RecordRelease | ReleaseCheck::Reopen => {}
+    }
 
+    let key = (issue.id, release.map(ReleaseInfo::id));
+    let first_seen = loaded.first_seen;
+    let input = input.clone();
+    let ctx_for_write = ctx.clone();
+    ctx.batch_release_writes
+        .try_get_with(key, async move {
+            let issue = write_release(
+                ctx_for_write.app_context.as_ref(),
+                issue,
+                first_seen,
+                &input,
+            )
+            .await?;
+            ctx_for_write
+                .batch_issue_state
+                .lock()
+                .expect("batch issue state mutex poisoned")
+                .insert(issue.id, issue.clone());
+            Ok::<Issue, UnhandledError>(issue)
+        })
+        .await
+        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))
+}
+
+async fn write_release(
+    context: &AppContext,
+    mut issue: Issue,
+    first_seen: DateTime<Utc>,
+    event_properties: &ExceptionEvent<Fingerprinted>,
+) -> Result<Issue, UnhandledError> {
     let event_timestamp =
         parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
             debug!(
@@ -200,18 +252,25 @@ async fn load_and_maybe_reopen(
             );
             Utc::now()
         });
-    let Some(assignment) =
-        reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+    let mut conn = context.posthog_pool.acquire().await?;
+    let mut txn = Acquire::begin(&mut *conn).await?;
+    let Some(reopened) = issue
+        .apply_release(&mut *txn, event_properties.release())
+        .await?
     else {
-        return Ok(Some(issue));
+        txn.commit().await?;
+        return Ok(issue);
     };
-    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
+    let assignment =
+        process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties).await?;
+    txn.commit().await?;
+
     send_fingerprint_issue_state(
         context,
         &issue,
-        fingerprint,
+        event_properties.fingerprint().value(),
         assignment.as_ref(),
-        issue.created_at,
+        first_seen,
     )
     .await?;
     let processed_properties: ProcessedExceptionProperties =
@@ -224,10 +283,11 @@ async fn load_and_maybe_reopen(
         processed_properties,
         event_properties.uuid(),
         &event_timestamp,
+        reopened,
     )
     .await?;
 
-    Ok(Some(issue))
+    Ok(issue)
 }
 
 async fn resolve_issue(
@@ -236,7 +296,7 @@ async fn resolve_issue(
     description: String,
     event_timestamp: DateTime<Utc>,
     event_properties: &ExceptionEvent<Fingerprinted>,
-) -> Result<Issue, UnhandledError> {
+) -> Result<LoadedIssue, UnhandledError> {
     let team_id = event_properties.team_id();
     let fingerprint = event_properties.fingerprint().value().to_string();
 
@@ -253,33 +313,7 @@ async fn resolve_issue(
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
-        let (mut issue, fingerprint_first_seen) = result.into_issue();
-        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-        if let Some(assignment) =
-            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
-        {
-            send_fingerprint_issue_state(
-                context,
-                &issue,
-                &fingerprint,
-                assignment.as_ref(),
-                first_seen_for_state,
-            )
-            .await?;
-            let processed_properties: ProcessedExceptionProperties =
-                event_properties.processed_properties(&issue);
-            drop(conn);
-            send_issue_reopened_notification(
-                context,
-                &issue,
-                assignment,
-                processed_properties,
-                event_properties.uuid(),
-                &event_timestamp,
-            )
-            .await?;
-        }
-        return Ok(issue);
+        return Ok(result.into());
     }
 
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling
@@ -305,6 +339,7 @@ async fn resolve_issue(
         name.to_string(),
         description.to_string(),
         proposed_severity.or(heuristic_severity),
+        event_properties.release(),
         &mut *txn,
     )
     .await?;
@@ -324,6 +359,7 @@ async fn resolve_issue(
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
     let mut issue = issue;
+    let mut first_seen_for_state = event_timestamp;
     if !was_created {
         txn.rollback().await?;
 
@@ -335,34 +371,7 @@ async fn resolve_issue(
             fingerprint_first_seen = first_seen;
         }
 
-        // Since we just loaded an issue, check if it needs to be reopened
-        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-        if let Some(assignment) =
-            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
-        {
-            send_fingerprint_issue_state(
-                context,
-                &issue,
-                &fingerprint,
-                assignment.as_ref(),
-                first_seen_for_state,
-            )
-            .await?;
-
-            drop(conn);
-
-            let processed_properties: ProcessedExceptionProperties =
-                event_properties.processed_properties(&issue);
-            send_issue_reopened_notification(
-                context,
-                &issue,
-                assignment,
-                processed_properties,
-                event_properties.uuid(),
-                &event_timestamp,
-            )
-            .await?;
-        }
+        first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
         if process_event_severity(
@@ -383,7 +392,7 @@ async fn resolve_issue(
         // Produce before the commit on purpose. A failure here rolls the transaction back, so the
         // retry re-runs this whole slow path and produces again. Committing first would leave a
         // new issue whose fingerprint state never reached ClickHouse: the retry takes the fast
-        // path, finds the issue already active, and `maybe_reopen` returns false, so nothing
+        // path, finds the issue already active, and `apply_release` does not reopen it, so nothing
         // re-sends it. Moving this after the commit needs a durable outbox first.
         send_fingerprint_issue_state(
             context,
@@ -409,7 +418,10 @@ async fn resolve_issue(
         .await?;
     };
 
-    Ok(issue)
+    Ok(LoadedIssue {
+        issue,
+        first_seen: first_seen_for_state,
+    })
 }
 
 /// Returns whether a severity rule set the issue severity.
@@ -432,28 +444,6 @@ async fn process_event_severity(
         .apply_initial_severity(severity.to_string(), connection)
         .await?;
     Ok(true)
-}
-
-/// Returns the assignment when the issue was reopened, and None when it was not.
-async fn reopen_with_assignment(
-    context: &AppContext,
-    conn: &mut PgConnection,
-    issue: &mut Issue,
-    event_properties: &ExceptionEvent<Fingerprinted>,
-) -> Result<Option<Option<Assignment>>, UnhandledError> {
-    // Most events land on an active issue, and those must not pay for a transaction.
-    if !issue.can_reopen() {
-        return Ok(None);
-    }
-    let mut txn = Acquire::begin(&mut *conn).await?;
-    if issue.reopen(&mut *txn).await?.is_none() {
-        txn.rollback().await?;
-        return Ok(None);
-    }
-    let assignment =
-        process_event_assignment(&mut txn, &context.team_manager, issue, event_properties).await?;
-    txn.commit().await?;
-    Ok(Some(assignment))
 }
 
 async fn process_event_assignment(

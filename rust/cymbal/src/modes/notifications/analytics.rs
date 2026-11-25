@@ -24,9 +24,12 @@ pub fn capture_issue_created(
     capture_event(event);
 }
 
-pub fn capture_issue_reopened(team_id: i32, issue_id: Uuid) {
+pub fn capture_issue_reopened(team_id: i32, issue_id: Uuid, reopened_by_release: bool) {
     let mut event = Event::new_anon(ISSUE_REOPENED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();
+    event
+        .insert_prop("reopened_by_release", reopened_by_release)
+        .unwrap();
     capture_event(event);
 }

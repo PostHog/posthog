@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
 use crate::core::types::notification::{
-    IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking, SeveritySource,
+    IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking, ReopenedByRelease, SeveritySource,
 };
 use crate::modes::notifications::config::NotificationsConfig;
 
@@ -175,6 +175,12 @@ struct IssueReopenedWorkflowInput<'a> {
     event_uuid: Uuid,
     event_timestamp: &'a str,
     assignee: Option<&'a str>,
+    // Omitted rather than null, so an ordinary reopen sends the same input as before this field
+    // existed, and only a reopen by a release depends on a Python worker that knows the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reopened_by_release: Option<&'a ReopenedByRelease>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_status: Option<&'a str>,
 }
 
 impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
@@ -188,6 +194,8 @@ impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
             event_uuid: notification.event_uuid,
             event_timestamp: &notification.event_timestamp,
             assignee: notification.assignee.as_deref(),
+            reopened_by_release: notification.reopened_by_release.as_ref(),
+            previous_status: notification.previous_status.as_deref(),
         }
     }
 }
@@ -239,7 +247,9 @@ fn notification_time(notification_id: Uuid) -> DateTime<Utc> {
 mod tests {
     use chrono::Utc;
 
-    use crate::core::types::notification::{IssueNotificationContext, NotificationMeta};
+    use crate::core::types::notification::{
+        IngestionNotification, IssueNotificationContext, NotificationMeta,
+    };
     use crate::types::ProcessedExceptionProperties;
 
     use super::*;
@@ -300,6 +310,8 @@ mod tests {
             event_uuid: Uuid::now_v7(),
             event_timestamp: "2026-07-21T12:00:00Z".to_string(),
             assignee: None,
+            reopened_by_release: None,
+            previous_status: None,
         }
     }
 
@@ -335,6 +347,50 @@ mod tests {
             assert_eq!(value["issue"]["severity"], "high");
             assert!(value.get("event_properties").is_none());
         }
+    }
+
+    #[test]
+    fn optional_reopen_fields_reach_the_workflow_input_only_when_set() {
+        let legacy =
+            serde_json::to_value(IngestionNotification::IssueReopened(issue_reopened())).unwrap();
+        assert!(legacy.get("reopened_by_release").is_none());
+        assert!(legacy.get("previous_status").is_none());
+        let IngestionNotification::IssueReopened(legacy) = serde_json::from_value(legacy).unwrap()
+        else {
+            panic!("expected an issue_reopened notification");
+        };
+        let input = serde_json::to_value(IssueReopenedWorkflowInput::from(&legacy)).unwrap();
+        assert!(input.get("reopened_by_release").is_none());
+        assert!(input.get("previous_status").is_none());
+
+        let release_id = Uuid::now_v7();
+        let by_release = IssueReopened {
+            reopened_by_release: Some(ReopenedByRelease {
+                id: release_id,
+                version: "2.0.0".to_string(),
+                project: "my-app".to_string(),
+                created_at: "2026-03-01T12:00:00Z".parse().unwrap(),
+            }),
+            previous_status: Some("resolved".to_string()),
+            ..issue_reopened()
+        };
+        let IngestionNotification::IssueReopened(by_release) = serde_json::from_value(
+            serde_json::to_value(IngestionNotification::IssueReopened(by_release)).unwrap(),
+        )
+        .unwrap() else {
+            panic!("expected an issue_reopened notification");
+        };
+        let input = serde_json::to_value(IssueReopenedWorkflowInput::from(&by_release)).unwrap();
+        assert_eq!(
+            input["reopened_by_release"],
+            serde_json::json!({
+                "id": release_id,
+                "version": "2.0.0",
+                "project": "my-app",
+                "created_at": "2026-03-01T12:00:00Z",
+            })
+        );
+        assert_eq!(input["previous_status"], "resolved");
     }
 
     #[test]

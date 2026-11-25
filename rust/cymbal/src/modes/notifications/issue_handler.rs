@@ -51,7 +51,11 @@ pub async fn handle_issue_reopened(
         .start_reopened(&notification)
         .await?;
 
-    capture_issue_reopened(notification.meta.team_id, notification.issue.issue_id);
+    capture_issue_reopened(
+        notification.meta.team_id,
+        notification.issue.issue_id,
+        notification.reopened_by_release.is_some(),
+    );
     Ok(())
 }
 

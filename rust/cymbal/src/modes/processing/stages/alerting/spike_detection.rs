@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::{send_issue_spiking_notification, Issue};
+use crate::issue_resolution::{send_issue_spiking_notification, Issue, IssueStatus};
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_FETCH_BUCKETS_ERRORS, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
@@ -437,6 +437,13 @@ async fn get_spiking_issues(
     issue_samples_by_id: &HashMap<Uuid, SpikeSample>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
+    // An issue that stays resolved for exceptions from older releases still counts toward the
+    // baselines, but it does not alert.
+    let issues_by_id: HashMap<Uuid, Issue> = issues_by_id
+        .iter()
+        .filter(|(_, issue)| issue.status == IssueStatus::Active)
+        .map(|(id, issue)| (*id, issue.clone()))
+        .collect();
     if issues_by_id.is_empty() {
         return Ok(vec![]);
     }
@@ -675,6 +682,7 @@ mod tests {
         issue_id: Uuid,
         team_id: i32,
         issue_created_at: DateTime<Utc>,
+        issue_status: IssueStatus,
     }
 
     impl TestContext {
@@ -684,6 +692,7 @@ mod tests {
                 issue_id: Uuid::new_v4(),
                 team_id: 1,
                 issue_created_at: Utc::now(),
+                issue_status: IssueStatus::Active,
             }
         }
 
@@ -738,11 +747,14 @@ mod tests {
             Issue {
                 id: self.issue_id,
                 team_id: self.team_id,
-                status: crate::issue_resolution::IssueStatus::Active,
+                status: self.issue_status,
                 severity: None,
                 name: Some("Test Issue".to_string()),
                 description: Some("Test Description".to_string()),
                 created_at: self.issue_created_at,
+                latest_release_id: None,
+                latest_release_created_at: None,
+                resolved_until: None,
             }
         }
 
@@ -851,6 +863,21 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 500);
+    }
+
+    #[tokio::test]
+    async fn test_resolved_issue_with_spiking_buckets_does_not_spike() {
+        let mut ctx = TestContext::new();
+        ctx.issue_status = IssueStatus::Resolved;
+        let mut issue_buckets = vec![Some(500)];
+        issue_buckets.extend([Some(10); 11]);
+        ctx.setup_issue_buckets(&issue_buckets);
+        ctx.setup_team_buckets(&[Some(100); 12], &[1; 12]);
+
+        assert!(ctx.get_spiking().await.is_empty());
+
+        ctx.issue_status = IssueStatus::Active;
+        assert_eq!(ctx.get_spiking().await.len(), 1);
     }
 
     // ISSUE BUCKETS (most recent first): 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
@@ -1176,6 +1203,9 @@ mod tests {
             name: Some("Test".to_string()),
             description: Some("Test".to_string()),
             created_at: Utc::now(),
+            latest_release_id: None,
+            latest_release_created_at: None,
+            resolved_until: None,
         };
 
         let issues_by_id = HashMap::from([
