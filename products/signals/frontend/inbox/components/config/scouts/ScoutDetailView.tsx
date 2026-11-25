@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,8 +18,10 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { QuillScoutDetailSummary } from './QuillScoutDetailSummary'
 import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
+import { ScoutDialogs } from './ScoutDialogs'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
 import { ScoutNotesPanel } from './ScoutNotesPanel'
@@ -38,6 +41,7 @@ import { ScoutTrials } from './trials/ScoutTrials'
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, rollups } = useValues(scoutFleetLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { startRunsPolling, stopRunsPolling, loadScoutConfigs } = useActions(scoutFleetLogic)
     const { scoutEntries } = useValues(scratchpadLogic)
     const { loadScoutEntries } = useActions(scratchpadLogic)
@@ -200,7 +204,18 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     return (
         <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
-            <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
+            {/* Under the new navigation the inbox renders the scout's scene title, so the page starts with its summary. */}
+            {todayRailNav ? (
+                <QuillScoutDetailSummary
+                    config={config}
+                    rollup={rollup}
+                    noteCount={toldCount}
+                    learnedCount={learnedCount}
+                />
+            ) : (
+                <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
+            )}
+            <ScoutDialogs config={config} />
             <ScoutAskAiComposer scoutId={config.id} skillName={skillName} scoutName={scoutDisplayName(config)} />
 
             <div className="flex min-w-0 flex-col gap-4 px-4 py-4">

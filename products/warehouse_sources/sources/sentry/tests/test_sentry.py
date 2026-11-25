@@ -719,6 +719,36 @@ class TestSentrySourceValidation:
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
     @patch("products.warehouse_sources.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_skips_tag_on_bad_request(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "release channel.name"}, {"key": "browser"}])
+            if "tags/release%20channel.name/values/" in url:
+                # Sentry 400s this tag's values endpoint even though the tags listing returned it.
+                return _response(None, status_code=400)
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 400 on the oddly-formatted tag is skipped; the healthy "browser" tag
+        # still yields its values instead of the whole sync failing.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("products.warehouse_sources.sources.sentry.sentry._request_with_retry")
     def test_issue_tag_values_propagates_non_forbidden_client_error(self, mock_request) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if url.endswith("/organizations/acme/issues/"):

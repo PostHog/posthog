@@ -62,8 +62,8 @@ export function NotebookAppInspector({
                         onChange={(full_width) => onLayout({ ...layout, full_width })}
                     />
                     <p className="text-xs text-secondary">
-                        Publishing saves the layout. Cell content and results stay linked to the notebook. People need
-                        access to this notebook to open the app.
+                        Publishing saves the layout, source cells, and default inputs. People need access to this
+                        notebook to open the app.
                     </p>
                 </>
             ) : (

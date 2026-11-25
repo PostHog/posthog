@@ -9,7 +9,7 @@ import type { AnomalyRowRating } from './anomaliesTabLogic'
 import { appPath } from './anomalyInsightLinks'
 import { AnomalyRowActions } from './AnomalyRowActions'
 import { AnomalyRowChart } from './AnomalyRowChart'
-import { withAnomalyScoresParam } from './anomalyScoresParam'
+import { resetAnomalySeriesIsolation, withAnomalyScoresParam } from './anomalyScoresParam'
 import { anomalySeriesLabel } from './anomalySeriesLabel'
 import { LastAnomalyLabel } from './LastAnomalyLabel'
 
@@ -49,8 +49,11 @@ export function AnomalyRow({
                 <div className="flex flex-col gap-2 min-w-0 @min-[40rem]:w-72 @min-[40rem]:shrink-0">
                     <div className="min-w-0">
                         <Link
-                            to={withAnomalyScoresParam(appPath(series.insight_url))}
-                            onClick={onOpenInsight}
+                            to={withAnomalyScoresParam(appPath(series.insight_url), series.series_key)}
+                            onClick={() => {
+                                resetAnomalySeriesIsolation(series.insight_id, series.series_key)
+                                onOpenInsight()
+                            }}
                             className="font-semibold block truncate"
                             data-attr="anomalies-tab-open-insight"
                         >

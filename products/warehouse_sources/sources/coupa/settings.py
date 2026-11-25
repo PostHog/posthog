@@ -80,6 +80,31 @@ COUPA_ENDPOINTS: dict[str, CoupaEndpointConfig] = {
         path="/approvals",
         scope="core.approval.read",
     ),
+    "accounts": CoupaEndpointConfig(
+        name="accounts",
+        path="/accounts",
+        scope="core.accounting.read",
+    ),
+    "account_types": CoupaEndpointConfig(
+        name="account_types",
+        path="/account_types",
+        scope="core.accounting.read",
+    ),
+    "commodities": CoupaEndpointConfig(
+        name="commodities",
+        path="/commodities",
+        scope="core.common.read",
+    ),
+    "departments": CoupaEndpointConfig(
+        name="departments",
+        path="/departments",
+        scope="core.common.read",
+    ),
+    "receiving_transactions": CoupaEndpointConfig(
+        name="receiving_transactions",
+        path="/receiving_transactions",
+        scope="core.inventory.receiving.read",
+    ),
 }
 
 ENDPOINTS = tuple(COUPA_ENDPOINTS.keys())

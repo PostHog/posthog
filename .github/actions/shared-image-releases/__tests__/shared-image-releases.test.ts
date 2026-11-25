@@ -32,15 +32,30 @@ describe('shared-image publication bindings and fingerprints', () => {
       expect({[channel.filter]: matched.map(file => file.filename)}).toEqual({[channel.filter]: witnesses})
     }
 
-    const workflow = yaml.load(readFileSync(path.join(repositoryRoot, '.github/workflows/container-images-cd.yml'), 'utf8')) as
-      {jobs: {shared_image_channels: {steps: {with?: Record<string, string>}[]}}}
+    const workflowPath = '.github/workflows/container-images-cd.yml'
+    const workflow = yaml.load(readFileSync(path.join(repositoryRoot, workflowPath), 'utf8')) as
+      {jobs: {shared_image_channels: {'timeout-minutes'?: number; steps: {'timeout-minutes'?: number; with?: Record<string, string>}[]}}}
+    const job = workflow.jobs.shared_image_channels
     const budgetInput = 'shared-image-budgets'
-    const budget = workflow.jobs.shared_image_channels.steps
-      .map(step => step.with?.[budgetInput])
-      .find(input => input !== undefined)
-    if (budget === undefined) throw new Error(`Missing ${budgetInput} in shared_image_channels`)
-    const {maxChannels} = JSON.parse(budget) as {maxChannels: number}
-    expect(Object.keys(bindings).length).toBeLessThanOrEqual(maxChannels)
+    const publish = job.steps.find(step => step.with?.[budgetInput] !== undefined)
+    const budget = publish?.with?.[budgetInput]
+    if (publish === undefined || budget === undefined) throw new Error(`Missing ${budgetInput} in shared_image_channels`)
+    const {maxChannels, concurrency, fetchMs, comparisonMs, channelMs, totalMs} = JSON.parse(budget) as Record<string, number>
+    const channelCount = Object.keys(bindings).length
+    expect(channelCount).toBeLessThanOrEqual(maxChannels)
+    const worstCaseMs = fetchMs + 2 * comparisonMs + Math.ceil(channelCount / concurrency) * channelMs
+    if (!(worstCaseMs <= totalMs)) {
+      throw new Error(`${channelCount} channels that all publish can take ${worstCaseMs} ms (fetchMs + 2 x comparisonMs + ceil(channels / concurrency) x channelMs), ` +
+        `above totalMs ${totalMs}: in ${workflowPath} raise totalMs to at least ${worstCaseMs} and the publish step and job timeout-minutes with it`)
+    }
+    const stepMinutes = publish['timeout-minutes'] ?? 0
+    if (!(stepMinutes * 60000 > totalMs)) {
+      throw new Error(`In ${workflowPath} the publish step timeout-minutes ${stepMinutes} (${stepMinutes * 60000} ms) must exceed totalMs ${totalMs}`)
+    }
+    const stepsMinutes = job.steps.reduce((sum, step) => sum + (step['timeout-minutes'] ?? 0), 0)
+    if ((job['timeout-minutes'] ?? 0) <= stepsMinutes) {
+      throw new Error(`In ${workflowPath} the shared_image_channels timeout-minutes ${job['timeout-minutes']} must exceed the sum of its steps' timeout-minutes, ${stepsMinutes}`)
+    }
   })
 
   test.each([
