@@ -36,6 +36,7 @@ from products.data_warehouse.backend.facade.api import (
     get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_webhook_url,
     is_any_external_data_schema_paused,
     pause_external_data_schedule,
     reconcile_webhook_events,
@@ -45,7 +46,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
-from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
+from products.warehouse_sources.backend.facade.api import route_table_on_enabled_webhook, webhook_issues
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import (
     HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE,
@@ -145,6 +146,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
     WarehouseColumnSensitivity,
+    WebhookIssue,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
@@ -228,7 +230,8 @@ REPARTITION_REFUSAL_STATUS: dict[RepartitionRefusal, int] = {
 }
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
-WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
+WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
+WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -255,18 +258,36 @@ def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dic
     return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
 
 
-def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
-    """Whether the schema syncs by webhook but its source has no enabled webhook.
+def _enabled_webhook_table_names(schema: ExternalDataSchema) -> list[str]:
+    """Every enabled webhook-sync table of the schema's source.
 
-    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
-    the first schema of each source looks the source up and keeps the answer for the rest.
+    A provider's event sync takes the full set it should subscribe to; some replace the subscription
+    with it, so passing only the table just enabled would drop the events of the others.
     """
-    if not schema_needs_webhook(schema):
-        return False
-    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
-    if schema.source_id not in missing_by_source:
-        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
-    return missing_by_source[schema.source_id]
+    return list(
+        ExternalDataSchema.objects.filter(
+            team_id=schema.team_id,
+            source_id=schema.source_id,
+            deleted=False,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        .order_by("name")
+        .values_list("name", flat=True)
+    )
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook. Kept for API compatibility."""
+    return webhook_issue(schema, context) == WebhookIssue.NOT_REGISTERED
+
+
+def webhook_issue(schema: ExternalDataSchema, context: dict[str, Any]) -> WebhookIssue | None:
+    """A list fills `WEBHOOK_ISSUES_CONTEXT_KEY` up front with `webhook_issues`; otherwise each schema looks itself up."""
+    issues: dict[uuid.UUID, WebhookIssue | None] = context.setdefault(WEBHOOK_ISSUES_CONTEXT_KEY, {})
+    if schema.id not in issues:
+        issues.update(webhook_issues(schema.team_id, [schema]))
+    return issues[schema.id]
 
 
 def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
@@ -1166,6 +1187,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "the whole table. Set up the webhook on the source, or change `sync_type`."
         ),
     )
+    webhook_issue = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the "
+            "source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing "
+            "secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops "
+            "the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info"
+            "-retrieve` lists the missing inputs; creating the webhook again adds the route)."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -1314,6 +1345,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "copy_access_rules_to_history",
             "incremental_sync_blocked",
             "webhook_not_registered",
+            "webhook_issue",
             "enabled_columns",
             "masked_columns",
             "row_filters",
@@ -1345,6 +1377,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "live_query_unavailable_reason",
             "incremental_sync_blocked",
             "webhook_not_registered",
+            "webhook_issue",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -1579,6 +1612,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     @extend_schema_field(serializers.BooleanField())
     def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
         return webhook_not_registered(schema, self.context)
+
+    @extend_schema_field(serializers.ChoiceField(choices=WebhookIssue.choices, allow_null=True))
+    def get_webhook_issue(self, schema: ExternalDataSchema) -> WebhookIssue | None:
+        return webhook_issue(schema, self.context)
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
@@ -2555,6 +2592,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
+        elif should_sync is True and updated_instance.sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+            self._route_enabled_webhook_table(updated_instance)
 
         # Sync CDC extraction schedule after any CDC schema change
         if is_cdc or leaving_cdc:
@@ -2819,6 +2858,54 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self.__dict__["_webhook_support_error_result"] = self._webhook_support_error(schema)
         return self.__dict__["_webhook_support_error_result"]
 
+    def _route_enabled_webhook_table(self, schema: ExternalDataSchema) -> None:
+        """Add the route of a table that already syncs by webhook to its source's webhook.
+
+        Enabling such a table sends only `should_sync`, and without its route the webhook drops the table's
+        events. Without a webhook the table reports `not_registered`, and enabling it must not register one.
+        """
+        source = schema.source
+        try:
+            source_impl = SourceRegistry.get_source(known_source_key(source.source_type))
+        except ValueError:
+            return
+        if not isinstance(source_impl, WebhookSource):
+            return
+        hog_function_id = route_table_on_enabled_webhook(
+            schema.team_id, schema.source_id, source_impl.webhook_mapping_key(schema.name), schema.id
+        )
+        if hog_function_id is None:
+            return
+
+        # A bulk request shares one map, so the first reconciliation of a source covers every table the
+        # request enabled there and the rest find nothing left to do.
+        pending: dict[uuid.UUID, list[str]] | None = self.context.get(WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY)
+        if pending is not None:
+            pending.setdefault(schema.source_id, []).append(schema.name)
+
+        def reconcile() -> None:
+            if pending is not None and pending.pop(schema.source_id, None) is None:
+                return
+            names = _enabled_webhook_table_names(schema)
+            if not names:
+                return
+            # Non-fatal: the route is already saved, and data flows once the provider sends the events.
+            try:
+                config = source_impl.parse_config(SourceInputsStore.load(source))
+                result = source_impl.sync_webhook_events(
+                    config,
+                    get_webhook_url(hog_function_id),
+                    schema.team_id,
+                    names,
+                    api_version=source_impl.resolve_api_version(source.api_version),
+                )
+                if not result.success:
+                    logger.warning("Failed to reconcile webhook events on schema enable", error=result.error)
+            except Exception as e:
+                logger.warning("Error reconciling webhook events on schema enable", error=str(e))
+
+        self._run_temporal_side_effect(reconcile)
+
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
         source_inputs = SourceInputsStore.load(source)
@@ -2886,7 +2973,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             config,
                             hog_fn_result,
                             schema.team_id,
-                            [schema.name],
+                            _enabled_webhook_table_names(schema),
                             api_version=effective_api_version,
                         )
                         if not reconcile_result.success:
@@ -3289,7 +3376,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
             else:
                 context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-                context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+                context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 

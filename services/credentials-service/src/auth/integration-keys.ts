@@ -27,6 +27,10 @@ function hasOwn(record: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(record, key)
 }
 
+function fingerprint(key: KeyObject): string {
+    return key.export({ type: 'spki', format: 'der' }).toString('base64')
+}
+
 function parseFile(name: string, contents: string): KeyObject[] {
     // A private key on the service would undo the reason for EdDSA. Refuse it, whatever the
     // file is called.
@@ -70,7 +74,7 @@ export function parseIntegrationPublicKeys(files: Record<string, string>): Integ
         }
         const parsed = parseFile(name, contents)
         for (const key of parsed) {
-            const der = key.export({ type: 'spki', format: 'der' }).toString('base64')
+            const der = fingerprint(key)
             const existing = owner.get(der)
             if (existing !== undefined && existing !== deployment) {
                 throw new Error(`a public key for ${deployment} is also listed for ${existing}`)
@@ -118,7 +122,7 @@ export class IntegrationKeyLoader {
     /**
      * Reload, keeping the previous keys if the directory is unreadable or invalid, so a
      * malformed edit cannot lock a running fleet out. An invalid directory still revokes every
-     * deployment whose file it removed. The metrics make a refused edit visible.
+     * key it removed. The metrics make a refused edit visible.
      */
     async reload(): Promise<void> {
         const files = await readMount(this.dir)
@@ -133,20 +137,40 @@ export class IntegrationKeyLoader {
                 error: err instanceof Error ? err.message : String(err),
             })
             if (files !== null) {
-                this.dropDeploymentsNotIn(files)
+                this.dropKeysNotIn(files)
             }
         }
     }
 
-    /** Drop every held deployment whose file is gone, so a refused edit still revokes it. */
-    private dropDeploymentsNotIn(files: Record<string, string>): void {
-        const dropped = Object.keys(this.keys).filter(
-            (deployment) => !hasOwn(files, `${deployment}${PUBLIC_KEY_SUFFIX}`)
-        )
+    /**
+     * Keep only the held keys that the deployment's file still lists. A refused edit then still
+     * revokes a key, whether it removed the file or one block in it, and every key it adds waits
+     * for a valid edit. A block that does not parse lists nothing.
+     */
+    private dropKeysNotIn(files: Record<string, string>): void {
+        const kept: IntegrationPublicKeys = {}
+        const dropped: string[] = []
+        for (const [deployment, held] of Object.entries(this.keys)) {
+            const name = `${deployment}${PUBLIC_KEY_SUFFIX}`
+            const listed = new Set<string>()
+            const contents = hasOwn(files, name) ? (files[name] ?? '') : ''
+            for (const block of contents.match(PEM_BLOCK) ?? []) {
+                try {
+                    listed.add(fingerprint(createPublicKey(block)))
+                } catch {
+                    continue
+                }
+            }
+            const still = held.filter((key) => listed.has(fingerprint(key)))
+            if (still.length < held.length) {
+                dropped.push(deployment)
+            }
+            if (still.length > 0) {
+                kept[deployment] = still
+            }
+        }
         if (dropped.length > 0) {
-            this.keys = Object.fromEntries(
-                Object.entries(this.keys).filter(([deployment]) => !dropped.includes(deployment))
-            )
+            this.keys = kept
             logger.warn('auth:integration_keys_dropped_from_refused_snapshot', { deployments: dropped.sort() })
         }
     }

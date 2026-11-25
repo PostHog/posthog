@@ -83,6 +83,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     schedule_restriction: null,
     next_check_at: null,
     legacy_configuration_id: null,
+    owner: 'platform',
     alerts: [],
 }
 
@@ -364,6 +365,107 @@ export const ListPaginatedGroupsExpanded: Story = {
         canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
         await within(canvasElement).findByText('service_name=checkout severity_text=error')
         await within(canvasElement).findByText('1-50 of 51 alerts')
+    },
+}
+
+// Native clicks rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+export const ListRowMenuDisabledAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Enable alert')
+        await userEvent.hover(
+            document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-snooze-1h"]') as HTMLElement
+        )
+        await within(document.body).findByText('Enable the alert first')
+    },
+}
+
+export const ListRowMenuSourceOwnedOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Disable alert')
+    },
+}
+
+export const ListRowMenuSnoozedAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('p95 latency above 500 ms')
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Unsnooze')
+    },
+}
+
+async function openGroupRowMenu(canvasElement: HTMLElement, group: string): Promise<void> {
+    await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
+    canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+    await within(canvasElement).findByText(group)
+    canvasElement.querySelector<HTMLElement>(`[aria-label="More options for ${group}"]`)?.click()
+}
+
+export const ListGroupMenuOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await within(document.body).findByText('Snooze group for 1 week')
+    },
+}
+
+export const ListGroupMenuUnsnooze: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=payments-api severity_text=error')
+        await within(document.body).findByText('Unsnooze group')
+    },
+}
+
+export const ListGroupMenuAlertSnoozed: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        { ...GROUPED_CONFIGURATION, snooze_until: '2026-10-06T12:00:00Z' },
+                    ],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
+        await within(document.body).findByText('The whole alert is snoozed')
+    },
+}
+
+export const ListGroupMenuSourceOwned: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, { ...GROUPED_CONFIGURATION, owner: 'source' }],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
+        await within(document.body).findByText('Logs manages this alert, so snooze the whole alert there')
     },
 }
 
