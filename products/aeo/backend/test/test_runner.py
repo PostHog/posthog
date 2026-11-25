@@ -15,7 +15,7 @@ from django.utils import timezone
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-from products.aeo.backend import runner
+from products.aeo.backend import prompt_limit, runner
 from products.aeo.backend.engines import CitationCheck, build_check_fields
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CheckMode
 from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck, AEOPrompt
@@ -160,6 +160,17 @@ def test_a_team_without_an_own_brand_is_skipped_before_any_engine_call(
     assert (engine.calls, checks, summary.run_id, summary.prompts) == (0, [], None, 0)
     assert summary.error is not None and "kind 'own'" in summary.error
     assert not AEOCitationCheck.objects.for_team(other.id).exists()
+
+
+@pytest.mark.parametrize("requested", [None, 3], ids=["scheduled_run", "explicit_limit"])
+def test_a_run_checks_no_more_prompts_than_the_project_may_track(team: Team, requested: int | None) -> None:
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic=f"t{i % 2}") for i in range(4)])
+    prompt_limit.set_max_active_prompts(team.id, 2)
+
+    summary, _ = run_citation_checks(team, engines=[_StubEngine()], limit=requested)
+
+    assert summary.prompts == 2
+    assert AEOCitationCheck.objects.for_team(team.id).count() == 2
 
 
 class _CrashingEngine(_StubEngine):
