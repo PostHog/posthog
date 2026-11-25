@@ -6,8 +6,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-# The PostHog Cloud value of settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF. Tests run as a self-hosted deployment, which
-# leaves the setting unset, so a test that needs the cutoff sets it with override_exposure_event_cutoff.
+# Tests run as a self-hosted deployment with no cutoff, so a test sets one with override_exposure_event_cutoff.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 

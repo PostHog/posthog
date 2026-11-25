@@ -105,11 +105,9 @@ KEY_VERSIONS = (1, CALCULATION_KEY_VERSION)
 # two keys.
 _KEY_FLOAT_DIGITS = 12
 
-# Stands for the default exposure event in the key. `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` picks that event
-# (`resolve_default_exposure_event`). A key that hashed the picked event would re-key every affected experiment when a
-# deployment sets or moves the cutoff. A stored result therefore stays reusable for its window when the setting
-# changes. To make results computed with the old default event stop counting for reuse, treat a cutoff change as an
-# engine change and bump CALCULATION_KEY_VERSION.
+# Stands for the default exposure event in the key, so that setting or moving
+# `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` does not re-key every affected experiment. To stop reusing results
+# computed with the old event, bump CALCULATION_KEY_VERSION.
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
