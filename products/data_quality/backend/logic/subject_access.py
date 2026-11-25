@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
 from . import posthog_tables
-from .access import can_access, is_organization_admin
+from .access import can_access, can_edit_organization
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
 from .errors import CheckConfigError
@@ -82,7 +82,7 @@ def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> 
     """
     return (
         user_access_control is not None
-        and not is_organization_admin(user_access_control)
+        and not can_edit_organization(user_access_control)
         and user_access_control.access_controls_supported
     )
 

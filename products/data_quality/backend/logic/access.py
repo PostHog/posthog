@@ -28,7 +28,7 @@ def can_access(access: "UserAccessControl", resource_type: ResourceType, action:
         )
 
 
-def is_organization_admin(access: "UserAccessControl") -> bool:
+def can_edit_organization(access: "UserAccessControl") -> bool:
     return authorization.check(
         resource=Resource.organization(_team(access).organization_id), action=Action.EDIT, subject=_subject(access)
     )
