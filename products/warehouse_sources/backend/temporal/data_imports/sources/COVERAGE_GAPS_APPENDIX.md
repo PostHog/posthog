@@ -11152,7 +11152,7 @@ Note (2026-11-19): Re-read the apidoc page. The new read endpoint is dependents.
 
 ## Paddle — gaps
 
-Today (8): `adjustments`, `customers`, `discounts`, `explore_metrics`, `prices`, `products`, `subscriptions`, `transactions`
+Today (12): `adjustments`, `customer_addresses`, `customer_businesses`, `customers`, `discount_groups`, `discounts`, `explore_metrics`, `prices`, `products`, `subscription_history`, `subscriptions`, `transactions`
 
 Diffed against: <https://developer.paddle.com/api-reference/metrics/run-explore-metrics-query>
 
@@ -11162,10 +11162,10 @@ Note: Added from the Explore metrics changelog (API version 1, 2026-08-27). The 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/PaddleHQ/paddle-openapi/main/v1/openapi.yaml>
 
-- [ ] `Customer addresses (GET /customers/{customer_id}/addresses)` — resolves address_id on subscriptions and transactions into country and postal code, for revenue by region (high)
-- [ ] `Customer businesses (GET /customers/{customer_id}/businesses)` — resolves business_id on subscriptions and transactions into the business name and tax identifier (high)
-- [ ] `Subscription history (GET /subscriptions/{subscription_id}/history)` — state change history per subscription, for churn, pause and plan change analysis (medium)
-- [ ] `Discount groups (GET /discount-groups)` — lookup for the discount group that each synced discount belongs to (medium)
+- [x] `Customer addresses (GET /customers/{customer_id}/addresses)` — resolves address_id on subscriptions and transactions into country and postal code, for revenue by region (high). Added as `customer_addresses` (fan-out over customers, active and archived, full refresh)
+- [x] `Customer businesses (GET /customers/{customer_id}/businesses)` — resolves business_id on subscriptions and transactions into the business name and tax identifier (high). Added as `customer_businesses` (fan-out over customers, active and archived, full refresh)
+- [x] `Subscription history (GET /subscriptions/{subscription_id}/history)` — state change history per subscription, for churn, pause and plan change analysis (medium). Added as `subscription_history` (fan-out over subscriptions, incremental on `occurred_at[GTE]`)
+- [x] `Discount groups (GET /discount-groups)` — lookup for the discount group that each synced discount belongs to (medium). Added as `discount_groups` (full refresh)
 - [ ] `Events (GET /events)` — account event log of entity changes, an audit trail of what changed and when (low)
 - [ ] `Customer payment methods (GET /customers/{customer_id}/payment-methods)` — saved payment method types per customer, for payment mix analysis (low)
 - [ ] `Customer credit balances (GET /customers/{customer_id}/credit-balances)` — current account credit per currency for each customer (low)
