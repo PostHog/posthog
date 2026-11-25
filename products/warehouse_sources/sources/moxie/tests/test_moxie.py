@@ -17,6 +17,32 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 BASE_URL = "https://pod00.withmoxie.dev/api/public"
 
 
+class _RecordingPacer:
+    def __init__(self, per_second: float, hold_seconds: float) -> None:
+        self.per_second = per_second
+        self.turns = 0
+        self.throttles: list[Optional[float]] = []
+
+    def wait_turn(self) -> None:
+        self.turns += 1
+
+    def throttled(self, retry_after: Optional[float]) -> None:
+        self.throttles.append(retry_after)
+
+
+@pytest.fixture
+def pacers() -> Any:
+    created: list[_RecordingPacer] = []
+
+    def build(per_second: float, hold_seconds: float) -> _RecordingPacer:
+        pacer = _RecordingPacer(per_second, hold_seconds)
+        created.append(pacer)
+        return pacer
+
+    with mock.patch.object(moxie_module, "RequestPacer", side_effect=build):
+        yield created
+
+
 def _driver(base_url: str = BASE_URL) -> SourceDriver:
     return SourceDriver(MoxieSource(), MoxieSourceConfig(base_url=base_url, api_key="test_key"))
 
@@ -69,7 +95,7 @@ class TestMoxieTransport:
         assert result.raised is None
         assert result.params("includeArchived") == ["true"]
 
-    def test_ticket_comments_fan_out_over_tickets_and_follow_the_cursor(self) -> None:
+    def test_ticket_comments_fan_out_over_tickets_and_follow_the_cursor(self, pacers: Any) -> None:
         result = _driver().run(
             "ticket_comments",
             route(
@@ -97,7 +123,7 @@ class TestMoxieTransport:
         assert [query.get("cursor") for query in comment_requests] == [None, ("n1",), None, None]
         assert all(query["commentType"] == ("ALL",) and query["limit"] == ("100",) for query in comment_requests)
 
-    def test_project_notes_fan_out_over_projects(self) -> None:
+    def test_project_notes_fan_out_over_projects(self, pacers: Any) -> None:
         result = _driver().run(
             "project_notes",
             route(
@@ -114,6 +140,27 @@ class TestMoxieTransport:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["n1", "n2"]
         assert result.params("projectId") == [None, "p1", "p2"]
+
+    def test_fan_out_paces_every_request_and_reports_a_429(self, pacers: list[_RecordingPacer]) -> None:
+        result = _driver().run(
+            "project_notes",
+            route(
+                {
+                    "/action/projects/search": [ScriptedResponse(json=[{"id": "p1"}])],
+                    "/action/projects/notes/search": [
+                        ScriptedResponse(status=429, headers={"Retry-After": "7"}),
+                        ScriptedResponse(json=[{"id": "n1", "projectId": "p1"}]),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["n1"]
+        assert len(pacers) == 1
+        assert pacers[0].per_second * 300 < 100
+        assert pacers[0].turns == len(result.requests) == 3
+        assert pacers[0].throttles == [7.0]
 
     def test_time_entries_under_the_cap_take_one_unbounded_call(self) -> None:
         rows = [{"id": "e1", "timerStart": "2024-01-01T09:00:00Z"}]

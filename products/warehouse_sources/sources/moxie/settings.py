@@ -11,6 +11,13 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 # so that's what this source targets.
 MOXIE_API_PATH_PREFIX = "/action"
 
+# Moxie allows 100 Public API requests per 5 minutes per workspace. A fan-out table sends one
+# request per parent, so it paces itself just under that limit.
+FANOUT_REQUESTS_PER_SECOND = 90 / 300
+# A 429 with no Retry-After holds the requests this long. The limit window is 5 minutes, so a
+# short hold only earns the next 429.
+FANOUT_RATE_LIMIT_HOLD_SECONDS = 60.0
+
 
 @frozen
 class MoxieEndpointConfig:

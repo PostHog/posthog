@@ -19,19 +19,23 @@ that cap, the source splits the `timerStart` window in half and asks again (see
 `tickets` and `projects`.
 
 Moxie enforces a hard rate limit of 100 Public API requests per 5-minute window per workspace,
-returning HTTP 429 when exceeded; the tracked session's transport-level retry already honors
-`Retry-After` on a 429, so no extra throttling is added here.
+returning HTTP 429 when exceeded. The other tables send only a few requests per sync, so the
+transport-level retry is enough for them. The fan-out tables send one request per parent, so they
+pace every request through a `RequestPacer` (see `_PacedSession`).
 """
 
 import re
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import structlog
+from requests import PreparedRequest, Request, Response, Session
 
 from products.warehouse_sources.sources.moxie.settings import (
+    FANOUT_RATE_LIMIT_HOLD_SECONDS,
+    FANOUT_REQUESTS_PER_SECOND,
     MOXIE_API_PATH_PREFIX,
     MOXIE_ENDPOINTS,
     MoxieEndpointConfig,
@@ -41,6 +45,7 @@ from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
     JSONResponseCursorPaginator,
+    RequestPacer,
     RESTAPIConfig,
     SinglePagePaginator,
     SourceResponse,
@@ -48,6 +53,7 @@ from products.warehouse_sources.sources.sdk import (
     build_dependent_resource,
     format_datetime,
     make_tracked_session,
+    parse_retry_after,
     rest_api_resource,
     validate_via_probe,
 )
@@ -193,6 +199,41 @@ def _client_config(resolved_base_url: str, api_key: str) -> ClientConfig:
     }
 
 
+class _PacedSession:
+    """Takes a pacer slot before every request it sends, and reports each 429 to the pacer.
+
+    `RESTClient` drives the pagination and the retries itself, so the pacing must sit in front of
+    `send`. `RESTClient` reads `headers` and calls `prepare_request` and `send`. Every request still
+    goes out through the tracked session, with its redaction and its refusal to follow redirects.
+    """
+
+    def __init__(self, session: Session, pacer: RequestPacer) -> None:
+        self._session = session
+        self._pacer = pacer
+
+    @property
+    def headers(self) -> Any:
+        return self._session.headers
+
+    def prepare_request(self, request: Request) -> PreparedRequest:
+        return self._session.prepare_request(request)
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        self._pacer.wait_turn()
+        response = self._session.send(request, **kwargs)
+        if response.status_code == 429:
+            self._pacer.throttled(parse_retry_after(response))
+        return response
+
+
+def _paced_client_config(client_config: ClientConfig, api_key: str) -> ClientConfig:
+    pacer = RequestPacer(FANOUT_REQUESTS_PER_SECOND, hold_seconds=FANOUT_RATE_LIMIT_HOLD_SECONDS)
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # Not a `Session` subclass: the tracked session comes from a factory, and a subclass would have
+    # to rebuild its adapters.
+    return {**client_config, "session": cast(Session, _PacedSession(session, pacer))}
+
+
 def _fanout_resource(
     config: MoxieEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
 ) -> Iterable[Any]:
@@ -263,7 +304,7 @@ def moxie_source(
 
         if config.fanout is not None:
             # Returned as is, so the pipeline reads the framework resource directly.
-            return _fanout_resource(config, client_config, team_id, job_id)
+            return _fanout_resource(config, _paced_client_config(client_config, api_key), team_id, job_id)
         if endpoint == "time_entries":
             return iter_time_entries(fetch_time_entries, datetime.now(UTC))
         return items()
