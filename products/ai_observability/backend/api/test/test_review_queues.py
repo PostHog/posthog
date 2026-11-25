@@ -8,7 +8,6 @@ from rest_framework import serializers, status
 
 from posthog.models import OrganizationMembership
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.review_queues import ReviewQueueItemCreateSerializer
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -113,11 +112,7 @@ class TestReviewQueuesApi(APIBaseTest):
         queue = self._create_queue()
         serializer = ReviewQueueItemCreateSerializer(
             data={"queue_id": str(queue.id), "trace_id": "trace_reviewed"},
-            context={
-                "request": SimpleNamespace(user=self.user),
-                "team": self.team,
-                "view": SimpleNamespace(user_access_control=UserAccessControl(user=self.user, team=self.team)),
-            },
+            context={"request": SimpleNamespace(user=self.user), "team": self.team},
         )
 
         self.assertTrue(serializer.is_valid(), serializer.errors)

@@ -15,6 +15,9 @@ from posthog.models import User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.permissions import get_authenticator_scopes
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import (
     ActionTarget,
@@ -117,12 +120,17 @@ def require_action_scope(request: Request | None) -> None:
 
 
 def _require_action_viewer_access(request: Request | None, action: ActionTarget) -> None:
-    view = (request.parser_context or {}).get("view") if request is not None else None
-    user_access_control = getattr(view, "user_access_control", None)
-    if request is None or not isinstance(request.user, User) or user_access_control is None:
+    if request is None or not isinstance(request.user, User):
         return
-    if user_access_control.denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id)], "viewer"
+    if not authorization.check(
+        resource=Resource(
+            type=ResourceType.ACTION,
+            id=str(action.id),
+            project_id=action.team_id,
+            created_by_id=action.created_by_id,
+        ),
+        action=Action.VIEW,
+        subject=Subject(user_id=request.user.id),
     ):
         raise serializers.ValidationError(
             {
