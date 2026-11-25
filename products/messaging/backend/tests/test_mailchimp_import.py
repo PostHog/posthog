@@ -605,6 +605,169 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         assert "new@example.com" not in self._staged(run)["Mailchimp contacts, Example Co"]
 
+    def _add_segments(self, audience: int, *segments: tuple[int, str, str, list[str]]) -> None:
+        self.mailchimp.data["lists"][audience]["segments"] = [
+            {"id": segment_id, "name": name, "type": kind, "emails": emails}
+            for segment_id, name, kind, emails in segments
+        ]
+
+    def test_each_tag_and_segment_fills_a_cohort_with_its_subscribed_members(self) -> None:
+        everyone = [member["email_address"] for member in self.mailchimp.data["lists"][0]["members"]]
+        self._add_segments(
+            0,
+            (1, "VIP 🎉", "static", ["ada@example.com", *everyone[3:]]),
+            (2, "VIP 🎉", "saved", ["linus@example.com"]),
+            (3, "Made by Mailchimp", "fuzzy", everyone),
+            (4, "Empty", "static", []),
+        )
+        self._add_segments(1, (5, "VIP 🎉", "static", ["ada@example.com"]))
+
+        run = self._import_contacts("new_people")
+
+        staged = {name: set(people) for name, people in self._staged(run).items() if " in " in name}
+        assert staged == {
+            "VIP 🎉 (tag in Weekly newsletter, from Mailchimp)": {"ada@example.com"},
+            "VIP 🎉 (segment in Weekly newsletter, from Mailchimp)": {"linus@example.com"},
+            "VIP 🎉 (tag in Novedades del producto ñ, from Mailchimp)": {"ada@example.com"},
+        }
+        self._close(run)
+        self._add_segments(0, (1, "Renamed", "static", []))
+
+        later = self._staged(self._import_contacts("new_people"))
+
+        # The tag's cohort keeps its name and loses the person who left the tag.
+        assert later["VIP 🎉 (tag in Weekly newsletter, from Mailchimp)"] == {}
+
+    def test_a_tag_takes_only_members_the_audience_read_as_subscribed(self) -> None:
+        self._add_segments(0, (1, "Old", "static", ["Left.Person@example.com", "ada@example.com"]))
+        left = self.mailchimp.data["lists"][0]["members"][3]
+        handle = self.mailchimp.handle
+
+        def resubscribed_since(
+            path: str, query: dict[str, str], authorization: str
+        ) -> tuple[int, dict[str, Any], dict[str, str]]:
+            if "/segments/" in path:
+                left["status"] = "subscribed"
+            return handle(path, query, authorization)
+
+        with patch.object(self.mailchimp, "handle", resubscribed_since):
+            run = self._import_contacts("new_people")
+
+        assert set(self._staged(run)["Old (tag in Weekly newsletter, from Mailchimp)"]) == {"ada@example.com"}
+
+    @parameterized.expand([("not_found", 404, 0), ("server_error", 500, 0), ("later_page", 500, 1)])
+    def test_a_tag_that_cannot_be_read_whole_keeps_its_cohort_and_the_contacts_still_import(
+        self, _name: str, status: int, from_offset: int
+    ) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 1)
+        self._add_segments(0, (1, "Old", "static", ["linus@example.com", "ada@example.com"]))
+        self.mailchimp.failures.append(
+            Failure(route="segment_members", status=status, times=100, from_offset=from_offset)
+        )
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert set(self._staged(run)) == {
+            "Mailchimp contacts, Example Co",
+            "Weekly newsletter (from Mailchimp)",
+            "Novedades del producto ñ (from Mailchimp)",
+        }
+        item = run.progress["contacts"]["items"][1]
+        assert (item["label"], item["status"]) == ("Old (tag in Weekly newsletter, from Mailchimp)", "failed")
+        assert "its cohort stays as it is" in item["notes"][0]
+
+    @parameterized.expand([("segments", 2, 250_000), ("memberships", 300, 1)])
+    def test_an_account_past_a_segment_limit_still_imports_its_contacts(
+        self, _name: str, max_segments: int, max_memberships: int
+    ) -> None:
+        module = "products.messaging.backend.provider_imports.mailchimp"
+        self._patch(f"{module}.MAX_SEGMENTS", max_segments)
+        self._patch(f"{module}.MAX_SEGMENT_MEMBERSHIPS", max_memberships)
+        too_many = ["ada@example.com", "linus@example.com"] if max_memberships == 1 else []
+        self._add_segments(
+            0,
+            (1, "Too many people", "static", too_many),
+            (2, "Older", "static", ["ada@example.com"]),
+            (7, "Newer", "static", ["ada@example.com"]),
+        )
+
+        run = self._import_contacts("new_people")
+
+        assert [name for name in self._staged(run) if " in " in name] == [
+            "Older (tag in Weekly newsletter, from Mailchimp)"
+        ]
+        assert re.match(r"[12] more", run.progress["contacts"]["items"][1]["notes"][0])
+
+    def test_reads_of_tags_stop_after_several_fail(self) -> None:
+        self._add_segments(0, *((number, f"Tag {number}", "static", ["ada@example.com"]) for number in range(1, 10)))
+        self.mailchimp.failures.append(Failure(route="segment_members", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        tried = {call["path"] for call in self.mailchimp.calls if call["route"] == "segment_members"}
+        assert len(tried) == 5
+        assert run.progress["contacts"]["items"][6]["notes"][0].startswith("4 more")
+
+    def test_listing_tags_stops_at_its_page_limit(self) -> None:
+        module = "products.messaging.backend.provider_imports.mailchimp"
+        self._patch(f"{module}.MAX_EXTRA_SEGMENT_PAGES", 1)
+        self._patch(f"{CLIENT}.PAGE_SIZE", 4)
+        self._add_segments(0, *((number, f"Tag {number}", "static", []) for number in range(1, 20)))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert sum(call["route"] == "segments" for call in self.mailchimp.calls) == 4
+        assert run.progress["contacts"]["items"][1]["notes"][0].startswith("11 more tags and segments")
+
+    @parameterized.expand([("empty_page", {"segments": [], "total_items": 0}), ("no_total", {"segments": []})])
+    def test_a_tag_list_that_breaks_off_is_reported(self, _name: str, later: dict[str, Any]) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 4)
+        self._add_segments(0, *((number, f"Tag {number}", "static", []) for number in range(1, 8)))
+        handle = self.mailchimp.handle
+
+        def broken(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            if path.endswith("/segments") and int(query.get("offset", 0)):
+                return 200, later, {}
+            return handle(path, query, authorization)
+
+        with patch.object(self.mailchimp, "handle", broken):
+            run = self._import_contacts("new_people")
+
+        assert not any(" in " in name for name in self._staged(run))
+        assert run.progress["contacts"]["counts"]["segments_failed"] == 1
+        assert run.progress["contacts"]["items"][1]["label"] == "Tags and segments in Weekly newsletter"
+
+    def test_listing_tags_stops_after_several_audiences_fail(self) -> None:
+        self.mailchimp.data["lists"] += [
+            {
+                "id": f"extra{number}",
+                "name": f"Extra {number}",
+                "members": [],
+                "abuse_reports": [],
+                "interest_categories": [],
+            }
+            for number in range(4)
+        ]
+        self.mailchimp.failures.append(Failure(route="segments", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert len({call["path"] for call in self.mailchimp.calls if call["route"] == "segments"}) == 5
+        items = {item["label"]: item["notes"][0] for item in run.progress["contacts"]["items"]}
+        assert items["Tags and segments in other audiences"].startswith("2 more audiences")
+
+    def test_contacts_import_when_an_audience_hides_its_tags(self) -> None:
+        self.mailchimp.failures.append(Failure(route="segments", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert run.progress["contacts"]["items"][1]["label"] == "Tags and segments in Old audience"
+
     def _cohort(self, name: str) -> Cohort:
         return Cohort.objects.get(team_id=self.team.id, name=name)
 
@@ -933,3 +1096,33 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         run.refresh_from_db()
         assert "people_imports" not in run.progress["contacts"]
+
+    def test_the_tag_and_segment_cohorts_of_a_deleted_audience_are_emptied_too(self) -> None:
+        self._add_segments(0, (1, "Stays", "static", ["ada@example.com"]))
+        self._add_segments(1, (5, "VIP", "static", ["ada@example.com"]), (6, "VIP", "saved", ["ada@example.com"]))
+        self._close(self._import_contacts("new_people"))
+        self._delete()
+
+        for _ in range(2):
+            run = self._import_contacts("new_people")
+
+            staged = self._staged(run)
+            gone = {
+                NOVEDADES,
+                "VIP (tag in Novedades del producto ñ, from Mailchimp)",
+                "VIP (segment in Novedades del producto ñ, from Mailchimp)",
+            }
+            assert {name for name, people in staged.items() if not people} == gone
+            assert set(staged["Stays (tag in Weekly newsletter, from Mailchimp)"]) == {"ada@example.com"}
+            assert self._emptied(run) == dict.fromkeys(gone, ("listed", DELETED_AUDIENCE_NOTE))
+            self._close(run)
+
+    def test_a_deleted_tag_of_an_audience_that_remains_keeps_its_cohort(self) -> None:
+        self._add_segments(0, (1, "VIP", "static", ["ada@example.com"]))
+        self._close(self._import_contacts("new_people"))
+        self._add_segments(0)
+
+        run = self._import_contacts("new_people")
+
+        assert "VIP (tag in Weekly newsletter, from Mailchimp)" not in self._staged(run)
+        assert self._emptied(run) == {}
