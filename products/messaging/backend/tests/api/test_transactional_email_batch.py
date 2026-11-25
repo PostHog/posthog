@@ -5,9 +5,12 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.conf import settings
+from django.core.cache import cache, caches
+from django.test import override_settings
 
 import requests
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
@@ -21,6 +24,7 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -592,22 +596,41 @@ class TestTransactionalEmailBatch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("key_burst", TransactionalEmailBurstThrottle),
-            ("key_sustained", TransactionalEmailSustainedThrottle),
-            ("team_burst", TransactionalEmailTeamBurstThrottle),
-            ("team_sustained", TransactionalEmailTeamSustainedThrottle),
+            (f"{name}_{layout}", throttle, layout)
+            for name, throttle in [
+                ("key_burst", TransactionalEmailBurstThrottle),
+                ("key_sustained", TransactionalEmailSustainedThrottle),
+                ("team_burst", TransactionalEmailTeamBurstThrottle),
+                ("team_sustained", TransactionalEmailTeamSustainedThrottle),
+            ]
+            for layout in ("configured_caches", "own_history_prefix")
         ]
     )
     def test_a_batch_spends_one_send_per_recipient_and_a_refused_one_spends_one(
-        self, mock_post, _flag, _capture, _name, throttle
+        self, mock_post, _flag, _capture, _name, throttle, layout
     ):
-        with self._enforce_rate_limits(), patch.object(throttle, "rate", "5/minute"):
-            mock_post.return_value = self._queued_answer(3)
-            spent = self._batch("template", self._recipients(3))
-            refused = self._batch("template", self._recipients(3))
-            mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
-            last_single = self._single("template")
-            over_budget = self._single("template")
+        own_history_prefix = layout == "own_history_prefix"
+        caches_under_test = (
+            lagging_reader_caches(unique_key_prefix("test-batch-throttle")) if own_history_prefix else settings.CACHES
+        )
+        with (
+            override_settings(CACHES=caches_under_test),
+            self._enforce_rate_limits(),
+            patch.object(throttle, "rate", "5/minute"),
+        ):
+            try:
+                mock_post.return_value = self._queued_answer(3)
+                spent = self._batch("template", self._recipients(3))
+                refused = self._batch("template", self._recipients(3))
+                mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
+                last_single = self._single("template")
+                over_budget = self._single("template")
+            finally:
+                if own_history_prefix:
+                    for alias in ("default", "throttle_history"):
+                        redis_cache = caches[alias]
+                        assert isinstance(redis_cache, RedisCache)
+                        redis_cache.delete_pattern("*")
 
         assert spent.status_code == status.HTTP_200_OK, spent.json()
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS

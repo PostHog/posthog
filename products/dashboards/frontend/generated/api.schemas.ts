@@ -312,6 +312,7 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `query` - Query
  * * `insight` - Insight
  * * `hogql` - HogQL
  * * `promql` - PromQL
@@ -320,10 +321,34 @@ export interface CopyDashboardTemplateApi {
 export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
 
 export const QueryBatchLanguageEnumApi = {
+    Query: 'query',
     Insight: 'insight',
     Hogql: 'hogql',
     Promql: 'promql',
     Logql: 'logql',
+} as const
+
+/**
+ * * `time_series` - Time series
+ * * `table` - Table
+ */
+export type QueryBatchTargetFormatEnumApi =
+    (typeof QueryBatchTargetFormatEnumApi)[keyof typeof QueryBatchTargetFormatEnumApi]
+
+export const QueryBatchTargetFormatEnumApi = {
+    TimeSeries: 'time_series',
+    Table: 'table',
+} as const
+
+/**
+ * * `classic` - Classic
+ * * `new` - New
+ */
+export type QueryBatchEngineEnumApi = (typeof QueryBatchEngineEnumApi)[keyof typeof QueryBatchEngineEnumApi]
+
+export const QueryBatchEngineEnumApi = {
+    Classic: 'classic',
+    New: 'new',
 } as const
 
 export interface QueryBatchTargetApi {
@@ -332,8 +357,9 @@ export interface QueryBatchTargetApi {
      * @maxLength 200
      */
     refId: string
-    /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
+    /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
      *
+     * * `query` - Query
      * * `insight` - Insight
      * * `hogql` - HogQL
      * * `promql` - PromQL
@@ -344,6 +370,21 @@ export interface QueryBatchTargetApi {
      * @maxLength 200000
      */
     query: string
+    /**
+     * The series name template the panel draws. Returned unchanged on the target's line.
+     * @maxLength 1000
+     */
+    legend?: string
+    /** How the panel draws the result. Returned unchanged on the target's line.
+     *
+     * * `time_series` - Time series
+     * * `table` - Table */
+    format?: QueryBatchTargetFormatEnumApi
+    /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+     *
+     * * `classic` - Classic
+     * * `new` - New */
+    engine?: QueryBatchEngineEnumApi
 }
 
 export interface QueryBatchTimeApi {
@@ -397,12 +438,28 @@ export interface QueryBatchQueryApi {
     tile?: string
 }
 
+/**
+ * * `result` - Result
+ * * `frames` - Frames
+ */
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
+
+export const ResultFormatEnumApi = {
+    Result: 'result',
+    Frames: 'frames',
+} as const
+
 export interface QueryBatchRequestApi {
     /**
      * The panels' queries, at most 500.
      * @maxItems 500
      */
     queries: QueryBatchQueryApi[]
+    /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -10384,17 +10441,6 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
-/**
- * * `frames` - Frames
- * * `result` - Result
- */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
-
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
-    Result: 'result',
-} as const
-
 export interface FrameMetaApi {
     /**
      * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -10473,9 +10519,9 @@ export interface CachedTileResultApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
 }
@@ -11091,9 +11137,9 @@ export interface DashboardStreamCachedTileApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */

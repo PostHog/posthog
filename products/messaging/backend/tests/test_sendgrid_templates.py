@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import tracemalloc
@@ -21,7 +22,8 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             assert convert_version({"subject": case["source"]}).subject == case["liquid"]
         else:
             converted = convert_version(
-                {"html_content": case["source"], "generate_plain_content": False, "plain_content": "p"}
+                {"html_content": case["source"], "generate_plain_content": False, "plain_content": "p"},
+                generation=case.get("generation", "dynamic"),
             )
             assert converted.html == case["liquid"]
 
@@ -284,24 +286,174 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("a_value", "Dear -name-"),
-            ("a_body_tag", "<%body%>"),
-            ("an_unsubscribe_url", '<a href="<%asm_preferences_raw_url%>">Leave</a>'),
-            ("an_escaped_unsubscribe_link", "&lt;%asm_group_unsubscribe_url%&gt;"),
-            ("a_value_in_an_event_handler", '<a onclick="-x-">t</a>'),
-            ("a_body_tag_in_an_unclosed_title", "<title><%body%>"),
+            (
+                "a_value",
+                "Dear -first_name-,",
+                'Dear {% if variables.first_name == nil %}-first_name-{% else %}{{ variables.first_name | join: "," }}'
+                "{% endif %},",
+            ),
+            (
+                "a_link_url",
+                "<a href='-reset_link-'>Reset</a>",
+                "<a href='{% if variables.reset_link == nil %}-reset_link-{% else %}{{ variables.reset_link | "
+                'join: "," }}{% endif %}\'>Reset</a>',
+            ),
+            (
+                "part_of_a_url",
+                '<img src="/i/-hero-.png">',
+                '<img src="/i/{% if variables.hero == nil %}-hero-{% else %}{{ variables.hero | join: &quot;,&quot; }}{% endif %}'
+                '.png">',
+            ),
+            ("hyphenated_words", "a well-known-fact --x-- -a-b-", "a well-known-fact --x-- -a-b-"),
+            ("a_body_tag", "<p>x{</p>{<%body%>", '<p>x{</p>{{ "{" }}{{ variables.body | raw }}'),
+            (
+                "an_unsubscribe_url",
+                '<a href="<%asm_preferences_raw_url%>">Leave</a>',
+                '<a href="{{ unsubscribe_url }}">Leave</a>',
+            ),
+            (
+                "an_escaped_unsubscribe_link",
+                "&lt;%asm_group_unsubscribe_url%&gt;",
+                '<a href="{{ unsubscribe_url }}">Unsubscribe From This List</a>',
+            ),
+            (
+                "a_value_after_the_body_html",
+                '<%body%><img alt="-x-">',
+                '{{ variables.body | raw }}<img alt="{% if variables.x == nil %}-x-{% else %}{{ variables.x | '
+                'join: &quot;,&quot; | escape | replace: &quot;=&quot;, &quot;&amp;#x3D;&quot; | replace: &quot;`&quot;, &quot;&amp;#x60;&quot; | raw }}{% endif %}">',
+            ),
+        ]
+    )
+    def test_a_legacy_template_converts_what_the_app_fills(self, _name: str, html: str, expected: str) -> None:
+        converted = convert_version(
+            {"subject": "<%subject%>", "html_content": html, "plain_content": "Hi <%body%>"}, generation="legacy"
+        )
+
+        assert converted.html == expected
+        assert converted.subject == '{{ variables.subject | join: "," }}'
+        assert not any("can't convert" in note for note in converted.notes)
+        assert any("another style" in note for note in converted.notes)
+        assert "subject" in " ".join(converted.send_notes)
+
+    @parameterized.expand(
+        [
+            ("an_event_handler", '<a onclick="-x-">t</a>'),
+            ("a_style_block", "<style>-x- <%body%></style>"),
+            ("an_unclosed_title", "<title><%body%>"),
+            ("after_a_script", "<script>1</script><%body%>"),
+            ("a_comment", "<!-- <%body%>"),
+            ("an_attribute", '<a title="<%body%>">t</a>'),
             ("liquid", "<title>{{ person.properties.secret }}</title><!-- {% x %} -->"),
         ]
     )
-    def test_a_legacy_template_stays_as_text(self, _name: str, html: str) -> None:
+    def test_a_legacy_template_keeps_what_is_not_safe_there_as_text(self, _name: str, html: str) -> None:
         converted = convert_version(
-            {"subject": "<%subject%>", "html_content": html, "generate_plain_content": False}, generation="legacy"
+            {"subject": "", "html_content": html, "generate_plain_content": False}, generation="legacy"
         )
 
-        assert "variables." not in converted.html + converted.subject
-        assert "{{ unsubscribe_url }}" not in converted.html
+        assert "variables." not in converted.html
         assert "{{ " not in converted.html.replace("{% raw %}{{ ", "")
-        assert "legacy template" in " ".join(converted.notes)
+
+    @parameterized.expand(
+        [
+            ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
+            ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
+            ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
+            (
+                "next_to_one_that_converts",
+                "legacy",
+                "<i><%asm_preferences_raw_url%></i><a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>",
+            ),
+            (
+                "after_something_like_a_comment",
+                "legacy",
+                '<a title="a <!-- b">x</a><a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>',
+            ),
+            ("url_encoded_braces", "dynamic", '<a href="%7B%7B%7Bunsubscribe%7D%7D%7D">Leave</a>'),
+            ("url_encoded", "legacy", '<a href="%3C%25asm_group_unsubscribe_raw_url%25%3E">Leave</a>'),
+            ("handlebars_in_a_legacy_template", "legacy", '<a href="{{{unsubscribe}}}">Leave</a>'),
+            ("another_tag", "legacy", '<a href="<%unsubscribe%>">Leave</a>'),
+            ("malformed_tag", "dynamic", '{{#if a}}<a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>'),
+        ]
+    )
+    def test_a_lost_unsubscribe_link_is_said_clearly(self, _name: str, generation: str, html: str) -> None:
+        converted = convert_version({"html_content": html}, generation=generation)
+
+        assert "unsubscribe link didn't convert" in " ".join(converted.notes)
+
+    @parameterized.expand([("legacy",), ("dynamic",)])
+    def test_a_lost_unsubscribe_link_in_a_plain_text_only_version_is_said_clearly(self, generation: str) -> None:
+        converted = convert_version(
+            {"plain_content": "Leave: %3C%25asm_group_unsubscribe_raw_url%25%3E"}, generation=generation
+        )
+
+        assert "unsubscribe link didn't convert" in " ".join(converted.notes)
+
+    @parameterized.expand(
+        [
+            ("a_value_the_app_passes", "legacy", '<a href="-unsubscribe_link-">Leave</a>'),
+            ("a_dynamic_value", "dynamic", '<a href="{{unsubscribe_link}}">Leave</a>'),
+            ("a_nested_dynamic_value", "dynamic", '<a href="{{links.unsubscribe}}">Leave</a>'),
+            ("a_markdown_link", "dynamic", "<p>[Unsubscribe](https://example.com/u)</p>"),
+        ]
+    )
+    def test_a_working_unsubscribe_link_is_not_reported_lost(self, _name: str, generation: str, html: str) -> None:
+        converted = convert_version({"html_content": html}, generation=generation)
+
+        assert not any("link didn't convert" in note for note in converted.notes)
+
+    def test_plain_text_keeps_the_url_of_a_link_whose_conditions_are_whole(self) -> None:
+        converted = convert_version(
+            {"html_content": '<a href="https://example.com/a">Hi -name-</a>'}, generation="legacy"
+        )
+
+        assert converted.text.endswith("{% endif %} (https://example.com/a)")
+        converted = convert_version({"html_content": "<a href='-link-'>Go</a>"}, generation="legacy")
+        assert converted.text.startswith("Go ({% if variables.link == nil %}-link-{% else %}")
+
+    @parameterized.expand(
+        [
+            ("triple", "{{{first_name}}}"),
+            ("ampersand", "{{& first_name}}"),
+            ("insert", '{{{insert first_name "default=x"}}}'),
+            ("in_a_loop", "{{#each tags}}{{{this}}}{{/each}}"),
+        ]
+    )
+    def test_a_contact_field_never_prints_html(self, _name: str, html: str) -> None:
+        unescaped = re.compile(r"(?:join: \",\"|default: \"x\") \| raw \}\}")
+        assert unescaped.search(convert_version({"html_content": html}).html)
+        converted = convert_version({"html_content": html}, contact_fields=True)
+
+        assert "person.properties." in converted.html
+        assert not unescaped.search(converted.html)
+
+    @parameterized.expand(
+        [
+            ("single_send", True, "person.properties"),
+            ("dynamic", False, "variables"),
+        ]
+    )
+    def test_contact_fields_read_the_person_and_a_send_reads_its_variables(
+        self, _name: str, contact_fields: bool, root: str
+    ) -> None:
+        converted = convert_version(
+            {
+                "subject": "Hi {{first_name}}",
+                "html_content": "<p>{{#if Plan}}{{Plan}}{{/if}} {{#if Sender_Name}}{{Sender_Name}}{{/if}} {{{unsubscribe}}}</p>",
+                "generate_plain_content": False,
+                "plain_content": "{{Plan}}",
+            },
+            contact_fields=contact_fields,
+        )
+
+        assert converted.subject == f'Hi {{{{ {root}.first_name | join: "," }}}}'
+        assert f'{{{{ {root}.Plan | join: "," }}}}' in converted.html
+        assert f"{{% if {root}.Plan" in converted.html
+        assert "{% if variables.Sender_Name" in converted.html
+        assert "{{ variables.Sender_Name" in converted.html
+        assert "{{ unsubscribe_url }}" in converted.html
+        assert converted.text == f'{{{{ {root}.Plan | join: "," }}}}'
+        assert any("print the person's property" in note for note in converted.send_notes) == contact_fields
 
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (

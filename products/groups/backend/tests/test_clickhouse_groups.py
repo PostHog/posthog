@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 import orjson
@@ -30,7 +31,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature, GroupTypeIndex
+from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature, GroupTypeIndex
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
@@ -54,7 +55,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.facade.api import create_group_type_detail_dashboard
-from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
+from products.groups.backend.presentation.views import (
+    GroupTypeMetadataUpdateRequestSerializer,
+    _decode_groups_cursor,
+    _encode_groups_cursor,
+)
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -1899,6 +1904,29 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
         self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
+    @parameterized.expand(["update_metadata", "update_metadata_for_agents"])
+    def test_update_metadata_rejects_more_rows_than_group_types(self, action: str) -> None:
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
+        rows = [{"group_type_index": 0, "name_singular": "org"}] * (GROUP_TYPES_LIMIT + 1)
+        body = rows if action == "update_metadata" else {"updates": rows}
+
+        response = self.client.patch(f"{self.url}/{action}", body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_metadata_for_agents_accepts_object_body(self):
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
+
+        response = self.client.patch(
+            self.url + "/update_metadata_for_agents",
+            {"updates": [{"group_type_index": 0, "name_singular": "workspace", "name_plural": "workspaces"}]},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["name_singular"], "workspace")
+        self.assertEqual(response.json()[0]["name_plural"], "workspaces")
+
     def test_destroy_invalidates_cache(self):
         create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
@@ -2919,3 +2947,14 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             for change in entry["detail"]["changes"]
         ]
         self.assertEqual([change["after"] for change in changes], [expected_after])
+
+
+class TestGroupTypeMetadataUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand([("at_limit", GROUP_TYPES_LIMIT, True), ("over_limit", GROUP_TYPES_LIMIT + 1, False)])
+    def test_caps_updates_at_group_types_limit(self, _name: str, count: int, expected_valid: bool) -> None:
+        serializer = GroupTypeMetadataUpdateRequestSerializer(
+            data={"updates": [{"group_type_index": 0, "name_singular": "org"}] * count}
+        )
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            assert serializer.errors["updates"][0].code == "max_length"

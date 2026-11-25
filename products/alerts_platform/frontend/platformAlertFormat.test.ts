@@ -6,13 +6,17 @@ import {
 } from './generated/api.schemas'
 import {
     PlatformAlertConfigurationStatus,
+    PlatformAlertListRow,
     PlatformAlertStateCount,
+    configurationListRows,
     configurationStateCounts,
     configurationStatus,
     describeCondition,
+    describeGroup,
     describeInterval,
     describeOverflow,
     describeSchedule,
+    listRowMute,
     groupLabels,
     ruleMetadataEntriesError,
 } from './platformAlertFormat'
@@ -92,6 +96,73 @@ describe('platformAlertFormat', () => {
         ],
     ])('configurationStatus: %s', (_, overrides, expected) => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test('configurationListRows puts the groups of an open alert under it and leaves a closed alert as one row', () => {
+        const groups = [makeAlert(PlatformAlertStateApi.Firing), makeAlert(PlatformAlertStateApi.NotFiring)]
+        const open = makeConfiguration({ id: 'open', alerts: groups })
+        const closed = makeConfiguration({ id: 'closed', alerts: groups })
+        expect(configurationListRows([open, closed], ['open'])).toEqual([
+            { kind: 'alert', configuration: open },
+            { kind: 'group', configuration: open, group: groups[0] },
+            { kind: 'group', configuration: open, group: groups[1] },
+            { kind: 'alert', configuration: closed },
+        ])
+    })
+
+    test('configurationListRows keeps an open alert closed once it has one group left, as it has no toggle', () => {
+        const single = makeConfiguration({ id: 'single', alerts: [makeAlert(PlatformAlertStateApi.Firing)] })
+        expect(configurationListRows([single], ['single'])).toEqual([{ kind: 'alert', configuration: single }])
+    })
+
+    test.each<[string, Partial<PlatformAlertApi>, string]>([
+        [
+            'labels in grouping order',
+            { labels: { severity_text: 'error', service_name: 'checkout' } },
+            'service_name=checkout severity_text=error',
+        ],
+        ['no labels falls back to the key', { grouping_key: 'sha256:abc', labels: {} }, 'sha256:abc'],
+        ['no key', { grouping_key: '' }, 'Ungrouped'],
+    ])('describeGroup: %s', (_, overrides, expected) => {
+        const alert = { ...makeAlert(PlatformAlertStateApi.Firing), ...overrides }
+        expect(describeGroup(alert, ['service_name', 'severity_text'])).toEqual(expected)
+    })
+
+    test.each<[string, string | null, (string | null)[], number | null, ReturnType<typeof listRowMute>]>([
+        [
+            'alert snooze in the future',
+            '2026-10-06T00:00:00Z',
+            [null],
+            null,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
+        ['alert snooze in the past', '2026-10-04T00:00:00Z', [null], null, null],
+        [
+            'two of three groups snoozed',
+            null,
+            ['2026-10-06T00:00:00Z', null, '2026-10-07T00:00:00Z'],
+            null,
+            { kind: 'groupsSnoozed', count: 2 },
+        ],
+        [
+            'group row with its own snooze',
+            null,
+            ['2026-10-06T00:00:00Z'],
+            0,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
+        ['group row with an expired snooze', null, ['2026-10-04T00:00:00Z'], 0, null],
+    ])('listRowMute: %s', (_, alertSnooze, groupSnoozes, groupIndex, expected) => {
+        const alerts = groupSnoozes.map((snooze_until) => ({
+            ...makeAlert(PlatformAlertStateApi.Firing),
+            snooze_until,
+        }))
+        const configuration = makeConfiguration({ snooze_until: alertSnooze, alerts })
+        const row: PlatformAlertListRow =
+            groupIndex === null
+                ? { kind: 'alert', configuration }
+                : { kind: 'group', configuration, group: alerts[groupIndex] }
+        expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

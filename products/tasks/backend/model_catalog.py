@@ -165,6 +165,7 @@ _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
 _KIMI_K31_PRO_COST = ModelCost(2, 10)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
+_DEEPSEEK_V4_1_FLASH_COST = ModelCost(0.3, 1.2)
 _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
@@ -206,6 +207,14 @@ MODELS: tuple[CatalogModel, ...] = (
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
         cost=_DEEPSEEK_COST,
+        retired=True,
+    ),
+    CatalogModel(
+        "deepseek-ai/deepseek-v4.1-flash-1017",
+        CLAUDE,
+        _NO_EFFORT,
+        label="DeepSeek V4.1 Flash",
+        cost=_DEEPSEEK_V4_1_FLASH_COST,
     ),
     CatalogModel(
         "deepseek-ai/deepseek-v4.1-flash-1017-fast",
