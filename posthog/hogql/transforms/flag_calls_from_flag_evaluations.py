@@ -1157,8 +1157,13 @@ class _FeaturePropertyFinder(SyntaxVisitor):
             return None
         column = self.scan.column(expr)
         # A qualified read such as `e.properties` names the scan column, whatever a select alias is called.
-        unqualified = isinstance(expr, ast.Field) and str(expr.chain[0]) == str(column[0]) if column else False
-        if unqualified and column[0] in self.aliases and column[0] not in followed:
+        if (
+            column
+            and isinstance(expr, ast.Field)
+            and str(expr.chain[0]) == str(column[0])
+            and column[0] in self.aliases
+            and column[0] not in followed
+        ):
             source = self._column(self.aliases[str(column[0])], followed | {str(column[0])})
             if source is not None:
                 return [*source, *column[1:]]
