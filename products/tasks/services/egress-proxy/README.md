@@ -358,7 +358,7 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 
 `internal/gitread` implements the first credential-aware adapter. It is a library;
 the deployed request listener still serves only the probe.
-Worker mint/refresh integration and route wiring must land before a sandbox can use it.
+Route wiring must land before a sandbox can use it.
 
 ```text
 Verified run + repository -> read grant -> GitHub HTTPS with injected token
@@ -412,7 +412,29 @@ They do not prove worker publication, cloud transport or sandbox credential remo
 The existing Django encrypted field protects the payload at rest in the regional database.
 The trusted worker must authorize the repository, resolve the correct actor's token, and supply a validity deadline no later than the upstream token's expiry.
 Publication accepts at most one hour of validity; it does not infer expiry from token prefixes or change the minting identity.
-No worker calls it yet.
+Set `publish_git_read_grant: true` in the regional enrollment config to publish grants
+for read-only runs with exactly one pinned repository. It is off by default.
+The worker uses the team's GitHub installation, scopes the token to that repository's
+contents and metadata, and keeps GitHub's actual expiry. It does not reuse the legacy
+token cache, which does not store expiry.
+
+Enrollment publishes the first grant. The existing GitHub credential refresh activity
+rotates it, reading the live execution from run state. Publication checks authority
+again after minting; a delayed refresh cannot overwrite a newer grant or a withdrawal.
+The execution keeps the opt-in separately, so refresh can retry first publication
+after a temporary owner lookup failure. A withdrawn grant stays withdrawn.
+A failed refresh emits `agent_egress_git_refresh_failed` without token values and leaves
+the previous grant valid only until its original expiry. Ineligible runs receive no
+grant. Losing the repository or integration clears the existing grant at refresh.
+
+This opt-in only exercises worker publication. Sandbox tokens and Git routing stay
+on their existing path; initial enrollment still follows cloning and agent launch.
+Initial publication runs in its own activity while the workflow renews the execution lease.
+Slow minting does not suspend renewal; cancellation or loss of authority stops publication and closes the execution.
+If optional publication exhausts its retries, enrollment continues without a Git grant and the existing refresh activity can retry later.
+Public sandbox repositories need no token; GitHub's rejection of a repository scope leaves it without a grant.
+Before removing guest credentials, enrollment and grant publication must precede
+the first clone, and Git must use a renewable run capability through the adapter.
 
 ```text
 Worker: publish(version, previous_version, repository, token, expiry)
@@ -439,10 +461,10 @@ Rotating the lookup JWT does not reset the budget. Exhaustion returns `429` with
 The Go client refuses HTTP and redirects, checks the returned binding, and distinguishes denial from unavailability.
 Neither endpoint nor client mints an upstream token.
 
-This slice supplies storage, a worker publication interface and a proxy client.
+This slice supplies storage, opted-in worker publication and a proxy client.
 It does not mount the adapter, provision the service key, or remove sandbox credentials.
 The credential client requires a verified TLS path to Django; the metadata client's optional cluster HTTP path does not apply.
-Before serving Git traffic, wire refresh into the existing worker lifecycle and maintain proxy state within its lease without a database lookup for every Git request.
+Before serving Git traffic, maintain proxy state within its lease without a database lookup for every Git request.
 
 ## Registration and time
 

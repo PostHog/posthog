@@ -45,6 +45,10 @@ class GitGrantConflict(ValueError):
     pass
 
 
+class GitGrantInvalidCredential(ValueError):
+    pass
+
+
 class GitGrantUnavailable(RuntimeError):
     pass
 
@@ -70,7 +74,7 @@ class AgentEgressGitGrants:
                 raise ValueError("Execution registration is not active")
             now = timezone.now()
             if not now < credential.expires_at <= now + timedelta(hours=1):
-                raise ValueError("Git credential must expire within one hour")
+                raise GitGrantInvalidCredential("Git credential must expire within one hour")
             payload = {
                 "repository": credential.repository,
                 "token": credential.token.get_secret_value(),

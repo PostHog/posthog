@@ -9,13 +9,13 @@ from datetime import timedelta
 from inspect import unwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -27,13 +27,15 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION
 from products.tasks.backend.logic.services.agent_egress_enrollment import (
     AgentEgressEnrollmentConfig,
     AgentEgressRunConfig,
 )
+from products.tasks.backend.logic.services.agent_egress_git import AgentEgressGitGrants, GitGrantUnavailable
 from products.tasks.backend.logic.services.agent_egress_lifecycle import (
     STATE_KEY,
     AgentEgressLifecycle,
@@ -55,6 +57,7 @@ from products.tasks.backend.temporal.process_task.activities.agent_egress import
     _prepare,
     _probe,
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     renew_agent_egress,
 )
 
@@ -260,7 +263,7 @@ class TestAgentEgressLifecycle(TestCase):
             execution_id=execution_id or self.execution_id
         )
 
-    def enroll_run(self) -> FakeProbe:
+    def enroll_run(self, *, publish_git_read_grant: bool = False) -> FakeProbe:
         sandbox = FakeProbe()
         self.probes[sandbox.id] = sandbox
         TaskRun.update_state_atomic(self.task_run.id, updates={"sandbox_id": sandbox.id, "sandbox_backend": "modal"})
@@ -276,6 +279,7 @@ class TestAgentEgressLifecycle(TestCase):
                 client_ca_key_file=self.config.client_ca_key_file,
                 renew_relay_certificate=self.config.renew_relay_certificate,
                 maintain_for_run=self.config.maintain_for_run,
+                publish_git_read_grant=publish_git_read_grant,
                 duration_seconds=self.config.duration_seconds,
             ).model_dump_json()
         )
@@ -290,6 +294,86 @@ class TestAgentEgressLifecycle(TestCase):
         )
         self.config = AgentEgressRunConfig.for_run(team_id=self.team.id, run_id=self.task_run.id, sandbox_id=sandbox.id)
         return sandbox
+
+    @parameterized.expand([("disabled", False), ("enabled", True), ("registry_read", True), ("grant_write", True)])
+    def test_enrollment_publishes_git_only_when_opted_in(self, outcome: str, enabled: bool) -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            config={"installation_id": 123, "account": {"name": "example", "type": "Organization"}},
+        )
+        TaskRun.update_state_atomic(
+            self.task_run.id, updates={"github_read_access": True, "repositories": ["example/repo"]}
+        )
+        sandbox = self.enroll_run(publish_git_read_grant=enabled)
+        input = AgentEgressExecutionInput(
+            probe=AgentEgressProbeInput(
+                config_path="",
+                team_id=self.team.id,
+                run_id=str(self.task_run.id),
+                sandbox_id=sandbox.id,
+                enrollment=True,
+            ),
+            execution_id=str(self.execution_id),
+            provisioning_deadline=timezone.now().timestamp() + 180,
+        )
+        response = MagicMock(status_code=201)
+        response.json.return_value = {
+            "token": "synthetic-enrollment-token",
+            "expires_at": (timezone.now() + timedelta(minutes=40)).isoformat(),
+        }
+        with (
+            patch.object(GitHubIntegrationBase, "client_request", return_value=response) as client,
+            patch("products.tasks.backend.temporal.process_task.activities.agent_egress.activity.info") as info,
+        ):
+            info.return_value.workflow_run_id = "workflow-a"
+            prepared = unwrap(_prepare)(input)
+            self.assertEqual(prepared.publish_git_read_grant, enabled)
+            self.assertIsNone(
+                AgentEgressGitGrants(region="test-us").lookup(
+                    team_id=self.team.id,
+                    run_id=self.task_run.id,
+                    execution_id=self.execution_id,
+                    repository="example/repo",
+                )
+            )
+            if outcome in ("registry_read", "grant_write"):
+
+                def unavailable(
+                    execute: Callable[..., Any], sql: str, params: Any, many: bool, context: dict[str, Any]
+                ) -> Any:
+                    if "posthog_agent_egress_registration" in sql and (
+                        (outcome == "registry_read" and sql.startswith("SELECT"))
+                        or (outcome == "grant_write" and sql.startswith("UPDATE") and '"git_read_grant"' in sql)
+                    ):
+                        raise OperationalError("synthetic-private-storage-error")
+                    return execute(sql, params, many, context)
+
+                with (
+                    connection.execute_wrapper(unavailable),
+                    self.assertRaisesRegex(GitGrantUnavailable, "^Git grant storage unavailable$"),
+                ):
+                    unwrap(initialize_agent_egress_git_grant)(input)
+                self.assertIsNone(self.registration().git_read_grant)
+                self.controller().renew()
+                self.assertEqual(self.controller().probe(), {204: self.config.requests_per_round})
+            unwrap(initialize_agent_egress_git_grant)(input)
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["publish_git_read_grant"], enabled)
+        grant = AgentEgressGitGrants(region="test-us").lookup(
+            team_id=self.team.id,
+            run_id=self.task_run.id,
+            execution_id=self.execution_id,
+            repository="example/repo",
+        )
+        if enabled:
+            assert grant is not None
+            self.assertEqual(grant[1].token.get_secret_value(), "synthetic-enrollment-token")
+        else:
+            self.assertIsNone(grant)
+            client.assert_not_called()
+        self.assertNotIn("synthetic-enrollment-token", repr(input) + repr(prepared))
 
     @parameterized.expand([("development",), ("staging",), ("enrollment",)])
     def test_new_worker_renews_and_refreshes_the_existing_execution(self, environment: str) -> None:
@@ -418,10 +502,15 @@ class TestAgentEgressLifecycle(TestCase):
             self.assertEqual(len(probe.certificates), 2)
         self.controller().close(reason="failed", sandbox_id=sandbox_id)
 
-    def test_existing_config_hash_can_renew_without_certificate_opt_in(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_existing_config_hash_can_renew_without_certificate_opt_in(self, enrollment: bool) -> None:
+        if enrollment:
+            self.enroll_run()
         self.controller().prepare()
         self.task_run.refresh_from_db()
-        legacy_config = self.config.model_dump_json(exclude={"renew_relay_certificate", "maintain_for_run"})
+        legacy_config = self.config.model_dump_json(
+            exclude={"renew_relay_certificate", "maintain_for_run", "publish_git_read_grant"}
+        )
         state = dict(self.task_run.state[STATE_KEY])
         state["config_sha256"] = hashlib.sha256(legacy_config.encode()).hexdigest()
         state.pop("certificate_refresh_at")
