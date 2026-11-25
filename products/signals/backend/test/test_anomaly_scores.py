@@ -600,8 +600,9 @@ class TestFormulaBreakdownScoring(ClickhouseTestMixin, BaseTest):
         scored = {series.breakdown_value: series.points for series in scores.series}
         # The top 10 on visits and purchases together leaves out shop_9, the value with the fewest events.
         assert set(scored) == set(visits_and_purchases) - {"shop_9"}
-        for shop, points in scored.items():
-            visits, purchases = visits_and_purchases[shop]
+        for breakdown_value, points in scored.items():
+            assert breakdown_value is not None
+            visits, purchases = visits_and_purchases[breakdown_value]
             assert [(point.bucket_start.date(), point.value) for point in points if point.value] == [
                 (day, visits / purchases) for day in days
             ]
