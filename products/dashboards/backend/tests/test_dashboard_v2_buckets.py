@@ -386,6 +386,18 @@ class TestCheckBucketed(SimpleTestCase):
                 "joins tables",
             ),
             (
+                "strict_lower_bound",
+                "SELECT toStartOfHour(timestamp) AS t, count() FROM events "
+                "WHERE timestamp > {filters.dateRange.from} AND timestamp < {filters.dateRange.to} GROUP BY t",
+                "timestamp >= from",
+            ),
+            (
+                "inclusive_upper_bound",
+                "SELECT toStartOfHour(timestamp) AS t, count() FROM events "
+                "WHERE timestamp >= {filters.dateRange.from} AND timestamp <= {filters.dateRange.to} GROUP BY t",
+                "timestamp >= from",
+            ),
+            (
                 "shifted_date_bound",
                 "SELECT toStartOfHour(timestamp) AS t, count() FROM events WHERE {filters} "
                 "AND timestamp < {filters.dateRange.from} + INTERVAL 1 HOUR GROUP BY t",

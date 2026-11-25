@@ -205,14 +205,8 @@ class _Scan(TraversingVisitor):
                 and isinstance(right, ast.Placeholder)
                 and right.chain is not None
                 and (
-                    (
-                        list(right.chain) == ["filters", "dateRange", "from"]
-                        and node.op in (ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt)
-                    )
-                    or (
-                        list(right.chain) == ["filters", "dateRange", "to"]
-                        and node.op in (ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq)
-                    )
+                    (list(right.chain) == ["filters", "dateRange", "from"] and node.op == ast.CompareOperationOp.GtEq)
+                    or (list(right.chain) == ["filters", "dateRange", "to"] and node.op == ast.CompareOperationOp.Lt)
                 )
             ):
                 self._canonical_bounds.add(id(right))
