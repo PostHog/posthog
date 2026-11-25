@@ -174,6 +174,16 @@ class TestIntegrationsTasks(APIBaseTest):
                 "TOKEN_REFRESH_FAILED",
                 "REFRESH",
             ),
+            (
+                "retries_on_every_sweep_when_tasks_start_late_and_time_out",
+                {},
+                [READ_TIMEOUT] * 9 + [ATLASSIAN_ROTATES],
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                "",
+                "ROTATED",
+                25,
+                10,
+            ),
         ]
     )
     def test_jira_refresh_retries_a_lost_rotation_on_every_sweep_inside_the_reuse_window(
@@ -184,6 +194,8 @@ class TestIntegrationsTasks(APIBaseTest):
         expected_attempt_minutes: list[int],
         expected_errors: str,
         expected_refresh_token: str,
+        queue_wait_seconds: int = 0,
+        read_timeout_seconds: int = 0,
     ) -> None:
         start = 1795442400  # 2026-11-23T14:00:00Z
         attempt_minutes: list[int] = []
@@ -202,11 +214,18 @@ class TestIntegrationsTasks(APIBaseTest):
             elif answer is READ_TIMEOUT or (isinstance(answer, tuple) and answer[0] >= 500):
                 lost_rotation_at.append(time.time())
             if isinstance(answer, Exception):
+                if answer is READ_TIMEOUT:
+                    traveller.shift(timedelta(seconds=read_timeout_seconds))
                 raise answer
             status_code, body = answer
             res = MagicMock(status_code=status_code, text=json.dumps(body))
             res.json.return_value = body
             return res
+
+        def run_queued_refresh(*args: Any) -> None:
+            traveller.shift(timedelta(seconds=queue_wait_seconds))
+            for _ in range(2):
+                refresh_integration(*args)
 
         with (
             time_machine.travel(start, tick=False) as traveller,
@@ -214,15 +233,12 @@ class TestIntegrationsTasks(APIBaseTest):
             patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
             patch("posthog.models.integration.oauth.requests.post", side_effect=atlassian_token_endpoint),
             # Every refresh is queued twice, as a queue backlog does. The copy must not post again.
-            patch(
-                "posthog.tasks.integrations.refresh_integration.delay",
-                side_effect=lambda *args: [refresh_integration(*args) for _ in range(2)],
-            ),
+            patch("posthog.tasks.integrations.refresh_integration.delay", side_effect=run_queued_refresh),
         ):
             integration = self.create_integration("jira", config={"refreshed_at": start - 3600, **config})
-            for _ in range(15):
+            for minute in range(15):
+                traveller.move_to(start + minute * 60)
                 refresh_integrations()
-                traveller.shift(timedelta(minutes=1))
 
         assert attempt_minutes == expected_attempt_minutes
         integration.refresh_from_db()

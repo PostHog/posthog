@@ -50,8 +50,10 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 # leaves one sweep interval (60 seconds) of margin, so the last retry starts in time.
 JIRA_REFRESH_REUSE_WINDOW_SECONDS = 9 * 60
 
-# Shorter than the sweep interval, so the next sweep retries. Long enough that refresh tasks for the
-# same row that already wait in the queue skip the backoff check instead of each posting again.
+# Counted from the start of the failed request, not from when its timeout fired, so a task that
+# waited in the queue and then timed out still lets the next sweep retry. Shorter than the sweep
+# interval for the same reason. Long enough that refresh tasks for the same row that already wait in
+# the queue skip the backoff check instead of each posting again.
 JIRA_REUSE_WINDOW_RETRY_SECONDS = 30
 
 CONFIG_REUSE_WINDOW_STARTED_AT = "refresh_reuse_window_started_at"
@@ -181,7 +183,7 @@ def refresh_failure_patch(
         # The first failure of the streak is counted and the retries inside the window are not, so
         # the backoff after the window starts from its second step and not from the cap.
         count = max(count, 1)
-        next_attempt_at = now + JIRA_REUSE_WINDOW_RETRY_SECONDS
+        next_attempt_at = (response_lost_at or now) + JIRA_REUSE_WINDOW_RETRY_SECONDS
     else:
         count += 1
         next_attempt_at = now + min(REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS)
