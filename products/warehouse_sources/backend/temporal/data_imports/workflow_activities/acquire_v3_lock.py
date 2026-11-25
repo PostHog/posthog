@@ -13,6 +13,7 @@ from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team.team import Team
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -75,6 +76,9 @@ class AcquireV3LockActivityOutputs:
     # the logs and the metrics. Defaults False so a payload that predates the field reads as the
     # lock miss its history recorded.
     deferred: bool = False
+    # True when the run stood down because the team's organization is deactivated. Same skip as a
+    # lock miss for the workflow, so old workflow code that ignores the field still records no job.
+    organization_deactivated: bool = False
 
 
 @dataclasses.dataclass
@@ -103,6 +107,9 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         return AcquireV3LockActivityOutputs(acquired=False, token="")
 
     # Before the lock, so a stood-down run never takes one and never needs to release one.
+    if _organization_deactivated(inputs, logger):
+        return AcquireV3LockActivityOutputs(acquired=False, token=token, organization_deactivated=True)
+
     if _defer_failing_schema(inputs, logger):
         return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
 
@@ -128,6 +135,32 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     )
 
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
+
+
+def _organization_deactivated(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+    """Whether this run stands down because the team's organization is deactivated.
+
+    The run stops before it creates a job, so it calls no source, writes no status, sends no
+    billing or failure alert and adds nothing to the failure streak. Nothing is paused or
+    disabled, so the first run after reactivation syncs as before. Resets and manual syncs stop
+    too, because a deactivated organization must run nothing.
+
+    Only an explicit `is_active=False` counts. NULL means billing never set the state, and
+    such an organization keeps syncing.
+
+    False on any error, for the same reason as `_defer_failing_schema`. The next run checks again.
+    """
+    try:
+        is_active = Team.objects.filter(id=inputs.team_id).values_list("organization__is_active", flat=True).first()
+    except Exception as e:
+        logger.warning("data_import_organization_active_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return False
+
+    if is_active is not False:
+        return False
+
+    logger.info("data_import_run_skipped_organization_deactivated", schema_id=str(inputs.schema_id))
+    return True
 
 
 def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
