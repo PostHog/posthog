@@ -107,6 +107,16 @@ describe('timeSeriesFromFrames', () => {
 })
 
 describe('stableSeriesColors', () => {
+    it('gives series that come back together different colours after each was drawn alone', () => {
+        // `B:requests` and `C:value` hash to the same slot of a five-colour palette.
+        const assigned = new Map<string, string>()
+        stableSeriesColors(['B:requests'], PALETTE, assigned)
+        stableSeriesColors(['C:value'], PALETTE, assigned)
+        const colors = stableSeriesColors(['B:requests', 'C:value'], PALETTE, assigned)
+
+        expect(colors.get('B:requests')).not.toEqual(colors.get('C:value'))
+    })
+
     it('gives a new series a colour no drawn series has, even when older series used every colour', () => {
         const assigned = new Map<string, string>()
         stableSeriesColors(['old-1', 'old-2', 'old-3', 'old-4', 'old-5'], PALETTE, assigned)

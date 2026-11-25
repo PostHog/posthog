@@ -22,15 +22,15 @@ function hash(text: string): number {
     return [...text].reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 7)
 }
 
-/**
- * Picks a palette colour from each series' key rather than its position, so a series keeps its colour when another
- * target fails or returns more series. Two keys that hash to the same colour take the next free one, in key order.
- * `assigned` holds the colours given out before and is added to. A key found there keeps its colour, so a collision
- * resolved on one refresh is not resolved differently when the other key is missing from the next one.
- */
 // Series names can change on every refresh, so only this many colours are kept for keys that are no longer drawn.
 export const MAX_REMEMBERED_COLORS = 500
 
+/**
+ * Picks a palette colour from each series' key rather than its position, so a series keeps its colour when another
+ * target fails or returns more series. `assigned` holds the colours given out before and is added to. A key keeps its
+ * remembered colour unless an earlier key drawn alongside it holds that colour. Keys without one take their hashed
+ * slot, or the next free one, in key order.
+ */
 export function stableSeriesColors(
     keys: string[],
     palette: string[],
@@ -40,11 +40,17 @@ export function stableSeriesColors(
     if (palette.length === 0) {
         return colors
     }
-    const taken = new Set(keys.map((key) => palette.indexOf(assigned.get(key) ?? '')).filter((slot) => slot >= 0))
-    for (const key of [...keys].sort()) {
-        const previous = assigned.get(key)
-        if (previous !== undefined && palette.includes(previous)) {
-            colors.set(key, previous)
+    const sorted = [...new Set(keys)].sort()
+    const taken = new Set<number>()
+    for (const key of sorted) {
+        const slot = palette.indexOf(assigned.get(key) ?? '')
+        if (slot >= 0 && !taken.has(slot)) {
+            taken.add(slot)
+            colors.set(key, palette[slot])
+        }
+    }
+    for (const key of sorted) {
+        if (colors.has(key)) {
             continue
         }
         let slot = hash(key) % palette.length
