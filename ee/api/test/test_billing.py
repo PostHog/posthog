@@ -1075,6 +1075,17 @@ class TestPortalBillingAPI(APILicensedTest):
         )
 
 
+ORGANIZATION_SCOPED_BILLING_READS = [
+    ("", "get_billing", {"products": [], "available_product_features": []}),
+    ("get_invoices", "get_invoices", {"portal_url": None, "count": 0}),
+    ("credits/overview", "credits_overview", {"eligible": False}),
+    ("coupons/overview", "coupons_overview", {"claimed_coupons": []}),
+    ("usage", "get_usage_data", {"results": []}),
+    ("spend", "get_spend_data", {"results": []}),
+    ("usage/team_options", "get_usage_team_options", {"team_id_options": []}),
+]
+
+
 class TestActivateBillingAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
@@ -1285,8 +1296,11 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.json()["detail"] == "This action does not support personal API key access"
         manager.assert_not_called()
 
-    @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    def test_payment_refresh_reads_original_organization_after_current_team_changes(self, manager: MagicMock) -> None:
+    @parameterized.expand(ORGANIZATION_SCOPED_BILLING_READS)
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_explicit_organization_read_ignores_current_team_change(
+        self, path: str, manager_method: str, manager_response: Any, _flag: MagicMock
+    ) -> None:
         organization = Organization.objects.create(name="Another organization")
         team = Team.objects.create(organization=organization, name="Another project")
         OrganizationMembership.objects.create(
@@ -1295,10 +1309,26 @@ class TestActivateBillingAPI(APILicensedTest):
         self.user.current_team = team
         self.user.current_organization = organization
         self.user.save()
-        manager.return_value = {"products": [], "available_product_features": []}
-        response = self.client.get("/api/billing", {"organization_id": str(self.organization.id)})
+
+        with patch.object(BillingManager, manager_method, return_value=manager_response) as manager:
+            response = self.client.get(f"/api/billing/{path}", {"organization_id": str(self.organization.id)})
+
         assert response.status_code == status.HTTP_200_OK
-        manager.assert_called_once_with(self.organization, {})
+        manager.assert_called_once()
+        assert manager.call_args.args[0] == self.organization
+
+    @parameterized.expand(ORGANIZATION_SCOPED_BILLING_READS)
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_explicit_organization_read_refuses_organization_user_is_not_in(
+        self, path: str, manager_method: str, manager_response: Any, _flag: MagicMock
+    ) -> None:
+        foreign_organization = Organization.objects.create(name="Foreign organization")
+
+        with patch.object(BillingManager, manager_method, return_value=manager_response) as manager:
+            response = self.client.get(f"/api/billing/{path}", {"organization_id": str(foreign_organization.id)})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_not_called()
 
     @parameterized.expand(["", "@current", "invalid"])
     def test_explicit_billing_refresh_rejects_invalid_organization(self, organization_id: str) -> None:

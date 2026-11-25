@@ -644,8 +644,14 @@ class BillingPaymentOrganizationSerializer(serializers.Serializer):
         return value
 
 
-class BillingOverviewRequestSerializer(serializers.Serializer):
-    organization_id = serializers.UUIDField(required=False, help_text="Explicit organization to refresh after payment.")
+class BillingOrganizationScopeSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(
+        required=False,
+        help_text="Organization to read. Defaults to the organization of the user's current project.",
+    )
+
+
+class BillingOverviewRequestSerializer(BillingOrganizationScopeSerializer):
     include_forecasting = OptionalBooleanField(required=False, help_text="Whether to include usage forecasting.")
 
 
@@ -701,9 +707,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     force_include_in_api_docs = True
 
     payment_actions = {"activate", "authorize", "authorize_status"}
+    organization_scoped_read_actions = {
+        "list",
+        "get_invoices",
+        "credits_overview",
+        "coupons_overview",
+        "usage",
+        "usage_team_options",
+        "spend",
+        "usage_export",
+        "spend_export",
+    }
+
+    def _is_organization_scoped_read(self, request: Request) -> bool:
+        return self.action in self.organization_scoped_read_actions and "organization_id" in request.query_params
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
+        scoped_billing_read = self._is_organization_scoped_read(request)
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
         )
@@ -933,6 +953,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return redirect(invoices_url)
         return redirect(res)
 
+    @extend_schema(parameters=[BillingOrganizationScopeSerializer])
     @action(methods=["GET"], detail=False, permission_classes=[permissions.IsAuthenticated, HasBillingAccess])
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -972,6 +993,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(parameters=[BillingOrganizationScopeSerializer])
     @action(methods=["GET"], detail=False, url_path="credits/overview")
     def credits_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -1239,6 +1261,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(parameters=[BillingOrganizationScopeSerializer])
     @action(methods=["GET"], detail=False, url_path="coupons/overview")
     def coupons_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -1250,7 +1273,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
-    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @extend_schema(parameters=[BillingUsageRequestSerializer, BillingOrganizationScopeSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -1261,6 +1284,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
 
+    @extend_schema(parameters=[BillingOrganizationScopeSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -1287,7 +1311,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             options = [team_id for team_id in options if team_id in scoped_team_id_set]
         return Response({"team_id_options": options}, status=status.HTTP_200_OK)
 
-    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @extend_schema(parameters=[BillingUsageRequestSerializer, BillingOrganizationScopeSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -1299,7 +1323,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Endpoint to fetch spend data (proxy to billing service)."""
         return self._usage_or_spend_response(request, self.get_billing_manager().get_spend_data)
 
-    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @extend_schema(parameters=[BillingUsageRequestSerializer, BillingOrganizationScopeSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -1311,7 +1335,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Download the usage breakdown as CSV, honouring the requested project cap."""
         return self._csv_export_response(request, self.get_billing_manager().get_usage_csv, "posthog_usage.csv")
 
-    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @extend_schema(parameters=[BillingUsageRequestSerializer, BillingOrganizationScopeSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -1561,9 +1585,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
-            if self.action in self.payment_actions or (
-                self.action == "list" and "organization_id" in self.request.query_params
-            ):
+            if self.action in self.payment_actions or self._is_organization_scoped_read(self.request):
                 return self.organization
             return self.team.organization
         except Exception:
