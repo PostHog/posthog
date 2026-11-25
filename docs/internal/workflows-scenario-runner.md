@@ -44,6 +44,15 @@ With several cards the exit code is the highest of their codes.
 Roles run against the dev `posthog` and `cyclotron_node` databases, and every reset deletes every unfinished job in `cyclotron_jobs`.
 Do not run cards on a box whose dev stack holds work you want to keep.
 
+**Several worktrees share one dev stack.**
+Every worktree starts its compose services under the one `posthog` project, so they share one Postgres, one Kafka and one ClickHouse.
+`hogli wait` only sees the stack its own worktree started, so from a second worktree the runner starts the stack again.
+
+- Start the stack from a worktree only through `main.ts run`, never with `hogli up` by hand. A service's compose definition holds the absolute paths of the worktree that runs `up`, so a plain `hogli up` from another worktree recreates the running `db` container and kills the migrations and connections of every other worktree on it.
+- The runner starts the compose services with `up --no-recreate`. A running container stays as it is, a stopped one starts, and a missing one is created. The runner prints the running services it kept.
+- So a change to a running service's compose definition, such as its image, its environment or a new port, is not applied, and the card tests the old service. To apply it while you hold the stack, recreate that service yourself before the run, from your worktree: `docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --force-recreate <service>`. `hogli down` does not do it, because it leaves the compose services running.
+- Before it starts a role, the runner waits up to 60 seconds for Postgres to answer with the migrated `posthog_hogfunctiontemplate` and `cyclotron_jobs` tables. When they are not there in time, the run stops with a `StackNotReadyError` that names the missing table, and exits 2.
+
 **Evidence** stays on the box, under `$XDG_CACHE_HOME/posthog-scenarios/<run id>/` (`~/.cache` when the variable is unset), outside the repository:
 
 | File              | Holds                                                                                                          |
@@ -625,9 +634,10 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - It takes a lock on its state directory, so one runner uses it at a time.
   - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
   - It refuses to start, exit 2, and names the command that stops each one, when a stranger runs: a CDP process without its marker, or another runner's roles. It also refuses while a port it needs is held, and while the events consumer group keeps a member it did not start.
-  - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
+  - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It changes the config's compose call to `up --no-recreate -d`, and refuses to start when hogli's config has no compose call it knows, so it never recreates a service another worktree runs. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
     - The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
     - The frontend, the `ingestion` unit and the tunnel unit are left out because no card uses them. The cards produce their events straight to the CDP events topic, and `ingestion` would race the migrations of a fresh database.
+  - It waits until Postgres has the migrated tables the roles read, as **Several worktrees share one dev stack** says.
   - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
 - **`reset` is complete.** It runs before every card, so a failed or crashed run never poisons the next. In order:
   1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.

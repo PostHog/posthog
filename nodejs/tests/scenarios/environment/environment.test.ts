@@ -1146,9 +1146,12 @@ describe('scenario environment', () => {
                 const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...saved.intents, ...flags.with].filter(
                     (unit) => !excluded.includes(unit)
                 )
+                const compose = 'docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml'
+                const composeShell = compose + ' up --pull always -d && echo "docker-compose ready" && ' + compose + ' logs --tail=100 -f'
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
-                    'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
+                    'procs:\\n  docker-compose:\\n    shell: ' + JSON.stringify(composeShell) + '\\n' +
+                        units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
                 )
             } else if (verb === 'up' && flags.d && flags.custom) {
                 if (stack.running) {
@@ -1160,6 +1163,10 @@ describe('scenario environment', () => {
                 const started = /^  (nodejs|frontend|ingestion|ngrok):/m.exec(fs.readFileSync(flags.custom, 'utf8'))
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
+                }
+                const composeUp = / up (.*?) -d /.exec(fs.readFileSync(flags.custom, 'utf8'))
+                if (composeUp?.[1] !== '--no-recreate') {
+                    fail('The config at ' + flags.custom + ' runs docker compose up ' + (composeUp?.[1] ?? 'nowhere') + ', which recreates the running containers')
                 }
                 fs.writeFileSync(
                     stateFile,
@@ -1190,6 +1197,9 @@ describe('scenario environment', () => {
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
+            if (args[0] === 'ps') {
+                process.exit(0)
+            }
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
             const describes = args.length === 6 && verb === 'describe'

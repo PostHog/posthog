@@ -46,6 +46,7 @@ import {
     startStack,
     syncTemplates,
     terminateRoleConnections,
+    untilMigrated,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
 import {
@@ -99,6 +100,7 @@ const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
 const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
+const MIGRATED_WITHIN_MS = 60_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
@@ -393,7 +395,7 @@ export function createEnvironment({
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env, signal)
+        await startStack(hogli, docker, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -401,6 +403,14 @@ export function createEnvironment({
             stateDir,
             {},
             sesRateLimiterValkey
+        )
+        await untilMigrated(
+            [
+                { url: postgresUrl, table: 'posthog_hogfunctiontemplate' },
+                { url: cyclotronUrlOf(planned[0]), table: 'cyclotron_jobs' },
+            ],
+            MIGRATED_WITHIN_MS,
+            PROBE_INTERVAL_MS
         )
         await refuseHeldPorts([...portsOf(planned), EDGE])
         const groups = consumerGroupsOf(planned)

@@ -1,10 +1,12 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync, writeFileSync } from 'fs'
+import { closeSync, openSync, readFileSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client, DatabaseError } from 'pg'
+import { setTimeout as sleep } from 'timers/promises'
 import { promisify } from 'util'
+import { parse, stringify } from 'yaml'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
@@ -92,8 +94,51 @@ const STACK_UNITS = {
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
+// Compose recreates a running container whose definition differs, and the definition holds the absolute
+// paths of the worktree that runs `up`. From a second worktree that restarts the Postgres every lane shares.
+const COMPOSE_UP = ' up --pull always -d '
+const COMPOSE_UP_KEEPING_CONTAINERS = ' up --no-recreate -d '
+
+export class StackNotReadyError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'StackNotReadyError'
+    }
+}
+
+export function keepRunningContainers(mprocsYaml: string): string {
+    const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
+    const compose = config.procs?.['docker-compose']
+    const shell = typeof compose?.shell === 'string' ? compose.shell : ''
+    if (shell.split(COMPOSE_UP).length !== 2) {
+        throw new StackNotReadyError(
+            `The dev config hogli generated has no docker-compose proc that runs \`docker compose${COMPOSE_UP.trimEnd()}\` once, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
+        )
+    }
+    compose!.shell = shell.replace(COMPOSE_UP, COMPOSE_UP_KEEPING_CONTAINERS)
+    return stringify(config, { lineWidth: 0 })
+}
+
+export async function runningServices(docker: string, project: string, signal?: AbortSignal): Promise<string[]> {
+    const { stdout } = await promisify(execFile)(
+        docker,
+        [
+            'ps',
+            '--filter',
+            `label=com.docker.compose.project=${project}`,
+            '--filter',
+            'status=running',
+            '--format',
+            '{{.Label "com.docker.compose.service"}}',
+        ],
+        { timeout: 10_000, signal }
+    )
+    return [...new Set(stdout.split('\n').filter((service) => service !== ''))].sort()
+}
+
 export async function startStack(
     hogli: Hogli,
+    docker: string,
     stateDir: string,
     env: NodeJS.ProcessEnv,
     signal: AbortSignal
@@ -110,8 +155,44 @@ export async function startStack(
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
+    const kept = await runningServices(docker, env.COMPOSE_PROJECT_NAME || 'posthog', signal)
+    if (kept.length > 0) {
+        process.stderr.write(
+            `Keeping the running dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
+        )
+    }
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
+}
+
+export type MigratedTable = { url: string; table: string }
+
+export async function untilMigrated(tables: MigratedTable[], withinMs: number, intervalMs: number): Promise<void> {
+    const deadline = performance.now() + withinMs
+    for (;;) {
+        const missing = await Promise.all(
+            tables.map(({ url, table }) =>
+                withPostgres(async (client) => {
+                    const { rows } = await client.query<{ present: boolean }>(
+                        'SELECT to_regclass($1) IS NOT NULL AS present',
+                        [table]
+                    )
+                    return rows[0].present ? null : `${new URL(url).pathname.slice(1)} has no table ${table}`
+                }, url).catch((error: Error) => error.message)
+            )
+        )
+        const problems = missing.filter((problem): problem is string => problem !== null)
+        if (problems.length === 0) {
+            return
+        }
+        if (performance.now() >= deadline) {
+            throw new StackNotReadyError(
+                `Postgres was not ready with its migrations within ${withinMs / 1000} seconds: ${problems.join('; ')}. Check \`docker ps\` for a restarted posthog-db-1 and the migrate procs in hogli's log.`
+            )
+        }
+        await sleep(intervalMs)
+    }
 }
 
 export async function syncTemplates(
