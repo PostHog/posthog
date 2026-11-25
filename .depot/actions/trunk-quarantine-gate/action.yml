@@ -39,8 +39,6 @@ runs:
           id: upload
           continue-on-error: true
           uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
-          env:
-              DISABLE_TELEMETRY: 1
           with:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc
@@ -68,8 +66,6 @@ runs:
           if: ${{ steps.upload.outcome == 'failure' && inputs.previous-step-outcome == 'success' }}
           continue-on-error: true
           uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
-          env:
-              DISABLE_TELEMETRY: 1
           with:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc

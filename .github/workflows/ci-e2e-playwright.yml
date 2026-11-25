@@ -100,8 +100,6 @@ jobs:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
               uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
-              env:
-                  TRUNK_DISABLE_TELEMETRY: true
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1230,8 +1228,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
-              env:
-                  DISABLE_TELEMETRY: 1
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc

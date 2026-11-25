@@ -68,8 +68,6 @@ jobs:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
               uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
-              env:
-                  TRUNK_DISABLE_TELEMETRY: true
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
