@@ -169,26 +169,24 @@ class TestListEnabledAlerts(BaseTest):
 
 
 class TestInsightShortIdsWatchedBy(BaseTest):
-    def test_lists_enabled_alerts_you_created_or_subscribe_to(self) -> None:
+    def test_lists_enabled_alerts_the_insight_stack_owns_that_you_created(self) -> None:
         other = self._user("other@example.com")
         rows = {
-            "created": (self.user, True, None),
-            "subscribed": (other, True, True),
-            "unsubscribed": (other, True, False),
-            "disabled": (self.user, False, None),
-            "someone_else": (other, True, None),
+            "created": (self.user, True),
+            "disabled": (self.user, False),
+            "someone_else": (other, True),
         }
-        for name, (creator, enabled, subscribed) in rows.items():
+        for name, (creator, enabled) in rows.items():
             insight = Insight.objects.create(team=self.team, name=name, short_id=name[:12])
             alert = AlertConfiguration.objects.create(
                 team=self.team, insight=insight, name=name, enabled=enabled, created_by=creator
             )
-            if subscribed is not None:
-                AlertSubscription.objects.create(alert_configuration=alert, user=self.user, subscribed=subscribed)
+            # The subscriptions of an alert are not read: its platform copy holds who subscribes.
+            AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
 
         found = api.insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10)
 
-        assert sorted(found) == ["created", "subscribed"]
+        assert found == ["created"]
 
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)

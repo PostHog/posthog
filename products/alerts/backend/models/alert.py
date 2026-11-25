@@ -385,7 +385,12 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         is_hogql_config = alert_config.get("type") == "HogQLAlertConfig"
 
         subscribed_users_count: int | None = None
-        if self.pk is not None:
+        if self.platform_owned:
+            from products.alerts_platform.backend.facade.api import subscriber_user_ids_by_public_id  # noqa: PLC0415
+
+            subscribed = subscriber_user_ids_by_public_id(team_id=self.team_id, public_ids=[self.id])
+            subscribed_users_count = len(subscribed.get(self.id, ()))
+        elif self.pk is not None:
             subscribed_users_count = self.subscribed_users.count()
 
         return {

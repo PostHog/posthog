@@ -46,7 +46,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertOwner,
     PlatformAlertState,
 )
-from products.alerts_platform.backend.logic import platform_alert_events
+from products.alerts_platform.backend.logic import alert_destinations, platform_alert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
@@ -379,10 +379,12 @@ def enabled_native_configurations(
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
     owned_copies: bool = False,
+    subscribed_by_id: int | None = None,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled configurations of a kind with no source row in these teams, and with `owned_copies`
     also the copies the platform owns, newest first. With
-    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `created_by_id`, only the ones that user created. With `subscribed_by_id`, only the ones whose
+    subscriber destinations name that user. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
     the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
     `errored_at`, only the ones a reader sees errored then: the last check failed, and no mute holds."""
@@ -398,6 +400,12 @@ def enabled_native_configurations(
     )
     if created_by_id is not None:
         rows = rows.filter(created_by_id=created_by_id)
+    if subscribed_by_id is not None:
+        rows = rows.filter(
+            id__in=alert_destinations.configuration_ids_subscribed_by(
+                team_ids=team_ids, source_kind=source_kind, user_id=subscribed_by_id
+            )
+        )
     if source_config_key is not None:
         rows = rows.filter(_source_config_in(source_config_key, values))
     if firing_at is not None:

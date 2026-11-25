@@ -14,7 +14,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -65,12 +65,7 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.logic.destinations import retire_alert_hog_functions
-from products.alerts.backend.models.alert import (
-    METRICS_INSIGHT_QUERY_FILTER,
-    AlertCheck,
-    AlertConfiguration,
-    AlertSubscription,
-)
+from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
     count_configurations,
@@ -714,17 +709,20 @@ def _platform_enabled_alerts(
     team_id: int,
     limit: int,
     created_by_id: int | None = None,
+    subscribed_by_id: int | None = None,
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
 ) -> list[tuple[EnabledNativeConfiguration, Insight]]:
     """The team's newest `limit` enabled insight alerts the platform owns, with or without an insight
-    row, newest first, each with its insight. With `firing_at`, only the ones firing then, and with
+    row, newest first, each with its insight. With `subscribed_by_id`, only the ones that user subscribes
+    to. With `firing_at`, only the ones firing then, and with
     `errored_at` only the ones errored then. An alert whose insight is gone or deleted is left out, as a
     row's is."""
     configurations = enabled_native_configurations(
         team_ids=[team_id],
         source_kind=SourceKind.INSIGHT,
         created_by_id=created_by_id,
+        subscribed_by_id=subscribed_by_id,
         limit=limit,
         firing_at=firing_at,
         errored_at=errored_at,
@@ -752,42 +750,17 @@ WATCHED_ROWS_PER_INSIGHT = 4
 
 def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
     """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
-    follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
     candidates = limit * WATCHED_ROWS_PER_INSIGHT
-    # A moved alert's row still holds its subscriptions, which the database can filter on, while the
-    # platform holds whether it is on.
-    matched = list(
-        AlertConfiguration.objects.filter(team_id=team_id, insight__deleted=False)
-        .filter(
-            Q(enabled=True, created_by_id=user_id) & ~Q(owner=PlatformAlertOwner.PLATFORM)
-            | Q(Exists(follows)) & (Q(enabled=True) | Q(owner=PlatformAlertOwner.PLATFORM))
-        )
+    rows = list(
+        _insight_owned_rows()
+        .filter(team_id=team_id, insight__deleted=False, enabled=True, created_by_id=user_id)
         .order_by("-created_at")
-        .values_list("id", "owner", "created_at", "insight__short_id")[:candidates]
+        .values_list("created_at", "insight__short_id")[:candidates]
     )
-    moved_ids = [alert_id for alert_id, owner, _, _ in matched if owner == PlatformAlertOwner.PLATFORM]
-    enabled_copies = {
-        legacy_id
-        for legacy_id, copy in owned_copies_by_legacy_id(
-            team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=moved_ids
-        ).items()
-        if copy.enabled
-    }
-    rows = [
-        (created_at, short_id)
-        for alert_id, owner, created_at, short_id in matched
-        if owner != PlatformAlertOwner.PLATFORM or alert_id in enabled_copies
-    ]
     created = _platform_enabled_alerts(team_id=team_id, created_by_id=user_id, limit=candidates)
-    # The platform keeps an alert's subscribers in encrypted destination configs, which the database
-    # cannot filter on, so only the newest alerts are checked for them.
-    newest = _platform_enabled_alerts(team_id=team_id, limit=candidates)
-    subscribers = platform_subscribers.platform_subscriber_ids(
-        team_id=team_id, alert_ids=[configuration.public_id for configuration, _ in newest]
-    )
-    subscribed = [pair for pair in newest if user_id in subscribers.get(pair[0].public_id, ())]
-    native = [(configuration.created_at, insight.short_id) for configuration, insight in [*created, *subscribed]]
-    newest_first = sorted([*rows, *native], key=lambda row: row[0], reverse=True)
+    subscribed = _platform_enabled_alerts(team_id=team_id, subscribed_by_id=user_id, limit=candidates)
+    platform = [(configuration.created_at, insight.short_id) for configuration, insight in [*created, *subscribed]]
+    newest_first = sorted([*rows, *platform], key=lambda row: row[0], reverse=True)
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
 

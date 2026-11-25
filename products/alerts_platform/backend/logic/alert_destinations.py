@@ -350,6 +350,22 @@ def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUI
     }
 
 
+def configuration_ids_subscribed_by(*, team_ids: Collection[int], source_kind: str, user_id: int) -> list[UUID]:
+    """The configurations of a kind in these teams whose subscriber destinations name the user.
+
+    Every subscriber row of the teams is read, because the config is encrypted and the database cannot
+    filter on the users it names."""
+    return [
+        row.configuration_id
+        for team_id in team_ids
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration__source_kind=source_kind, type=DestinationType.EMAIL)
+        .only("configuration_id", "type", "config")
+        .iterator(chunk_size=500)
+        if user_id in row.config.get("email_user_ids", ())
+    ]
+
+
 def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
     """Takes a user out of every subscriber destination of these teams' alerts, and returns how many
     alerts named them. A destination left naming nobody is deleted.

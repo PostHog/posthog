@@ -103,11 +103,10 @@ READERS: dict[str, str] = {
     "products/logs/backend/presentation/views/alerts_api.py::LogsAlertViewSet.simulate": (
         "simulation builds an unsaved row and saves nothing (G3)"
     ),
-    "products/alerts/backend/platform_subscribers.py": "subscriber rows point at the row (H3)",
-    "products/alerts/backend/tasks/tasks.py": "removes a departed member's subscriptions (H3)",
-    "products/alerts/backend/facade/api.py::insight_short_ids_watched_by": (
-        "subscriptions on the row; a moved alert's on/off and creator from its copy (H3)"
+    "products/alerts/backend/platform_subscribers.py": (
+        "copies subscriptions of alerts the insight stack owns; native subscribers build an unsaved row (G3)"
     ),
+    "products/alerts/backend/tasks/tasks.py": "removes a departed member's subscriptions (H3)",
     "products/alerts/backend/facade/api.py::snooze_alert_from_slack": (
         "locks the row; a moved alert's on/off and snooze live on its copy (G3)"
     ),
@@ -133,7 +132,7 @@ READERS: dict[str, str] = {
     ),
     "posthog/hogql/database/schema/system.py::<module>": "`system.alerts` and `system.logs_alerts` (B1, B3)",
     "products/alerts/backend/alert_search.py": "Max entity search (B3)",
-    "products/alerts/backend/logic/alert_email.py": "recipients from the row's insight and subscriptions (H3)",
+    "products/alerts/backend/logic/alert_email.py": "the legacy evaluator's recipients, for rows it owns (G3)",
     "products/logs/backend/destination_buckets.py": "report that informs a cutover",
     "products/logs/backend/delivery_path_report.py": "report that informs a cutover",
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",

@@ -175,7 +175,6 @@ def _save_owner_and_enable(
         locked.created_by = owner
         locked.next_check_at = timezone.now()
         on_updated(locked, snooze_changed=False, rescheduled=enable_now or "config" in attrs)
-        sync_alert_subscriber_destinations(team_id=team_id, alert_id=alert_id)
         updated = locked
     else:
         enable_now = not locked.enabled
