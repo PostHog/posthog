@@ -64,7 +64,13 @@ class HogQLVariablesField(serializers.JSONField):
 
 
 class DataDeletionRequestInputSerializer(serializers.Serializer):
-    query = serializers.CharField(help_text="HogQL query that selects one event UUID column.")
+    query = serializers.CharField(
+        help_text=(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called "
+            "events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid "
+            "from posthog.flag_evaluations, for example with UNION ALL."
+        )
+    )
     variables = HogQLVariablesField(
         default=dict,
         help_text="Variables referenced by the HogQL query.",

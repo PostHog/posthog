@@ -63,19 +63,12 @@ ROLE_ORDER = [
     "metrics",
     "flags",
     "ops",
+    "ingestion_events",
     "events",
-    "small",
-    "medium",
+    "ingestion_small",
+    "ingestion_medium",
     "ingestion_metrics",
 ]
-
-# Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
-# For most roles the member name is that value uppercased; the ingestion members are not.
-NODE_ROLE_MEMBERS = {
-    "events": "INGESTION_EVENTS",
-    "small": "INGESTION_SMALL",
-    "medium": "INGESTION_MEDIUM",
-}
 
 # Manifest roles that are modeled for drift detection but are NOT migration targets:
 # they have no NodeRole member, so run_sql_with_exceptions cannot address them. A
@@ -124,15 +117,10 @@ def golden_name(role: str) -> str:
     """On-disk basename for a role's golden/sql files (mirrors lib.sh).
 
     `aux` is a reserved DOS device name that can't be a path component on Windows, so
-    its files are stored as `auxiliary`. The ingestion roles are named after their
-    hostClusterRole macro, which is too terse to read as a filename. The role identity
-    itself is unchanged in both cases.
+    its files are stored as `auxiliary`. The role identity itself is unchanged.
     """
     return {
         "aux": "auxiliary",
-        "events": "ingestion_events",
-        "small": "ingestion_small",
-        "medium": "ingestion_medium",
     }.get(role, role)
 
 
@@ -271,7 +259,7 @@ def main() -> None:
         # A replicated ALTER runs on one host, so a table on several clusters needs one operation per cluster.
         for target_roles in [[r] for r in node_roles] if is_alter_repl else [node_roles]:
             sharded = replicated and "data" in target_roles
-            roles_src = "[" + ", ".join(f"NodeRole.{NODE_ROLE_MEMBERS.get(r, r.upper())}" for r in target_roles) + "]"
+            roles_src = "[" + ", ".join(f"NodeRole.{r.upper()}" for r in target_roles) + "]"
             operations.append(
                 "    run_sql_with_exceptions(\n"
                 f"        {sql!r},\n"
