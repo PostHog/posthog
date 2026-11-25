@@ -7,8 +7,9 @@ import {
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
-  getAiGatewayUrl,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
+  getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
   isClaudeAdapterModel,
@@ -78,6 +79,37 @@ describe("normalizeGatewayModelsResponse", () => {
 
     expect(models[0]?.context_window).toBe(256000);
   });
+});
+
+describe("gatewayModelRowsFromTaskModels", () => {
+  it.each([
+    ["claude", "claude-opus-5-5", true, "claude", true],
+    ["codex", "gpt-6-sol", true, "codex", true],
+    ["claude", "zai-org/glm-5.3", true, "claude", true],
+    ["claude", "claude-opus-5-5", false, "claude", false],
+  ])(
+    "offers a %s model %s (allowed=%s) on the %s picker",
+    (runtimeAdapter, id, allowed, adapter, expectedAllowed) => {
+      const models = normalizeGatewayModelsResponse(
+        gatewayModelRowsFromTaskModels({
+          models: [
+            {
+              runtime_adapter: runtimeAdapter,
+              model: id,
+              context_window: 1000000,
+              allowed,
+            },
+          ],
+        }),
+      );
+
+      const filter =
+        adapter === "codex" ? isCodexAdapterModel : isClaudeAdapterModel;
+      expect(models.filter(filter)).toMatchObject([
+        { id, context_window: 1000000, allowed: expectedAllowed },
+      ]);
+    },
+  );
 });
 
 describe("getClaudeModelRecency", () => {
@@ -482,7 +514,7 @@ describe("buildProviderModelGroups", () => {
   );
 });
 
-describe("gateway URLs with a custom cloud", () => {
+describe("getCloudTaskGatewayUrl with a custom cloud", () => {
   afterEach(() => {
     configureCustomCloud(null);
   });
@@ -493,17 +525,17 @@ describe("gateway URLs with a custom cloud", () => {
       oauthClientId: "client-id",
       gatewayUrl: "https://gateway.example.com",
     });
-    expect(getAiGatewayUrl("https://posthog.example.com")).toBe(
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
       "https://gateway.example.com",
     );
-    expect(getAiGatewayUrl("https://us.posthog.com")).toBe(
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
       "https://ai-gateway.us.posthog.com",
     );
   });
 
   it("keeps the derived gateway when the custom cloud has none", () => {
     configureCustomCloud({ url: "https://posthog.example.com" });
-    expect(getAiGatewayUrl("https://posthog.example.com")).toBe(
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
       "https://ai-gateway.us.posthog.com",
     );
   });
@@ -513,7 +545,7 @@ describe("gateway URLs with a custom cloud", () => {
       url: "https://us.posthog.com",
       gatewayUrl: "https://gateway.example.com",
     });
-    expect(getAiGatewayUrl("https://us.posthog.com")).toBe(
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
       "https://ai-gateway.us.posthog.com",
     );
   });

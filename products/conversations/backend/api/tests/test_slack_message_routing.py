@@ -809,7 +809,7 @@ class TestSlackNudge(BaseTest):
             ("classifier_call_fails_degrades_to_heuristics", None, True, "error"),
         ]
     )
-    @override_settings(TEST=False, AI_GATEWAY_URL="http://gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
+    @override_settings(TEST=False, AI_GATEWAY_URL="https://ai-gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
@@ -872,7 +872,7 @@ class TestSlackNudge(BaseTest):
         assert build_kwargs["properties"]["slack_thread_ts"] == "1700000000.000100"
         assert build_kwargs["team_id"] == self.team.id
 
-    @override_settings(TEST=False, AI_GATEWAY_URL="http://gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
+    @override_settings(TEST=False, AI_GATEWAY_URL="https://ai-gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
@@ -911,7 +911,7 @@ class TestSlackNudge(BaseTest):
             ("rollout_flag_off", True, False),
         ]
     )
-    @override_settings(TEST=False, AI_GATEWAY_URL="http://gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
+    @override_settings(TEST=False, AI_GATEWAY_URL="https://ai-gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled")
     @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")

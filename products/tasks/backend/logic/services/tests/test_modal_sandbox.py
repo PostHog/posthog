@@ -3171,11 +3171,11 @@ class TestSessionInitProbeHosts:
         hosts = _session_init_probe_hosts()
         assert "ai-gateway.dev.posthog.dev" in hosts
 
-    @pytest.mark.parametrize("gateway_url", ["https://ai-gateway.us.posthog.com", None])
+    @pytest.mark.parametrize("gateway_url", ["https://api.anthropic.com", None])
     def test_deduplicates_against_static_hosts_and_skips_unset(self, gateway_url: str | None):
         with override_settings(SANDBOX_AI_GATEWAY_URL=gateway_url):
             hosts = _session_init_probe_hosts()
-        assert hosts.count("ai-gateway.us.posthog.com") == 1
+        assert hosts.count("api.anthropic.com") == 1
         assert None not in hosts
 
 

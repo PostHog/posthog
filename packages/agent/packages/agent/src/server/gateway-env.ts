@@ -38,8 +38,6 @@ export interface GatewayEnvInput {
   executionEnvironment?: "local" | "cloud";
   sharedPromptCache?: boolean;
   runPolicySource?: string;
-  /** The run bills the user's own Claude or ChatGPT plan, not the gateway. */
-  ownSubscription?: boolean;
 }
 
 export class AiGatewayNotConfiguredError extends Error {
@@ -92,7 +90,6 @@ export function buildGatewayEnv(
     executionEnvironment,
     sharedPromptCache,
     runPolicySource,
-    ownSubscription = false,
   }: GatewayEnvInput = {},
   logger: Logger,
 ): GatewayEnv {
@@ -104,19 +101,6 @@ export function buildGatewayEnv(
   });
   const { baseUrl: gatewayUrl, aiProduct, aiStage: resolvedStage } = target;
   const openaiBaseUrl = `${gatewayUrl}/v1`;
-  // A subscription run bills the user's own plan, so it carries no gateway
-  // credential and only reads the gateway's public model list.
-  if (ownSubscription) {
-    return {
-      anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: "",
-      openaiBaseUrl,
-      openaiApiKey: "",
-      anthropicCustomHeaders: "",
-      openaiCustomHeaders: {},
-      posthogProjectId: String(projectId),
-    };
-  }
   const llmBearer = requireGatewayToken(target, logger);
   // Task metadata rides the X-PostHog-Properties blob onto $ai_generation.
   // Claude sends it via ANTHROPIC_CUSTOM_HEADERS and Codex via

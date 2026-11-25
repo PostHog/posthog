@@ -1,7 +1,7 @@
 import { TEAM_SKILLS_SERVICE } from "@posthog/core/skills/identifiers";
 import type { TeamSkillsService } from "@posthog/core/skills/teamSkillsService";
 import { resolveService } from "@posthog/di/container";
-import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { resolvePosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { analyticsRouter } from "@posthog/host-router/routers/analytics.router";
 import { authRouter } from "@posthog/host-router/routers/auth.router";
 import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.router";
@@ -13,14 +13,16 @@ import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import {
   CLOUD_REGIONS,
   type CloudRegion,
-  getAiGatewayUrl,
   getCloudUrlFromRegion,
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "@posthog/shared";
 import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
 import { z } from "zod";
-import { getWebPreviewConfigOptions } from "./web-agent-config";
+import {
+  fetchWebTaskModelRows,
+  getWebPreviewConfigOptions,
+} from "./web-agent-config";
 import { webArchiveStore } from "./web-archive-store";
 import {
   getWebAttachmentBase64,
@@ -140,9 +142,8 @@ const agentStubRouter = router({
   resetAll: publicProcedure.mutation(() => undefined),
   getPiModelCatalog: publicProcedure
     .input(z.object({ apiHost: z.string(), region: z.enum(CLOUD_REGIONS) }))
-    // Go serves its model list without auth, so the browser sends no token.
-    .query(({ input }) =>
-      fetchPosthogPiModelCatalog(getAiGatewayUrl(input.apiHost), input.region),
+    .query(async ({ input }) =>
+      resolvePosthogPiModelCatalog(await fetchWebTaskModelRows(), input.region),
     ),
   // Unreachable in practice: the UI gates "/btw" on sessionSupportsSideQuestion,
   // which is false for cloud sessions. Present so SessionTrpc stays satisfied.
@@ -152,8 +153,8 @@ const agentStubRouter = router({
       throw new Error("Side questions require a local session");
     }),
   // Model/mode/effort options for the task-input preview + cloud run creation
-  // (a cloud run requires a model). Real: fetched from the Go gateway's
-  // CORS-open model list, same logic the desktop main process runs (see
+  // (a cloud run requires a model). Real: read from Django's tasks/models
+  // catalog, same option-building the desktop main process runs (see
   // web-agent-config.ts).
   getPreviewConfigOptions: publicProcedure
     .input(
@@ -164,11 +165,7 @@ const agentStubRouter = router({
       }),
     )
     .query(({ input }) =>
-      getWebPreviewConfigOptions(
-        input.apiHost,
-        input.adapter,
-        input.allHarnessModels,
-      ),
+      getWebPreviewConfigOptions(input.adapter, input.allHarnessModels),
     ),
 });
 

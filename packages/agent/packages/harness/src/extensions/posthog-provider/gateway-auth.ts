@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { gatewayHeaders, getGatewayBaseUrl, resolveRegion } from "./gateway";
+import { getGatewayBaseUrl, resolveRegion } from "./gateway";
 import { POSTHOG_PROVIDER_NAME, type PosthogProviderOptions } from "./provider";
 
 export interface GatewayAuth {
@@ -39,7 +39,7 @@ export async function resolveGatewayAuth(
     );
   }
 
-  return { baseUrl, apiKey, headers: gatewayHeaders(options) ?? {} };
+  return { baseUrl, apiKey, headers: options.headers ?? {} };
 }
 
 /**

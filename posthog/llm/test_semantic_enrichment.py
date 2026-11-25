@@ -5,9 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from parameterized import parameterized
-
-from posthog.llm.gateway_client import team_distinct_id, team_trace_id
+from posthog.llm.gateway_client import GatewayNotConfiguredError, team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_ENRICHMENT_BATCHES,
@@ -48,6 +46,16 @@ class TestBuildEnrichmentClient:
         # aig reads the capture identity from this header; the Messages `metadata.user_id` goes
         # upstream to the provider instead, so without it the spend lands on the shared credential.
         assert headers["X-PostHog-Distinct-Id"] == team_distinct_id(7)
+
+    @pytest.mark.parametrize(
+        "url, api_key",
+        [("", ""), (AI_GATEWAY_URL, "")],
+        ids=["unset", "half_applied"],
+    )
+    def test_raises_when_the_go_gateway_is_not_configured(self, url, api_key):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
+            with pytest.raises(GatewayNotConfiguredError):
+                build_enrichment_client("warehouse_semantic_enrichment", 7)
 
 
 def _messages_response(text: str, *, stop_reason: str = "end_turn", usage: MagicMock | None = None) -> MagicMock:
@@ -152,6 +160,12 @@ class TestGenerateJsonCompletion:
 
 
 class TestRoundTripThroughGenerateJsonCompletion:
+    """Drives the real client classes through the real consumer.
+
+    The class-level tests build a `_Completion` by hand, so they cannot see how the two halves fit
+    together: whether the truncation guard runs before the parse.
+    """
+
     def _messages_client(self, text: str, *, stop_reason: str) -> _MessagesClient:
         sdk = MagicMock()
         sdk.messages.create.return_value = _messages_response(text, stop_reason=stop_reason)
@@ -165,7 +179,6 @@ class TestRoundTripThroughGenerateJsonCompletion:
         with pytest.raises(TruncatedCompletionError) as excinfo:
             generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
 
-        # The message names the ceiling this leg actually sent, not a constant the other leg uses.
         assert "16384" in str(excinfo.value)
 
     def test_untruncated_reply_parses_normally(self):
@@ -180,12 +193,20 @@ class TestRoundTripThroughGenerateJsonCompletion:
 
 
 class TestUsageNormalisation:
-    @parameterized.expand([("no_completion_count", 10, None), ("no_prompt_count", None, 2)])
-    def test_one_absent_token_count_is_enough_to_leave_the_total_unset(self, _name, input_tokens, output_tokens):
+    def test_one_absent_token_count_is_enough_to_leave_the_total_unset(self):
+        """Each conjunct has to be the sole reason for the outcome, or `or` weakens to `and`."""
         sdk = MagicMock()
         sdk.messages.create.return_value = _messages_response(
-            "{}", usage=MagicMock(input_tokens=input_tokens, output_tokens=output_tokens)
+            "{}", usage=MagicMock(input_tokens=10, output_tokens=None)
         )
+
+        completion = _MessagesClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
+
+        assert completion.usage["total_tokens"] is None
+
+    def test_the_other_absent_count_also_leaves_it_unset(self):
+        sdk = MagicMock()
+        sdk.messages.create.return_value = _messages_response("{}", usage=MagicMock(input_tokens=None, output_tokens=2))
 
         completion = _MessagesClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
 
@@ -209,6 +230,8 @@ def test_the_output_ceiling_stays_under_the_sdk_non_streaming_limit():
 
 
 class TestMessagesTextGuards:
+    """The Messages client carries all enrichment traffic, so its null defaults need pinning."""
+
     def _completion(self, blocks: list[MagicMock]) -> _Completion:
         sdk = MagicMock()
         response = _messages_response("")

@@ -92,20 +92,6 @@ describe("gateway routes", () => {
     ).toThrow(message);
   });
 
-  it("gives a subscription run the public Go host and no credential", () => {
-    const gatewayEnv = buildGatewayEnv(
-      { ...config, apiUrl: "https://eu.posthog.com" },
-      { ownSubscription: true },
-      logger(),
-    );
-
-    expect(gatewayEnv.anthropicBaseUrl).toBe(
-      "https://ai-gateway.eu.posthog.com",
-    );
-    expect(gatewayEnv.anthropicAuthToken).toBe("");
-    expect(gatewayEnv.openaiApiKey).toBe("");
-  });
-
   it("attributes the run to the server's product over the internal default", () => {
     Object.assign(process.env, {
       ...ROUTED_ENV,

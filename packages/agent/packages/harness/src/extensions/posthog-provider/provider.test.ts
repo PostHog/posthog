@@ -1,6 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { CloudRegion } from "@posthog/agent-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getGatewayBaseUrl } from "./gateway";
 import {
   DEFAULT_MODEL,
   fallbackModelConfigs,
@@ -37,6 +38,7 @@ describe("buildPosthogProvider", () => {
     const config = buildPosthogProvider(models, { region: "us" });
 
     expect(config.api).toBe("anthropic-messages");
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
     expect(config.baseUrl).toBe("https://ai-gateway.us.posthog.com");
   });
 
@@ -54,26 +56,16 @@ describe("buildPosthogProvider", () => {
     expect(config.apiKey).toBe("pha_static");
   });
 
-  it("forwards attribution headers and names the product to the provider and every routed model", () => {
+  it("forwards attribution headers to the provider and every routed model", () => {
     const headers = {
       "x-posthog-property-task_execution_environment": "local",
     };
     const config = buildPosthogProvider(models, { headers });
 
-    const expected = { "X-PostHog-Product": "posthog_code", ...headers };
-    expect(config.headers).toEqual(expected);
-    expect(
-      config.models?.every((model) => model.headers === config.headers),
-    ).toBe(true);
-  });
-
-  it.each([
-    ["an explicit gateway override", { baseUrl: "http://127.0.0.1:1234" }],
-    ["a caller-named product", { headers: { "x-posthog-product": "signals" } }],
-  ])("leaves the product header to %s", (_case, options) => {
-    const config = buildPosthogProvider(models, options);
-
-    expect(config.headers?.["X-PostHog-Product"]).toBeUndefined();
+    expect(config.headers).toEqual(headers);
+    expect(config.models?.every((model) => model.headers === headers)).toBe(
+      true,
+    );
   });
 
   it("routes every provider model through an explicit gateway override", () => {
@@ -164,7 +156,7 @@ describe("oauth.modifyModels", () => {
       region: "eu",
     });
 
-    expect(result?.[0]?.baseUrl).toBe("https://ai-gateway.eu.posthog.com");
+    expect(result?.[0]?.baseUrl).toBe(getGatewayBaseUrl("eu"));
   });
 
   it("remaps this provider's openai-responses models to the region's /v1 surface", () => {
@@ -173,7 +165,7 @@ describe("oauth.modifyModels", () => {
       makeModel({
         id: "gpt-5.5",
         api: "openai-responses",
-        baseUrl: "https://ai-gateway.us.posthog.com/v1",
+        baseUrl: `${getGatewayBaseUrl("us")}/v1`,
       }),
     ];
 
@@ -184,7 +176,7 @@ describe("oauth.modifyModels", () => {
       region: "eu",
     });
 
-    expect(result?.[0]?.baseUrl).toBe("https://ai-gateway.eu.posthog.com/v1");
+    expect(result?.[0]?.baseUrl).toBe(`${getGatewayBaseUrl("eu")}/v1`);
   });
 
   it("keeps an explicit gateway override when OAuth credentials have another region", () => {
@@ -230,7 +222,7 @@ describe("oauth.modifyModels", () => {
       expires: 0,
     });
 
-    expect(result?.[0]?.baseUrl).toBe("https://ai-gateway.eu.posthog.com");
+    expect(result?.[0]?.baseUrl).toBe(getGatewayBaseUrl("eu"));
   });
 });
 
@@ -253,13 +245,13 @@ describe("resolvePosthogProvider", () => {
     const config = await resolvePosthogProvider({ region: "us" });
     expect(config.name).toBe("PostHog");
     expect(config.models?.length).toBeGreaterThan(0);
-    expect(config.baseUrl).toBe("https://ai-gateway.us.posthog.com");
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
   });
 
   it("defaults the region when none is provided", async () => {
     delete process.env.POSTHOG_REGION;
     const config = await resolvePosthogProvider();
-    expect(config.baseUrl).toBe("https://ai-gateway.us.posthog.com");
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
   });
 });
 

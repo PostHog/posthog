@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type GatewayProduct,
+  getAiGatewayUrl,
   modelIdForGatewayRoute,
   resolveAiGatewayBaseUrl,
   resolveAiProduct,
@@ -29,6 +30,29 @@ describe("resolveAiGatewayBaseUrl", () => {
       expect(resolveAiGatewayBaseUrl(envUrl, posthogHost)).toBe(expected);
     },
   );
+});
+
+describe("getAiGatewayUrl", () => {
+  it.each([
+    {
+      posthogHost: "https://us.posthog.com",
+      expected: "https://ai-gateway.us.posthog.com",
+    },
+    {
+      posthogHost: "https://eu.posthog.com",
+      expected: "https://ai-gateway.eu.posthog.com",
+    },
+    {
+      posthogHost: "https://app.dev.posthog.dev",
+      expected: "https://ai-gateway.dev.posthog.dev",
+    },
+    {
+      posthogHost: "http://localhost:8000",
+      expected: "http://localhost:8080",
+    },
+  ] as const)("$posthogHost -> $expected", ({ posthogHost, expected }) => {
+    expect(getAiGatewayUrl(posthogHost)).toBe(expected);
+  });
 });
 
 describe("modelIdForGatewayRoute", () => {

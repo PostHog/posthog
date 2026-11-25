@@ -6,7 +6,7 @@ import {
 } from "./gateway";
 
 describe("getGatewayBaseUrl", () => {
-  it("maps each region to its own Go gateway origin", () => {
+  it("maps each region to its own gateway host", () => {
     expect(getGatewayBaseUrl("us")).toBe("https://ai-gateway.us.posthog.com");
     expect(getGatewayBaseUrl("eu")).toBe("https://ai-gateway.eu.posthog.com");
     expect(getGatewayBaseUrl("dev")).toBe("http://localhost:8080");

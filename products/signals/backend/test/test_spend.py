@@ -1201,7 +1201,6 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
         assert spend.llm_failed_stages == (["safety"] if failure == "invalid_json" else [])
         assert spend.accounting_failed is (failure == "invalid_json")
 
-    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self) -> None:
         drivers = [str(uuid4()), str(uuid4())]
         attempts: dict[str, int] = {}
@@ -1243,6 +1242,10 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
             )
 
         with (
+            override_settings(
+                AI_GATEWAY_URL="https://gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="phs_test",
+            ),
             patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
             patch(
                 "products.signals.backend.llm_spend.fetch_gateway_cost",

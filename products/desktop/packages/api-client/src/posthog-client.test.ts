@@ -1155,6 +1155,56 @@ describe("PostHogAPIClient", () => {
     expect(request.body).toBe(JSON.stringify({}));
   });
 
+  it("builds cloud task config from the Django model catalog", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          models: [
+            {
+              runtime_adapter: "claude",
+              model: "claude-opus-4-8",
+              context_window: 1000000,
+              allowed: true,
+            },
+            {
+              runtime_adapter: "claude",
+              model: "claude-fable-5",
+              context_window: 1000000,
+              allowed: false,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const client = new PostHogAPIClient(
+      "https://eu.posthog.com",
+      async () => "token",
+      async () => "token",
+      123,
+      { fetch },
+    );
+
+    const options = await client.getCloudTaskConfigOptions("claude");
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://eu.posthog.com/api/projects/123/tasks/models/"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(options.find((option) => option.category === "model")).toMatchObject(
+      {
+        currentValue: "claude-opus-4-8",
+        options: [
+          expect.objectContaining({ value: "claude-opus-4-8" }),
+          expect.objectContaining({
+            value: "claude-fable-5",
+            _meta: expect.any(Object),
+          }),
+        ],
+      },
+    );
+  });
+
   it.each([
     {
       label: "desktop default",

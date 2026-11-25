@@ -121,7 +121,7 @@ function supportsVision(
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
  * a given region. OpenAI-compatible models are served off the gateway's `/v1`
- * surface; Anthropic Messages is served off the root.
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,

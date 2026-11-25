@@ -15,7 +15,6 @@ from posthog.llm.gateway_client import (
     AIGatewayConfig,
     AIGatewayHostError,
     GatewayNotConfiguredError,
-    build_ai_gateway_anthropic_client,
     build_ai_gateway_openai_client,
     build_anthropic_client,
     build_async_anthropic_client,
@@ -160,21 +159,6 @@ class TestOpenAIClientPrivacyMode:
             assert headers["X-PostHog-Privacy-Mode"] == "true"
 
 
-class TestBuildersRequireTheGateway:
-    @pytest.mark.parametrize(
-        "builder",
-        [build_openai_client, build_async_openai_client, build_anthropic_client, build_async_anthropic_client],
-    )
-    @pytest.mark.parametrize(
-        ("url", "api_key"),
-        [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
-    )
-    def test_raises_when_the_gateway_is_unset_or_misconfigured(self, builder, url, api_key):
-        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
-            with pytest.raises(GatewayNotConfiguredError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY"):
-                builder(ai_product="logs")
-
-
 class TestTeamTraceId:
     # Expected ids are $ai_trace_id values observed on captured events, not recomputed from the
     # helper: recomputing would make the test agree with itself and miss a namespace change.
@@ -207,11 +191,7 @@ class TestBuildAsyncAnthropicClient:
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
     @patch("posthog.llm.gateway_client.AsyncAnthropic")
     def test_gateway_mode_strips_v1_and_labels_product_stage_and_team(self, mock_anthropic, mock_httpx):
-        result = build_async_anthropic_client(
-            ai_product="signals_grouping",
-            ai_stage="match",
-            team_id=42,
-        )
+        result = build_async_anthropic_client(ai_product="signals_grouping", ai_stage="match", team_id=42)
 
         mock_httpx.assert_called_once_with(trust_env=False)
         mock_anthropic.assert_called_once()
@@ -316,14 +296,12 @@ class TestBuildAnthropicClient:
         }
         assert result is mock_anthropic.return_value
 
-
-class TestBuildAIGatewayAnthropicClient:
     @pytest.mark.parametrize("privacy_mode", [True, False])
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
     def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx, privacy_mode):
-        result = build_ai_gateway_anthropic_client(
+        result = build_anthropic_client(
             ai_product="aio_stamphog",
             properties={"source_product": "stamphog_digest"},
             distinct_id="team-42",
@@ -346,14 +324,24 @@ class TestBuildAIGatewayAnthropicClient:
         assert headers.get("X-PostHog-Privacy-Mode") == ("true" if privacy_mode else None)
         assert result is mock_anthropic.return_value
 
+
+class TestBuildersRequireTheGateway:
+    @pytest.mark.parametrize(
+        "builder",
+        [build_openai_client, build_async_openai_client, build_anthropic_client, build_async_anthropic_client],
+        ids=["openai", "async_openai", "anthropic", "async_anthropic"],
+    )
     @pytest.mark.parametrize(
         ("url", "api_key"),
         [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+        ids=["unset", "half_applied", "missing_v1"],
     )
-    def test_raises_when_the_gateway_is_not_configured(self, url, api_key):
+    def test_raises_when_the_gateway_is_unset_or_misconfigured(self, builder, url, api_key):
         with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
-            with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
-                build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
+            with pytest.raises(
+                GatewayNotConfiguredError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"
+            ):
+                builder()
 
 
 class TestBuildAIGatewayOpenAIClient:
@@ -568,5 +556,5 @@ class TestPrivateScoutGateway:
     )
     def test_go_only_client_uses_private_context(self) -> None:
         with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway("phe_trial_credential"):
-            build_ai_gateway_anthropic_client()
+            build_anthropic_client()
         assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
