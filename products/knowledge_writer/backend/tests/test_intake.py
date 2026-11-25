@@ -419,7 +419,7 @@ def _grounding_gateway(quote_by_line: Mapping[str, str] | None):
         ]
         return SimpleNamespace(stop_reason="end_turn", parsed_output=GroundingReply(lines=supports))
 
-    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse), default_headers={})
     client.with_options = lambda **_options: client
     return lambda **_client_options: client
 
