@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::{send_issue_spiking_notification, Issue};
+use crate::issue_resolution::{send_issue_spiking_notification, Issue, SpikingIssue};
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_FETCH_BUCKETS_ERRORS, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
@@ -38,16 +38,6 @@ fn team_issue_set_key(team_id: i32, timestamp: &str) -> String {
 
 fn cooldown_key(issue_id: &Uuid) -> String {
     format!("spike-cooldown:{issue_id}")
-}
-
-#[derive(Debug, Clone)]
-pub struct SpikingIssue {
-    pub issue: Issue,
-    pub props: ProcessedExceptionProperties,
-    pub event_uuid: Uuid,
-    pub event_timestamp: String,
-    pub computed_baseline: f64,
-    pub current_bucket_value: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -323,17 +313,7 @@ async fn emit_spiking_events(
     // Publish spike side effects out of the processing hot path.
     let mut failed_keys = Vec::new();
     for spike in &acquired_locks {
-        if let Err(e) = send_issue_spiking_notification(
-            context,
-            &spike.issue,
-            spike.props.clone(),
-            spike.event_uuid,
-            &spike.event_timestamp,
-            spike.computed_baseline,
-            spike.current_bucket_value as f64,
-        )
-        .await
-        {
+        if let Err(e) = send_issue_spiking_notification(context, spike).await {
             warn!("Failed to publish spike notification: {e}");
             failed_keys.push(cooldown_key(&spike.issue.id));
         }
