@@ -109,10 +109,13 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
 )
 
 _MONGO_SRV_SCHEME_REQUIRED_MESSAGE = (
-    "Your cluster address only works in a mongodb+srv:// connection string. Change the start of "
-    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
-    "your connection string from mongodb:// to mongodb+srv:// and remove any port, then try again."
+    "Your cluster address only works in a mongodb+srv:// connection string. In MongoDB Atlas, "
+    "click Connect on your cluster, copy the connection string it shows, then try again."
 )
+
+# The prefix the shared host check uses when a name has no addresses. Only then is the SRV probe
+# worth running: other refusals, such as a malformed host, must not reach the resolver.
+_HOST_UNRESOLVED_PREFIX = "Couldn't resolve the host"
 
 _MONGO_SRV_RECORD_MISSING_MESSAGE = (
     "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
@@ -592,7 +595,9 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # This check allows an early failure for obviously invalid connection strings for non SRV connections.
             valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
-                if is_atlas_srv_name(connection_params["host"]):
+                if (host_errors or "").startswith(_HOST_UNRESOLVED_PREFIX) and is_atlas_srv_name(
+                    connection_params["host"]
+                ):
                     return False, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE
                 return False, host_errors
 

@@ -735,17 +735,19 @@ def _parse_connection_string(connection_string: str, database_override: str | No
     }
 
 
-_ATLAS_HOST_SUFFIX = ".mongodb.net"
+# Plain LDH labels only: dnspython reads escapes such as `\.` inside a label, so a looser
+# suffix check could send the lookup to a name outside mongodb.net.
+_ATLAS_HOST_PATTERN = re.compile(r"(?:[a-z0-9-]+\.)+mongodb\.net", re.IGNORECASE)
 _SRV_PROBE_TIMEOUT_SECONDS = 5
 
 
 def is_atlas_srv_name(host: str) -> bool:
-    """Whether `host` is an Atlas cluster's SRV name, which a mongodb:// URI can't connect to.
+    """Whether `host` is an Atlas cluster's SRV name, which only an SRV connection string can use.
 
     Atlas publishes only SRV and TXT records for the cluster name (cluster0.abcde.mongodb.net),
-    so a mongodb:// string that names it never resolves. Its member hosts have A records instead.
+    so a standard connection string that names it never resolves. Its member hosts have A records.
     """
-    if not host.lower().rstrip(".").endswith(_ATLAS_HOST_SUFFIX):
+    if not _ATLAS_HOST_PATTERN.fullmatch(host):
         return False
     try:
         dns.resolver.resolve(f"_mongodb._tcp.{host}", "SRV", lifetime=_SRV_PROBE_TIMEOUT_SECONDS)
