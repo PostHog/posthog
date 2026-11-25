@@ -126,6 +126,12 @@ from posthog.permissions import (
     get_organization_from_view,
     request_subject,
 )
+from posthog.project_creation_limits import (
+    ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+    PLAN_PROJECT_LIMIT_MESSAGE,
+    ProjectLimit,
+    organization_project_limit_reached,
+)
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -169,7 +175,6 @@ from products.notifications.backend.facade.api import (
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 # The action that each level in a field's access rule needs, for a project and for other resources.
 _PROJECT_LEVEL_ACTIONS = {"member": Action.VIEW, "admin": Action.EDIT}
@@ -593,7 +598,8 @@ class ProjectBackwardCompatSerializer(
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An "
+            "organization whose every project reads the native JSON events table reads as 2."
         )
     )
     flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
@@ -1005,10 +1011,10 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
+        return flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
+        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk)
         return events_lack_new_flag_calls(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
@@ -2378,7 +2384,7 @@ class RootProjectViewSet(ProjectViewSet):
 class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+    message = PLAN_PROJECT_LIMIT_MESSAGE
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
@@ -2394,26 +2400,14 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).exists():
                 return False
 
-        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit is None:
+            return True
 
-        if projects_feature:
-            allowed_project_count = projects_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_project_count is None:
-                # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
-                # We don't want to block updates if a customer is already over the max allowed
-                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
-                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
-                    return False
+        if reached_limit == ProjectLimit.ORGANIZATION_MAXIMUM:
+            # We don't want to block updates if a customer is already over the max allowed
+            if view.action != "create":
                 return True
-            # Check current limit against allowed limit
-            if current_non_demo_project_count >= allowed_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_project_count >= 1:
-                return False
+            self.message = ORGANIZATION_PROJECT_LIMIT_MESSAGE
 
-        # in any other case, we're good to go
-        return True
+        return False

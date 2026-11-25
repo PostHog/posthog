@@ -27,6 +27,7 @@ from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
     CheckOutcome,
     CheckSkip,
     CheckValues,
@@ -53,6 +54,8 @@ def exposure_criteria_values(ctx: HealthContext) -> CheckValues:
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
+    if ctx.warehouse_native_exposures:
+        return not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES)
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")

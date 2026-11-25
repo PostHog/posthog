@@ -364,6 +364,11 @@ const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>)
     return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
 }
 
+const invalidSlotReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const reply = invalidSendReplyOf(error, context)
+    return reply.outcome === 'invalid_request' ? { ...reply, body: { error: 'invalid_recipient' } } : reply
+}
+
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
     const sendFields = acceptedSendEmailFields(invocation.state.send)
     return {
@@ -1659,7 +1664,7 @@ export class CdpApi {
                         error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',
                     })
                 }
-                release = this.transactionalEmailBatchCapacity.admit()
+                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
@@ -1671,7 +1676,7 @@ export class CdpApi {
                         hog_flow_id: req.params.id,
                         issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
                     })
-                    return refuse('invalid_request', 400, { error: parsed.error.message })
+                    return refuse('invalid_request', 400, { error: 'invalid_request' })
                 }
                 const batch = parsed.data
                 if (exceedsCopyLimits(batch)) {
@@ -1702,7 +1707,7 @@ export class CdpApi {
                     const request = BatchSlotRequestSchema.safeParse(slotRequestOf(batch, recipient))
                     return request.success
                         ? keyed.push(request.data) - 1
-                        : invalidSendReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
+                        : invalidSlotReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
                 })
                 const sender = batch.send
                     ? senderOfCodeSend(team.id, batch.send, integration)
@@ -1738,7 +1743,7 @@ export class CdpApi {
                 logger.error('Error running a transactional email batch', {
                     error: e instanceof Error ? e.message : String(e),
                 })
-                return refuse('error', 500, { error: e instanceof Error ? e.message : String(e) })
+                return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
                 release?.()

@@ -1,7 +1,8 @@
-import { Component, type ReactNode, memo } from 'react'
+import { Component, type ComponentType, type ReactNode, Suspense, memo } from 'react'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { WidgetDefinition } from './widgetDefinition'
+import { WidgetLoading } from './WidgetLoading'
 
 // The dashboard stays free of the app's own boundary, which needs the app's logics, so it has this small one.
 class TileErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -41,10 +42,13 @@ export const WidgetView = memo(function WidgetView({
             </div>
         )
     }
-    // One widget that throws shows its own error, and the rest of the dashboard keeps working.
+    const Loading: ComponentType<{ widget: ContentWidget }> = definition.Loading ?? WidgetLoading
+    // One widget that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
         <TileErrorBoundary>
-            <definition.Component widget={widget} />
+            <Suspense fallback={<Loading widget={widget} />}>
+                <definition.Component widget={widget} />
+            </Suspense>
         </TileErrorBoundary>
     )
 })
