@@ -144,6 +144,26 @@ class TestAlertDestinations(BaseTest):
         assert created.data == WEBHOOK
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == (created,)
 
+    def test_an_appearance_alert_refuses_pagerduty_where_the_sources_threshold_alerts_accept_it(self) -> None:
+        # Logs threshold alerts open incidents, but logs appearance alerts never send incident events.
+        appearance = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="New log patterns",
+            source_kind=SourceKind.LOGS,
+            alert_kind=PlatformAlertConfiguration.Kind.APPEARANCE,
+            check_interval_minutes=5,
+        )
+        pagerduty = NewAlertDestination(
+            data={"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "fake-routing-key"},
+            event_kinds=FIRING,
+        )
+
+        with pytest.raises(AlertDestinationValidationError) as error:
+            self._create(pagerduty, configuration=appearance)
+
+        assert error.value.field == "type"
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=appearance.id) == ()
+
     def test_subscribers_replace_only_the_destinations_that_name_users(self) -> None:
         addresses = cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["a@example.com"]})
         self._create(
