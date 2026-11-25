@@ -420,6 +420,19 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.provisioning_signing is ProvisioningSigning.REQUIRED
 
     @property
+    def oauth_token_signing(self) -> ProvisioningSigning:
+        if not self.is_provisioning_partner:
+            return ProvisioningSigning.NOT_REQUIRED
+        provisioning = self.provisioning
+        if provisioning.can_create_accounts or provisioning.pays_for_customers:
+            return ProvisioningSigning.REQUIRED
+        return ProvisioningSigning.NOT_REQUIRED
+
+    @property
+    def requires_oauth_token_signature(self) -> bool:
+        return self.oauth_token_signing is ProvisioningSigning.REQUIRED
+
+    @property
     def needs_organization_link(self) -> bool:
         """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
         partners are exempt, because staff already know who runs them."""

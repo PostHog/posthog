@@ -298,7 +298,7 @@ def _oauth_app_event_properties(application: OAuthApplication) -> dict:
 def _provisioning_signing_properties(application: OAuthApplication, *, signed: bool) -> dict:
     if not application.is_provisioning_partner:
         return {}
-    return {"provisioning_signing": application.provisioning_signing.request_tag(signed=signed)}
+    return {"provisioning_signing": application.oauth_token_signing.request_tag(signed=signed)}
 
 
 def _token_error_code(response: HttpResponse) -> str:
@@ -678,7 +678,7 @@ class OAuthValidator(OAuth2Validator):
         if not getattr(request, "grant_type", None):
             return
         client = getattr(request, "client", None)
-        if client is not None and client.requires_provisioning_signature:
+        if client is not None and client.requires_oauth_token_signature:
             raise InvalidClientError(description=PRIVATE_KEY_REQUIRED_MESSAGE, request=request)
 
     @staticmethod

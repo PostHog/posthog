@@ -203,6 +203,25 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         tags = {call.kwargs.get("properties", {}).get("provisioning_signing") for call in capture.call_args_list}
         assert "refused" in tags
 
+    @parameterized.expand(
+        [
+            ("public_at_oauth_token", True, OAUTH_TOKEN_URL, 200),
+            ("client_secret_at_oauth_token", False, OAUTH_TOKEN_URL, 200),
+            ("public_at_provisioning", True, TOKEN_URL, 401),
+            ("client_secret_at_provisioning", False, TOKEN_URL, 401),
+        ]
+    )
+    def test_unsigned_resource_only_partner_refresh(
+        self, _name: str, public: bool, url: str, expected_status: int
+    ) -> None:
+        partner, refresh_token = self._partner_that_dropped_its_key(public=public)
+        partner.update_provisioning(can_create_accounts=False)
+        credentials = {"client_id": partner.client_id} if public else self._client_auth(partner)
+
+        res = self._post_api(url, {"grant_type": "refresh_token", "refresh_token": refresh_token, **credentials})
+
+        assert res.status_code == expected_status, res.json()
+
     @parameterized.expand([("public", True), ("client_secret", False)])
     def test_refused_partner_can_still_revoke_its_tokens(self, _name: str, public: bool) -> None:
         partner, refresh_token = self._partner_that_dropped_its_key(public=public)
