@@ -2,7 +2,7 @@ import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 // Any Liquid output `{{ … }}` or tag `{% … %}`. Variables can sit anywhere inside one, such as
 // `{% if variables.show_receipt %}` or `{{ variables.name | default: variables.fallback_name }}`.
-const LIQUID_EXPRESSION = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+export const LIQUID_EXPRESSION = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
 const VARIABLE_REFERENCE = /\bvariables\.([A-Za-z_][A-Za-z0-9_]*)/g
 
 /** The `message_data` keys an email reads, in the order they first appear in its sender, subject, preheader and body. */

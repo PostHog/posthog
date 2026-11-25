@@ -8,6 +8,7 @@ class JobOwners(str, Enum):
     importing anything under `posthog.dags` runs that package's Django bootstrap.
     """
 
+    TEAM_ANALYTICS = "team-analytics"
     TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
     TEAM_BILLING = "team-billing"
     TEAM_CLICKHOUSE = "team-clickhouse"
@@ -27,4 +28,3 @@ class JobOwners(str, Enum):
     TEAM_SECURITY = "team-security"
     TEAM_SELF_DRIVING = "team-self-driving"
     TEAM_WAREHOUSE_SOURCES = "team-warehouse-sources"
-    TEAM_WEB_ANALYTICS = "team-web-analytics"

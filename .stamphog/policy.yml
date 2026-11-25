@@ -24,7 +24,7 @@ deny:
                 - 'deploy\.sh'
     ci_workflows:
         description: 'GitHub Actions and Depot CI workflows.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that CODEOWNERS assigns to team-security, and it exempts nobody, so those stay denied for every author.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that the master branch ruleset requires team-security to review, and it exempts nobody, so those stay denied for every author.'
         match:
             paths:
                 - '\.github/workflows'
@@ -73,7 +73,7 @@ deny:
                 - '^posthog/ingress/views\.py$'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. These files define what CI blocks, so a small edit from another team can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. These files define what CI blocks, so a small edit from another team can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: pyproject.toml, lib/api.ts, hoglint.ledger and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
         match:
             paths:
                 - '^\.github/scripts/migration-deletion-allowlist\.txt$'
@@ -86,11 +86,12 @@ deny:
                 - '^posthog/product_urls\.py$'
                 - '^posthog/settings/nextgensquash\.py$'
                 - '^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\.txt|setup_import_baseline\.txt)$'
-                - '^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\.py$'
+                - '^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_enum_defaults|squash_partial_fallback|startup_import_budget)\.py$'
                 - '^products/(architecture\.md|isolation_baseline\.txt|readme\.md)$'
+                - '^(hoglint\.exceptions\.toml|hoglint\.toml|tools/hoglint/presets/posthog\.toml)$'
                 - '^docs/internal/django-startup-time\.md$'
                 - '^docs/published/handbook/engineering/type-system\.md$'
-                - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
+                - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
         exempt_author_teams:
@@ -192,12 +193,14 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
-      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # The Dependency proof workflow's publish job posts this check and signs it with its OIDC token.
+      # For an npm update it replays the pnpm update from the merge base, and confirms that the replay
       # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
       # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
       check: 'Dependency proof'
-      app_id: 5697920
+      workflow: .github/workflows/dependency-proof.yml
+      job: 'Publish the Dependency proof check'
+      events: [workflow_run]
       lifts: [deps_toolchain]
       paths:
           - '(?:^|/)package\.json$'
@@ -210,7 +213,7 @@ attestations:
       # from the default branch and ignores a proof whose marker does not pin every path in it.
       issuer: tools/change-prover/issuer.yml
     - name: revert_proof
-      # The Revert proof workflow posts this check with the same posthog-dependency-proof token. It
+      # The Revert proof workflow's publish job posts this check and signs it the same way. It
       # recomputes the revert of one PR merged into the default branch in the last 30 days, and
       # confirms that the PR head holds exactly that tree and that the PR author pushed it. The
       # restored code was reviewed and ran before, so the proof lifts what asks only whether code
@@ -225,7 +228,9 @@ attestations:
       #   lift would only let another team undo the owner's change.
       # - devex_guardrails: reverting a guard turns the guard off.
       check: 'Revert proof'
-      app_id: 5697920
+      workflow: .github/workflows/revert-proof.yml
+      job: 'Publish the Revert proof check'
+      events: [workflow_run]
       lifts: [public_api]
       # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
       # so no other PR waits for this check.

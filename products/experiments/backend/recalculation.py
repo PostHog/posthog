@@ -8,7 +8,6 @@ Module-level free functions (not methods on ExperimentService) so the API view c
   (no FK on ExperimentMetricResult; the store finds a run's rows from the job row and the current metric config).
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -20,26 +19,18 @@ from django.utils import timezone
 import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
-from temporalio.client import WorkflowExecutionDescription, WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
-from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.temporal.common.client import async_connect, sync_connect
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.metric_calculation.config import (
-    build_calculation_configs,
-    resolve_calculation_key_version,
-)
+from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore, result_configuration_status
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
@@ -47,11 +38,12 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.organization_flags import organization_flag_enabled
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.models import (
-    METRICS_RECALCULATION_WORKFLOW_NAME,
-    RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE,
-    ExperimentMetricsRecalculationWorkflowInputs,
+from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+from products.experiments.backend.temporal.recalculation.dispatch import (
+    cancel_superseded_workflows,
+    workflow_may_still_run,
 )
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
@@ -72,7 +64,6 @@ _QUEUED_RECALC_CEILING = timedelta(hours=1)
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
-RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -285,164 +276,17 @@ def build_job_payload(
     return payload
 
 
-def metrics_recalculation_workflow_id(recalculation_id: str) -> str:
-    """Temporal workflow id of a recalculation run. The start, the cancel and the admin's Temporal link all
-    find a running workflow by this id, so a format change orphans the workflows that are already running."""
-    return f"experiment-metrics-recalculation-{recalculation_id}"
-
-
-def cancel_recalculation_workflow(recalculation_id: str) -> None:
-    """Best-effort cancel of a single recalc's Temporal workflow. Swallows failures (already-finished or
-    never-started runs) so callers can pair it with a status write without the cancel masking that write."""
-    _cancel_superseded_workflows([recalculation_id])
-
-
-def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
-    """Dispatch the recalculation Temporal workflow for a row that request_recalculation just created.
-
-    Start every recalculation workflow through this function, so the workflow name and id, the task queues
-    and the rollback stay in one place. If the start fails, the row is marked FAILED when it is safe to do so,
-    and the exception propagates to the caller.
-    """
-    try:
-        # The run's activities take the key version from these inputs, so a flag change mid-run keeps one version.
-        calculation_key_version = resolve_calculation_key_version(Team.objects.only("id").get(id=team_id))
-        temporal = sync_connect()
-        asyncio.run(
-            temporal.start_workflow(
-                METRICS_RECALCULATION_WORKFLOW_NAME,
-                ExperimentMetricsRecalculationWorkflowInputs(
-                    recalculation_id=recalculation_id,
-                    activity_task_queue=_activity_task_queue(organization_id),
-                    calculation_key_version=calculation_key_version,
-                ),
-                id=metrics_recalculation_workflow_id(recalculation_id),
-                task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-            )
-        )
-    except Exception:
-        # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-        # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-        # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-        # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-        # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-        # where only discovery ran, the rollback wins deliberately: the mark_started and
-        # mark_completed guards then terminate that orphan cleanly, and the caller's retry (a new
-        # POST, or the admin action again) starts the replacement.
-        ExperimentMetricsRecalculation.objects.for_team(team_id).filter(
-            id=recalculation_id,
-            status=ExperimentMetricsRecalculation.Status.PENDING,
-            query_to__isnull=True,
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-        raise
-
-
-# Ceiling on the Temporal connect and describe for an old active row. The request holds the experiment row lock
-# while it waits.
-_WORKFLOW_STATUS_TIMEOUT_SECONDS = 3
-
-_CLOSED_WORKFLOW_STATUSES = frozenset(
-    {
-        WorkflowExecutionStatus.COMPLETED,
-        WorkflowExecutionStatus.FAILED,
-        WorkflowExecutionStatus.CANCELED,
-        WorkflowExecutionStatus.TERMINATED,
-        WorkflowExecutionStatus.CONTINUED_AS_NEW,
-        WorkflowExecutionStatus.TIMED_OUT,
-    }
-)
-
-
-async def _describe_recalculation_workflow(recalculation_id: str) -> WorkflowExecutionDescription:
-    temporal = await async_connect()
-    return await temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id)).describe()
-
-
-def _workflow_may_still_run(recalculation_id: str) -> bool:
-    """Whether the workflow of an active row past _STALE_RECALC_THRESHOLD can still finish it.
-
-    A calc that waits on the activity or precompute queue has no time budget, so age alone does not prove that a
-    run is dead. Only a closed or missing workflow does. An unknown state keeps the row, because failing it would
-    cancel a run that may still be working.
-    """
-    try:
-        description = asyncio.run(
-            asyncio.wait_for(
-                _describe_recalculation_workflow(recalculation_id), timeout=_WORKFLOW_STATUS_TIMEOUT_SECONDS
-            )
-        )
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        capture_exception(e)
-        return True
-    except Exception as e:
-        capture_exception(e)
-        return True
-    return description.status not in _CLOSED_WORKFLOW_STATUSES
-
-
-def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
-    """Best-effort cancellation of workflows whose rows were force-failed by the staleness cleanup."""
-    try:
-        temporal = sync_connect()
-    except Exception as e:
-        capture_exception(e)
-        return
-    for recalculation_id in recalculation_ids:
-        try:
-            handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
-            asyncio.run(handle.cancel())
-        except Exception:
-            # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
-            pass
-
-
-def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
-    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
-    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
-    return feature_enabled_or_false(
-        flag_key,
-        organization_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
-
-def _activity_task_queue(organization_id: str) -> str | None:
-    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
-
-
-def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
-    # Only the slot-capped queues run as the experiments user; a queue that collapses into the main queue keeps the default.
-    capped_task_queues = {
-        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
-        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
-    } - {settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE}
-    return ClickHouseUser.EXPERIMENTS if task_queue in capped_task_queues else None
-
-
 def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
     if settings.DEBUG and not settings.TEST:
         return False
-    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+    return organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def _recalculation_max_age(experiment: Experiment) -> timedelta | None:
     # A flag error turns the limit off, so a flag outage never rejects a recalculation.
     try:
-        enabled = _organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+        enabled = organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
     except Exception as e:
         capture_exception(e)
         return None
@@ -625,7 +469,7 @@ def _request_recalculation(
                 team=experiment.team, experiment=experiment, id__in=stale_ids
             ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
-            transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
+            transaction.on_commit(lambda: cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
         # After the stale cleanup, so a stale run of an old experiment is failed and its workflow cancelled too.
         if max_age is not None and (experiment_age := _age_over_limit(experiment, max_age)) is not None:
@@ -701,7 +545,7 @@ def _queued_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculat
         .order_by("-created_at")
     )
     for candidate in candidates:
-        if _workflow_may_still_run(str(candidate.id)):
+        if workflow_may_still_run(str(candidate.id)):
             return candidate
     return None
 

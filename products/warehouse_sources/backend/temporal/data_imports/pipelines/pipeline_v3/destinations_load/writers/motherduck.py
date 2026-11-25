@@ -442,14 +442,14 @@ class MotherDuckDestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
-        rows_written = 0
+        outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
         record_index = 0
         async for batch in batches:
-            rows_written += await self._run(
+            outcome += await self._run(
                 functools.partial(self._write_record_batch, batch=batch, ctx=ctx, record_index=record_index)
             )
             record_index += 1
-        return BatchWriteOutcome(rows_written=rows_written)
+        return outcome
 
     def _write_record_batch(
         self,
@@ -458,7 +458,7 @@ class MotherDuckDestinationWriter:
         ctx: DestinationBatchContext,
         *,
         record_index: int,
-    ) -> int:
+    ) -> BatchWriteOutcome:
         run = ctx.run
         full_refresh = run.is_full_refresh
         target = staging_table_name(run) if full_refresh else run.table_name
@@ -471,7 +471,7 @@ class MotherDuckDestinationWriter:
             # The staging table is gone and the live table carries this run's publish stamp, so
             # the run finished. Building a staging table out of this one batch and swapping it in
             # would replace the whole table with it.
-            return 0
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         table_existed, comment = self._table_comment(connection, target)
         if table_existed and not is_owned_by(comment, run.schema_id):
@@ -514,9 +514,11 @@ class MotherDuckDestinationWriter:
                 elif self._claim_receipt(connection, run, ctx.batch_index, record_index):
                     self._insert(connection, target)
                 else:
-                    # An earlier attempt already committed these rows.
+                    # An earlier attempt already committed these rows. Its bytes still count,
+                    # because that attempt failed on a later chunk and recorded no egress. The
+                    # delivery record is unique per batch, so a batch is billed only once.
                     connection.commit()
-                    return 0
+                    return BatchWriteOutcome(rows_written=0, bytes_written=source.nbytes)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -524,7 +526,9 @@ class MotherDuckDestinationWriter:
         finally:
             connection.unregister(_SOURCE_VIEW)
 
-        return source.num_rows
+        # An approximation of the egress. DuckDB ships the registered Arrow data to MotherDuck in
+        # its own wire format, which this writer cannot see, so the in-memory Arrow size stands in.
+        return BatchWriteOutcome(rows_written=source.num_rows, bytes_written=source.nbytes)
 
     def _claim_receipt(
         self, connection: duckdb.DuckDBPyConnection, run: DestinationRunContext, batch_index: int, record_index: int

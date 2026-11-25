@@ -96,14 +96,14 @@ root_files:
 # Backend files (in backend/)
 #
 # `backend/`, `backend/facade/`, and `backend/presentation/` carry an empty
-# `__init__.py`. `products/` is a regular package, and grimp stops descending at
-# the first directory without a marker — without them import-linter cannot see
-# the product's modules and every contract passes there vacuously.
+# `__init__.py`. `products/` is a regular package, and mypy names a module by the
+# `__init__.py` files above it, so a missing marker gives the modules below a
+# short, wrong name.
 # `tests/__init__.py` is separate: pytest's default `prepend` import mode would
 # collide on duplicate test filenames across products (11× `test_models.py`,
 # 11× `test_api.py`, etc.) without it.
-# Everything else stays a namespace package: no contract targets it, and the
-# convention under products/ is to keep package surfaces intentional.
+# Everything else stays a namespace package: the convention under products/ is
+# to keep package surfaces intentional.
 backend_files:
     __init__.py:
         required: true

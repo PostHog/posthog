@@ -70,19 +70,17 @@ from products.feature_flags.backend.facade.edits import (
     parse_percentage,
     parse_variants,
 )
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
     pinned_variant,
     reachable_conditions,
 )
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_config, has_active_flags
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
 # (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
-# question in `exposure_gate.py`, its row in `inputs_payload.py`, its words in `_described`
-# (`checks/flag_change_findings.py`), and its check.
+# question in `exposure_gate.py`, its words in `_described` (`checks/flag_change_findings.py`), and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
@@ -611,6 +609,8 @@ class ExposureEvents:
     # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
     # activation, which the exposure query reads only next to the flag call events.
     activation: str | None = None
+    # The name of the action that the criteria count. None when they count an event.
+    action: str | None = None
     property_filters: tuple[ExposurePropertyFilter, ...] = ()
     # The filters inside an action's steps are not read.
     cohort_ids: tuple[int, ...] = ()
@@ -1014,10 +1014,10 @@ def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
     # for the teams it copies to flag_evaluations, which this side can't read. Their flags keep no `last_called_at`
     # however often they are called.
-    return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
-        get_organization_flag_evaluations_mode(experiment.team.organization_id)
-        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    )
+    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE == "flag_evaluations":
+        return False
+    config = get_organization_flag_evaluations_config(experiment.team.organization_id)
+    return config.stops_events_writes
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:
@@ -1067,7 +1067,8 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
-        activation=_activation_name(activation) if activation else None,
+        activation=_event_or_action_name(activation) if activation else None,
+        action=_event_or_action_name(config) if isinstance(config, ActionsNode) else None,
         property_filters=tuple(
             ExposurePropertyFilter.of(prop, source.event if isinstance(source, ExperimentEventExposureConfig) else None)
             for prop, source in filters
@@ -1079,10 +1080,10 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
 
 
-def _activation_name(activation: ExperimentEventExposureConfig | ActionsNode) -> str:
-    if isinstance(activation, ExperimentEventExposureConfig):
-        return activation.event
-    return activation.name or f"action {activation.id}"
+def _event_or_action_name(config: ExperimentEventExposureConfig | ActionsNode) -> str:
+    if isinstance(config, ExperimentEventExposureConfig):
+        return config.event
+    return config.name or f"Action {config.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:

@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
+    _normalize_selected_schema,
     _rls_active_from_conn,
     _xmin_capable_tables_from_conn,
     build_has_new_rows_query,
@@ -194,6 +195,18 @@ _CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your datab
 _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "The database named in your connection details doesn't exist on this server. Check the database name is "
     "correct and try again."
+)
+
+# Discovery reads pg_class, which lists every relation whatever the role's grants, so zero tables
+# after a good connection means the Schema field names an empty or missing schema, or the database
+# holds no user tables. Without this the wizard accepts the connection and then dead-ends on an
+# empty table list, away from the fields that need fixing.
+_NO_TABLES_IN_SCHEMA_VALIDATION_ERROR = (
+    "Your database has no tables in the schema you entered. Check the Schema field, or leave it blank "
+    "to list tables from every schema."
+)
+_NO_TABLES_IN_DATABASE_VALIDATION_ERROR = (
+    "Your database has no tables to import. Check that the Database field names the database that holds your tables."
 )
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
@@ -2246,7 +2259,7 @@ class PostgresSource(
             return valid_host, host_errors
 
         try:
-            self.get_schemas(
+            discovered_schemas = self.get_schemas(
                 config,
                 team_id,
                 names=[schema_name] if schema_name else None,
@@ -2290,6 +2303,12 @@ class PostgresSource(
         except Exception as e:
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
+
+        # A table-scoped check (schema_name set) keeps passing for a table that has since been dropped.
+        if not schema_name and not discovered_schemas:
+            if _normalize_selected_schema(config.schema):
+                return False, _NO_TABLES_IN_SCHEMA_VALIDATION_ERROR
+            return False, _NO_TABLES_IN_DATABASE_VALIDATION_ERROR
 
         return True, None
 

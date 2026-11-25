@@ -159,6 +159,26 @@ class ConfigValueError(ValueError):
 
 
 @dataclass(frozen=True)
+class BackingTableSnapshot:
+    """What a materialization publishes to the backing table of its view."""
+
+    format: str
+    url_pattern: str
+    queryable_folder: str
+    columns: dict[str, Any]
+    row_count: int | None
+    size_in_s3_mib: float | None
+
+
+@dataclass(frozen=True)
+class BackingTablePublish:
+    """What a published snapshot replaced on the backing table."""
+
+    replaced_size_in_s3_mib: float | None
+    columns_changed: bool
+
+
+@dataclass(frozen=True)
 class HistoryTableRef:
     """A table's history table, as the table's access dialog shows it."""
 

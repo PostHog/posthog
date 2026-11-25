@@ -131,6 +131,8 @@ class PeopleImportPlan:
     send_events: bool
     # Set by the runner. The workflow checks this person can still edit persons before each write.
     created_by_id: int | None = None
+    provider: str = ""
+    step: str = ""
 
 
 @frozen

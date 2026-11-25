@@ -69,7 +69,7 @@ CHUNK_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
-    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone"],
+    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone", "ContactsPartMissing"],
 )
 
 
@@ -184,6 +184,8 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             created_by_id=plan.created_by_id,
                             # The people this list waits for won't come, so it fills with the ones who exist.
                             wait_for_people=not people_not_sent,
+                            provider=plan.provider,
+                            step=plan.step,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,
                         heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,

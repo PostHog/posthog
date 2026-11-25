@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { isProductPane } from '~/layout/today/todayProductPanes'
 import { TODAY_PANES } from '~/layout/today/todayRailItems'
 import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { TodayRailPane } from '~/layout/today/todayShellLogic'
@@ -18,9 +19,9 @@ import { TodayRailPreviewList } from './TodayRailPreviewList'
 export function TodayRailHoverCard({ pane, onAction }: { pane: TodayRailPane; onAction: () => void }): JSX.Element {
     const { shortcutData, shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { recents, recentsLoading } = useValues(recentItemsModel)
-    const { peopleRecents, monitorRecents, releaseRecents } = useValues(todayRecentsLogic)
+    const { peopleRecents, productPaneRecents, releaseRecents } = useValues(todayRecentsLogic)
     const localRecents: { type: string; name: string; href: string }[] =
-        pane === 'people' ? peopleRecents : pane === 'monitor' ? monitorRecents : []
+        pane === 'people' ? peopleRecents : isProductPane(pane) ? productPaneRecents[pane] : []
     const pins = railPreviewItems(
         pane === 'release'
             ? namedReleaseEntries(

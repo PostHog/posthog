@@ -4,7 +4,7 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.fields import empty
 from rest_framework.request import Request
@@ -2084,6 +2084,30 @@ class TrainingRunCapReachedSerializer(serializers.Serializer):
     )
 
 
+class TrainingBudgetReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    code = serializers.CharField(
+        help_text="Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code."
+    )
+    spent_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, across all its pipelines. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    limit_usd = serializers.IntegerField(
+        help_text="The project's monthly training budget, in whole US dollars. 0 means training is turned off."
+    )
+    resets_at = serializers.DateTimeField(help_text="When the budget resets: the start of the next UTC calendar month.")
+
+
+START_TRAINING_REFUSED_SERIALIZER = PolymorphicProxySerializer(
+    component_name="StartTrainingRefused",
+    serializers=[TrainingRunCapReachedSerializer, TrainingBudgetReachedSerializer],
+    resource_type_field_name=None,
+)
+
+
 def _limit_source_field(limit: str) -> serializers.ChoiceField:
     return serializers.ChoiceField(
         choices=LIMIT_SOURCE_CHOICES,
@@ -2121,9 +2145,25 @@ class ProjectLimitsSerializer(DataclassSerializer):
     live_pipelines = serializers.IntegerField(
         help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
+    max_training_spend_usd_per_month = serializers.IntegerField(
+        help_text=(
+            "The project's monthly training budget, in whole US dollars. A training run is refused once "
+            "training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off."
+        )
+    )
+    training_spend_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, a run in progress included. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    training_spend_resets_at = serializers.DateTimeField(
+        help_text="When training_spend_usd resets to 0: the start of the next UTC calendar month."
+    )
     max_training_runs_per_day_source = _limit_source_field("max_training_runs_per_day")
     max_iterations_per_run_source = _limit_source_field("max_iterations_per_run")
     max_live_pipelines_source = _limit_source_field("max_live_pipelines")
+    max_training_spend_usd_per_month_source = _limit_source_field("max_training_spend_usd_per_month")
 
     class Meta:
         dataclass = ProjectLimits
@@ -2134,9 +2174,13 @@ class ProjectLimitsSerializer(DataclassSerializer):
             "max_iterations_per_run",
             "max_live_pipelines",
             "live_pipelines",
+            "max_training_spend_usd_per_month",
+            "training_spend_usd",
+            "training_spend_resets_at",
             "max_training_runs_per_day_source",
             "max_iterations_per_run_source",
             "max_live_pipelines_source",
+            "max_training_spend_usd_per_month_source",
         ]
 
 

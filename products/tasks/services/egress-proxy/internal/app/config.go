@@ -41,6 +41,7 @@ type RelayConfig struct {
 	CertificateFile string `json:"certificate_file"`
 	PrivateKeyFile  string `json:"private_key_file"`
 	ServerCAFile    string `json:"server_ca_file"`
+	ClientCAFile    string `json:"client_ca_file"`
 }
 
 func readFile(path string) ([]byte, error) {

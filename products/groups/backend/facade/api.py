@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..logic import group_types
+from ..logic import detail_dashboard, group_types
 from ..logic.property_definitions import create_property_definition
 from ..logic.related_actors_query import RelatedActorsQuery
 from . import contracts
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from posthog.hogql_queries.serialized_actors import SerializedActor
     from posthog.models import Team
     from posthog.models.property import GroupTypeIndex
+    from posthog.models.user import User
 
 
 def get_related_actors(
@@ -63,3 +64,15 @@ def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit
     get_group_type.
     """
     return group_types.update_group_type(project_id, index, edit, baseline)
+
+
+def create_group_type_detail_dashboard(
+    team: Team, user: User, *, group_type: str, name_singular: str | None, name_plural: str | None
+) -> int:
+    """Creates the template dashboard behind the Overview page of a group type and returns its id.
+
+    The caller links the dashboard to the group type.
+    """
+    return detail_dashboard.create_group_type_detail_dashboard(
+        team=team, user=user, group_type=group_type, name_singular=name_singular, name_plural=name_plural
+    )
