@@ -1248,7 +1248,9 @@ class HogFunctionViewSet(
                 alert_ids += [str(item) for item in value] if isinstance(value, list) else [str(value)]
         key_scopes = get_authenticator_scopes(request.successful_authenticator)
         for gate in gates:
-            refusal = gate(team_id=self.team_id, alert_ids=alert_ids, user_id=request.user.id, key_scopes=key_scopes)
+            refusal = gate(
+                team_id=self.team_id, alert_ids=alert_ids, user_id=cast(User, request.user).id, key_scopes=key_scopes
+            )
             if refusal:
                 return refusal
         return None
