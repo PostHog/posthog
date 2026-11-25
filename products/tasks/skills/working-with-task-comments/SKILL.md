@@ -1,7 +1,7 @@
 ---
 name: working-with-task-comments
 metadata:
-  audience: internal
+  audience: customer
 description: >-
   Read and use comments attached to the current PostHog task, its artifacts, and any canvas through
   the PostHog MCP exec dispatcher. Use when the user mentions task comments, artifact or canvas
