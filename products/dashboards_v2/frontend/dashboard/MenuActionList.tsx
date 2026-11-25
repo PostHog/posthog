@@ -100,6 +100,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
             data-attr={action.dataAttr}
             variant={action.destructive ? 'destructive' : 'default'}
             disabled={!!action.disabledReason}
+            closeOnClick={!action.keepOpen}
             onClick={action.onSelect}
         >
             <EntryLabel action={action} />

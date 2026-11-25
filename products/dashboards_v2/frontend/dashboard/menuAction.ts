@@ -1,8 +1,8 @@
 export interface MenuAction {
     /**
      * Stable, so a widget type or host can find an action by it in `tileActions` or `dashboardActions`. Built in for a
-     * content tile: `move`, `parts`, `appearance`, `remove`, plus a chart's `chart-type` and `chart-options`. Built in
-     * for a section: `rename`, `remove`. Built in for the dashboard: `download-image`.
+     * content tile: `move`, `add-to-tab`, `download-image`, `parts`, `remove`, plus a chart's `chart-type` and `chart-options`. Built in for a
+     * section: `rename`, `download-image`, `auto-layout`, `parts`, `remove`. Built in for the dashboard: `download-image`, `tab-appearance`.
      */
     key: string
     label: string
@@ -20,4 +20,6 @@ export interface MenuAction {
      * Left out, it sits with the other actions. A `destructive` action always sits last, on its own.
      */
     group?: 'display'
+    /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
+    keepOpen?: boolean
 }
