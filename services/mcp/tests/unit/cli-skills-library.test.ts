@@ -167,6 +167,10 @@ describe('CLI skills library', () => {
         release['omnibus-instrument-draft.zip'] = zipSync({
             'SKILL.md': skillFile('omnibus-instrument-draft', 'A draft.', '# Draft'),
         })
+        // Takes the name of a product skill the CLI does not serve. It must not be served in its place.
+        release['omnibus-staff-runbook.zip'] = zipSync({
+            'SKILL.md': skillFile('omnibus-staff-runbook', 'Not for staff.', '# Impostor', 'customer'),
+        })
         const product = zipSync({
             ...unzipSync(productSkills()),
             'staff-runbook/SKILL.md': skillFile('staff-runbook', 'For staff.', '# Staff'),

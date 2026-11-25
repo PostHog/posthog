@@ -415,6 +415,9 @@ describe('SkillCatalogService', () => {
 
     it('serves a context-mill skill only when its own header says it is for customers', async () => {
         const [listedSkill] = Object.keys(servedSkillsJson.skills)
+        const [flaggedName, flaggedEntry] = Object.entries(servedSkillsJson.skills).find(
+            ([name, entry]) => 'feature_flag' in entry && name !== listedSkill
+        )!
         const skill = (name: string, metadata = ''): Uint8Array =>
             strToU8(`---\nname: ${name}\ndescription: Sample.\n${metadata}---\n# ${name}`)
         const redis = makeRedis()
@@ -427,6 +430,12 @@ describe('SkillCatalogService', () => {
                     'metadata:\n  audience: customer\n  feature_flag: metrics\n'
                 ),
                 'instrument-draft/SKILL.md': skill('instrument-draft'),
+                'instrument-bad-flag/SKILL.md': skill(
+                    'instrument-bad-flag',
+                    'metadata:\n  audience: customer\n  feature_flag: []\n'
+                ),
+                // On the generated list with a flag, but missing from this product archive.
+                [`${flaggedName}/SKILL.md`]: skill(flaggedName, 'metadata:\n  audience: customer\n'),
                 'internal-runbook/SKILL.md': skill('internal-runbook', 'metadata:\n  audience: customer\n'),
             })
         )
@@ -444,8 +453,11 @@ describe('SkillCatalogService', () => {
         warn.mockRestore()
 
         expect(service.getCatalog()?.listNames()).toEqual(
-            ['instrument-logs', 'instrument-metrics', listedSkill!].sort((left, right) => left.localeCompare(right))
+            ['instrument-logs', 'instrument-metrics', listedSkill!, flaggedName].sort((left, right) =>
+                left.localeCompare(right)
+            )
         )
+        expect(service.getServedSkills().get(flaggedName)).toEqual(flaggedEntry)
         expect(service.getServedSkills().get('instrument-metrics')).toEqual({
             audience: 'customer',
             feature_flag: 'metrics',

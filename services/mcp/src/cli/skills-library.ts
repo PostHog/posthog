@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
-import { isSkillServedWithoutFlags, servedSkillsFromHeaders } from '@/skills/served-skills'
+import { isSkillListed, isSkillServedWithoutFlags, servedSkillsFromHeaders } from '@/skills/served-skills'
 import {
     type LearnCommands,
     learnCommands,
@@ -463,8 +463,15 @@ function combineSkills(
     const kinds = new Map<string, SkillKind>()
     const resources = new Set<string>()
     const definitions: SkillDefinition[] = []
+    // A product skill the CLI does not serve still keeps its name, as on the server, so a context-mill
+    // skill cannot take that name and be served in its place.
+    const reserved = new Set((product?.listNames() ?? []).filter((name) => !isSkillServedWithoutFlags(name)))
     const add = (skill: SkillDefinition | undefined, kind: SkillKind): boolean => {
-        if (!skill || kinds.has(skill.name)) {
+        if (!skill || kinds.has(skill.name) || reserved.has(skill.name)) {
+            return false
+        }
+        // A name on the generated list keeps that list's consumer limit, whichever archive the skill came from.
+        if (isSkillListed(skill.name) && !isSkillServedWithoutFlags(skill.name)) {
             return false
         }
 
@@ -523,9 +530,7 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
     })
 
     const loadProductSkills = memoizeWhileFresh(async () => {
-        const loaded = await loadAsset(settings, 'product-skills', (bytes) =>
-            SkillCatalog.fromZip(bytes).filter((name) => isSkillServedWithoutFlags(name))
-        )
+        const loaded = await loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes))
         return { catalog: loaded.parsed, assets: [loaded.status] }
     })
 

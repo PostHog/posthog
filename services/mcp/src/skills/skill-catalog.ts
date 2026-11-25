@@ -291,13 +291,16 @@ export function parseFrontmatter(content: string, source: string): SkillHeader &
         throw new Error(`Invalid skill metadata in "${source}"`)
     }
     const metadata = isRecord(parsed.metadata) ? parsed.metadata : {}
+    const flag = metadata.feature_flag
+    const hasFlag = typeof flag === 'string' && flag !== ''
+    // A flag that is present but unreadable must not read as "no flag", which would serve a gated skill
+    // to everyone. Dropping the audience leaves the skill unserved instead.
+    const flagIsUnreadable = 'feature_flag' in metadata && !hasFlag
     return {
         name,
         description,
-        ...(typeof metadata.audience === 'string' ? { audience: metadata.audience } : {}),
-        ...(typeof metadata.feature_flag === 'string' && metadata.feature_flag
-            ? { featureFlag: metadata.feature_flag }
-            : {}),
+        ...(typeof metadata.audience === 'string' && !flagIsUnreadable ? { audience: metadata.audience } : {}),
+        ...(hasFlag ? { featureFlag: flag } : {}),
     }
 }
 

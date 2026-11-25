@@ -266,8 +266,11 @@ export class SkillCatalogService {
         if (this.omnibusBytes) {
             try {
                 const overlay = SkillCatalog.fromZip(this.omnibusBytes)
-                // A product skill keeps its name on a collision, so an overlay header must not decide whether it is served.
-                const headers = overlay.listHeaders().filter(({ name }) => !product.has(name))
+                // A product skill keeps its name on a collision, and a name on the generated list keeps that
+                // list's flag and consumer limit, so an overlay header must not decide for either.
+                const headers = overlay
+                    .listHeaders()
+                    .filter(({ name }) => !product.has(name) && !PRODUCT_SERVED_SKILLS.has(name))
                 return { release: product.withOverlay(overlay), overlayServed: servedSkillsFromHeaders(headers) }
             } catch (error) {
                 console.error(
