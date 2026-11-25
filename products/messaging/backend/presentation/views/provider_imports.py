@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -241,6 +242,11 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        if "automations" in data["steps"]:
+            # Automations become workflow drafts, so they need the property access that editing a workflow needs.
+            permission = CDPPropertyAccessPermission()
+            if not permission.has_permission(request, self):
+                raise PermissionDenied(permission.message)
         # The import runs in the background without this request, so the key's scopes are checked here.
         scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
         if (

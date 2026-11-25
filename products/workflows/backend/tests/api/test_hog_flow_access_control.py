@@ -143,6 +143,35 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            (f"{path}_{access}".replace("/", "_"), path, payload, access)
+            for path, payload in (
+                ("workflow_imports", {"source": "customerio", "campaigns": []}),
+                ("workflow_data_suggestions/build", {}),
+                ("hog_flow_templates", {}),
+            )
+            for access in ("restricted", "granted")
+        ]
+    )
+    def test_property_permissions_apply_to_other_routes_that_write_workflows(
+        self, _name: str, path: str, payload: dict, access: PropertyAccess
+    ) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(organization=self.organization, user=self.editor_user),
+            access=access,
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/{path}/", data=payload, format="json")
+
+        # The empty payload fails validation, so a granted member's 400 shows the request got past the check.
+        assert response.status_code == (403 if access == "restricted" else 400), response.json()
+        if access == "restricted":
+            assert "property access" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
             ("viewer", "get", status.HTTP_200_OK),
             ("viewer", "patch", status.HTTP_403_FORBIDDEN),
             ("viewer", "delete", status.HTTP_403_FORBIDDEN),
