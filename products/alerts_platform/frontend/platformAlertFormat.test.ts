@@ -6,13 +6,20 @@ import {
 } from './generated/api.schemas'
 import {
     PlatformAlertConfigurationStatus,
+    PlatformAlertListRow,
     PlatformAlertStateCount,
+    configurationListRows,
     configurationStateCounts,
     configurationStatus,
     describeCondition,
+    describeGroup,
     describeInterval,
     describeOverflow,
+    canChangeFromList,
+    canSnoozeGroups,
+    groupSnoozeLockedByAlert,
     describeSchedule,
+    listRowMute,
     groupLabels,
     ruleMetadataEntriesError,
 } from './platformAlertFormat'
@@ -92,6 +99,117 @@ describe('platformAlertFormat', () => {
         ],
     ])('configurationStatus: %s', (_, overrides, expected) => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test('configurationListRows puts the groups of an open alert under it and leaves a closed alert as one row', () => {
+        const groups = [makeAlert(PlatformAlertStateApi.Firing), makeAlert(PlatformAlertStateApi.NotFiring)]
+        const open = makeConfiguration({ id: 'open', alerts: groups })
+        const closed = makeConfiguration({ id: 'closed', alerts: groups })
+        expect(configurationListRows([open, closed], ['open'])).toEqual([
+            { kind: 'alert', configuration: open },
+            { kind: 'group', configuration: open, group: groups[0] },
+            { kind: 'group', configuration: open, group: groups[1] },
+            { kind: 'alert', configuration: closed },
+        ])
+    })
+
+    test('configurationListRows keeps an open alert closed once it has one group left, as it has no toggle', () => {
+        const single = makeConfiguration({ id: 'single', alerts: [makeAlert(PlatformAlertStateApi.Firing)] })
+        expect(configurationListRows([single], ['single'])).toEqual([{ kind: 'alert', configuration: single }])
+    })
+
+    test.each<[string, Partial<PlatformAlertApi>, string]>([
+        [
+            'labels in grouping order',
+            { labels: { severity_text: 'error', service_name: 'checkout' } },
+            'service_name=checkout severity_text=error',
+        ],
+        ['no labels falls back to the key', { grouping_key: 'sha256:abc', labels: {} }, 'sha256:abc'],
+        ['no key', { grouping_key: '' }, 'Ungrouped'],
+    ])('describeGroup: %s', (_, overrides, expected) => {
+        const alert = { ...makeAlert(PlatformAlertStateApi.Firing), ...overrides }
+        expect(describeGroup(alert, ['service_name', 'severity_text'])).toEqual(expected)
+    })
+
+    test.each<[string, string | null, (string | null)[], number | null, ReturnType<typeof listRowMute>]>([
+        [
+            'alert snooze in the future',
+            '2026-10-06T00:00:00Z',
+            [null],
+            null,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
+        ['alert snooze in the past', '2026-10-04T00:00:00Z', [null], null, null],
+        [
+            'two of three groups snoozed',
+            null,
+            ['2026-10-06T00:00:00Z', null, '2026-10-07T00:00:00Z'],
+            null,
+            { kind: 'groupsSnoozed', count: 2 },
+        ],
+        [
+            'group row with its own snooze',
+            null,
+            ['2026-10-06T00:00:00Z'],
+            0,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
+        ['group row with an expired snooze', null, ['2026-10-04T00:00:00Z'], 0, null],
+    ])('listRowMute: %s', (_, alertSnooze, groupSnoozes, groupIndex, expected) => {
+        const alerts = groupSnoozes.map((snooze_until) => ({
+            ...makeAlert(PlatformAlertStateApi.Firing),
+            snooze_until,
+        }))
+        const configuration = makeConfiguration({ snooze_until: alertSnooze, alerts })
+        const row: PlatformAlertListRow =
+            groupIndex === null
+                ? { kind: 'alert', configuration }
+                : { kind: 'group', configuration, group: alerts[groupIndex] }
+        expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a grouped alert the platform owns', { owner: 'platform' }, true],
+        ['a grouped alert its source owns', { owner: 'source' }, false],
+        [
+            'an ungrouped alert',
+            {
+                owner: 'platform',
+                grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
+            },
+            false,
+        ],
+    ])('canSnoozeGroups: %s', (_, overrides, expected) => {
+        const grouping: PlatformAlertConfigurationApi['grouping'] = {
+            mode: 'by_result_labels',
+            keys: ['service_name'],
+            max_instances: 100,
+            on_overflow: 'degrade_visible',
+        }
+        expect(canSnoozeGroups(makeConfiguration({ grouping, ...overrides }))).toEqual(expected)
+    })
+
+    test.each<[string, string | null, boolean]>([
+        ['an alert snoozed until later', '2026-10-06T12:00:00Z', true],
+        ['an alert whose snooze ended', '2026-10-04T12:00:00Z', false],
+        ['an alert with no snooze', null, false],
+    ])('groupSnoozeLockedByAlert: %s', (_, snooze_until, expected) => {
+        expect(groupSnoozeLockedByAlert(makeConfiguration({ snooze_until }), new Date('2026-10-05T12:00:00Z'))).toEqual(
+            expected
+        )
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a platform alert with no source row', { owner: 'platform', legacy_configuration_id: null }, true],
+        [
+            'a platform alert that keeps its source row',
+            { owner: 'platform', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
+            true,
+        ],
+        ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false],
+        ['a source alert', { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' }, false],
+    ])('canChangeFromList: %s', (_, overrides, expected) => {
+        expect(canChangeFromList(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

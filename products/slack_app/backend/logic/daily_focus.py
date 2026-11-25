@@ -8,6 +8,7 @@ from datetime import UTC, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
@@ -47,6 +48,9 @@ MAX_LOOKBACK = timedelta(days=4)
 TURNED_ON_EVENT = "slack app daily work focus turned on"
 TURNED_OFF_EVENT = "slack app daily work focus turned off"
 TIME_CHANGED_EVENT = "slack app daily work focus time changed"
+# A mention checks the default once a day per person, so a busy thread costs a cache read, and a flag that turns on
+# or a link that gains the search scope is picked up by the next day.
+DEFAULT_ON_CHECK_SECONDS = 24 * 3600
 
 
 @frozen
@@ -331,3 +335,24 @@ def daily_focus_off_blocks(blocks: list[dict]) -> list[dict]:
         "block_id": DAILY_FOCUS_FOOTER_BLOCK_ID,
     }
     return [off if block.get("block_id") == DAILY_FOCUS_FOOTER_BLOCK_ID else block for block in blocks]
+
+
+def turn_on_daily_focus_by_default(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
+    """Turns the daily work focus on for a person who can run it and never chose. A person who turned it off has a
+    row and stays off. The row is read first, because it is the cheapest check and settles most people. Never
+    raises, so the caller's Slack response still goes out."""
+    try:
+        if resolve_daily_focus(integration.integration_id, slack_user_id).enabled is None and can_run_daily_focus(
+            integration, slack_user_id
+        ):
+            turn_on_daily_focus(integration, slack_user_id, source=source)
+    except Exception:
+        logger.warning("slack_app_daily_focus_default_failed", slack_user_id=slack_user_id, exc_info=True)
+
+
+def turn_on_daily_focus_on_mention(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """The default for a person who only tags PostHog and never opens the Home tab, at most once a day."""
+    if cache.add(
+        f"slack_app:daily_focus_default:{integration.integration_id}:{slack_user_id}", 1, DEFAULT_ON_CHECK_SECONDS
+    ):
+        turn_on_daily_focus_by_default(integration, slack_user_id, source="mention_default")

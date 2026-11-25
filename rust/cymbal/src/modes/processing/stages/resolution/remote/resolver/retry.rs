@@ -13,6 +13,7 @@ use tokio::sync::OwnedSemaphorePermit;
 // state changes (stream broke, endpoint ejected) stay at warn in the pool/mux.
 use tracing::{debug, warn};
 
+use common_ingestion_response::codes;
 use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOutcome};
 use tonic::Status;
 
@@ -28,6 +29,8 @@ use uuid::Uuid;
 use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
+
+const RESOLUTION_UNAVAILABLE: &str = "resolution_unavailable";
 
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
@@ -212,12 +215,17 @@ pub(super) async fn resolve_work_item(
 
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
     record_reroute_depth("exhausted", attempts_used);
-    Err(UnhandledError::Other(format!(
-        "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
-        work_item.token,
-        max_attempts,
-        last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    // A last attempt that ran into the deadline is a deadline failure, not an unavailable pool.
+    remaining_deadline(deadline)?;
+    Err(UnhandledError::ResolutionIncomplete {
+        code: RESOLUTION_UNAVAILABLE,
+        message: format!(
+            "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
+            work_item.token,
+            max_attempts,
+            last_error.unwrap_or_else(|| "no recorded cause".to_string()),
+        ),
+    })
 }
 
 async fn wait_for_terminal_or_acceptance(
@@ -337,13 +345,18 @@ fn classify_outcome(
                 .increment(1);
             match kind {
                 ErrorKind::Overloaded => Ok(ItemDecision::Overloaded(err.message)),
-                ErrorKind::Poison => Err(terminal_item_error(
-                    work_item.token,
-                    format!(
-                        "remote resolution returned poison item; failing batch under all-or-nothing policy until DLQ plumbing is added: {}",
+                ErrorKind::Poison => {
+                    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed")
+                        .increment(1);
+                    Err(UnhandledError::Poison(format!(
+                        "remote resolution item {} returned {}: {}",
+                        work_item.token,
+                        kind.as_str_name(),
                         err.message
-                    ),
-                )),
+                    )))
+                }
+                // Processing serialized this payload itself, so the resolver rejecting it means
+                // the two deploys run different versions, not that the event's data is bad.
                 ErrorKind::InvalidPayload | ErrorKind::Unhandled => Err(terminal_item_error(
                     work_item.token,
                     format!(
@@ -371,7 +384,7 @@ fn classify_outcome(
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch ({message})"
+        "remote resolution item {token} failed terminally ({message})"
     ))
 }
 
@@ -390,10 +403,9 @@ async fn acquire_routing_permit(
 fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {
     deadline
         .checked_duration_since(Instant::now())
-        .ok_or_else(|| {
-            UnhandledError::Other(
-                "remote resolution item deadline elapsed before completion".to_string(),
-            )
+        .ok_or_else(|| UnhandledError::ResolutionIncomplete {
+            code: codes::DEADLINE_EXCEEDED,
+            message: "remote resolution item deadline elapsed before completion".to_string(),
         })
 }
 
@@ -520,21 +532,21 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_treats_poison_as_terminal_all_or_nothing() {
+    fn classify_outcome_marks_only_poison_as_an_item_failure() {
         let work_item = work_item(7);
-        let err = classify_outcome(&work_item, error_outcome(ErrorKind::Poison, "bad symbols"))
-            .unwrap_err();
-        assert!(err.to_string().contains("DLQ plumbing"));
-        assert!(err.to_string().contains("all-or-nothing"));
-    }
-
-    #[test]
-    fn classify_outcome_treats_invalid_payload_and_unhandled_as_terminal() {
-        let work_item = work_item(7);
-        for kind in [ErrorKind::InvalidPayload, ErrorKind::Unhandled] {
+        for (kind, item_failure) in [
+            (ErrorKind::Poison, true),
+            (ErrorKind::InvalidPayload, false),
+            (ErrorKind::Unhandled, false),
+        ] {
             let err = classify_outcome(&work_item, error_outcome(kind, "boom")).unwrap_err();
             assert!(err.to_string().contains(kind.as_str_name()));
-            assert!(err.to_string().contains("failing batch"));
+            assert_eq!(
+                err.is_item_failure(),
+                item_failure,
+                "{}",
+                kind.as_str_name()
+            );
         }
     }
 

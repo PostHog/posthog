@@ -5,11 +5,13 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
@@ -33,10 +35,12 @@ from products.workflows.backend.facade.contracts import SuggestionsSample, Sugge
 from products.workflows.backend.metrics import (
     HOG_FLOW_VERSION_APP_SOURCE,
     MIN_EVIDENCE_SAMPLE,
+    RUN_STARTED_METRIC,
     TARGET_SEND_METRIC,
     TARGET_UNTRACKED_METRIC,
 )
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
+from products.workflows.backend.services.workflow_proposals import ConversionBasis, scout_conversion_window
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
 SOURCE_PRODUCT = "workflows"
@@ -48,6 +52,8 @@ SAMPLE_MIN_VERSION_AGE = timedelta(hours=48)
 _LOCK_NAMESPACE = 72_031
 # The scout skill reads a send only once it is this old, because opens and bounces arrive after the send.
 SEND_MATURITY = timedelta(hours=48)
+# The scout skill ends its conversion read this long after the conversion window closes, on a whole UTC day.
+CONVERSION_SETTLE_ALLOWANCE = timedelta(hours=2)
 EMAIL_METRICS_MAX_EXECUTION_S = 5
 # The longest the scout goes without a run, so workflows a short run left unread still get read.
 BACKSTOP_INTERVAL = timedelta(days=7)
@@ -152,10 +158,17 @@ class _OptedInWorkflow:
     team_id: int
     version: int
     opted_in_at: datetime
+    conversion: dict[str, Any] | None
+    trigger: dict[str, Any] | None
+    actions: list[Any]
 
     @property
     def version_source_id(self) -> str:
         return f"{self.id}/{self.version}"
+
+    @property
+    def has_email_step(self) -> bool:
+        return any(isinstance(action, dict) and action.get("type") == "function_email" for action in self.actions)
 
 
 def suggestions_scout_run_reason(
@@ -164,8 +177,9 @@ def suggestions_scout_run_reason(
     """Why the suggestions scout has something new to read since its last run, or None when it has nothing.
 
     The scout decides only from opted-in live workflows: their opt-in, their published versions, how
-    people resolved its suggestions, and email sends of the live version. When none
-    of these changed since `last_run_at`, a new run reads the same input as the last one.
+    people resolved its suggestions, email sends of the live version, and its runs whose conversion
+    window closed. When none of these changed since `last_run_at`, a new run reads the same input as
+    the last one.
     """
     if last_run_at is None:
         return "first_run"
@@ -174,9 +188,25 @@ def suggestions_scout_run_reason(
         return "backstop"
     environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
     opted_in = [
-        _OptedInWorkflow(id=flow_id, team_id=team_id, version=version, opted_in_at=created_at)
-        for flow_id, team_id, version, created_at in _live_opt_ins(project_id).values_list(
-            "hog_flow_id", "hog_flow__team_id", "hog_flow__version", "created_at"
+        _OptedInWorkflow(
+            id=flow_id,
+            team_id=team_id,
+            version=version,
+            opted_in_at=created_at,
+            conversion=conversion,
+            trigger=trigger,
+            actions=actions or [],
+        )
+        for flow_id, team_id, version, created_at, conversion, trigger, actions in _live_opt_ins(
+            project_id
+        ).values_list(
+            "hog_flow_id",
+            "hog_flow__team_id",
+            "hog_flow__version",
+            "created_at",
+            "hog_flow__conversion",
+            "hog_flow__trigger",
+            "hog_flow__actions",
         )
     ]
     if not opted_in:
@@ -216,6 +246,11 @@ def suggestions_scout_run_reason(
         for team_id, workflows in by_team.items()
     ):
         return "sends_matured"
+    if any(
+        _has_settled_conversions(team_id, workflows, last_run_at=last_run_at, now=now)
+        for team_id, workflows in by_team.items()
+    ):
+        return "conversions_settled"
     return None
 
 
@@ -254,6 +289,93 @@ def _has_matured_sends(team_id: int, opted_in: list[_OptedInWorkflow], *, last_r
         settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
     )
     return bool(rows)
+
+
+@frozen
+class _SettledRuns:
+    """The runs of one live version that the scout can read, and the first of them its last run could not."""
+
+    start: datetime
+    new_from: datetime
+    end: datetime
+
+
+def _settled_runs(basis: ConversionBasis, *, last_run_at: datetime, now: datetime) -> _SettledRuns | None:
+    window = scout_conversion_window(basis)
+    if window is None:
+        return None
+
+    def settled_day(moment: datetime) -> datetime:
+        settled = (moment - window - CONVERSION_SETTLE_ALLOWANCE).astimezone(UTC)
+        return settled.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    start, end = basis.recorded_since, settled_day(now)
+    new_from = max(start, settled_day(last_run_at))
+    return _SettledRuns(start=start, new_from=new_from, end=end) if new_from < end else None
+
+
+def _has_settled_conversions(
+    team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
+) -> bool:
+    """Whether runs of a live version finished their conversion window after `last_run_at`, with a sample to judge."""
+    # A suggestion aimed at conversion changes an email step, so a workflow without one has nothing to read.
+    with_conversion = [workflow for workflow in opted_in if workflow.conversion and workflow.has_email_step]
+    # The scheduler has no team context, so this names its team instead of relying on the scope.
+    published = {
+        (flow_id, version): ConversionBasis(conversion=conversion, trigger=trigger)
+        for flow_id, version, conversion, trigger in HogFlowRevision.objects.unscoped()
+        .filter(
+            hog_flow__team_id=team_id,
+            hog_flow_id__in=[workflow.id for workflow in with_conversion],
+            version=F("hog_flow__version"),
+        )
+        .values_list("hog_flow_id", "version", "content__conversion", "content__trigger")
+    }
+    settled_by_source: dict[str, _SettledRuns] = {}
+    for workflow in with_conversion:
+        basis = published.get(
+            (workflow.id, workflow.version),
+            ConversionBasis(conversion=workflow.conversion, trigger=workflow.trigger),
+        )
+        if settled := _settled_runs(basis, last_run_at=last_run_at, now=now):
+            settled_by_source[workflow.version_source_id] = settled
+    if not settled_by_source:
+        return False
+    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutSettledRuns")
+    rows = sync_execute(
+        """
+        SELECT app_source_id, toDate(timestamp, 'UTC') AS day, sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND app_source_id IN %(version_source_ids)s
+          AND metric_name = %(started)s
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND timestamp < toDateTime64(%(before)s, 6)
+        GROUP BY app_source_id, day
+        """,
+        {
+            "team_id": team_id,
+            "app_source": HOG_FLOW_VERSION_APP_SOURCE,
+            "version_source_ids": list(settled_by_source),
+            "started": RUN_STARTED_METRIC,
+            "after": _clickhouse_time(min(settled.start for settled in settled_by_source.values())),
+            "before": _clickhouse_time(max(settled.end for settled in settled_by_source.values())),
+        },
+        workload=Workload.OFFLINE,
+        team_id=team_id,
+        # A slow read raises, and the pre-check runs the scout on any error.
+        settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+    )
+    runs_by_source: dict[str, int] = defaultdict(int)
+    sources_with_new_runs: set[str] = set()
+    for source_id, day, count in rows:
+        settled = settled_by_source[source_id]
+        if settled.start.date() <= day < settled.end.date():
+            runs_by_source[source_id] += count
+            if count > 0 and day >= settled.new_from.date():
+                sources_with_new_runs.add(source_id)
+    return any(runs_by_source[source_id] >= MIN_EVIDENCE_SAMPLE for source_id in sources_with_new_runs)
 
 
 def _clickhouse_time(moment: datetime) -> str:

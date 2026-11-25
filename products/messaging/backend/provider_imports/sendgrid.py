@@ -802,7 +802,7 @@ def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> Save
                 )
             )
             continue
-        converted = convert_version(design)
+        converted = convert_version(design, contact_fields=True)
         notes = (*converted.notes, *converted.send_notes, _SENDER_NOTE)
         items.append(_create(context, key, name, converted, notes, "", counts))
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))

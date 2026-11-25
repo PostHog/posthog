@@ -11,13 +11,21 @@ from typing import Literal
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 
+from celery import current_task
 from rapidfuzz.distance import Indel
 
+from posthog.event_usage import groups, report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
+from posthog.ph_client import ph_scoped_capture
 
 from products.conversations.backend.models import Ticket
 
 HumanOutcome = Literal["used", "edited", "ignored"]
+HumanOutcomeSource = Literal["draft_button", "reply"]
+
+# pinned: analytics event name. Dashboards break when it is renamed.
+OUTCOME_RECORDED_EVENT = "support ai draft outcome recorded"
 
 
 class AiDraftHumanOutcome(models.TextChoices):
@@ -96,6 +104,41 @@ def _public_human_comments(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
+def _report_outcome_on_commit(
+    ticket: Ticket, *, outcome: HumanOutcome, previous_outcome: str | None, source: HumanOutcomeSource
+) -> None:
+    triage = ticket.ai_triage or {}
+    properties = {
+        "ticket_id": str(ticket.id),
+        "outcome": outcome,
+        "previous_outcome": previous_outcome,
+        "source": source,
+        "ai_triage_result": triage.get("result"),
+        "ticket_type": triage.get("ticket_type"),
+        "channel_source": ticket.channel_source,
+    }
+
+    def report() -> None:
+        try:
+            team = ticket.team
+            if current_task:
+                # A reply ingested from a channel is recorded in a Celery task. The global client can
+                # lose its buffer when the worker exits, so this path flushes a dedicated client.
+                with ph_scoped_capture() as capture:
+                    capture(
+                        distinct_id=str(team.uuid),
+                        event=OUTCOME_RECORDED_EVENT,
+                        properties=properties,
+                        groups=groups(team=team),
+                    )
+            else:
+                report_team_action(team, OUTCOME_RECORDED_EVENT, properties)
+        except Exception as error:
+            capture_exception(error, {"ticket_id": str(ticket.id)})
+
+    transaction.on_commit(report)
+
+
 def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str, outcome: HumanOutcome) -> bool:
     """Write `human_outcome` if unset, or upgrade `used` to `edited` after a composer edit."""
     with transaction.atomic():
@@ -121,6 +164,7 @@ def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str,
         triage["human_outcome"] = outcome
         ticket.ai_triage = triage
         ticket.save(update_fields=["ai_triage", "updated_at"])
+        _report_outcome_on_commit(ticket, outcome=outcome, previous_outcome=current, source="draft_button")
         return True
 
 
@@ -174,3 +218,4 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         triage["human_outcome"] = classified
         ticket.ai_triage = triage
         ticket.save(update_fields=["ai_triage", "updated_at"])
+        _report_outcome_on_commit(ticket, outcome=classified, previous_outcome=current, source="reply")

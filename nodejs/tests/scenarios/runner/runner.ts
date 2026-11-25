@@ -19,6 +19,7 @@ import { Environment, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
     ConsumerGroup,
+    INTAKE_GROUPS,
     RoleSpec,
     SES_WEBHOOKS_GROUP,
     consumerGroupsOf,
@@ -61,7 +62,15 @@ import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
+import {
+    Admission,
+    Status,
+    admissionsOf,
+    judgedInvariantsOf,
+    statusOf,
+    unobservedReasonOf,
+    unobservedValvesOf,
+} from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
@@ -367,7 +376,11 @@ function localTarget(
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
-            const probe = createCyclotronProbe(cyclotronUrl)
+            const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
+            const probe = createCyclotronProbe(cyclotronUrl, async () => {
+                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                return lags.reduce((total, lag) => total + lag, 0)
+            })
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),
@@ -646,7 +659,12 @@ export function createRunner(
                 await live.stop()
                 dependencies = await health.stop()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const checked = await judge.check(card.invariants, card.gates, { janitorResets }, signal)
+                const checked = await judge.check(
+                    card.invariants,
+                    card.gates,
+                    { janitorResets, unobserved: unobservedValvesOf(valves.timeline(), driveWindow) },
+                    signal
+                )
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)

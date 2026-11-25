@@ -123,12 +123,13 @@ describe('homeLogic', () => {
         expect(logic.values.dashboardId).toBe(42)
     })
 
-    it('links the traces tile and the errors tile to the traces list with the range', async () => {
+    it('links the traces, errors and sessions tiles to their lists with the range', async () => {
         await mount()
         shellScopeLogic.actions.setDateRange('-24h', null)
 
         expect(logic.values.tileLinks).toEqual({
             [TraceMetricKeyApi.Traces]: '/ai-observability/traces?date_from=-24h&filter_test_accounts=false',
+            [TraceMetricKeyApi.Sessions]: '/ai-observability/sessions?date_from=-24h&filter_test_accounts=false',
             [TraceMetricKeyApi.ErrorRate]:
                 '/ai-observability/traces?date_from=-24h&filter_test_accounts=false&view=errors',
         })

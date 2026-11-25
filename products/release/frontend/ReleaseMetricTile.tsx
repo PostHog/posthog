@@ -8,7 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MetricGoalApi } from './generated/api.schemas'
 import { GOAL_STATUS_LABEL, type GoalStatus, goalStatus, goalText } from './releaseGoals'
-import { releaseLogic } from './releaseLogic'
+import { type ReleaseUsageEvent, releaseLogic } from './releaseLogic'
 import { ReleaseMetricGoalDialog } from './ReleaseMetricGoalDialog'
 import { type ReleaseMetric, releaseMetricsLogic } from './releaseMetricsLogic'
 import { ReleaseMetricSparkline } from './ReleaseMetricSparkline'
@@ -18,6 +18,10 @@ import { ReleaseRow } from './releaseUtils'
 
 function valueText(metric: Extract<ReleaseMetric, { status: 'ready' }> | null): string {
     return metric?.value == null ? '–' : humanFriendlyNumber(metric.value)
+}
+
+function goalUsageEvent(releaseId: string, next: MetricGoalApi | null): ReleaseUsageEvent {
+    return { event: 'release metric goal set', properties: { release_id: releaseId, change: next ? 'set' : 'cleared' } }
 }
 
 const STATUS_DOT: Record<GoalStatus, 'success' | 'destructive' | 'default'> = {
@@ -47,7 +51,12 @@ export function ReleaseMetricTile({
     const status = goalStatus(ready?.value ?? null, goal)
     const setGoal = (next: MetricGoalApi | null): void => {
         const others = row.metricGoals.filter((item) => item.insight_id !== insightId)
-        updateRelease(row.id, { metric_goals: next ? [...others, next] : others })
+        updateRelease(
+            row.id,
+            { metric_goals: next ? [...others, next] : others },
+            undefined,
+            goalUsageEvent(row.id, next)
+        )
         setEditingGoal(false)
     }
 
