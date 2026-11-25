@@ -7,9 +7,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { withoutTraceDrawerParams } from '../trace/traceDrawerRows'
 import { ShellFrame } from './components/ShellFrame'
-import { SHELL_TABS, shellHref, shellLocationForSceneKey } from './shellNavigation'
+import { SHELL_TABS, shellHref, shellLinkParams, shellLocationForSceneKey } from './shellNavigation'
 
 function useTabShortcut(position: 1 | 2 | 3 | 4, linkParams: Record<string, unknown>): void {
     const { push } = useActions(router)
@@ -30,7 +29,8 @@ export function ShellHost({ children }: { children: React.ReactNode }): JSX.Elem
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const linkParams = withoutTraceDrawerParams(searchParams)
+    const linkParams = shellLinkParams(searchParams)
+    const location = shellLocationForSceneKey(sceneKey)
 
     useTabShortcut(1, linkParams)
     useTabShortcut(2, linkParams)
@@ -39,9 +39,10 @@ export function ShellHost({ children }: { children: React.ReactNode }): JSX.Elem
 
     return (
         <ShellFrame
-            location={shellLocationForSceneKey(sceneKey)}
+            location={location}
             linkParams={linkParams}
             todayRailNav={todayRailNav}
+            fillHeight={location.scope === 'sessions'}
             onScopeChange={(scope) => push(shellHref(scope.path, linkParams))}
         >
             {children}

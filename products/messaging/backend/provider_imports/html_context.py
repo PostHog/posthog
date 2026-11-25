@@ -87,7 +87,7 @@ class HtmlContext:
         return {"dq": "value", "sq": "value", "text": "text", "raw": "raw", "comment": "comment"}.get(self.state, "tag")
 
     def plain_attribute(self) -> bool:
-        return not self.attribute.startswith("on") and self.attribute not in ("style", "srcset")
+        return not self.attribute.startswith("on") and self.attribute not in ("style", "srcset", "srcdoc")
 
     def _advance(self, target: int) -> None:
         text = self.text

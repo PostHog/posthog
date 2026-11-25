@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { cohortRealtimeReadinessLogic } from './cohortRealtimeReadinessLogic'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
+import { dailyReasonSentence } from './realtimeReadiness'
 
 /** One cohort a condition set targets that feature flags can't target yet: why, and what to do about it. */
 export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number }): JSX.Element | null {
@@ -130,8 +131,11 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
         case 'daily':
             return (
                 <span>
-                    Feature flags can't target {name}. Its criteria are matched in the once-a-day calculation, which
-                    feature flags can't read.
+                    Feature flags can't target {name}.{' '}
+                    <span>
+                        {dailyReasonSentence(realtime) ??
+                            "Its criteria are matched in the once-a-day calculation, which feature flags can't read."}
+                    </span>
                 </span>
             )
         default:
