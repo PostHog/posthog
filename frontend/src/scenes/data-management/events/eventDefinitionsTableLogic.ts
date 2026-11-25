@@ -12,7 +12,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, EventDefinition, EventDefinitionType, JsonType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
 import type {
@@ -583,7 +583,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     breakpoint()
 
                     // Fetch one event as example and cache (only if events have been captured)
-                    let exampleEventProperties: Record<string, string> = {}
+                    let exampleEventProperties: Record<string, JsonType> = {}
                     if (definition.last_seen_at) {
                         const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
@@ -610,7 +610,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ) + 1,
                         results: response.results.map((prop: PropertyDefinition) => ({
                             ...prop,
-                            example: exampleEventProperties?.[prop.name]?.toString(),
+                            example: exampleEventProperties?.[prop.name],
                         })),
                     }
 

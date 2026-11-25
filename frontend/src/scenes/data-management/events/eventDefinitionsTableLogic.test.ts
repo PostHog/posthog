@@ -117,7 +117,14 @@ describe('eventDefinitionsTableLogic', () => {
                             200,
                             {
                                 results: [
-                                    { ...mockEvent, properties: { ...mockEvent.properties, $browser: 'Chrome' } },
+                                    {
+                                        ...mockEvent,
+                                        properties: {
+                                            ...mockEvent.properties,
+                                            $browser: 'Chrome',
+                                            prop1: { plan: 'scale', seats: [1, 2] },
+                                        },
+                                    },
                                 ],
                                 next: null,
                             },
@@ -394,14 +401,15 @@ describe('eventDefinitionsTableLogic', () => {
                         [eventDefinition.id]: partial({
                             count: 5,
                             previous: null,
-                            results: mockEventPropertyDefinitions.slice(0, 5).map((prop) =>
-                                prop.name === '$browser'
-                                    ? {
-                                          ...prop,
-                                          example: 'Chrome',
-                                      }
-                                    : prop
-                            ),
+                            results: mockEventPropertyDefinitions
+                                .slice(0, 5)
+                                .map((prop) =>
+                                    prop.name === '$browser'
+                                        ? { ...prop, example: 'Chrome' }
+                                        : prop.name === 'prop1'
+                                          ? { ...prop, example: { plan: 'scale', seats: [1, 2] } }
+                                          : prop
+                                ),
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),
