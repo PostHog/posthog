@@ -1656,7 +1656,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
 })
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). Pass `type` to keep only some artefact types. `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const SignalsReportArtefactsListParams = () => zod.object({
@@ -1675,6 +1675,12 @@ export const SignalsReportArtefactsListParams = () => zod.object({
 export const SignalsReportArtefactsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.'
+        ),
 })
 
 /**
@@ -6395,11 +6401,11 @@ export const SignalsSourceConfigsFilterPreviewCreateBody = () => zod.object({
     source_product: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
-        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     source_type: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
-        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     expression: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)

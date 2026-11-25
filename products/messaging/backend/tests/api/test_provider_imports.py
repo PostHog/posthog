@@ -9,6 +9,7 @@ from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
+from products.messaging.backend.facade.provider_imports import ProviderImportRejected
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 
@@ -278,3 +279,21 @@ class TestProviderImportFlag(APIBaseTest):
         assert not {"contacts", "new_people"} & {step["key"] for step in mailgun["steps"]}
         assert response.status_code == 400
         assert "no step named contacts" in response.json()["detail"]
+
+    @parameterized.expand([("contacts_off", False), ("contacts_on", True)])
+    @patch("products.messaging.backend.presentation.views.provider_imports.start_provider_import")
+    def test_a_flagged_step_stays_hidden_and_refused_while_its_flag_is_off(
+        self, _name: str, contacts_on: bool, start: MagicMock, flag: MagicMock
+    ) -> None:
+        flag.side_effect = lambda key, *_args, **_kwargs: contacts_on or key == "workflows-sendgrid-import"
+        start.side_effect = ProviderImportRejected("started")
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+
+        sendgrid = next(row for row in self.client.get(f"{url}providers/").json() if row["key"] == "sendgrid")
+        body = {"provider": "sendgrid", "steps": ["suppressions", "contacts"], "api_key": "a_key"}
+        response = self.client.post(url, body)
+
+        assert ("contacts" in [step["key"] for step in sendgrid["steps"]]) == contacts_on
+        assert ("Contacts don't become people" in sendgrid["not_imported"]) != contacts_on
+        assert response.status_code == 400
+        assert response.json()["detail"] == ("started" if contacts_on else "SendGrid has no step named contacts.")

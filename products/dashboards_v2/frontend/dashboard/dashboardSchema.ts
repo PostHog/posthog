@@ -60,12 +60,13 @@ export const tilePlaceSchema = z.strictObject({
 /** Which parts of a content tile show. A part that is missing shows. */
 export const contentWidgetPartsSchema = z.strictObject({
     header: z.boolean().optional(),
-    description: z.boolean().optional(),
     footer: z.boolean().optional(),
 })
 
-export const contentWidgetAppearanceSchema = z.strictObject({
+/** How a tile looks. A setting that is missing is on. A section has no background to hide. */
+export const tileAppearanceSchema = z.strictObject({
     background: z.boolean().optional(),
+    border: z.boolean().optional(),
 })
 
 /**
@@ -80,8 +81,20 @@ export const contentWidgetSchema = z.strictObject({
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
     parts: contentWidgetPartsSchema.optional(),
-    appearance: contentWidgetAppearanceSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
     config: z.unknown(),
+    /** Set once the widget shows on more than one tile. Its content is then saved once, in the document's `widgets`. */
+    ref: z.string().min(1).optional(),
+})
+
+/** A widget shown on several tiles. Each tile chooses its own parts and appearance. */
+export const sharedWidgetSchema = contentWidgetSchema.omit({ parts: true, appearance: true, ref: true })
+
+/** A tile's widget in a saved document when the widget is shared: its key in `widgets`, and how this tile shows it. */
+export const widgetRefSchema = z.strictObject({
+    ref: z.string().min(1),
+    parts: contentWidgetPartsSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
 })
 
 /**
@@ -92,6 +105,7 @@ export const sectionWidgetSchema = z.strictObject({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
+    appearance: tileAppearanceSchema.optional(),
     /** The height a person resized the section to, in rows. It still grows past this when its tiles need more. */
     minRows: z.int().positive().optional(),
     get tiles(): z.ZodArray<typeof tileSchema> {
@@ -140,4 +154,32 @@ export const dashboardSchema = z.strictObject({
     /** The time range of every widget that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
     time: timeRangeSchema.optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
+})
+
+/** A tile's own widget in a saved document. A shared widget is saved once in `widgets`, so its tiles carry no `ref` here. */
+export const documentContentWidgetSchema = contentWidgetSchema.omit({ ref: true })
+
+const documentSectionSchema = sectionWidgetSchema.extend({
+    get tiles(): z.ZodArray<typeof documentTileSchema> {
+        return z.array(documentTileSchema)
+    },
+})
+
+const documentTileSchema = tileSchema.extend({
+    get widget(): z.ZodUnion<
+        [typeof documentSectionSchema, typeof documentContentWidgetSchema, typeof widgetRefSchema]
+    > {
+        return z.union([documentSectionSchema, documentContentWidgetSchema, widgetRefSchema])
+    },
+})
+
+/**
+ * The dashboard as it is saved. It is `dashboardSchema` with shared widgets stored once: a tile shows one through a
+ * `widgetRefSchema`, and `loadDashboard` puts each back on its tiles.
+ */
+export const dashboardDocumentSchema = dashboardSchema.extend({
+    widgets: z.record(z.string(), sharedWidgetSchema).optional(),
+    tabs: z
+        .array(z.union([gridTabSchema.extend({ tiles: z.array(documentTileSchema) }), linkTabSchema]))
+        .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
