@@ -1,6 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { IconInfo, IconPencil } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumnGroup,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -12,6 +22,7 @@ import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/gen
 import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
 import type { KeywordSearchImpressions } from './keywordSearchImpressions'
 import { windowRange } from './utils'
 
@@ -32,13 +43,14 @@ const byRate =
     (a: AEOKeywordReportRowApi, b: AEOKeywordReportRowApi): number =>
         ((a[field] as number | null) ?? -1) - ((b[field] as number | null) ?? -1)
 
-const COLUMNS: ReportColumn[] = [
-    {
-        title: 'Keyword',
-        key: 'keyword',
-        render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
-        sorter: (a, b) => a.keyword.localeCompare(b.keyword),
-    },
+const KEYWORD_COLUMN: ReportColumn = {
+    title: 'Keyword',
+    key: 'keyword',
+    render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
+    sorter: (a, b) => a.keyword.localeCompare(b.keyword),
+}
+
+const AI_COLUMNS: ReportColumn[] = [
     {
         title: 'Mention rate',
         key: 'answer_mention_rate',
@@ -119,6 +131,15 @@ const COLUMNS: ReportColumn[] = [
 
 type SearchMetric = keyof KeywordSearchImpressions
 
+const GroupTitle = ({ title, description }: { title: string; description: string }): JSX.Element => (
+    <span className="inline-flex items-center gap-1">
+        {title}
+        <Tooltip title={description} interactive openOnClick>
+            <LemonButton size="xsmall" noPadding icon={<IconInfo />} aria-label={`About ${title}`} />
+        </Tooltip>
+    </span>
+)
+
 const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[] = [
     {
         metric: 'impressions',
@@ -178,15 +199,53 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { searchTable, searchConsoleMissing, impressions, impressionsLoading, impressionsFailed } = useValues(
         contentAutopilotKeywordSearchLogic
     )
-    // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns =
-        searchTable && !impressionsFailed
-            ? [...COLUMNS, ...searchColumns(impressionsLoading ? null : impressions)]
-            : COLUMNS
+    const { openKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
+    const columns: LemonTableColumnGroup<AEOKeywordReportRowApi>[] = [
+        { children: [KEYWORD_COLUMN] },
+        {
+            title: (
+                <GroupTitle
+                    title="AI answers"
+                    description="Each day the engines answer your prompts. A keyword counts in an answer, or in a web search the engine ran for it, when that text contains the keyword, case ignored."
+                />
+            ),
+            children: AI_COLUMNS,
+        },
+        // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
+        ...(searchTable && !impressionsFailed
+            ? [
+                  {
+                      title: (
+                          <GroupTitle
+                              title="Google search"
+                              description="From Google Search Console: Google searches that contain the keyword and showed your site."
+                          />
+                      ),
+                      children: searchColumns(impressionsLoading ? null : impressions),
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="How your keywords perform" />
+            <PagePerformanceCardHeader
+                title="How your keywords perform"
+                actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ContentAutopilotKeywordSuggestButton size="small" />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPencil />}
+                            onClick={openKeywordsModal}
+                            data-attr="content-autopilot-keywords-manage"
+                        >
+                            Manage keywords
+                        </LemonButton>
+                    </div>
+                }
+            />
             {reportError ? (
                 <LemonBanner
                     type="error"
