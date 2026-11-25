@@ -44,6 +44,10 @@ TABLES = {
     "tenders",
     "discounts",
     "tax_rates",
+    "cash_events",
+    "authorizations",
+    "item_stocks",
+    "order_types",
 }
 
 

@@ -198,6 +198,15 @@ export function CustomPropertySyncRuns({
         }
     )
 
+    if (targetType === 'person') {
+        columns.push({
+            title: 'Removed',
+            tooltip: 'People whose mapped properties were removed because they left the source table.',
+            align: 'right',
+            render: (_, run) => <RunCount value={run.removed} />,
+        })
+    }
+
     if (accountRuns) {
         columns.push({
             title: 'Run',

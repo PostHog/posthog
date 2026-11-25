@@ -25,7 +25,8 @@
                 "backend/account_urls.py",
                 "backend/constants.py",
                 "backend/logic/usage_spike_notifications.py",
-                "backend/test/factories.py"
+                "backend/test/factories.py",
+                "dags/cache_account_favicons.py"
             ],
             "outputs": [],
             "cache": true

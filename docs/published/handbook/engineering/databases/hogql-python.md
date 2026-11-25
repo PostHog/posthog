@@ -338,6 +338,10 @@ Integer extraction keeps ClickHouse's JSON parser on the serialized value, becau
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
+A JSON function with a constant first key reads the stored value after grouping, as it does before grouping, when its result depends on the stored type or on the content of an object or array.
+The key's text cannot give that result, because it reads a Bool, a number, an object and an array as a string.
+The extraction of one key as a string, an integer or a float returns the same result from the text, so it keeps the general reader.
+A function that reads the stored value is valid after grouping only inside a grouping key, as on the legacy table, where it reads the `properties` column.
 A whole properties document cannot be a grouping key: HogQL rejects `GROUP BY properties` on both events tables, whether the document is named directly, by select-list position, through an alias, inside a tuple key, under GROUP BY ALL, or as a column of a subquery, CTE, view or union.
 The native table reads a key as a subcolumn, which ClickHouse does not accept as a function of the grouped document, so a key read after `GROUP BY properties` works on the legacy table only; rejecting the key everywhere keeps a query from changing behavior at the switch.
 Group by the keys the query reads, or by `uuid` for one row per event; an expression over the document such as `toString(properties)` is not rejected.
@@ -347,6 +351,7 @@ A property key is exported as its stored value and the outer read keeps its own 
 A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')`, is exported as its JSON text instead, so an object or an array is not quoted a second time.
 A user-written `toJSONString(t.properties.key)` exports the JSON text for a key without a property definition and the stored value for a key with one, so the definition's conversion applies before the serialization as in a direct read.
 In the clauses of a grouped query that run after grouping, the select list, `GROUP BY`, `HAVING` and `ORDER BY`, every key is exported as its stored value, because a direct read there serializes the value too, and a `GROUP BY` key then shares its column with the serialized read of the same key.
+A key under a JSON function that reads the stored value after grouping is exported as its JSON text there too.
 The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
 Raw SQL property readers return the stored text, so they do not depend on ClickHouse's `output_format_json_escape_forward_slashes` setting.
 Native queries disable forward-slash escaping so a rebuilt document retains `/`.

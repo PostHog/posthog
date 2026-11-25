@@ -202,8 +202,6 @@ export const OAUTH_SCOPES = [
   "subscription:write",
   "survey:read",
   "survey:write",
-  "tagger:read",
-  "tagger:write",
   "ticket:read",
   "ticket:write",
   "task:read",

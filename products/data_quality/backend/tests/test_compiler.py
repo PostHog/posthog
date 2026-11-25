@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -430,6 +431,18 @@ class TestCheckCompiler:
     def test_invalid_config_is_rejected(self, _name, check_type, column_name, config) -> None:
         with pytest.raises(CheckConfigError):
             _compile(check_type, column_name, config)
+
+    def test_custom_sql_parser_crash_is_reported_and_rejected_without_details(self) -> None:
+        parser_error = RuntimeError("Unexpected parser failure with private query contents")
+
+        with (
+            patch("products.data_quality.backend.logic.types.custom_sql.parse_select", side_effect=parser_error),
+            patch("products.data_quality.backend.logic.types.custom_sql.capture_exception") as capture,
+        ):
+            with pytest.raises(CheckConfigError, match=r"^Could not parse the custom query\.$"):
+                _compile(CheckType.CUSTOM_SQL, "", {"query": "select 1 from orders"})
+
+        capture.assert_called_once_with(parser_error)
 
     @parameterized.expand(
         [

@@ -1109,6 +1109,7 @@ class MetricQueryRunner:
 
     def _build_histogram_query(self) -> ast.SelectQuery:
         """Build histogram distributions with rate and increase semantics."""
+        # Use the counter first-sample rule on the total so admission cannot distort the distribution.
         query = parse_select(
             """
                 SELECT
@@ -1125,7 +1126,19 @@ class MetricQueryRunner:
                         metric_type AS metric_type,
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
-                            empty(prev_counts), arrayMap(x -> 0.0, counts_f),
+                            empty(prev_counts),
+                                if(
+                                    observation_count < 10 * (
+                                        multiIf(
+                                            isNull(next_count), 0,
+                                            assumeNotNull(next_count) >= observation_count,
+                                                assumeNotNull(next_count) - observation_count,
+                                            assumeNotNull(next_count)
+                                        ) + 1
+                                    ),
+                                    counts_f,
+                                    arrayMap(x -> 0.0, counts_f)
+                                ),
                             prev_bounds != histogram_bounds OR length(prev_counts) != length(counts_f),
                                 arrayMap(x -> 0.0, counts_f),
                             arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
@@ -1139,6 +1152,7 @@ class MetricQueryRunner:
                             histogram_bounds,
                             metric_type,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
+                            toFloat(arraySum(histogram_counts)) AS observation_count,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
@@ -1148,7 +1162,12 @@ class MetricQueryRunner:
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_bounds
+                            ) AS prev_bounds,
+                            leadInFrame(toNullable(observation_count)) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+                            ) AS next_count
                         FROM {points}
                     )
                 ) AS s

@@ -18,9 +18,12 @@ def _timestamp_incremental_fields() -> list[IncrementalField]:
 @dataclass(frozen=False)
 class SigNozEndpointConfig:
     name: str
-    kind: Literal["telemetry", "config"]
+    kind: Literal["telemetry", "config", "meter"]
     # Telemetry endpoints query POST /api/v5/query_range with a composite query.
     signal: Optional[str] = None  # "logs" | "traces"
+    # Meter endpoints run one daily time_series query per metric, grouped by these labels.
+    metric_names: tuple[str, ...] = ()
+    group_by: tuple[str, ...] = ()
     # Stable, monotonic sort keys sent as the query's `order`. The secondary key breaks
     # timestamp ties so limit/offset paging is deterministic.
     order_keys: tuple[str, ...] = ()
@@ -46,19 +49,29 @@ class SigNozEndpointConfig:
     # start, so without a stored watermark we reach back this far; SigNoz simply has no data
     # older than the account's retention, so a generous window is harmless.
     default_lookback_days: Optional[int] = None
+    partition_format: Literal["day", "week", "month"] = "week"
+    sort_mode: Optional[Literal["asc"]] = "asc"
+    should_sync_default: bool = True
 
     @property
     def supports_incremental(self) -> bool:
         # The query_range `start` param is a genuine server-side timestamp filter; config
         # list endpoints have no time filter and stay full-refresh.
+        return self.kind in ("telemetry", "meter")
+
+    @property
+    def supports_append(self) -> bool:
+        # Meter syncs read the last days again to pick up late hourly aggregates, and append
+        # never dedupes them.
         return self.kind == "telemetry"
 
 
 # Endpoint catalog. Telemetry rows (logs, traces) come from the v5 query_range API with
 # `requestType: "raw"`; config entities (alert rules, dashboards, notification channels)
 # come from the versioned management REST API. Metric series are intentionally excluded:
-# the raw request type only supports logs and traces, and metrics require a per-metric
-# aggregation query, which doesn't map to a generic warehouse table.
+# metrics require a per-metric aggregation query, which doesn't map to a generic warehouse
+# table. The Cost Meter metrics are the exception: they are a fixed set of delta counters
+# with one documented daily aggregation.
 SIGNOZ_ENDPOINTS: dict[str, SigNozEndpointConfig] = {
     # --- Telemetry (server-side time window -> incremental) ---
     "logs": SigNozEndpointConfig(
@@ -130,6 +143,29 @@ SIGNOZ_ENDPOINTS: dict[str, SigNozEndpointConfig] = {
         primary_keys=("id",),
         partition_key="createdAt",
     ),
+    # --- Cost Meter (daily ingestion volume per service and environment) ---
+    "meter_usage": SigNozEndpointConfig(
+        name="meter_usage",
+        kind="meter",
+        metric_names=(
+            "signoz.meter.log.count",
+            "signoz.meter.log.size",
+            "signoz.meter.span.count",
+            "signoz.meter.span.size",
+            "signoz.meter.metric.datapoint.count",
+        ),
+        group_by=("service.name", "deployment.environment"),
+        primary_keys=("metric_name", "timestamp", "service_name", "deployment_environment"),
+        partition_key="timestamp",
+        partition_format="month",
+        incremental_fields=_timestamp_incremental_fields(),
+        # SigNoz keeps meter data for one year.
+        default_lookback_days=365,
+        # Rows come one metric at a time, and the series of a metric are not ordered.
+        sort_mode=None,
+        # SigNoz documents the meter query API for SigNoz Cloud only.
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(SIGNOZ_ENDPOINTS.keys())
@@ -138,6 +174,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SIGNOZ_ENDPOINTS.items()
 }
 
-# Logs and traces are bounded by the SigNoz account's retention, so the first sync can only
+# Logs, traces and meter data are bounded by the SigNoz account's retention, so the first sync can only
 # reach back as far as retention allows.
-LIMITED_RETENTION_ENDPOINTS = {"logs", "traces"}
+LIMITED_RETENTION_ENDPOINTS = {"logs", "traces", "meter_usage"}

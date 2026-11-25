@@ -46,12 +46,14 @@ def _pr_metadata() -> PRMetadata:
 class TestFetchDecidesTheTier(BaseTest):
     @parameterized.expand(
         [
-            (None, "open", [], False, False),
+            (None, "open", [], False, False, None),
             # A ready_for_review turn after the draft's automatic review at the same head.
-            ("sha1", "open", [], True, False),
-            (None, "closed", [], False, False),
+            ("sha1", "open", [], True, False, None),
+            # The Deep follow-up reviews the head that the Standard turn just reviewed.
+            ("sha1", "open", [], False, False, "deep_follow_up"),
+            (None, "closed", [], False, False, None),
             # `gh pr create --label` adds the label after the `opened` delivery.
-            (None, "open", ["Skip-Agent-Review"], False, True),
+            (None, "open", ["Skip-Agent-Review"], False, True, None),
         ]
     )
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
@@ -63,6 +65,7 @@ class TestFetchDecidesTheTier(BaseTest):
         labels: list[str],
         complete: bool,
         skipped: bool,
+        trigger_action: str | None,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
     ) -> None:
@@ -79,6 +82,7 @@ class TestFetchDecidesTheTier(BaseTest):
             pr_number=9,
             review_mode="flash",
             trigger_source="automatic",
+            trigger_action=trigger_action,
         )
         first = _fetch_and_persist(request)
         report = ReviewReport.objects.for_team(self.team.id).get(id=first.report_id)

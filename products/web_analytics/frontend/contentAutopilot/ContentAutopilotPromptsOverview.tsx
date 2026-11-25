@@ -27,7 +27,6 @@ import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
-import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
 import { engineTopicGrid } from './promptsOverview'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
@@ -86,7 +85,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     Each number is compared with the {overview.days} days before.
                 </p>
             </div>
-            <ContentAutopilotVisibilityDashboardButton />
         </div>
     )
     const narrowed = overview.engine !== null || overview.topic !== null

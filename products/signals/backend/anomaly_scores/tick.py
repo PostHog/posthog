@@ -158,6 +158,7 @@ class AnomalyScoringTickPlan:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    ai_judge_teams: int = 0
     teams_planned: int = 0
     teams_skipped: int = 0
     long_cooldown: int = 0
@@ -226,6 +227,10 @@ class AnomalyScoringTickResult:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Enrolled teams that score with `default-v2`, and the judge's organization percentage after the overrides
+    # of this deployment.
+    ai_judge_teams: int = 0
+    ai_judge_organization_percentage: float = 0.0
     # Time of the plan activity, its retry included. Compare it with the plan timeout.
     plan_ms: int = 0
     # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
@@ -300,6 +305,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         active_reasons=selection.active_reasons,
         enrolled_teams=selection.enrolled_teams,
         enrolled_organizations=selection.enrolled_organizations,
+        ai_judge_teams=selection.ai_judge_teams,
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         long_cooldown=selection.long_cooldown,
@@ -706,6 +712,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         active_reasons=result.active_reasons,
         enrolled_teams=result.enrolled_teams,
         enrolled_organizations=result.enrolled_organizations,
+        ai_judge_teams=result.ai_judge_teams,
+        ai_judge_organization_percentage=result.ai_judge_organization_percentage,
         plan_ms=result.plan_ms,
         teams_planned=result.teams_planned,
         teams_skipped=result.teams_skipped,
@@ -754,6 +762,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
             "enrolled_teams": result.enrolled_teams,
             "enrolled_organizations": result.enrolled_organizations,
+            "ai_judge_teams": result.ai_judge_teams,
+            "ai_judge_organization_percentage": result.ai_judge_organization_percentage,
             "plan_ms": result.plan_ms,
             "teams_planned": result.teams_planned,
             "teams_skipped": result.teams_skipped,
@@ -871,6 +881,8 @@ class AnomalyScoringTickWorkflow:
             active_reasons=plan.active_reasons,
             enrolled_teams=plan.enrolled_teams,
             enrolled_organizations=plan.enrolled_organizations,
+            ai_judge_teams=plan.ai_judge_teams,
+            ai_judge_organization_percentage=plan.ai_judge.organization_percentage,
             plan_ms=plan_ms,
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,

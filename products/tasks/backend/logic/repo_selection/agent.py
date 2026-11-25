@@ -645,9 +645,20 @@ README hit), pick it.** Don't read files to "confirm" what the cache already sho
 ## When to return `null`
 
 When no candidate is plausibly the subject — e.g. a question purely about billing, sales, or
-internal ops that a developer can't fix in any of these repos. **Don't return `null` just because
-the request is vague.** If the request maps to a domain and one of the candidates owns that domain,
-pick it.
+internal ops that a developer can't fix in any of these repos.
+
+**When the request names a repository that is not a candidate.** If the request says which
+repository the work belongs in — an `owner/repo` name, or a GitHub issue or pull request URL in
+that repository — and that repository is not in the candidate list, it is not connected and the work
+cannot land there. Return `null`, unless the cache shows specific evidence that the code the request
+describes lives in a candidate: a file, symbol, or error the request names. A shared product name or
+owner, or a generic path such as `workflow`, `ProfileForm`, or `appointments` that many codebases
+have, is not that evidence.
+
+**Don't return `null` just because the request is vague.** If the request maps to a domain and one
+of the candidates owns that domain, pick it. A domain match does not override a repository the
+request names: the rule above still applies. A request that names a candidate, or names no
+repository, is not affected by that rule.
 
 ## Examples
 
@@ -678,6 +689,16 @@ Candidates include `posthog/posthog.com`, `posthog/posthog-js`, `posthog/posthog
 Only `posthog.com` is the marketing site; the others are SDKs. Pick `posthog/posthog.com`
 directly. `reason`: "Only candidate that owns the marketing site domain; `posthog-js` and
 `posthog-android` are SDKs and don't host the homepage."
+
+### Example 3 — the request names a repository outside the candidates
+
+Request: "Saving the profile form fails with a 500, see https://github.com/acme/clinic-portal/issues/88."
+Candidates include `acme/booking-api` and `acme/marketing-site`; `acme/clinic-portal` is not one.
+
+Grep `tree_paths` in the candidates for the code the request describes. When the only hits are
+generic paths such as `src/profile/` that any codebase could have, return `null`. `reason`: "The
+request names `acme/clinic-portal`, which is not a candidate, and no candidate holds its profile
+form code; `acme/booking-api` only shares a generic `profile` path."
 
 ## Output format
 

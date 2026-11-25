@@ -22,9 +22,9 @@ SECRET_VALUE = "sk-live-do-not-leak"
 RULE_FREE_HOG = "fetch(inputs.url, {'body': event})"
 SCORES = {
     "internal_network": 0.12,
-    "resource_exhaustion": 0.8,
+    "resource_exhaustion": 0.3,
     "malformed_payload": 0.05,
-    "runtime_escape": 0.3,
+    "runtime_escape": 0.8,
     "normal_integration": 0.95,
 }
 SCOPED_CAPTURE = "products.cdp.backend.abuse.shadow.ph_scoped_capture"
