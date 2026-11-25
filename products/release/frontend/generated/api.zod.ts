@@ -26,6 +26,14 @@ export const releasesCreateBodyInsightIdsItemMax = 2147483647
 
 export const releasesCreateBodyInsightIdsMax = 100
 
+export const releasesCreateBodyMetricInsightIdsItemMax = 2147483647
+
+export const releasesCreateBodyMetricInsightIdsMax = 5
+
+export const releasesCreateBodyMetricGoalsItemInsightIdMax = 2147483647
+
+export const releasesCreateBodyMetricGoalsMax = 5
+
 export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesCreateBodyNameMax).describe('Name of the release.'),
     description: zod.string().optional().describe('What changes for the people who get the release.'),
@@ -53,6 +61,35 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
         .max(releasesCreateBodyInsightIdsMax)
         .optional()
         .describe('IDs of the saved insights that measure the release, at most 100.'),
+    metric_insight_ids: zod
+        .array(zod.number().min(1).max(releasesCreateBodyMetricInsightIdsItemMax))
+        .max(releasesCreateBodyMetricInsightIdsMax)
+        .optional()
+        .describe(
+            "IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list."
+        ),
+    metric_goals: zod
+        .array(
+            zod.object({
+                insight_id: zod
+                    .number()
+                    .min(1)
+                    .max(releasesCreateBodyMetricGoalsItemInsightIdMax)
+                    .describe('ID of the metric insight the goal is for.'),
+                direction: zod
+                    .enum(['at_least', 'at_most'])
+                    .describe('\* `at_least` - At least the target\n\* `at_most` - At most the target')
+                    .describe(
+                        'at_least when the metric should reach the value, at_most when it should stay at or below it.\n\n\* `at_least` - At least the target\n\* `at_most` - At most the target'
+                    ),
+                value: zod.number().describe('Target value of the metric.'),
+            })
+        )
+        .max(releasesCreateBodyMetricGoalsMax)
+        .optional()
+        .describe(
+            "Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals."
+        ),
 })
 
 /**
@@ -71,6 +108,14 @@ export const releasesPartialUpdateBodySurveyIdsMax = 100
 export const releasesPartialUpdateBodyInsightIdsItemMax = 2147483647
 
 export const releasesPartialUpdateBodyInsightIdsMax = 100
+
+export const releasesPartialUpdateBodyMetricInsightIdsItemMax = 2147483647
+
+export const releasesPartialUpdateBodyMetricInsightIdsMax = 5
+
+export const releasesPartialUpdateBodyMetricGoalsItemInsightIdMax = 2147483647
+
+export const releasesPartialUpdateBodyMetricGoalsMax = 5
 
 export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(releasesPartialUpdateBodyNameMax).optional().describe('Name of the release.'),
@@ -99,6 +144,35 @@ export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(releasesPartialUpdateBodyInsightIdsMax)
         .optional()
         .describe('IDs of the saved insights that measure the release, at most 100.'),
+    metric_insight_ids: zod
+        .array(zod.number().min(1).max(releasesPartialUpdateBodyMetricInsightIdsItemMax))
+        .max(releasesPartialUpdateBodyMetricInsightIdsMax)
+        .optional()
+        .describe(
+            "IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list."
+        ),
+    metric_goals: zod
+        .array(
+            zod.object({
+                insight_id: zod
+                    .number()
+                    .min(1)
+                    .max(releasesPartialUpdateBodyMetricGoalsItemInsightIdMax)
+                    .describe('ID of the metric insight the goal is for.'),
+                direction: zod
+                    .enum(['at_least', 'at_most'])
+                    .describe('\* `at_least` - At least the target\n\* `at_most` - At most the target')
+                    .describe(
+                        'at_least when the metric should reach the value, at_most when it should stay at or below it.\n\n\* `at_least` - At least the target\n\* `at_most` - At most the target'
+                    ),
+                value: zod.number().describe('Target value of the metric.'),
+            })
+        )
+        .max(releasesPartialUpdateBodyMetricGoalsMax)
+        .optional()
+        .describe(
+            "Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals."
+        ),
 })
 
 /**

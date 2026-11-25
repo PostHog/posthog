@@ -81,6 +81,10 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         name="allowances",
         path="/resources/timeoff/allowances",
     ),
+    "time_off_policies": FactorialEndpointConfig(
+        name="time_off_policies",
+        path="/resources/timeoff/policies",
+    ),
     "allowance_stats": FactorialEndpointConfig(
         name="allowance_stats",
         path="/resources/timeoff/allowance_stats",
@@ -90,6 +94,13 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         name="attendance_shifts",
         path="/resources/attendance/shifts",
         partition_key="created_at",
+    ),
+    "shift_management_shifts": FactorialEndpointConfig(
+        name="shift_management_shifts",
+        path="/resources/shift_management/shifts",
+        # Splitting overnight shifts returns one object per calendar day, which would repeat a shift's
+        # `id` across rows. `only_published=false` keeps draft and backup shifts in the planned rota.
+        params={"split_overnight_shifts": "false", "only_published": "false"},
     ),
     "worked_times": FactorialEndpointConfig(
         name="worked_times",
@@ -147,6 +158,10 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "job_catalog_levels": FactorialEndpointConfig(
         name="job_catalog_levels",
         path="/resources/job_catalog/levels",
+    ),
+    "review_evaluations": FactorialEndpointConfig(
+        name="review_evaluations",
+        path="/resources/performance/review_evaluations",
     ),
     "candidates": FactorialEndpointConfig(
         name="candidates",

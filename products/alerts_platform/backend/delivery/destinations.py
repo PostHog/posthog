@@ -8,7 +8,8 @@ it can reach through the event ids it maps each kind onto, because the lookup an
 id. This module goes away when destinations move into the platform.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
+from typing import TypeVar
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -16,6 +17,8 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationResolver,
     LiveHogFunctionLookup,
 )
+
+_Row = TypeVar("_Row")
 
 _resolver: DestinationResolver | None = None
 _live_lookup: LiveHogFunctionLookup | None = None
@@ -54,3 +57,12 @@ def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -
     if _live_lookup is None:
         return frozenset(hog_function_ids)
     return _live_lookup(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def copies_of_live_hog_functions(*, team_id: int, copied_by_row: Mapping[_Row, Collection[UUID]]) -> frozenset[_Row]:
+    """The rows that copy a HogFunction that still exists, disabled ones included. Delivery skips these
+    rows, so the HogFunction alone sends, and every reader of who holds an alert's firing uses this rule."""
+    live = live_hog_function_ids(
+        team_id=team_id, hog_function_ids={copied for ids in copied_by_row.values() for copied in ids}
+    )
+    return frozenset(row for row, ids in copied_by_row.items() if not live.isdisjoint(ids))

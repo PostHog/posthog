@@ -1,5 +1,5 @@
-import { ApiError, apiJson, projectPath } from './client'
-import type { PaginatedApi } from './reports'
+import { ApiError, apiJson, projectPath, scopedPath } from './client'
+import type { PaginatedApi, ProjectScope } from './reports'
 
 // Shapes follow `InsightSerializer` and `InsightBasicSerializer` in
 // `products/product_analytics/backend/presentation/insight.py`, keeping the fields the app reads.
@@ -74,6 +74,7 @@ export interface InsightBasicApi {
 
 export interface InsightReadOptions {
     refresh: InsightRefresh
+    scope?: ProjectScope | null
     /** Applies the dashboard's filters and the tile's overrides, and takes a dashboard query slot on a compute. */
     fromDashboard?: number | null
     /** A `DashboardFilter`, sent as JSON. */
@@ -83,8 +84,9 @@ export interface InsightReadOptions {
 
 /** `GET insights/{id}/`. Takes the numeric id or the `short_id`; an all-digit value is tried as an id first. */
 export function fetchInsight(idOrShortId: number | string, options: InsightReadOptions): Promise<InsightApi> {
-    const { refresh, fromDashboard, filtersOverride, signal } = options
-    return apiJson<InsightApi>(projectPath(`insights/${encodeURIComponent(String(idOrShortId))}/`), {
+    const { refresh, fromDashboard, filtersOverride, signal, scope } = options
+    const relativePath = `insights/${encodeURIComponent(String(idOrShortId))}/`
+    return apiJson<InsightApi>(scope === undefined ? projectPath(relativePath) : scopedPath(scope, relativePath), {
         query: {
             refresh,
             from_dashboard: fromDashboard ?? undefined,
@@ -95,11 +97,18 @@ export function fetchInsight(idOrShortId: number | string, options: InsightReadO
 }
 
 /** `GET insights/?short_id=` with a cache-only read, for an all-digit `short_id` that retrieve resolved as an id. */
-export async function fetchInsightByShortId(shortId: string, signal?: AbortSignal): Promise<InsightApi | undefined> {
-    const page = await apiJson<PaginatedApi<InsightApi>>(projectPath('insights/'), {
-        query: { short_id: shortId, refresh: 'force_cache' },
-        signal,
-    })
+export async function fetchInsightByShortId(
+    shortId: string,
+    signal?: AbortSignal,
+    scope?: ProjectScope | null
+): Promise<InsightApi | undefined> {
+    const page = await apiJson<PaginatedApi<InsightApi>>(
+        scope === undefined ? projectPath('insights/') : scopedPath(scope, 'insights/'),
+        {
+            query: { short_id: shortId, refresh: 'force_cache' },
+            signal,
+        }
+    )
     return page.results.find((insight) => insight.short_id === shortId)
 }
 
@@ -120,7 +129,7 @@ export async function readInsight(
     if (insight.short_id === target.shortId || !ALL_DIGITS.test(target.shortId)) {
         return insight
     }
-    return (await fetchInsightByShortId(target.shortId, options.signal)) ?? insight
+    return (await fetchInsightByShortId(target.shortId, options.signal, options.scope)) ?? insight
 }
 
 export interface InsightSummary {

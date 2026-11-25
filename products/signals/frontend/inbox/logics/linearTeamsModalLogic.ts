@@ -10,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ExternalDataSource, IntegrationType } from '~/types'
 
 import { captureSignalSourceFiltersChanged } from '../inboxAnalytics'
+import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
     SOURCE_LINEAR_TEAM_IDS_KEY,
@@ -197,23 +198,12 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
         },
     })),
     selectors({
-        // The warehouse source records the workspace it syncs, so the teams come from that connection
-        // and match the synced issues. Before a source exists, any Linear connection will do.
         linearIntegration: [
             (s) => [s.linearIntegrations, s.dataWarehouseSources],
             (
                 linearIntegrations: IntegrationType[],
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
-            ): IntegrationType | null => {
-                const syncedIntegrationId = dataWarehouseSources?.results.find(
-                    (source: ExternalDataSource) => source.source_type === 'Linear'
-                )?.job_inputs?.linear_integration_id
-                return (
-                    linearIntegrations.find((integration) => String(integration.id) === String(syncedIntegrationId)) ??
-                    linearIntegrations[0] ??
-                    null
-                )
-            },
+            ): IntegrationType | null => syncedLinearIntegration(linearIntegrations, dataWarehouseSources),
         ],
         // A null list means the first load has not landed, which is not the same as no connection.
         // Reading the list rather than the loading flag keeps a later reload from blanking the picker.

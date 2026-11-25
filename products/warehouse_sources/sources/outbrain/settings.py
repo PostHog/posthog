@@ -43,6 +43,8 @@ class OutbrainEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Entity and breakdown report endpoints paginate with limit/offset.
     paginated: bool = False
+    # Entity page size when the endpoint caps `limit` below the default.
+    page_size: int | None = None
     # Reports default to enabled, unarchived campaigns only, which would drop
     # spend from campaigns paused or archived inside the window.
     include_inactive_campaigns: bool = False
@@ -83,6 +85,14 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         path="/marketers/{marketer_id}/conversionEvents",
         data_key="conversionEvents",
     ),
+    # Engagement metrics (session duration, bounce rate) that marketers with a
+    # Google Analytics integration can optimize for. Same shape as conversion events.
+    "engagement_metrics": OutbrainEndpointConfig(
+        name="engagement_metrics",
+        kind="per_marketer",
+        path="/marketers/{marketer_id}/engagementMetrics",
+        data_key="conversionEvents",
+    ),
     # Archived segments can still be referenced by campaign targeting.
     "segments": OutbrainEndpointConfig(
         name="segments",
@@ -90,6 +100,15 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         path="/marketers/{marketer_id}/segments",
         data_key="segments",
         params={"includeArchived": "true"},
+    ),
+    # The API caps `limit` at 50 for sequences.
+    "promoted_link_sequences": OutbrainEndpointConfig(
+        name="promoted_link_sequences",
+        kind="per_campaign",
+        path="/campaigns/{campaign_id}/promotedLinksSequences",
+        data_key="sequences",
+        paginated=True,
+        page_size=50,
     ),
     # Location ids are global geo ids, so the campaign is part of the key.
     "campaign_locations": OutbrainEndpointConfig(
@@ -164,6 +183,27 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         name="interest_performance",
         kind="snapshot_report",
         path="/reports/marketers/{marketer_id}/interests",
+        data_key="results",
+        primary_keys=None,
+        paginated=True,
+        include_inactive_campaigns=True,
+    ),
+    # The geo report requires a breakdown. Region rows also carry their country.
+    "geo_performance": OutbrainEndpointConfig(
+        name="geo_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/geo",
+        data_key="results",
+        params={"breakdown": "region"},
+        primary_keys=None,
+        paginated=True,
+        include_inactive_campaigns=True,
+    ),
+    # Default `platform` breakdown: one row per device type (desktop, tablet, mobile).
+    "platform_performance": OutbrainEndpointConfig(
+        name="platform_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/platforms",
         data_key="results",
         primary_keys=None,
         paginated=True,

@@ -9,6 +9,7 @@ import structlog
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 
@@ -18,6 +19,7 @@ from ..facade.contracts import DocsCommandRequest
 from ..facade.enums import DocsRequestSource
 from .merge_workflow import ADD_DOCS_CHECK_WAITER_SIGNAL, MergeCheckInputs, MergeCheckWorkflow
 from .publish_workflow import PublishInputs, PublishWorkflow
+from .pull_request_workflow import WriterPullRequestWorkflow, pull_request_workflow_id
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +47,7 @@ async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
             PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
             id=publish_workflow_id(task_run_id),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     except WorkflowAlreadyStartedError:
@@ -129,3 +131,23 @@ async def start_command_check_workflow(command: DocsCommandRequest, *, team_id: 
         pull_request_number=command.pull_request_number,
         team_id=team_id,
     )
+
+
+def signal_pull_request_closed(repository: str, pull_request_number: int) -> None:
+    run_with_start_timeout(signal_pull_request_closed_workflow(repository, pull_request_number))
+
+
+async def signal_pull_request_closed_workflow(
+    repository: str, pull_request_number: int, *, client: Client | None = None
+) -> None:
+    temporal = client or await async_connect()
+    handle = temporal.get_workflow_handle(pull_request_workflow_id(repository, pull_request_number))
+    log_context = {"repository": repository, "pull_request_number": pull_request_number}
+    try:
+        await handle.signal(WriterPullRequestWorkflow.closed)
+    except RPCError as error:
+        if error.status != RPCStatusCode.NOT_FOUND:
+            raise
+        logger.info("knowledge_writer_pull_request_watch_not_found", **log_context)
+        return
+    logger.info("knowledge_writer_pull_request_closed_signalled", **log_context)

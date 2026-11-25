@@ -441,6 +441,14 @@ describe('reportCheckPresentation', () => {
         })
 
         it.each([
+            ['Checkout errors', 'Checkout errors scout runs it'],
+            ['Checkout scout', 'Checkout scout runs it'],
+        ])('names the scout %s by the name the team set', (displayName, expected) => {
+            const content = { kind: 'agent', arms_on_resolve: false, skill_name: 'signals-scout-apm' }
+            expect(checkScheduledEntry(content, false, { 'signals-scout-apm': displayName }).detail).toEqual(expected)
+        })
+
+        it.each([
             [4320, '3 days'],
             [10076, '7 days'],
             [2160, '1 day 12 hours'],

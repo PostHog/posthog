@@ -53,7 +53,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
 from products.actions.backend.facade.api import create_action

@@ -8,9 +8,11 @@ from django.db import connection, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
+import structlog
 from pydantic import TypeAdapter
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_team_action
 from posthog.models.team import Team
 
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
@@ -21,12 +23,16 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionStatus,
 )
 
+from .config import is_enabled_for_organization
 from .coverage import dismissed_dedupe_keys
 from .measure import SampleRef
 from .profile import TeamProfile
 from .ranking import Proposal
 
+logger = structlog.get_logger(__name__)
+
 STAGE_ORDER = ("measure", "screening", "drafting")
+RUN_FINISHED_EVENT = "llma eval suggestions run finished"
 
 
 @frozen
@@ -51,6 +57,14 @@ class Handoff:
 
 
 _HANDOFF = TypeAdapter(Handoff)
+# Draft keys that hold what a card's sample showed. The evaluation API ignores them on accept.
+OBSERVATION_KEYS = ("observation", "observation_scope")
+
+
+def _observation(proposal: Proposal) -> dict[str, str]:
+    if not proposal.observation:
+        return {}
+    return dict(zip(OBSERVATION_KEYS, (proposal.observation, proposal.observation_scope)))
 
 
 def get_run(team_id: int, run_id: str) -> EvalSuggestionRun:
@@ -151,7 +165,7 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
                     headline=p.headline[:400],
                     outcome=p.outcome,
                     reason=p.reason,
-                    draft=p.draft,
+                    draft={**p.draft, **_observation(p)},
                     filters=p.filters,
                     rollout_percentage=p.rollout_percentage,
                     measured_failure_rate=p.measured_failure_rate,
@@ -175,6 +189,7 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
         run.handoff = {}
         run.completed_at = timezone.now()
         run.save(update_fields=["status", "stages", "handoff", "completed_at"])
+    report_finished(run.team_id, run.id)
     return rows
 
 
@@ -189,6 +204,49 @@ def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None 
 
 def fail_run(team_id: int, run_id: str, error: str) -> None:
     """Mark a run failed unless an attempt already published, so a late failure never hides published cards."""
-    EvalSuggestionRun.objects.for_team(team_id).filter(id=run_id).exclude(
-        status=EvalSuggestionRunStatus.COMPLETED
-    ).update(status=EvalSuggestionRunStatus.FAILED, error=error[:2000], handoff={}, completed_at=timezone.now())
+    failed = (
+        EvalSuggestionRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .exclude(status__in=[EvalSuggestionRunStatus.COMPLETED, EvalSuggestionRunStatus.FAILED])
+        .update(status=EvalSuggestionRunStatus.FAILED, error=error[:2000], handoff={}, completed_at=timezone.now())
+    )
+    if failed:
+        report_finished(team_id, run_id)
+
+
+def report_finished(team_id: int, run_id: Any) -> None:
+    """Send one analytics event for a run that just completed or failed. A failure to send never fails the run."""
+    try:
+        run = EvalSuggestionRun.objects.for_team(team_id).select_related("team").get(id=run_id)
+        stages = run.stages or {}
+        drafting = stages.get("drafting") or {}
+        kinds = list(EvalSuggestion.objects.for_team(team_id).filter(run=run).values_list("kind", flat=True))
+        report_team_action(
+            run.team,
+            RUN_FINISHED_EVENT,
+            {
+                "run_id": str(run.id),
+                "trigger": run.trigger,
+                "status": run.status,
+                # The organization's users see nothing from a shadow run.
+                "shadow": not is_enabled_for_organization(str(run.team.organization_id)),
+                "failed_stages": sorted(
+                    name
+                    for name, stage in stages.items()
+                    if isinstance(stage, dict) and stage.get("status") == "failed"
+                ),
+                "error_type": run.error.split(":", 1)[0][:100],
+                "cards_published": len(kinds),
+                "published_kinds": sorted(set(kinds)),
+                "calls_reviewed": drafting.get("reviewed", 0),
+                "review_cards_drafted": drafting.get("cards", 0),
+                "review_cards_kept": sum(
+                    1 for card in (drafting.get("calibration") or {}).get("cards", []) if card.get("kept")
+                ),
+                "review_code_checks": drafting.get("code_checks", 0),
+                "cost_usd": run.cost_usd,
+                "duration_seconds": (run.completed_at - run.created_at).total_seconds() if run.completed_at else None,
+            },
+        )
+    except Exception:
+        logger.warning("eval_suggestions_run_event_failed", team_id=team_id, run_id=str(run_id), exc_info=True)

@@ -54,6 +54,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     request_quarantine as request_quarantine,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource as CuratedGitHubSource
+from products.engineering_analytics.backend.logic.revert_outcomes import build_revert_outcomes as build_revert_outcomes
 from products.engineering_analytics.backend.logic.sources import build_github_sources as build_github_sources
 from products.engineering_analytics.backend.logic.suite_health import (
     build_broken_tests as build_broken_tests,

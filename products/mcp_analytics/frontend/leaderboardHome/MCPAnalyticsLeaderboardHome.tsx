@@ -59,13 +59,13 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         dailyActivity,
         harnessRows,
         headlineKpis,
-        periodTotals,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
         notableSessions,
         toolRows,
         failedLoads,
+        loadedSections,
         loadingSections,
         canShowFeedback,
         feedbackContextKey,
@@ -129,6 +129,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
                 refreshing={dashboardLoading}
+                trailingControls={<LeaderboardSectionsMenu />}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -139,7 +140,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     }}
                     dataAttr="mcp-dashboard-date-filter"
                 />
-                <LeaderboardSectionsMenu />
             </McpSharedFilters>
             <MCPAnalyticsFeedbackPrompt
                 contextKey={feedbackContextKey}
@@ -167,10 +167,11 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             <Section id="key-metrics">
                 <KpiTiles
                     kpis={headlineKpis}
-                    users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
                     kpisLoading={!!loadingSections.kpis}
                     usersLoading={!!loadingSections.periodTotals}
+                    kpisLoaded={!!loadedSections.kpis}
+                    usersLoaded={!!loadedSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
                     onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}

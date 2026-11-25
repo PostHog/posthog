@@ -22,6 +22,8 @@ import type {
     LiveWorld,
 } from '@/model/live'
 
+import type { LiveTrafficFilters } from '@/model/liveTrafficFilters'
+
 import type { LiveReadResult } from './liveController'
 
 const TOP_JOB: Record<LivePathsMode, LiveQueryKey> = { pages: 'paths', screens: 'screens' }
@@ -44,10 +46,12 @@ export type LiveQueryRunner = (
 export interface LiveReadInput {
     profile?: LiveProjectProfile
     run: LiveQueryRunner
-    previous: LiveSnapshot
+    previous: LiveSnapshot | (() => LiveSnapshot)
     /** True when the live events service cannot count users online, so the read counts them with HogQL. */
     countUsersOnline: boolean
     pathCleaning: boolean
+    filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     now: number
     signal: AbortSignal
 }
@@ -87,7 +91,10 @@ function answered(value: unknown): boolean {
  * every job failed.
  */
 export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadResult<LiveSnapshot>> {
-    const { run, previous, now, signal } = input
+    const { run, now, signal } = input
+    const latestPrevious = (): LiveSnapshot =>
+        typeof input.previous === 'function' ? input.previous() : input.previous
+    let previous = latestPrevious()
     const profile = input.profile ?? previous.profile ?? { kind: 'unknown' }
     const mobile = profile.kind === 'mobile' || profile.kind === 'mixed'
     const jobs = profile.kind === 'mobile' ? JOBS.filter((key) => key !== 'browser' && key !== 'referrer') : [...JOBS]
@@ -99,6 +106,8 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const options = {
         window: liveWindow(now),
         pathCleaning: input.pathCleaning,
+        filterTestAccounts: input.filterTestAccounts,
+        trafficFilters: input.trafficFilters,
         mobileOnly: profile.kind === 'mobile',
         webOnly: profile.kind === 'web',
     }
@@ -135,6 +144,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
         ],
         signal
     )
+    previous = latestPrevious()
     const answers = new Map<LiveQueryKey, unknown>()
     let failure: unknown = null
     for (const [index, key] of [...keys, TOP_JOB[topMode]].entries()) {
@@ -211,6 +221,8 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
 export interface LiveWorldReadInput {
     webOnly?: boolean
     mobileOnly?: boolean
+    filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     run: LiveQueryRunner
     now: number
     signal: AbortSignal
@@ -223,10 +235,19 @@ export async function readLiveWorld({
     signal,
     mobileOnly,
     webOnly,
+    filterTestAccounts,
+    trafficFilters,
 }: LiveWorldReadInput): Promise<LiveReadResult<LiveWorld>> {
     const answer = await run(
         'geo',
-        liveQuery('geo', { window: liveWindow(now), pathCleaning: false, mobileOnly, webOnly }),
+        liveQuery('geo', {
+            window: liveWindow(now),
+            pathCleaning: false,
+            mobileOnly,
+            webOnly,
+            filterTestAccounts,
+            trafficFilters,
+        }),
         signal,
         now
     )

@@ -179,9 +179,9 @@ const WIZARD_RUN_ERROR_CATALOG: Record<string, WizardRunErrorDetails> = {
         resolution: 'Wait a few minutes, then run the program again.',
     },
     PHW_AGENT_API_ERROR: {
-        title: 'The setup agent lost access to a required service',
-        description: 'An API request failed while the program was running.',
-        resolution: 'Wait a few minutes, then run the program again.',
+        title: 'The connection to the AI service dropped',
+        description: 'The setup agent lost its connection to the AI service while the program was running.',
+        resolution: 'Run the program again.',
     },
     PHW_AGENT_YARA_VIOLATION: {
         title: 'A security check stopped the run',
@@ -219,6 +219,11 @@ const WIZARD_RUN_ERROR_CATALOG: Record<string, WizardRunErrorDetails> = {
     PHW_INTERNAL_UNHANDLED: {
         title: 'The Wizard encountered an unexpected error',
         description: 'The program stopped because of an error that the Wizard did not recognize.',
+        resolution: 'Run the program again. If it still fails, contact PostHog support.',
+    },
+    timeout: {
+        title: 'The Wizard run timed out',
+        description: 'The run did not finish in time, so PostHog stopped it.',
         resolution: 'Run the program again. If it still fails, contact PostHog support.',
     },
 }

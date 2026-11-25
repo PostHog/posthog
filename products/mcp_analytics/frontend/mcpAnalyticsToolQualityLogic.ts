@@ -176,7 +176,7 @@ function isDefaultSort(sort: SortState): boolean {
 }
 
 // pinned: `sort` and `sort_direction` URL params. The dashboard's slowest-tools card links to them.
-function sortSearchParams(sort: SortState): Record<string, string> {
+export function sortSearchParams(sort: SortState): Record<string, string> {
     return isDefaultSort(sort) ? {} : { sort: sort.column, sort_direction: sort.direction }
 }
 
@@ -258,6 +258,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     toolQualityPageIndex: number
     toolQualitySort: SortState
     toolRows: MCPToolQualityRowItem[]
+    toolRowsLoadFailed: boolean
     toolRowsPage: ToolRowsPage | null
     toolRowsPageLoading: boolean
     toolRowsPreviousTotalSessions: number
@@ -507,17 +508,23 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 loadToolRowsPage: async (_: void, breakpoint): Promise<ToolRowsPage> => {
                     await breakpoint(300)
                     const pageIndex = values.toolQualityPageIndex
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolQualityRowsQuery,
-                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
-                        categories: values.selectedCategories,
-                        search: values.searchTerm,
-                        sortColumn: values.toolQualitySort.column,
-                        sortDirection: values.toolQualitySort.direction,
-                        limit: TOOL_QUALITY_PAGE_SIZE,
-                        offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
-                        ...values.sharedQueryFilters,
-                    })) as MCPToolQualityRowsQueryResponse
+                    const response = (await api
+                        .query({
+                            kind: NodeKind.MCPToolQualityRowsQuery,
+                            dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                            categories: values.selectedCategories,
+                            search: values.searchTerm,
+                            sortColumn: values.toolQualitySort.column,
+                            sortDirection: values.toolQualitySort.direction,
+                            limit: TOOL_QUALITY_PAGE_SIZE,
+                            offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
+                            ...values.sharedQueryFilters,
+                        })
+                        // kea-loaders dispatches a failure even from a request a newer one replaced.
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
                     return { ...response, pageIndex }
                 },
@@ -554,6 +561,20 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             },
         ],
     })),
+
+    reducers({
+        // A failed request drops the rows on screen, because they answered an earlier filter or page.
+        toolRowsPage: {
+            loadToolRowsPageFailure: (): ToolRowsPage | null => null,
+        },
+        toolRowsLoadFailed: [
+            false,
+            {
+                loadToolRowsPage: () => false,
+                loadToolRowsPageFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         // Human-readable label for the active window (e.g. "Last 7 days"), used by

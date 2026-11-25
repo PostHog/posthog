@@ -110,4 +110,23 @@ describe('DashboardReloadAction', () => {
 
         logic.unmount()
     })
+
+    // The click event must not reach `triggerDashboardRefresh(isAutomatic)`, or a manual refresh counts as automatic.
+    it('counts a click on Refresh as a manual refresh', async () => {
+        const logic = await renderAction(dayjs().subtract(7, 'hours').toISOString())
+
+        let isAutomatic: unknown
+        await expectLogic(logic, () => {
+            ;(document.querySelector(REFRESH_BUTTON_SELECTOR) as HTMLElement).click()
+        }).toDispatchActions([
+            (action) => {
+                isAutomatic = action.payload?.isAutomatic
+                return action.type === logic.actionTypes.triggerDashboardRefresh
+            },
+        ])
+
+        expect(isAutomatic).toBe(false)
+
+        logic.unmount()
+    })
 })

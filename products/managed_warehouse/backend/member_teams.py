@@ -38,7 +38,7 @@ from django.db import connection
 import structlog
 
 from posthog.models import Organization, OrganizationMembership, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.api import stored_property_rule_floor

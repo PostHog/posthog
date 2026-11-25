@@ -18,6 +18,9 @@ export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
+    // Bound how long one query, or the wait for a connection, can take. Unset means no limit.
+    statementTimeoutMs?: number
+    connectionTimeoutMs?: number
 }
 
 export const CyclotronV2JobInitSchema = z.object({
@@ -55,6 +58,16 @@ export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<str
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
+export type PendingWakeEntry = {
+    kind: 'match' | 'recheck'
+    at: string
+    eventName?: string
+    eventUuid?: string
+    eventTimestamp?: string
+}
+export type PendingWake = Record<string, PendingWakeEntry>
+
 export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({
@@ -63,6 +76,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    wakeOnPendingWake: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })
@@ -111,6 +125,7 @@ export interface CyclotronV2DequeuedJob {
     // responsible for terminating it (cancel() plus its own telemetry) instead of
     // executing it.
     readonly cancelRequestedAt: DateTime | null
+    readonly pendingWake: PendingWake | null
 
     ack(): Promise<void>
     fail(): Promise<void>
@@ -258,6 +273,7 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
     releaseWriteHeartbeatLimitMs?: number
+    releaseWriteRetry?: boolean
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number

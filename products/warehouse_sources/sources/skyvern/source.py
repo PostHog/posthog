@@ -122,6 +122,17 @@ If you self-host Skyvern, set the base URL to your deployment (for example `http
                     "is off by default. Incremental sync reads only the timelines of runs created inside the "
                     "created_at lookback window"
                 )
+            if endpoint == "run_tags":
+                return (
+                    "Current tags of each run. Makes one API request per run, so it is off by default. Full "
+                    "refresh only, because tags can change after a run is created"
+                )
+            if endpoint == "run_artifacts":
+                return (
+                    "Artifact metadata of each run, without the short-lived signed download URLs. Makes one "
+                    "API request per run, so it is off by default. Incremental sync reads only the artifacts "
+                    "of runs created inside the created_at lookback window"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

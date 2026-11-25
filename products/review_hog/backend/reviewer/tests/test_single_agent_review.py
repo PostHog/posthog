@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -182,6 +183,46 @@ class TestSingleAgentPrompt:
         assert prompt.count(PROMPT_CACHE_MARKER) == 1
         assert prompt.split(PROMPT_CACHE_MARKER)[1].lstrip().startswith("CORE RUBRIC")
 
+    @pytest.mark.parametrize(
+        "merge_base_sha,base_read",
+        [
+            pytest.param(_MERGE_BASE, f"git show {_MERGE_BASE}:'<path>'", id="base_commit_known"),
+            pytest.param(None, "apply its removed lines as they state the rule", id="base_commit_unknown"),
+        ],
+    )
+    def test_a_rule_file_the_pr_changes_is_named_and_read_from_the_base(
+        self, pr_metadata: PRMetadata, merge_base_sha: str | None, base_read: str
+    ) -> None:
+        # A delta turn sees only the files of the last push, and a rule file changed by an earlier push
+        # still sits in the checkout with the pull request's text.
+        unsafe_path = "docs/x'$(id)'/AGENTS.md"
+        whole_pr = [
+            _file("a.py", "x = 1"),
+            _file("products/x/AGENTS.md", "- new rule"),
+            _file("CLAUDE.md", "- y"),
+            _file(".agents/security.md", "- z"),
+            _file("tools/skills/s/SKILL.md", "- w"),
+            _file("src/notes.md", "- v").model_copy(update={"status": "renamed", "previous_filename": "src/AGENTS.md"}),
+            _file(unsafe_path, "- u"),
+        ]
+        prompt = SingleAgentPrompt(
+            repository="o/r",
+            pr_metadata=pr_metadata,
+            pr_files=[whole_pr[0]],
+            whole_pr_files=whole_pr,
+            prior_findings=[],
+            guidelines="rubric",
+            merge_base_sha=merge_base_sha,
+        ).render()
+
+        assert (
+            "This pull request changes these rule files: `products/x/AGENTS.md`, `CLAUDE.md`, `.agents/security.md`, "
+            "`tools/skills/s/SKILL.md`, `src/AGENTS.md`."
+        ) in prompt
+        assert "also changes 1 rule file whose path has characters" in prompt
+        assert unsafe_path not in prompt.split("## Diff")[0]
+        assert base_read in prompt.split(PROMPT_CACHE_MARKER)[0]
+
 
 @pytest.mark.parametrize(
     "delta_since,expect_section",
@@ -231,6 +272,36 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
     assert ("## Changes since the last review" in prompt) is expect_section
     assert (f"git diff {delta_since} HEAD" in prompt) is expect_section
     assert "$(" not in prompt
+
+
+@pytest.mark.parametrize(
+    "changed_code_only,discarded",
+    [
+        pytest.param(True, "discards a P2 or P3 finding", id="automatic_follow_up"),
+        pytest.param(False, "discards a P3 finding", id="requested_follow_up"),
+    ],
+)
+def test_a_whole_pr_follow_up_prompt_names_the_lines_changed_since_the_last_review(
+    pr_metadata: PRMetadata, changed_code_only: bool, discarded: str
+) -> None:
+    change = ChangedSinceReview(
+        lines={"a.py": {10, 11, 12, 41}, "b.py": set()},
+        files_without_patch={"data.json"},
+        changed_line_counts={"a.py": 4, "data.json": 3},
+    )
+    prompt = SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=pr_metadata,
+        pr_files=[_file("a.py", "x = 1"), _file("b.py", "y = 1")],
+        prior_findings=[],
+        guidelines="rubric",
+        changed_since_review=change,
+        changed_code_only=changed_code_only,
+    ).render()
+
+    assert "- `data.json`: the whole file\n- `a.py`: lines 10-12, 41\n" in prompt
+    assert "`b.py`:" not in prompt
+    assert discarded in prompt
 
 
 class TestComposeFlashFindings:
@@ -350,6 +421,21 @@ class TestComposeFlashFindings:
         assert [issue.id for issue in selection.kept] == expected_kept
         assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == expected_dropped
 
+    def test_devex_findings_post_in_their_own_lane(self) -> None:
+        # A devex must-fix in the shared selection would take a cap slot and a budget slot, so a routed turn
+        # would post fewer of the other sessions' findings than the same turn without the lens.
+        main = [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(1, 5)]
+        devex = [
+            _issue("d1", IssuePriority.SHOULD_FIX, DEVEX_LENS.source),
+            _issue("d2", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+            _issue("d3", IssuePriority.CONSIDER, DEVEX_LENS.source),
+        ]
+
+        selection = compose_flash_findings(main, [], lens_part_count=1, budget_left=4, devex=devex)
+
+        assert [issue.id for issue in selection.kept] == ["m1", "m2", "m3", "m4", "d2", "d1"]
+        assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == [("d3", "cap", 7)]
+
 
 def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
     return AsyncMock(
@@ -372,6 +458,7 @@ class TestDedupeFlashFindings:
         prior_findings: list[ReviewIssueFinding] | None = None,
         changed_since: ChangedSinceReview | None = None,
         changed_code_only: bool = False,
+        budget_left: int | None = None,
     ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             return await dedupe_flash_findings(
@@ -380,6 +467,7 @@ class TestDedupeFlashFindings:
                 issues=issues,
                 pr_metadata=pr_metadata,
                 prior_findings=[(finding, None) for finding in prior_findings or []],
+                budget_left=budget_left,
                 branch="feat",
                 repository="o/r",
                 lens_part_count=1,
@@ -408,6 +496,99 @@ class TestDedupeFlashFindings:
         kept = (await self._dedupe(pr_metadata, [main, lens], mock_llm)).kept
 
         assert [issue.id for issue in kept] == expected_ids
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "llm_duplicates,budget_left,expected",
+        [
+            pytest.param(
+                [("2003-1-1", "2000-1-1")],
+                None,
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
+                ],
+                id="devex_p1_drops_into_a_main_p3_without_raising_it",
+            ),
+            pytest.param(
+                [("2002-1-1", "2003-1-1")],
+                None,
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-1", IssuePriority.MUST_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
+                ],
+                id="a_lens_finding_never_drops_into_a_devex_finding",
+            ),
+            pytest.param(
+                [("2003-1-1", "2003-1-2")],
+                None,
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-2", IssuePriority.MUST_FIX),
+                ],
+                id="devex_p1_still_raises_a_devex_p3",
+            ),
+            pytest.param(
+                [("2003-1-1", "2000-1-1")],
+                1,
+                [
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-1", IssuePriority.MUST_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
+                ],
+                id="devex_p1_posts_when_the_budget_drops_its_main_anchor",
+            ),
+            pytest.param(
+                [("2003-1-1", "2000-1-1"), ("2003-1-2", "2000-1-1")],
+                1,
+                [("2002-1-1", IssuePriority.SHOULD_FIX), ("2003-1-1", IssuePriority.MUST_FIX)],
+                id="one_devex_finding_posts_per_dropped_anchor",
+            ),
+        ],
+    )
+    async def test_a_devex_finding_can_lose_to_any_session_and_changes_nothing_else(
+        self,
+        pr_metadata: PRMetadata,
+        llm_duplicates: list[tuple[str, str]],
+        budget_left: int | None,
+        expected: list[tuple[str, IssuePriority]],
+    ) -> None:
+        # A main finding raised to must-fix by a devex duplicate leaves the cap, and a lens finding that drops
+        # into a devex one moves into the devex lane, so either way a routed turn posts a different set.
+        issues = [
+            _issue("2000-1-1", IssuePriority.CONSIDER),
+            _issue("2002-1-1", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+            _issue("2003-1-1", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+            _issue("2003-1-2", IssuePriority.CONSIDER, DEVEX_LENS.source),
+        ]
+
+        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(*llm_duplicates), budget_left=budget_left)).kept
+
+        assert sorted((issue.id, issue.priority) for issue in kept) == sorted(expected)
+
+    @pytest.mark.asyncio
+    async def test_a_failed_devex_dedup_costs_only_the_devex_lane(self, pr_metadata: PRMetadata) -> None:
+        # The devex lane is optional, so its dedup failing must not retry or fail the turn's dedup, and its
+        # positional fallback ignores the anchors, so a kept devex finding could repeat a main one.
+        async def dedup_llm(**kwargs: object) -> IssueDeduplication:
+            if "2003-1-1" in str(kwargs["prompt"]):
+                raise RuntimeError("dedup call failed")
+            return IssueDeduplication(duplicates=[])
+
+        issues = [
+            _issue("2000-1-1", IssuePriority.CONSIDER),
+            _issue("2003-1-1", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+        ]
+
+        selection = await self._dedupe(pr_metadata, issues, AsyncMock(side_effect=dedup_llm))
+
+        assert [issue.id for issue in selection.kept] == ["2000-1-1"]
+        assert [(drop.issue.id, drop.disposition) for drop in selection.dropped] == [("2003-1-1", "cap")]
+        assert not selection.dedup_fell_back
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -715,6 +896,12 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     devex = _issue("2003-1-1", IssuePriority.CONSIDER, DEVEX_LENS.source)
     assert flash_turn_stats([main], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 0
     assert flash_turn_stats([main, devex], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 1
+    lane_drop = replace(selection, dropped=[*selection.dropped, DroppedIssue(issue=devex, disposition="cap", rank=3)])
+    assert flash_turn_stats([main, devex], lane_drop, reviewable_lines=120).dropped == {
+        "dedup_anchor": 1,
+        "cap": 1,
+        "devex_lane": 1,
+    }
 
 
 def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:

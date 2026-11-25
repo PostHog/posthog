@@ -26,6 +26,22 @@ def _page_one_only(rows: list[dict[str, Any]]) -> ScriptedResponse:
 
 
 class TestSimplePagination:
+    @pytest.mark.parametrize(
+        "endpoint,path,body",
+        [
+            ("tag_keys", "/v1/tag-keys", [{"key": "env", "description": None, "workflow_count": 2}]),
+            ("tag_values", "/v1/tag-values", [{"key": "env", "value": "prod", "color": "blue", "workflow_count": 2}]),
+        ],
+    )
+    def test_unpaginated_endpoint_is_read_once(self, endpoint, path, body) -> None:
+        # These endpoints ignore page params, so a page walk would read the same rows again and never stop.
+        result = _run(endpoint, always(ScriptedResponse(json=body)))
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.requests[0].param("page") is None
+        assert result.rows == body
+
     def test_resumes_from_saved_page(self) -> None:
         def handler(request: RecordedRequest) -> ScriptedResponse:
             return _page_one_only([{"id": "x"}] if request.param("page") == "5" else [])
@@ -217,26 +233,109 @@ class TestRunTimeline:
         assert all("children" not in row and "_runs_workflow_run_id" not in row for row in result.rows)
 
     @pytest.mark.parametrize(
-        "incremental_value,expected_created_at_start",
+        "endpoint,suffix,incremental_value,expected_created_at_start",
         [
-            (None, None),
-            (datetime(2026, 1, 10, tzinfo=UTC), "2026-01-07T00:00:00.000Z"),
+            ("run_timeline", "/timeline", None, None),
+            ("run_timeline", "/timeline", datetime(2026, 1, 10, tzinfo=UTC), "2026-01-07T00:00:00.000Z"),
+            ("run_artifacts", "/artifacts", None, None),
+            ("run_artifacts", "/artifacts", datetime(2026, 1, 10, tzinfo=UTC), "2026-01-07T00:00:00.000Z"),
         ],
     )
-    def test_incremental_windows_the_runs_listing(self, incremental_value, expected_created_at_start) -> None:
+    def test_incremental_windows_the_runs_listing(
+        self, endpoint, suffix, incremental_value, expected_created_at_start
+    ) -> None:
         inputs: dict[str, Any] = (
             {"incremental_field": "created_at", "db_incremental_field_last_value": incremental_value}
             if incremental_value
             else {}
         )
 
-        result = _run("run_timeline", self._handler([{"workflow_run_id": "wr_1"}], {"wr_1": []}), **inputs)
+        result = _run(endpoint, self._handler([{"workflow_run_id": "wr_1"}], {"wr_1": []}), **inputs)
 
         assert result.raised is None
         run_requests = [request for request in result.requests if request.path.endswith("/runs")]
         assert run_requests
         assert {request.param("created_at_start") for request in run_requests} == {expected_created_at_start}
-        assert [path for path in result.paths if path.endswith("/timeline")] == ["/v1/runs/wr_1/timeline"]
+        assert [path for path in result.paths if path.endswith(suffix)] == [f"/v1/runs/wr_1{suffix}"]
+
+    @pytest.mark.parametrize(
+        "endpoint,child_body,expected_rows",
+        [
+            (
+                "run_tags",
+                {
+                    "workflow_run_id": "wr_1",
+                    "tags": [
+                        {"key": "env", "value": "prod", "source": "api", "set_at": "2026-01-01T00:00:00Z"},
+                        {"key": None, "value": "nightly", "source": "api", "set_at": "2026-01-01T00:00:00Z"},
+                    ],
+                },
+                [
+                    {
+                        "key": "env",
+                        "value": "prod",
+                        "source": "api",
+                        "set_at": "2026-01-01T00:00:00Z",
+                        "workflow_run_id": "wr_1",
+                    },
+                    {
+                        "key": None,
+                        "value": "nightly",
+                        "source": "api",
+                        "set_at": "2026-01-01T00:00:00Z",
+                        "workflow_run_id": "wr_1",
+                    },
+                ],
+            ),
+            (
+                "run_artifacts",
+                [
+                    {
+                        "artifact_id": "a_1",
+                        "artifact_type": "screenshot",
+                        "uri": "s3://bucket/a_1.png",
+                        "workflow_run_id": None,
+                        "task_id": "tsk_1",
+                        "signed_url": "https://example.com/a_1.png?signature=fake",
+                        "created_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "artifact_id": "a_2",
+                        "artifact_type": "har",
+                        "uri": "s3://bucket/a_2.har",
+                        "workflow_run_id": "wr_1",
+                        "signed_url": None,
+                        "created_at": "2026-01-01T00:00:01Z",
+                    },
+                ],
+                [
+                    {
+                        "artifact_id": "a_1",
+                        "artifact_type": "screenshot",
+                        "uri": "s3://bucket/a_1.png",
+                        "workflow_run_id": "wr_1",
+                        "task_id": "tsk_1",
+                        "created_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "artifact_id": "a_2",
+                        "artifact_type": "har",
+                        "uri": "s3://bucket/a_2.har",
+                        "workflow_run_id": "wr_1",
+                        "created_at": "2026-01-01T00:00:01Z",
+                    },
+                ],
+            ),
+        ],
+    )
+    def test_per_run_rows_carry_the_run_and_skip_purged_runs(self, endpoint, child_body, expected_rows) -> None:
+        result = _run(
+            endpoint,
+            self._handler([{"workflow_run_id": "wr_1"}, {"workflow_run_id": "wr_gone"}], {"wr_1": child_body}),
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
 
 
 class TestSourceResponse:

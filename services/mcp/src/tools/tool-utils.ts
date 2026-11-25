@@ -34,9 +34,12 @@ export async function withPostHogUrl<T>(context: Context, result: T, path: strin
  * (configured per tool via `agent_note` in the YAML definition). For raw array results the
  * array is wrapped as `{ results, _agentNote }`, mirroring `withPostHogUrl`.
  */
-export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
-    ? { results: U[]; _agentNote: string }
-    : T & { _agentNote: string }
+export type WithAgentNote<T = unknown, Always extends boolean = true> = T extends readonly (infer U)[]
+    ? { results: U[] } & AgentNote<Always>
+    : T & AgentNote<Always>
+
+// A tool's response hook can drop the note, so its result type can't promise one.
+type AgentNote<Always extends boolean> = Always extends true ? { _agentNote: string } : { _agentNote?: string }
 
 /** Adds `_agentNote` to a result. Wraps raw arrays in `{ results, _agentNote }` (see type above). */
 export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {

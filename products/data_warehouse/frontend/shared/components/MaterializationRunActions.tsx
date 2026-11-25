@@ -251,7 +251,7 @@ export function MaterializationRunActions({
                                           }),
                                   },
                                   {
-                                      label: 'Revert materialization',
+                                      label: 'Stop materializing',
                                       status: 'danger' as const,
                                       disabledReason: revertReason,
                                       onClick: () =>

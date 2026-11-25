@@ -166,6 +166,23 @@ tools:
             text for text. List or create definitions with `custom-property-definitions-list` and
             `custom-property-definitions-create`.
         feature_flag: customer-analytics-csp
+    accounts-custom-property-values-history:
+        operation: accounts_custom_property_values_history_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account custom property value history
+        description: >
+            List every value a Customer Analytics account has held for one custom property, oldest first. Use it to see
+            how a property such as MRR or plan changed over time. Each entry has the `value`, `set_at`, `replaced_at`
+            (when the next value replaced it), `is_current`, and `set_by_id`. Repeated sets of the same value count as
+            one entry. A cleared value has no recorded clear time. Pass the property's `definition` ID, found with
+            `custom-property-definitions-list`. Pass `since` (YYYY-MM-DD) to limit a long history to a time window. The
+            first entry is then the value in place on that date.
+        feature_flag: customer-analytics-csp
     accounts-custom-property-values-list:
         operation: accounts_custom_property_values_list
         enabled: true
@@ -181,7 +198,8 @@ tools:
             List the current custom property values for a single Customer Analytics account. Each result pairs a custom
             property definition (via `definition_id`) with the account's `value` for it — typed per the definition's
             display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only
-            current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with
+            current values are returned. For the values a property held before, use
+            `accounts-custom-property-values-history`. Resolve a `definition_id` to its name and type with
             `custom-property-definitions-list` or `custom-property-definitions-retrieve`.
         feature_flag: customer-analytics-csp
     accounts-destroy:
@@ -438,9 +456,11 @@ tools:
             (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are
             the built-in fields only; a team's own typed attributes are custom properties and are not returned here.
             Call `custom-property-definitions-list` to see what the team tracks, then
-            `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
-            the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
-            tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
+            `accounts-custom-property-values-list` for this account's values, or
+            `accounts-custom-property-values-history` to see how one changed over time. To link a user to this account
+            rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the
+            account `id`; tab is optional — one of notes/users/usage/spend, e.g.
+            `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-summaries-list:
         operation: accounts_summaries_list
@@ -596,19 +616,20 @@ tools:
         list: true
         title: List custom property definitions
         description: >
-            List Customer Analytics custom property definitions for the project. A definition is the shape of a custom
-            attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent,
-            date, datetime, boolean), `is_big_number` flag, and `target_type` (`account`, `person`, or `group`, with
-            `group_type_index` set for group targets). Definitions are team-scoped; for account targets, the value a
-            specific account holds is managed separately via the account custom property value tools. Group-target
-            definitions are only listed for callers holding the `group:read` scope. Use
-            `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a
-            custom property value in bulk, take a definition `id` from this tool and query it via HogQL against
-            `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and
-            filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales
-            to all accounts. Match a requested field against this project's definition names and descriptions rather
-            than assuming the same name or data type in every project. Use `custom-property-definitions-retrieve` when
-            you need source details or select options omitted from this compact list.
+            List the fields a team tracks on its Customer Analytics accounts, such as plan, revenue, or health. Call
+            this first for a question about an account's data, before metrics, SQL, events, or warehouse tables. A
+            definition is the shape of a custom attribute — its `name`, optional `description`, `display_type` (one of
+            text, number, currency, percent, date, datetime, boolean), `is_big_number` flag, and `target_type`
+            (`account`, `person`, or `group`, with `group_type_index` set for group targets). Definitions are
+            team-scoped; for account targets, the value a specific account holds is managed separately via the account
+            custom property value tools. Group-target definitions are only listed for callers holding the `group:read`
+            scope. Use `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter
+            accounts by a custom property value in bulk, take a definition `id` from this tool and query it via HogQL
+            against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id)
+            and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path
+            scales to all accounts. Match a requested field against this project's definition names and descriptions
+            rather than assuming the same name or data type in every project. Use `custom-property-definitions-retrieve`
+            when you need source details or select options omitted from this compact list.
         feature_flag: customer-analytics-csp
         response:
             include:
@@ -830,7 +851,7 @@ tools:
         title: Create customer task
         description: >
             Create a Customer analytics task with a name and optional description, account UUID, project member assignee
-            ID, ISO 8601 deadline, and initial status. This is a customer follow-up task, not an AI coding task.
+            ID, ISO 8601 deadline, initial status, and tags. This is a customer follow-up task, not an AI coding task.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-list:
         operation: customer_tasks_list
@@ -846,7 +867,8 @@ tools:
         description: >
             List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user
             ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses,
-            deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.
+            deadline, archive state, or `tags` (JSON-encoded array such as `["renewal","urgent"]`, matching tasks with
+            any of the tags). Active tasks are returned by default. Use roles-list to find role UUIDs.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-partial-update:
         operation: customer_tasks_partial_update
@@ -861,7 +883,8 @@ tools:
         description: >
             Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account,
             assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a
-            completed or canceled task before moving it to another status. Restore archived tasks before editing.
+            completed or canceled task before moving it to another status. `tags` replaces every tag on the task, and an
+            empty list removes them all. Restore archived tasks before editing.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-restore-create:
         operation: customer_tasks_restore_create
@@ -888,7 +911,7 @@ tools:
         title: Get customer task
         description: >
             Retrieve one accessible Customer analytics task by ID, including its linked account, assignee, deadline,
-            status, and archive state.
+            status, tags, and archive state.
         feature_flag: customer-analytics-customer-tasks
     event-streams-add-account:
         operation: event_streams_add_account_create

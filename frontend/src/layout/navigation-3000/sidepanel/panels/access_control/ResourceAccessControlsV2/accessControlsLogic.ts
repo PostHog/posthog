@@ -117,7 +117,7 @@ export interface accessControlsLogicValues {
     roles: RoleType[] // roleAccessControlLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     selectedTabOptions: string | null // sidePanelStateLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     accessDetailPanelEnabled: boolean
     activePanelSubject: AccessDetailSubject | null
     activeTab: AccessControlsTab
@@ -202,7 +202,7 @@ export interface accessControlsLogicActions {
     ) => {
         accessControls: {
             level: AccessControlLevel | null
-            member: string
+            member: OrganizationMemberType['id']
         }[]
         source: AccessControlUIVersion
     } // accessControlLogic
@@ -212,7 +212,7 @@ export interface accessControlsLogicActions {
             | {
                   accessControls: {
                       level: AccessControlLevel | null
-                      member: string
+                      member: OrganizationMemberType['id']
                   }[]
                   source: AccessControlUIVersion
               }
@@ -222,7 +222,7 @@ export interface accessControlsLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                member: string
+                member: OrganizationMemberType['id']
             }[]
             source: AccessControlUIVersion
         }
@@ -236,7 +236,7 @@ export interface accessControlsLogicActions {
     ) => {
         accessControls: {
             level: AccessControlLevel | null
-            role: string
+            role: RoleType['id']
         }[]
         source: AccessControlUIVersion
     } // accessControlLogic
@@ -246,7 +246,7 @@ export interface accessControlsLogicActions {
             | {
                   accessControls: {
                       level: AccessControlLevel | null
-                      role: string
+                      role: RoleType['id']
                   }[]
                   source: AccessControlUIVersion
               }
@@ -256,7 +256,7 @@ export interface accessControlsLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                role: string
+                role: RoleType['id']
             }[]
             source: AccessControlUIVersion
         }
@@ -391,7 +391,7 @@ export interface accessControlsLogicActions {
         scopeType: ScopeType
     }) => {
         projectLevel: AccessControlLevel | null
-        resourceLevels: Record<ScopeObjectEnumApi, AccessControlLevel | null>
+        resourceLevels: Record<APIScopeObject, AccessControlLevel | null>
         scopeId: string
         scopeType: ScopeType
     }
@@ -439,9 +439,7 @@ export interface accessControlsLogicMeta {
             panelOptionsSubject: AccessDetailSubject | null,
             panelSubject: AccessDetailSubject | null
         ) => AccessDetailSubject | null
-        canUseRoles: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
-        ) => boolean
+        canUseRoles: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
         canEdit: (defaults: AccessControlDefaultsResponse | null) => boolean
         terraformDisabledReason: (defaults: AccessControlDefaultsResponse | null) => string | undefined
         availableProjectLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]

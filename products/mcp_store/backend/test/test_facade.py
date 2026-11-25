@@ -263,7 +263,6 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
             ("cleared_optional_search_scope", "slack_app", True, SCOPES[:3], None, True),
             # The allowlist is a ceiling too: a link that can read DMs never connects a public-only server.
             ("wider_than_allowlist", "slack_app", True, [*SCOPES, "search:read.im"], None, False),
-            ("dev_app_template", "slack_dev_app", True, SCOPES, None, False),
             ("turned_off_for_the_team", "slack_app", False, SCOPES, None, False),
             ("keeps_a_working_connection", "slack_app", True, SCOPES, "tok-existing", True),
         ]
@@ -460,6 +459,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             ("server_disabled", None, "server_disabled"),
             ("revoked", None, "revoked"),
             ("replaced_by_personal", None, "replaced_by_personal"),
+            ("owner_only", None, "owner_only"),
             ("needs_reconnect", [], "not_selected"),
             ("server_disabled", [], "not_selected"),
             ("revoked", [], "not_selected"),
@@ -477,7 +477,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         left_out = self._create_installation(
             scope="shared",
             user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
-            if reason == "teammate_needs_reconnect"
+            if reason in ("teammate_needs_reconnect", "owner_only")
             else self.user,
             display_name="Linear",
             url=server.url,
@@ -485,7 +485,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             auth_type="oauth",
             sensitive_configuration={"access_token": "tok", "needs_reauth": True}
             if reason in ("needs_reconnect", "teammate_needs_reconnect")
-            else {"access_token": "tok"},
+            else {"access_token": "pha_" + "x" * 40 if reason == "owner_only" else "tok"},
         )
         if reason == "revoked":
             MCPMemberServerRevocation.objects.for_team(self.team.id).create(
@@ -831,6 +831,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             ("connection_turned_off", "needs_reconnect"),
             ("server_turned_off_for_team", "server_disabled"),
             ("no_grant", "not_shared"),
+            ("posthog_credential", "owner_only"),
             ("teammate_share_still_works", None),
         ]
     )
@@ -868,7 +869,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 "both_tokens_need_reconnect",
                 "teammate_share_still_works",
             )
-            else {"access_token": "tok"},
+            else {"access_token": "pha_" + "x" * 40 if case == "posthog_credential" else "tok"},
         )
         if case != "no_grant":
             self._grant(account, server, user=grantor, installation=installation, scope="team")

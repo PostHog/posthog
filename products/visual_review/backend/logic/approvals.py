@@ -18,7 +18,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from ..db import WRITER_DB
-from ..facade.enums import BaselineMode, ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
+from ..facade.enums import BaselineMode, ReviewDecision, ReviewState, RunGate, RunPurpose, RunStatus, SnapshotResult
 from ..models import Run
 from . import (
     artifact_store,
@@ -26,6 +26,7 @@ from . import (
     baseline_record,
     baselines,
     ci_status,
+    commit_status,
     errors,
     gating,
     github_api,
@@ -279,13 +280,16 @@ def _finalize_run(
     if mode == BaselineMode.SHADOW and ledger_locked:
         _record_shadow_approvals(run, user_id, carried_commit_sha)
 
-    if commit_to_github:
+    if commit_status.publishes_by_commit(repo):
+        commit_status.publish_for_run(run)
+    elif commit_to_github:
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
 
-    # A baseline commit starts a new CI run. Without one, the job that completed this run
-    # keeps the red verdict it read before the review, so it has to read it again.
+    # A baseline commit starts a new CI run. Without one, the job that completed a `ci_job` run
+    # keeps the red verdict it read before the review, so it has to read it again. A
+    # `commit_status` run is gated by the status, so nothing in CI runs again.
     check_run_id = (run.metadata or {}).get("github_check_run_id")
-    if commit_to_github and not committed and run.pr_number and check_run_id:
+    if run.gate == RunGate.CI_JOB and commit_to_github and not committed and run.pr_number and check_run_id:
         transaction.on_commit(lambda: _rerun_completing_job(run, str(check_run_id)), using=WRITER_DB)
 
     if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
@@ -328,6 +332,8 @@ def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]
         snapshot.reviewed_by_id = user_id
         snapshot.approved_hash = new_hash
         snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    commit_status.publish_for_run(run)
 
     return run
 

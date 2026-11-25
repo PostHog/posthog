@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from requests import PreparedRequest, Response
 from structlog.testing import capture_logs
+from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
+from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.context import scoped_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import (
@@ -234,34 +236,27 @@ def test_metrics_no_op_when_no_job_context():
     counter.assert_not_called()
 
 
-def test_metrics_emitted_when_job_context_set(job_ctx):
+def test_metrics_recorded_on_activity_meter_after_a_request_outside_any_activity(job_ctx):
+    buffer = MetricBuffer(1000)
+    env = ActivityEnvironment()
+    env.metric_meter = Runtime(telemetry=TelemetryConfig(metrics=buffer)).metric_meter
     request = _make_request(url="https://api.stripe.com/v1/charges")
     response = _make_response(status_code=200, content_length="100")
 
-    with (
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer.get_http_requests_counter"
-        ) as counter_factory,
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer.get_http_latency_histogram"
-        ) as latency_factory,
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer.get_http_response_bytes_histogram"
-        ) as bytes_factory,
-    ):
-        record_request(request, response, started_at_monotonic=time.monotonic())
+    record_request(request, response, started_at_monotonic=time.monotonic())
+    env.run(record_request, request, response, started_at_monotonic=time.monotonic())
 
-    counter_factory.assert_called_once_with(99, "stripe")
-    latency_factory.assert_called_once_with(99, "stripe")
-    bytes_factory.assert_called_once_with(99, "stripe")
-
-    counter_factory.return_value.add.assert_called_once()
-    latency_factory.return_value.record.assert_called_once()
-    bytes_factory.return_value.record.assert_called_once()
-
-    counter_attrs = counter_factory.return_value.add.call_args.args[1]
-    assert counter_attrs["host"] == "api.stripe.com"
-    assert counter_attrs["status_class"] == "2xx"
+    updates = {update.metric.name: update for update in buffer.retrieve_updates()}
+    labels = {"source_type": "stripe", "status_class": "2xx"}
+    requests = updates["data_import_http_requests_total"]
+    assert requests.value == 1
+    assert dict(requests.attributes).items() >= {**labels, "team_id": "99", "host": "api.stripe.com"}.items()
+    assert updates["data_import_http_response_bytes"].value == 100
+    for histogram in ("data_import_http_latency_ms", "data_import_http_response_bytes"):
+        attributes = dict(updates[histogram].attributes)
+        assert attributes.items() >= labels.items()
+        assert "team_id" not in attributes
+        assert "host" not in attributes
 
 
 def test_metrics_no_response_bytes_histogram_when_zero(job_ctx):

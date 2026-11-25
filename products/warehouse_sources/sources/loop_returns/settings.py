@@ -15,8 +15,9 @@ MAX_WINDOW_DAYS = 90
 # stay well under the cap to keep a single page's payload modest.
 DEFAULT_PAGE_SIZE = 250
 
-# `limit` cap on the cursor-paginated catalog endpoints (orders, products, product variants and
-# customers). Loop documents 250 as the maximum on orders, customers and product variants.
+# `limit` cap on the cursor-paginated catalog endpoints (orders, products, product variants,
+# customers, locations and inventories). Loop documents 250 as the maximum on each of them except
+# products.
 CURSOR_PAGE_SIZE = 250
 
 # How far back a first sync reaches when the user doesn't give a start date. Without `from`/`to`
@@ -61,6 +62,9 @@ class LoopReturnsEndpointConfig:
     parent: str | None = None
     # Column that carries the parent row's `id` on each child row.
     parent_id_column: str = "parent_id"
+    # `(column, nested object)` pairs: each column gets the `id` of that nested object, for rows that
+    # have no `id` of their own. A row without one of those ids is dropped.
+    nested_id_columns: tuple[tuple[str, str], ...] = ()
 
 
 LOOP_RETURNS_ENDPOINTS: dict[str, LoopReturnsEndpointConfig] = {
@@ -129,6 +133,24 @@ LOOP_RETURNS_ENDPOINTS: dict[str, LoopReturnsEndpointConfig] = {
         data_selector="customers",
         cursor_paginate=True,
         required_scope="Customers (Read)",
+    ),
+    "locations": LoopReturnsEndpointConfig(
+        name="locations",
+        path="/locations",
+        primary_keys=("id",),
+        data_selector="locations",
+        cursor_paginate=True,
+        required_scope="Locations (Read)",
+    ),
+    "inventories": LoopReturnsEndpointConfig(
+        name="inventories",
+        path="/inventories",
+        # An inventory row has no id of its own: Loop identifies it by its product variant and location.
+        primary_keys=("product_variant_id", "location_id"),
+        data_selector="inventories",
+        cursor_paginate=True,
+        required_scope="Inventory (Read)",
+        nested_id_columns=(("product_variant_id", "product_variant"), ("location_id", "location")),
     ),
 }
 

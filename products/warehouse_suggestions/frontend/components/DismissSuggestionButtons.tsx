@@ -17,7 +17,7 @@ export function DismissSuggestionButtons({
     kind,
     disabledReason,
 }: DismissSuggestionButtonsProps): JSX.Element {
-    const { dismissSuggestion } = useActions(warehouseSuggestionsLogic)
+    const { dismissSuggestion, openDismissDialog } = useActions(warehouseSuggestionsLogic)
 
     return (
         <>
@@ -36,7 +36,7 @@ export function DismissSuggestionButtons({
                 icon={<IconX />}
                 tooltip="Dismiss. Won't be suggested again."
                 disabledReason={disabledReason}
-                onClick={() => dismissSuggestion(suggestionId, 'not_useful')}
+                onClick={() => openDismissDialog(suggestionId)}
                 data-attr="warehouse-suggestions-dismiss"
             />
         </>

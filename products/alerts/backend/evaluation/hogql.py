@@ -541,7 +541,7 @@ def _numeric_cell(row: Any, index: int, *, position: str) -> float:
         )
     value = float(raw)
     if not math.isfinite(value):
-        raise AlertExtractionError(
+        raise AlertDataUnavailableError(
             f"SQL alert query must return a finite numeric value (got {raw} for the {position})."
         )
     return value

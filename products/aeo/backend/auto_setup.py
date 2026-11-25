@@ -60,6 +60,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS, SUGGESTION_JOB_TTL_SECONDS
 
 logger = structlog.get_logger(__name__)
@@ -388,6 +389,7 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
         return skipped("not_available")
     if request.only_first_run and request.activate_paused_prompts:
         AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).update(active=True)
+        bump_data_version_on_commit(team.id)
     schedule = engine_settings.engine_schedule(team.id)
     if (
         not catalog.own_domains(team.id)

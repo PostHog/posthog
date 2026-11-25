@@ -9,6 +9,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
@@ -25,6 +26,7 @@ export function QuillPlayerInspectorBottomSettings(): JSX.Element {
     const { setShowOnlyMatching, setShowLineTooltips } = useActions(miniFiltersLogic)
     const { hideNullValues, hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHideNullValues, setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+    const floatingContainer = useFloatingContainer()
 
     const noEventsReason =
         hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list'
@@ -85,7 +87,7 @@ export function QuillPlayerInspectorBottomSettings(): JSX.Element {
                     Properties
                     <IconChevronDown />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" container={floatingContainer ?? undefined}>
                     <DropdownMenuCheckboxItem
                         checked={hidePostHogPropertiesInTable}
                         onCheckedChange={setHidePostHogPropertiesInTable}

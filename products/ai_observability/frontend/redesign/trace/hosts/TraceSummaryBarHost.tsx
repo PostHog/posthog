@@ -11,7 +11,7 @@ import { TraceViewKey } from '../types'
 import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
 
 export function TraceSummaryBarHost({ hostId, traceId, timestampHint }: TraceViewKey): JSX.Element | null {
-    const { trace, evaluationResults } = useValues(traceViewLogic({ traceId, timestampHint }))
+    const { trace, overview, seed, evaluationResults } = useValues(traceViewLogic({ traceId, timestampHint }))
     const { showFailingEvals, showFeedback } = useActions(traceViewModelLogic({ hostId, traceId, timestampHint }))
     const { clusters } = useValues(traceClustersLogic({ traceId }))
     const { traceFeedback } = useValues(traceFeedbackLogic({ traceId, timestampHint }))
@@ -20,13 +20,17 @@ export function TraceSummaryBarHost({ hostId, traceId, timestampHint }: TraceVie
     const { reviewStatus, queueHref, canEditReviews, removeFromQueueLoading } = useValues(reviewLogic)
     const { removeFromQueue } = useActions(reviewLogic)
 
-    if (!trace) {
+    if (!overview) {
         return null
+    }
+    if (!trace) {
+        return <TraceSummaryBar overview={overview} person={seed?.person ?? null} />
     }
     const queue = reviewStatus?.queue ?? null
     return (
         <TraceSummaryBar
-            trace={trace}
+            overview={overview}
+            person={trace.person}
             clusters={clusters}
             evals={evaluationResults ? { summary: evaluationResults.summary, onClick: showFailingEvals } : null}
             feedback={

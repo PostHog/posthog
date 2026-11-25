@@ -62,7 +62,7 @@ export function buildServiceGraph(services: ServiceHealthApi[], edges: ServiceEd
     }
 }
 
-export async function layoutServiceGraph(graph: ServiceGraph): Promise<ServiceGraph> {
+export async function layoutServiceGraph<G extends { nodes: Node[]; edges: Edge[] }>(graph: G): Promise<G> {
     if (graph.nodes.length === 0) {
         return graph
     }
@@ -76,12 +76,16 @@ export async function layoutServiceGraph(graph: ServiceGraph): Promise<ServiceGr
             'elk.spacing.nodeNode': '24',
             'elk.separateConnectedComponents': 'true',
         },
-        children: graph.nodes.map((node) => ({ id: node.id, width: SERVICE_NODE_WIDTH, height: SERVICE_NODE_HEIGHT })),
+        children: graph.nodes.map((node) => ({
+            id: node.id,
+            width: node.width ?? SERVICE_NODE_WIDTH,
+            height: node.height ?? SERVICE_NODE_HEIGHT,
+        })),
         edges: graph.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
     })
     const positions = new Map((laidOut.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }]))
     return {
+        ...graph,
         nodes: graph.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })),
-        edges: graph.edges,
     }
 }

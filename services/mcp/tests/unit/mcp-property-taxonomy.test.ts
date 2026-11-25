@@ -15,14 +15,6 @@ const KNOWN_UNREGISTERED_MCP_PROPERTIES = new Set([
     '$mcp_app_name',
     '$mcp_app_version',
     '$mcp_app_instance_id',
-    '$mcp_feedback_details',
-    '$mcp_feedback_friction_points',
-    '$mcp_feedback_sentiment',
-    '$mcp_feedback_suggested_improvement',
-    '$mcp_feedback_summary',
-    '$mcp_feedback_task_completed',
-    '$mcp_feedback_tool',
-    '$mcp_feedback_type',
 ])
 
 function typescriptFiles(directory: string): string[] {

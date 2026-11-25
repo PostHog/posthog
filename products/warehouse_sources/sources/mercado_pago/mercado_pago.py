@@ -8,10 +8,15 @@ from products.warehouse_sources.sources.mercado_pago._config import MercadoPagoS
 from products.warehouse_sources.sources.mercado_pago.settings import (
     AUTH_ERROR,
     BASE_URL,
+    DATA_SELECTORS,
+    DEFAULT_DATA_SELECTOR,
     ENDPOINTS,
+    MERCHANT_ORDER_HISTORY,
     PAGE_SIZE,
+    PAGINATORS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
+    UNPARTITIONED_ENDPOINTS,
 )
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
@@ -25,6 +30,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     frozen,
     make_tracked_session,
+    resolve_incremental_start,
     rest_api_resource,
     schema_for_resource,
 )
@@ -89,13 +95,33 @@ def mercado_pago_source(
             "begin_date": begin_date,
             "end_date": end_date,
         }
+    elif (
+        inputs.schema_name == "merchant_orders"
+        and inputs.should_use_incremental_field
+        and inputs.db_incremental_field_last_value is not None
+    ):
+        if resume is not None and resume.begin_date is not None:
+            begin_date = resume.begin_date
+        else:
+            now = datetime.now(UTC)
+            begin = resolve_incremental_start(
+                True,
+                inputs.db_incremental_field_last_value,
+                default=MERCHANT_ORDER_HISTORY,
+                floor=now - MERCHANT_ORDER_HISTORY,
+                now=now,
+            )
+            begin_date = begin.isoformat(timespec="milliseconds")
+        params = {"last_updated_from": begin_date}
 
     endpoint: Endpoint = {
         "path": path,
         "params": params,
-        "data_selector": "results",
+        "data_selector": DATA_SELECTORS.get(inputs.schema_name, DEFAULT_DATA_SELECTOR),
         "data_selector_required": True,
     }
+    if inputs.schema_name in PAGINATORS:
+        endpoint["paginator"] = PAGINATORS[inputs.schema_name]
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
         "table_format": "delta",
@@ -125,13 +151,14 @@ def mercado_pago_source(
         resume_hook=save_checkpoint,
         initial_paginator_state={"offset": resume.offset} if resume is not None else None,
     )
+    partitioned = inputs.schema_name not in UNPARTITIONED_ENDPOINTS
     return SourceResponse(
         name=inputs.schema_name,
         items=lambda: resource,
         primary_keys=PRIMARY_KEYS,
-        partition_keys=PARTITION_KEYS,
-        partition_mode="datetime",
-        partition_format="month",
-        sort_mode="asc" if inputs.schema_name == "payments" else "desc",
+        partition_keys=PARTITION_KEYS if partitioned else None,
+        partition_mode="datetime" if partitioned else None,
+        partition_format="month" if partitioned else None,
+        sort_mode="asc" if inputs.schema_name == "payments" else None,
         on_complete=manager.clear_state,
     )

@@ -1,3 +1,5 @@
+import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -20,12 +22,12 @@ describe('billingReadsLogic', () => {
         initKeaTests()
         useMocks({
             get: {
-                '/api/organizations/@current/billing/projects/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/projects/`]: () => [
                     200,
                     { results: [{ id: 7, name: null, deleted: true }] },
                 ],
                 '/api/billing/usage/team_options/': () => [200, { team_id_options: [7, 8] }],
-                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => [
                     200,
                     {
                         count: 1,
@@ -34,7 +36,7 @@ describe('billingReadsLogic', () => {
                         results: [point(`organization usage ${new URL(request.url).searchParams.get('breakdowns')}`)],
                     },
                 ],
-                '/api/organizations/@current/billing/spend/timeseries/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [
                     200,
                     {
                         count: 1,
@@ -63,8 +65,8 @@ describe('billingReadsLogic', () => {
             flag: true,
             usageLabel: 'organization usage ["type"]',
             spendLabel: 'organization spend',
-            usageExport: '/api/organizations/@current/billing/usage/export/',
-            spendExport: '/api/organizations/@current/billing/spend/export/',
+            usageExport: `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/export/`,
+            spendExport: `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/export/`,
             projectIds: [7],
         },
         {

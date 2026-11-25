@@ -102,10 +102,18 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   # node_src_files feeds jest --findRelatedTests in the select step below.
                   list-files: 'escape'
+                  reuse-checks: Node.js Tests Pass
+                  reuse-proof-checks: |
+                      Node.js Build (depot-ubuntu-24.04)
+                      Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       nodejs:
                         - '.github/scripts/jest-retries.cjs'
@@ -119,6 +127,8 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # liquid.test.ts reads the importers' template fixtures with readFileSync.
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
@@ -135,6 +145,8 @@ jobs:
                         # admits ingestion-consumer, which does not depend on the fixture's crate, so
                         # a capture-side envelope change would skip the test that pins the consumer.
                         - 'rust/common/ingestion_warnings/*.json'
+                        # The schema-check manifest test reads the shared deploy requirements examples.
+                        - 'tools/deploy-requirements/examples/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -183,6 +195,8 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
+                        - 'tools/deploy-requirements/examples/**'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'

@@ -40,9 +40,15 @@ from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
-from products.access_control.backend.activity_logging import get_access_control_log_entry
+from products.access_control.backend.activity_logging import (
+    AccessRuleObject,
+    access_rule_names_for_batch,
+    get_access_control_log_entry,
+    resolve_access_rule_names,
+)
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
@@ -513,6 +519,36 @@ def object_ids_with_rules(*, team_id: int, resource: APIScopeObject) -> set[str]
     return {resource_id for resource_id in resource_ids if resource_id}
 
 
+def object_ids_granted_to_user(
+    *, team_id: int, resource: APIScopeObject, user_id: int, required_level: AccessControlLevel
+) -> set[str]:
+    """Ids of `resource` objects whose own member or role rule gives this user at least `required_level`.
+
+    For a caller whose own rules only let some users reach an object, and that lets an explicit
+    grant on the object reach it too. It reads grants only: the object's default rule and the
+    resource-level rules are not grants to this user, and resolution still decides the level the
+    user ends up with, so a grant here does not outrank a stricter rule.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return set()
+
+    satisfying = [
+        level for level in ordered_access_levels(resource) if _grants_at_least(resource, level, required_level)
+    ]
+    subject_q = Q(organization_member__user_id=user_id, organization_member__organization_id=team.organization_id)
+    if team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        subject_q |= Q(
+            role_id__in=RoleMembership.objects.filter(user_id=user_id, role__organization_id=team.organization_id)
+            .valid_for_authorization()
+            .values("role_id")
+        )
+    resource_ids = AccessControl.objects.filter(
+        subject_q, team_id=team_id, resource=resource, resource_id__isnull=False, access_level__in=satisfying
+    ).values_list("resource_id", flat=True)
+    return {resource_id for resource_id in resource_ids if resource_id}
+
+
 def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
     """Whether the team has any resource-level rule for `resource`, whatever its level.
 
@@ -595,25 +631,33 @@ def replace_object_access_rules(
         raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
 
     with transaction.atomic():
-        kept: set[tuple[UUID | None, UUID | None]] = set()
-        for existing in AccessControl.objects.select_for_update().filter(
-            team_id=team_id, resource=resource, resource_id=resource_id
+        existing_rules = list(
+            AccessControl.objects.select_for_update().filter(
+                team_id=team_id, resource=resource, resource_id=resource_id
+            )
+        )
+        with access_rule_names_for_batch(
+            team=team,
+            objects=[AccessRuleObject(resource=resource, resource_id=resource_id)],
+            role_ids=[*role_ids, *(rule.role_id for rule in existing_rules if rule.role_id)],
         ):
-            key = (existing.organization_member_id, existing.role_id)
-            if key not in kept and wanted.get(key) == existing.access_level:
-                kept.add(key)
-            else:
-                existing.delete()
-        for (member_id, role_id), access_level in wanted.items():
-            if (member_id, role_id) not in kept:
-                AccessControl.objects.create(
-                    team_id=team_id,
-                    resource=resource,
-                    resource_id=resource_id,
-                    access_level=access_level,
-                    organization_member_id=member_id,
-                    role_id=role_id,
-                )
+            kept: set[tuple[UUID | None, UUID | None]] = set()
+            for existing in existing_rules:
+                key = (existing.organization_member_id, existing.role_id)
+                if key not in kept and wanted.get(key) == existing.access_level:
+                    kept.add(key)
+                else:
+                    existing.delete()
+            for (member_id, role_id), access_level in wanted.items():
+                if (member_id, role_id) not in kept:
+                    AccessControl.objects.create(
+                        team_id=team_id,
+                        resource=resource,
+                        resource_id=resource_id,
+                        access_level=access_level,
+                        organization_member_id=member_id,
+                        role_id=role_id,
+                    )
 
 
 def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
@@ -689,6 +733,11 @@ def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) 
     return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
 
 
+def organization_role_names(*, organization_id: UUID, role_ids: Collection[UUID]) -> dict[UUID, str]:
+    """Names of the given roles, keyed by id. A role of another organization is left out."""
+    return dict(Role.objects.filter(organization_id=organization_id, id__in=role_ids).values_list("id", "name"))
+
+
 def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     """Ids of the users the role grants access to.
 
@@ -698,6 +747,22 @@ def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     return list(
         RoleMembership.objects.filter(role_id=role_id).valid_for_authorization().values_list("user_id", flat=True)
     )
+
+
+def list_user_roles(*, user_id: int, organization_id: UUID) -> list[contracts.UserRole]:
+    """Organization roles the user belongs to, ordered by role name."""
+    rows = (
+        RoleMembership.objects.filter(user_id=user_id, role__organization_id=organization_id)
+        .valid_for_authorization()
+        .order_by("role__name")
+        .values_list("role_id", "role__name")
+    )
+    return [contracts.UserRole(id=role_id, name=role_name) for role_id, role_name in rows]
+
+
+def list_user_role_ids(*, user_id: int, organization_id: UUID) -> list[UUID]:
+    """Ids of the organization's roles the user belongs to, ordered by role name."""
+    return [role.id for role in list_user_roles(user_id=user_id, organization_id=organization_id)]
 
 
 # --- Write API ---
@@ -878,6 +943,33 @@ def _validate_object_access_control(
 
 
 @frozen
+class _RuleChange:
+    before: AccessControl | None
+    after: AccessControl | None
+    activity: str
+
+
+def _log_entries_for_rule_changes(*, team: Team, rule_changes: list[_RuleChange]) -> list[LogActivityEntry]:
+    # Resolve names for the whole batch at once, so the log entries add no query per rule
+    names = resolve_access_rule_names(
+        team=team, rules=[rule for change in rule_changes if (rule := change.after or change.before)]
+    )
+    entries: list[LogActivityEntry] = []
+    for change in rule_changes:
+        entry = get_access_control_log_entry(
+            before_update=change.before,
+            after_update=change.after,
+            activity=change.activity,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            names=names,
+        )
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+@frozen
 class _ObjectAccessControlKey:
     resource: str
     resource_id: str | None
@@ -935,7 +1027,7 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
         created: list[AccessControl] = []
         updated: list[AccessControl] = []
         deleted_ids: list[UUID] = []
-        entries: list[LogActivityEntry] = []
+        rule_changes: list[_RuleChange] = []
         now = timezone.now()
         for key, input in requested.items():
             matching_rules: list[AccessControl | None] = [*existing.get(key, [])] or [None]
@@ -969,15 +1061,8 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
                     rule.updated_at = now
                     updated.append(rule)
                     activity = "updated"
-                entry = get_access_control_log_entry(
-                    before_update=before,
-                    after_update=rule,
-                    activity=activity,
-                    user=get_current_user(),
-                    was_impersonated=get_was_impersonated(),
-                )
-                if entry is not None:
-                    entries.append(entry)
+                rule_changes.append(_RuleChange(before=before, after=rule, activity=activity))
+        entries = _log_entries_for_rule_changes(team=team, rule_changes=rule_changes)
         AccessControl.objects.bulk_create(created)
         AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
         AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()
@@ -1055,7 +1140,7 @@ def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLev
     if organization_id is None:
         return None
     membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
-    if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership is None or membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     role_ids = list(
         RoleMembership.objects.filter(user=user, role__organization_id=organization_id)

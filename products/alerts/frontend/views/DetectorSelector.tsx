@@ -19,6 +19,7 @@ import {
     IsolationForestDetectorConfig,
     KNNDetectorConfig,
     LLMDetectorConfig,
+    LLMDetectorModel,
     LOFDetectorConfig,
     MADDetectorConfig,
     OCSVMDetectorConfig,
@@ -30,6 +31,8 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+    DEFAULT_LLM_DETECTOR_MODEL,
+    LLM_DETECTOR_MODEL_LABELS,
     getDefaultLLMDetectorConfig,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
@@ -560,6 +563,22 @@ function LLMConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
+            <div>
+                <Label
+                    text="Model"
+                    tooltip="The AI model that checks this alert. Models can disagree about the same chart, so changing the model can change when the alert fires."
+                />
+                <LemonSelect<LLMDetectorModel>
+                    data-attr="alertForm-detector-llm-model"
+                    value={config.model ?? DEFAULT_LLM_DETECTOR_MODEL}
+                    onChange={(model) => onChange({ ...config, model })}
+                    options={(Object.keys(LLM_DETECTOR_MODEL_LABELS) as LLMDetectorModel[]).map((model) => ({
+                        value: model,
+                        label: LLM_DETECTOR_MODEL_LABELS[model],
+                    }))}
+                    size="small"
+                />
+            </div>
             <div>
                 <Label
                     text="What counts as unusual?"

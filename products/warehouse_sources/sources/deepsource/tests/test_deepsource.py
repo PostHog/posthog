@@ -87,36 +87,73 @@ def _repo_names_response(repos: list[tuple[str, bool]]) -> ScriptedResponse:
 class TestRepositoriesPagination:
     @parameterized.expand(
         [
-            # (name, saved_cursor, page specs (has_next, end_cursor), expected checkpoint cursors, first request cursor)
-            ("fresh_multi_page", None, [(True, "c1"), (True, "c2"), (False, None)], ["c1", "c2"], None),
-            ("fresh_single_page", None, [(False, None)], [], None),
-            ("resume_then_more_pages", "saved-c", [(True, "c1"), (False, None)], ["c1"], "saved-c"),
+            # (name, endpoint, connection field, saved_cursor, page specs (has_next, end_cursor),
+            #  expected checkpoint cursors, first request cursor)
+            (
+                "fresh_multi_page",
+                "repositories",
+                "repositories",
+                None,
+                [(True, "c1"), (True, "c2"), (False, None)],
+                ["c1", "c2"],
+                None,
+            ),
+            ("fresh_single_page", "repositories", "repositories", None, [(False, None)], [], None),
+            (
+                "resume_then_more_pages",
+                "repositories",
+                "repositories",
+                "saved-c",
+                [(True, "c1"), (False, None)],
+                ["c1"],
+                "saved-c",
+            ),
+            (
+                "suppressed_issues_multi_page",
+                "suppressed_issues",
+                "suppressedIssues",
+                None,
+                [(True, "c1"), (False, None)],
+                ["c1"],
+                None,
+            ),
+            (
+                "team_members_resume",
+                "team_members",
+                "members",
+                "saved-c",
+                [(True, "c1"), (False, None)],
+                ["c1"],
+                "saved-c",
+            ),
         ]
     )
     def test_pagination_and_checkpoints(
         self,
         _name: str,
+        endpoint: str,
+        connection_field: str,
         saved_cursor: str | None,
         page_specs: list[tuple[bool, str | None]],
         expected_checkpoints: list[str],
         first_request_cursor: str | None,
     ) -> None:
         responses = [
-            _connection_response("account", "repositories", [{"id": f"repo-{i}", "name": f"repo-{i}"}], has_next, end)
+            _connection_response("account", connection_field, [{"id": f"node-{i}"}], has_next, end)
             for i, (has_next, end) in enumerate(page_specs)
         ]
         saved = DeepsourceResumeConfig(cursor=saved_cursor) if saved_cursor else None
 
-        result = _driver().run("repositories", responses, resume_state=saved)
+        result = _driver().run(endpoint, responses, resume_state=saved)
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == [f"repo-{i}" for i in range(len(page_specs))]
+        assert [row["id"] for row in result.rows] == [f"node-{i}" for i in range(len(page_specs))]
+        assert all(_variables(request)["login"] == "acme" for request in result.requests)
         assert _variables(result.requests[0])["cursor"] == first_request_cursor
-        assert result.saved_states == [DeepsourceResumeConfig(cursor=c) for c in expected_checkpoints]
-        expected_committed = ([saved] if saved is not None else []) + [
-            DeepsourceResumeConfig(cursor=c) for c in expected_checkpoints
-        ]
-        assert result.committed_states == expected_committed
+        expected_states = [DeepsourceResumeConfig(cursor=c) for c in expected_checkpoints]
+        assert result.saved_states == expected_states
+        # Each cursor is staged before its page, so it commits with that page.
+        assert result.committed_states == expected_states
 
     def test_raises_when_has_next_page_but_cursor_missing(self) -> None:
         result = _driver().run(
@@ -188,14 +225,21 @@ class TestFanOut:
             DeepsourceResumeConfig(completed_repositories=["alpha", "gamma"], current_repository=None, cursor=None)
         ]
 
-    def test_fan_out_checkpoints_mid_repository(self) -> None:
+    @parameterized.expand(
+        [
+            ("issues", "issues"),
+            ("repository_targets", "targets"),
+            ("ignore_rules", "ignoreRules"),
+        ]
+    )
+    def test_fan_out_checkpoints_mid_repository(self, endpoint: str, connection_field: str) -> None:
         result = _driver().run(
-            "issues",
+            endpoint,
             [
                 _repo_names_response([("alpha", True)]),
                 _connection_response(
                     "repository",
-                    "issues",
+                    connection_field,
                     [{"id": "i-1"}],
                     True,
                     "inner-c1",
@@ -203,7 +247,7 @@ class TestFanOut:
                 ),
                 _connection_response(
                     "repository",
-                    "issues",
+                    connection_field,
                     [{"id": "i-2"}],
                     False,
                     None,
@@ -213,6 +257,11 @@ class TestFanOut:
         )
 
         assert result.raised is None
+        assert [(row["id"], row["repositoryId"], row["repositoryName"]) for row in result.rows] == [
+            ("i-1", "RID", "alpha"),
+            ("i-2", "RID", "alpha"),
+        ]
+        assert _variables(result.requests[2])["cursor"] == "inner-c1"
         assert result.saved_states == [
             DeepsourceResumeConfig(completed_repositories=[], current_repository="alpha", cursor="inner-c1"),
             DeepsourceResumeConfig(completed_repositories=["alpha"], current_repository=None, cursor=None),

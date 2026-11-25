@@ -139,6 +139,7 @@ async def _select(
                 runtime_adapter=context.runtime_adapter,
                 reasoning_effort=context.reasoning_effort,
                 service_tier=context.service_tier,
+                source_repository=scenario.source_repository,
             ),
             timeout=deadline,
         )

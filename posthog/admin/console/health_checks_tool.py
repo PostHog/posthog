@@ -13,9 +13,9 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin.console.oauth_application_panels import GROWTH
 from posthog.admin.console.panels import Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Row, Table, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
@@ -197,8 +197,8 @@ def _check_row(check: HealthCheckRegistration) -> Row:
 class HealthChecksTool(ConsoleTool):
     key = "health-checks"
     title = "Health checks"
-    owner = DEV_EXPERIENCE
-    group = "Data"
+    owner = GROWTH
+    group = "Infrastructure"
     description = "Runs a health check across teams and follows its runs in Temporal."
 
     def _check(self, request: HttpRequest) -> HealthCheckRegistration | None:

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TeamMembershipLevel } from 'lib/constants'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -8,6 +9,10 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'
+import { QuillCurrencyDropdown } from './QuillCurrencyDropdown'
+
+const BASE_CURRENCY_DESCRIPTION =
+    "PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
 
 interface BaseCurrencyProps {
     hideTitle?: boolean
@@ -21,18 +26,37 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useQuillSurface()
+
+    const handleChange = (currency: CurrencyCode | null): void => {
+        updateCurrentTeam({ base_currency: currency ?? undefined })
+    }
+
+    if (todayRailNav) {
+        const dropdown = (
+            <QuillCurrencyDropdown
+                value={currentTeam?.base_currency || null}
+                onChange={handleChange}
+                disabledReason={disabledReason ?? restrictedReason ?? undefined}
+            />
+        )
+
+        // With the title hidden, the caller already shows the title and description around this setting.
+        return hideTitle ? (
+            dropdown
+        ) : (
+            <SceneSection title="Base currency" description={BASE_CURRENCY_DESCRIPTION}>
+                {dropdown}
+            </SceneSection>
+        )
+    }
 
     return (
-        <SceneSection
-            title={!hideTitle ? 'Base currency' : undefined}
-            description="PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
-        >
+        <SceneSection title={!hideTitle ? 'Base currency' : undefined} description={BASE_CURRENCY_DESCRIPTION}>
             <div>
                 <CurrencyDropdown
                     value={currentTeam?.base_currency || null}
-                    onChange={(currency: CurrencyCode | null) => {
-                        updateCurrentTeam({ base_currency: currency ?? undefined })
-                    }}
+                    onChange={handleChange}
                     disabledReason={disabledReason ?? restrictedReason ?? undefined}
                 />
             </div>

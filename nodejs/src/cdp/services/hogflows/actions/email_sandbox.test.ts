@@ -192,7 +192,7 @@ describe('SandboxEmailActionHandler', () => {
             jobOnEmailStep('hogflow', { sandboxEmail: { outcome: 'failed', reason: 'ses_rejected' } })
         )
 
-        expect(result.error).toBe('Sandbox email was not sent: ses_rejected')
+        expect(result.error).toBe("The PostHog test sender didn't send the email: ses_rejected")
         expect(result.finished).toBe(expectedFinished)
         expect(result.invocation.state.currentAction?.id).toBe(expectedActionId)
     })
@@ -227,7 +227,7 @@ describe('SandboxEmailActionHandler', () => {
             { isTest: true },
             null,
             { status: 'failed', reason: 'sandbox_worker_unavailable' },
-            'Sandbox email was not sent: sandbox_worker_unavailable',
+            "The PostHog test sender didn't send the email: sandbox_worker_unavailable",
         ],
         [
             'a real test reports what the sandbox worker answered',

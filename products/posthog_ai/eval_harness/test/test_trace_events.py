@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from collections.abc import Callable
 from typing import Any, cast
@@ -7,7 +8,7 @@ from typing import Any, cast
 from parameterized import parameterized
 from posthoganalytics import Posthog
 
-from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
+from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor, parse_log
 from products.posthog_ai.eval_harness.base import _SandboxedEvalRun
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -16,6 +17,15 @@ from products.posthog_ai.eval_harness.scorers.tracing import (
     TracedScorer,
     _build_posthog_kwargs,
     _scorer_context,
+)
+from products.posthog_ai.eval_harness.test.acp_log_lines import (
+    agent_text_line,
+    end_turn_line,
+    join_lines,
+    prompt_line,
+    tool_call_completed_line,
+    tool_call_input_line,
+    tool_call_start_line,
 )
 from products.posthog_ai.eval_harness.trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
@@ -173,3 +183,60 @@ def test_repeated_case_scores_link_to_their_own_trial_traces() -> None:
         "agent-2",
     ]
     assert len({call["properties"]["$ai_span_id"] for call in client.calls}) == 2
+
+
+_TRENDS_INPUT = json.dumps({"series": [{"event": "uploaded_file"}]})
+
+
+@parameterized.expand([("claude", "anthropic"), ("codex", "openai")])
+def test_each_tool_call_becomes_a_span_under_its_generation(runtime: str, provider: str) -> None:
+    raw_log = join_lines(
+        [
+            prompt_line("2026-04-15T10:00:00.000Z"),
+            tool_call_start_line("2026-04-15T10:00:01.000Z", "sql", "mcp__posthog__execute-sql"),
+            tool_call_input_line("2026-04-15T10:00:01.100Z", "sql", {"query": "SELECT 1"}),
+            tool_call_completed_line("2026-04-15T10:00:03.500Z", "sql", "1"),
+            tool_call_start_line("2026-04-15T10:00:04.000Z", "list", "mcp__posthog__metric-list"),
+            tool_call_completed_line("2026-04-15T10:00:05.000Z", "list", "boom", status="failed"),
+            tool_call_start_line("2026-04-15T10:00:06.000Z", "wrapped", "mcp__posthog__exec"),
+            tool_call_input_line(
+                "2026-04-15T10:00:06.100Z", "wrapped", {"command": f"call query-trends {_TRENDS_INPUT}"}
+            ),
+            tool_call_completed_line("2026-04-15T10:00:07.000Z", "wrapped", "trend"),
+            tool_call_start_line("2026-04-15T10:00:08.000Z", "hung", "mcp__posthog__read-data-schema"),
+            agent_text_line("2026-04-15T10:00:09.000Z", "done"),
+            end_turn_line("2026-04-15T10:00:10.000Z"),
+        ]
+    )
+    client = _CapturingClient()
+
+    emit_trace_events(
+        cast(Posthog, client),
+        "trace-1",
+        "exp-1",
+        "my-suite",
+        "case-1",
+        parse_log(raw_log, initial_prompt="hi"),
+        namespace="ns",
+        run_metadata={**RUN_METADATA, "agent_runtime": runtime},
+    )
+
+    generations = [call["properties"] for call in client.calls if call["event"] == "$ai_generation"]
+    tool_spans = [call["properties"] for call in client.calls if call["event"] == "$ai_span"]
+    # Each new tool_call after a result starts a new generation, so every call sits under its own one.
+    assert [
+        (span["$ai_span_name"], span["$ai_parent_id"], span["$ai_is_error"], span["tool_sequence"])
+        for span in tool_spans
+    ] == [
+        ("execute-sql", generations[0]["$ai_span_id"], False, 0),
+        ("metric-list", generations[1]["$ai_span_id"], True, 1),
+        ("query-trends", generations[2]["$ai_span_id"], False, 2),
+        ("read-data-schema", generations[3]["$ai_span_id"], True, 3),
+    ]
+    assert tool_spans[0]["$ai_latency"] == 2.5
+    assert [span.get("$ai_error") for span in tool_spans] == [None, "boom", None, None]
+    assert (tool_spans[2]["tool_raw_name"], tool_spans[2]["$ai_input_state"]) == ("mcp__posthog__exec", _TRENDS_INPUT)
+    assert {"$ai_output_state", "$ai_latency"}.isdisjoint(tool_spans[3])
+    assert {generation["$ai_provider"] for generation in generations} == {provider}
+    # The log names no model, so the generations take the run's agent model.
+    assert {generation["$ai_model"] for generation in generations} == {RUN_METADATA["agent_model"]}

@@ -79,6 +79,16 @@ Do not apply this rule to migration tooling, migration safety checks, reusable b
 3. **Apply safety rules** from `safe-django-migrations.md` — the doc covers multi-phase rollouts, `SeparateDatabaseAndState`, concurrent operations, idempotency, and all risky patterns in detail.
 4. **Validate**: `./manage.py sqlmigrate <app> <migration_number>`, run tests, confirm linear migration sequence.
 
+## Data migrations: count before you design
+
+A data migration runs in the deploy hook, and every Django deploy in every region waits for it.
+
+- Count the rows of every table the migration touches, in US and in EU (`/querying-production-databases`), before you choose the design. The counts are private scale: the PR description says only "small" or "large", never the numbers.
+- A large table, or one you could not count, gets a management command run after deploy, not a migration.
+- First ask whether you need the data change at all. If the new code can read the old value (translation at read time, a fallback map), skip the backfill. If review turns the change into expand-only, ask the question again.
+- Page by primary key, never by the filter. See [Count the rows first](../../../docs/published/handbook/engineering/safe-django-migrations.md#count-the-rows-first) and Pattern 2 under it.
+- Show the user the counts and the choice between a backfill and read-time handling before you write the migration. That choice is theirs.
+
 ## Use the migration helpers
 
 `posthog.migration_helpers` has drop-in operations for the risky-but-common cases. Reach for these first; they track Django state, disable timeouts, and are idempotent under `bin/migrate` retries:
@@ -109,7 +119,7 @@ Before writing a migration that touches one of these models:
 
 - For `Team`: put domain-specific fields on a Team extension model instead — `posthog/models/team/README.md`. That's a `CREATE TABLE`, no lock on `posthog_team`.
 - `CREATE INDEX CONCURRENTLY` (via `SafeAddIndexConcurrently`) is fine — `SHARE UPDATE EXCLUSIVE` doesn't block reads or writes.
-- If the field genuinely belongs on the hot table (core identity, cross-product settings, SDK config), the `HotTableAlterPolicy` analyzer blocks the migration in CI until `<app_label>.<migration_name>` is added to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt`. That acknowledgment also means coordinating the deploy with infra for a low-traffic window.
+- If the field genuinely belongs on the hot table (core identity, cross-product settings, SDK config), the `HotTableAlterPolicy` analyzer blocks the migration in CI until `<app_label>.<migration_name>` is added to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt`, and that change needs DevEx code-owner approval before merge. The acknowledgment also means coordinating the deploy with infra for a low-traffic window.
 
 ### Foreign keys to hot tables
 

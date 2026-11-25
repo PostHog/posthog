@@ -4,13 +4,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi } from './generated/api.schemas'
+import { STATUS_LABELS } from './platformAlertFormat'
 
-const STATE_CONFIG: Record<PlatformAlertStateApi, { label: string; type: LemonTagType }> = {
-    [PlatformAlertStateApi.NotFiring]: { label: 'OK', type: 'success' },
-    [PlatformAlertStateApi.Firing]: { label: 'Firing', type: 'danger' },
-    [PlatformAlertStateApi.Errored]: { label: 'Errored', type: 'danger' },
-    [PlatformAlertStateApi.Snoozed]: { label: 'Snoozed', type: 'muted' },
-    [PlatformAlertStateApi.Broken]: { label: 'Broken', type: 'danger' },
+const STATE_TAG_TYPES: Record<PlatformAlertStateApi, LemonTagType> = {
+    [PlatformAlertStateApi.NotFiring]: 'success',
+    [PlatformAlertStateApi.Firing]: 'danger',
+    [PlatformAlertStateApi.Errored]: 'danger',
+    [PlatformAlertStateApi.Snoozed]: 'muted',
+    [PlatformAlertStateApi.Broken]: 'danger',
 }
 
 const STATES_WITH_ERROR_TOOLTIP = new Set<PlatformAlertStateApi>([
@@ -41,14 +42,13 @@ export function PlatformAlertStateIndicator({
         }
         return (
             <LemonTag type="muted" data-attr="platform-alert-state-disabled">
-                Disabled
+                {STATUS_LABELS.disabled}
             </LemonTag>
         )
     }
-    const config = STATE_CONFIG[state] ?? { label: state, type: 'default' as LemonTagType }
     const tag = (
-        <LemonTag type={config.type} data-attr={`platform-alert-state-${state}`}>
-            {config.label}
+        <LemonTag type={STATE_TAG_TYPES[state] ?? 'default'} data-attr={`platform-alert-state-${state}`}>
+            {STATUS_LABELS[state] ?? state}
         </LemonTag>
     )
     if (lastErrorMessage && STATES_WITH_ERROR_TOOLTIP.has(state)) {

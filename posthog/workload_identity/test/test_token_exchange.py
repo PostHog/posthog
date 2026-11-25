@@ -578,8 +578,6 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert template.template_name == "Global"
 
     def test_project_read_hides_secrets_from_workload_tokens_but_not_personal_api_keys(self) -> None:
-        self.team.secret_api_token = "phs_example_team_secret"
-        self.team.save()
         self.policy.scopes = ["project:read"]
         self.policy.save()
         token = self._access_token()
@@ -591,11 +589,10 @@ class TestWorkloadTokenExchange(APIBaseTest):
         workload_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
         pat_body = self._call("get", f"/api/projects/{self.team.id}/", personal_key).json()
 
-        assert workload_body["api_token"] == self.team.api_token
-        assert not {
-            "secret_api_token",
-            "secret_api_token_backup",
+        secret_fields = {
             "heatmaps_screenshot_secret",
             "live_events_token",
-        } & set(workload_body)
-        assert pat_body["secret_api_token"] == "phs_example_team_secret"
+        }
+        assert workload_body["api_token"] == self.team.api_token
+        assert not secret_fields & set(workload_body)
+        assert secret_fields <= set(pat_body)

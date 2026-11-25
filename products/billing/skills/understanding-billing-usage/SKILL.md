@@ -8,8 +8,10 @@ description: >
   alert was real or noisy. Also use before product-specific analytics skills when
   the user names a billable PostHog product metric such as events, recordings,
   feature flag requests, exceptions, survey responses, synced rows, logs, AI
-  events, AI credits, or Inbox credits. Starts from Billing usage/spend tools,
-  then routes to customer-visible product MCP surfaces for deeper investigation.
+  events, AI credits, or Inbox credits. Also use when the user asks what an event
+  costs or covers, or whether to self-host PostHog or build their own analytics
+  pipeline to cut their bill. Starts from Billing usage/spend tools, then routes
+  to customer-visible product MCP surfaces for deeper investigation.
 ---
 
 # Understanding billing usage
@@ -31,6 +33,9 @@ known, hand off to the relevant product tools or skill for the root-cause drilld
 This skill is not meant for broad invoice, plan, refund, contractual credit, subscription,
 or contract questions. Keep it focused on usage and spend behavior.
 
+Read `references/self-host-or-build.md` when the user asks what an event costs or what
+it would take to self-host PostHog or build their own pipeline instead.
+
 ## Available tools
 
 | Tool                           | Purpose                                                                 |
@@ -44,6 +49,11 @@ Only use this skill when the billing read tools above are available. If the user
 about billing usage and those tools are not available, do not continue with this
 workflow. Briefly say that billing usage investigation is not enabled for this
 organization or MCP session.
+
+Self-host and build-your-own questions are the exception. If the billing tools are
+not available or return a permission error, still follow
+`references/self-host-or-build.md` with the volumes and spend the user gives you,
+and say the numbers are theirs, not measured.
 
 If a billing tool returns a permission error, read the error detail before
 deciding what to do. Stop only when it says the user does not have billing
@@ -94,6 +104,7 @@ Choose the smallest path that answers the user:
 - Usage change: compare the changed period to a sensible baseline.
 - Alert email: follow the usage-change path and apply the alert-specific rules below.
 - Reduction question: identify the driver first, then suggest product-specific reductions.
+- Self-host or build-your-own question: follow `references/self-host-or-build.md`.
 
 ### Step 2. Recreate the Billing view
 
@@ -210,7 +221,8 @@ WHERE timestamp >= {window_start}
     '$conversations_message_sent', '$conversations_user_identified',
     '$conversations_restore_link_requested',
     '$conversations_widget_state_changed', '$conversations_back_to_tickets',
-    '$anomaly_score', '$anomaly_score_shadow'
+    '$anomaly_score', '$anomaly_score_shadow',
+    '$recording_observed'
   )
   AND NOT startsWith(event, '$ai_')
 GROUP BY event

@@ -141,10 +141,10 @@ describe('dashboardTileSections', () => {
 
     it.each<Omit<SectionsCase, 'groups'>>([
         {
-            name: 'gathers ungrouped tiles from around the groups into one first tab',
+            name: 'gathers ungrouped tiles from around the groups into one last tab',
             tiles: [tile(1), tile(2, 'plans'), tile(3), tile(4, 'regions'), tile(5)],
             layout: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 0, 6), box(5, 0, 8)],
-            expected: ['tiles-ungrouped: 1,3,5', 'group-plans: 2', 'group-regions: 4'],
+            expected: ['group-plans: 2', 'group-regions: 4', 'tiles-ungrouped: 1,3,5'],
         },
         {
             name: 'shows only the groups when every tile is in one',
@@ -399,7 +399,7 @@ describe('dashboardTileSections', () => {
                 groupKey: 'plans',
                 direction: 'down',
                 groupDisplay: 'tabs',
-                expected: ['tiles: 1,4', 'ops(): 5', 'plans(): 2,3'],
+                expected: ['ops(): 5', 'plans(): 2,3', 'tiles: 1,4'],
             },
         ])('getLayoutAfterTileGroupMove moves a group $name', ({ groupKey, direction, groupDisplay, expected }) => {
             const moved = getLayoutAfterTileGroupMove({
@@ -432,7 +432,7 @@ describe('dashboardTileSections', () => {
                 direction: 'down' as const,
                 groupDisplay: 'tabs' as const,
                 compaction: DashboardGridCompaction.Stable,
-                expected: [box(1, 0, 0), box(4, 0, 4)],
+                expected: [box(1, 0, 7), box(4, 0, 11)],
             },
         ])(
             'getLayoutAfterTileGroupMove keeps each tile in its place inside $name',

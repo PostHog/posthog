@@ -8,6 +8,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../type
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
+    acceptsPendingWake,
     extractActionId,
     extractDistinctId,
     extractPersonId,
@@ -36,6 +37,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
+            CDP_SEALED_STATE_KEYS: '',
             ENCRYPTION_SALT_KEYS: '',
         }
         const queue = new CyclotronJobQueuePostgresV2(500, config)
@@ -147,6 +149,30 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('acceptsPendingWake', () => {
+        const hogFlow = {
+            actions: [
+                { id: 'wait_1', type: 'wait_until_condition' },
+                { id: 'delay_1', type: 'delay' },
+                { id: 'fetch_1', type: 'function' },
+            ],
+        }
+        it.each([
+            ['a wait', { id: 'wait_1' }, true],
+            ['a wait retrying a failed cohort lookup', { id: 'wait_1', cohortLookupAttempts: 1 }, false],
+            ['a delay', { id: 'delay_1' }, false],
+            ['a function retry', { id: 'fetch_1' }, false],
+            ['an unknown step', { id: 'missing' }, false],
+        ])('parking on %s -> %s', (_name, currentAction, expected) => {
+            const invocation = {
+                ...baseInvocation,
+                hogFlow,
+                state: { currentAction },
+            } as unknown as CyclotronJobInvocation
+            expect(acceptsPendingWake(invocation)).toBe(expected)
+        })
+    })
+
     describe('queueInvocations', () => {
         it('should serialize state into a Buffer', async () => {
             const { queue, bulkCreateJobs } = createQueue()
@@ -212,6 +238,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const config: any = {
                 CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                 CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+                CDP_SEALED_STATE_KEYS: '',
                 ENCRYPTION_SALT_KEYS: '',
             }
             const queue = new CyclotronJobQueuePostgresV2(500, config)

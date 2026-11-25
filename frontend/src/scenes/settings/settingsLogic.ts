@@ -90,7 +90,7 @@ export interface settingsLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     preflight: PreflightStatus | null // preflightLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     collapsedGroups: Record<string, boolean>
     collapsedLevels: Record<SettingLevelId, boolean>

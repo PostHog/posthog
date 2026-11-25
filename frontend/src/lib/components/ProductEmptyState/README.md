@@ -4,6 +4,8 @@ The empty state a product scene shows until it has received real data: the produ
 
 Scenes opt in declaratively: set `emptyState` on the scene's `SceneExport` and the app shell handles loading, empty, and has-data states — no branching inside the scene component.
 
+Use `components` on the scene's `emptyState` to override the layout for a mode, for example `components: { 'waiting-for-data': ClustersWaitingState }`. The map accepts `needs-setup` and `waiting-for-data`; omitted modes use the standard empty-state layout. The gate keeps the product header and selects the component for the detected or forced preview mode.
+
 `productSetupStatusLogic` (keyed by `ProductKey`) is the app-wide single read point for "is product X set up?"; each product's detection logic pushes its status into it.
 
 Most detection logics are one call to `createSetupDetectionLogic` (`setupDetectionLogic.ts`): the product supplies a `detect` function resolving its status, and the factory owns the shared contract — detect on mount, optionally poll until data lands (stopping for good on `has-data`), and fail open on errors so a broken query never strands the gate on its spinner. With `cacheHasData`, a has-data answer is remembered per team and product, so a returning user's scene opens without waiting for the probe; `revalidateCachedHasData` adds one background check for products whose data can go away. A no-data answer clears the cache so the next visit shows the empty state, and never replaces the mounted scene. Products whose detection drives more than the gate (extra selectors, staged dashboards like MCP analytics) keep a bespoke logic that pushes into `productSetupStatusLogic` directly.
