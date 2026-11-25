@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
@@ -10,7 +10,11 @@ import type { BarOptions } from './barSpec'
 
 export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarOptions }): JSX.Element {
     const theme = useChartTheme()
-    const { labels, series, axes } = useMemo(() => timeSeriesFromFrames(frames, theme.colors), [frames, theme.colors])
+    const assignedColors = useRef(new Map<string, string>())
+    const { labels, series, axes } = useMemo(
+        () => timeSeriesFromFrames(frames, theme.colors, assignedColors.current),
+        [frames, theme.colors]
+    )
     const stacked = !!options.stack
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({

@@ -25,47 +25,83 @@ function hash(text: string): number {
 /**
  * Picks a palette colour from each series' key rather than its position, so a series keeps its colour when another
  * target fails or returns more series. Two keys that hash to the same colour take the next free one, in key order.
+ * `assigned` holds the colours given out before and is added to. A key found there keeps its colour, so a collision
+ * resolved on one refresh is not resolved differently when the other key is missing from the next one.
  */
-export function stableSeriesColors(keys: string[], palette: string[]): Map<string, string> {
+export function stableSeriesColors(
+    keys: string[],
+    palette: string[],
+    assigned: Map<string, string> = new Map()
+): Map<string, string> {
     const colors = new Map<string, string>()
     if (palette.length === 0) {
         return colors
     }
-    const taken = new Set<number>()
+    const taken = new Set([...assigned.values()].map((color) => palette.indexOf(color)).filter((slot) => slot >= 0))
     for (const key of [...keys].sort()) {
+        const previous = assigned.get(key)
+        // A colour from a palette the theme no longer uses is picked again.
+        if (previous !== undefined && palette.includes(previous)) {
+            colors.set(key, previous)
+            continue
+        }
         let slot = hash(key) % palette.length
         for (let tries = 0; taken.has(slot) && tries < palette.length; tries++) {
             slot = (slot + 1) % palette.length
         }
         taken.add(slot)
+        assigned.set(key, palette[slot])
         colors.set(key, palette[slot])
     }
     return colors
+}
+
+/** Joins times by the instant they name, so a date-only `2026-11-01` meets a full `2026-11-01T00:00:00.000Z`. */
+function timeKey(value: unknown): string {
+    const text = String(value)
+    const ms = Date.parse(text)
+    return Number.isFinite(ms) ? String(ms) : text
 }
 
 /**
  * Turns frames that each hold a `time` field and a number field into one set of x-axis labels and one series per
  * frame, the shape the time-series charts take. Frames are joined on their timestamps, so a frame with no value at a
  * timestamp gets a gap there. Frames from several targets are drawn together: each keeps its own series, a second
- * unit gets its own axis, and, given a `palette`, each series a colour that does not move between refreshes.
+ * unit gets its own axis, and, given a `palette`, each series a colour that does not move between refreshes. Pass the
+ * same `assignedColors` map on every refresh to keep those colours when a colliding series comes and goes.
  */
-export function timeSeriesFromFrames(frames: DataFrame[], palette?: string[]): TimeSeriesData {
-    const labels = [...new Set(frames.flatMap((frame) => fieldValues(frame, 'time').map(String)))].sort()
+export function timeSeriesFromFrames(
+    frames: DataFrame[],
+    palette?: string[],
+    assignedColors?: Map<string, string>
+): TimeSeriesData {
+    // Where two frames name one instant differently, the longer, full timestamp is the label both join on.
+    const labelByKey = new Map<string, string>()
+    for (const time of frames.flatMap((frame) => fieldValues(frame, 'time').map(String))) {
+        const key = timeKey(time)
+        const existing = labelByKey.get(key)
+        if (existing === undefined || time.length > existing.length) {
+            labelByKey.set(key, time)
+        }
+    }
+    const labels = [...labelByKey.values()].sort()
     const multiTarget = frames.some((frame) => frame.refId !== undefined)
     // A frame without a unit, such as an event count, gets its own axis next to one that has a unit, such as latency.
     const units = [...new Set(frames.map(unitOf))]
     const axes =
-        units.length > 1 ? units.map((unit, index) => ({ id: index === 0 ? 'left' : `unit-${index}`, unit })) : []
+        units.length > 1 || units[0]
+            ? units.map((unit, index) => ({ id: index === 0 ? 'left' : `unit-${index}`, unit }))
+            : []
     const series = frames.map((frame, index): Series => {
         const values = fieldValues(frame, 'number')
         const axis = axes.find((candidate) => candidate.unit === unitOf(frame))
-        const byTime = new Map(fieldValues(frame, 'time').map((time, position) => [String(time), values[position]]))
+        const byTime = new Map(fieldValues(frame, 'time').map((time, position) => [timeKey(time), values[position]]))
         const name = frame.name ?? (multiTarget ? `${frame.refId}` : `Series ${index + 1}`)
         return {
             key: multiTarget ? `${frame.refId}:${frame.name ?? index}` : (frame.name ?? `series-${index}`),
             label: name,
             data: labels.map((label) => {
-                const value = byTime.get(label)
+                const value = byTime.get(timeKey(label))
                 return typeof value === 'number' ? value : NaN
             }),
             ...(axis && axis.id !== 'left' ? { yAxisId: axis.id } : {}),
@@ -74,7 +110,8 @@ export function timeSeriesFromFrames(frames: DataFrame[], palette?: string[]): T
     if (multiTarget && palette) {
         const colors = stableSeriesColors(
             series.map((one) => one.key),
-            palette
+            palette,
+            assignedColors
         )
         series.forEach((one) => (one.color = colors.get(one.key)))
     }

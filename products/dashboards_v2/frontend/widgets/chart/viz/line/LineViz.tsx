@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -10,8 +10,9 @@ import type { LineOptions } from './lineSpec'
 
 export function LineViz({ frames }: { frames: DataFrame[]; options: LineOptions }): JSX.Element {
     const theme = useChartTheme()
+    const assignedColors = useRef(new Map<string, string>())
     const { labels, series, axes, multiTarget } = useMemo(
-        () => timeSeriesFromFrames(frames, theme.colors),
+        () => timeSeriesFromFrames(frames, theme.colors, assignedColors.current),
         [frames, theme.colors]
     )
     const config = useChartConfig<TimeSeriesLineChartConfig>(
@@ -22,6 +23,8 @@ export function LineViz({ frames }: { frames: DataFrame[]; options: LineOptions 
             tooltip: { placement: 'cursor', sortedByValue: true },
             // Targets in other languages sample on their own steps, so a series is drawn across the others' points.
             connectNulls: multiTarget,
+            // Their merged timestamps are unevenly spaced, so each point sits at its time rather than its index.
+            ...(multiTarget ? { xScale: 'time' as const } : {}),
         }),
         [labels, series.length, axes, multiTarget]
     )

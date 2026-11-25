@@ -25,7 +25,8 @@ export interface ChartConfig {
 const chartTargetSchema = z.strictObject({
     refId: z.string().min(1),
     query: widgetQuerySchema,
-    legend: z.string().optional(),
+    // The query batch endpoint rejects a longer legend, and with it every other tile's query in the batch.
+    legend: z.string().max(1000).optional(),
 })
 
 export function chartTargets(config: ChartConfig): ChartTarget[] {
