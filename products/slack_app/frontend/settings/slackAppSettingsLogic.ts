@@ -31,7 +31,7 @@ export interface slackAppSettingsLogicActions {
         integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
-    loadSettings: () => any
+    loadSettings: (_: void) => void
     loadSettingsFailure: (
         error: string,
         errorObject?: any
@@ -41,10 +41,10 @@ export interface slackAppSettingsLogicActions {
     }
     loadSettingsSuccess: (
         settings: SlackAppSettingsApi | null,
-        payload?: any
+        payload?: void
     ) => {
         settings: SlackAppSettingsApi | null
-        payload?: any
+        payload?: void
     }
     selectIntegration: (integrationId: number) => {
         integrationId: number
@@ -101,6 +101,10 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
                 selectIntegration: (_, { integrationId }) => integrationId,
             },
         ],
+        // Another workspace's settings must not stay on screen, or stay editable, while the new ones load.
+        settings: {
+            selectIntegration: () => null,
+        },
     }),
     selectors({
         selectedIntegrationId: [
@@ -113,25 +117,30 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
         settings: [
             null as SlackAppSettingsApi | null,
             {
-                loadSettings: async () => {
+                loadSettings: async (_: void, breakpoint) => {
                     if (values.selectedIntegrationId === null) {
                         return null
                     }
-                    return await slackAppSettingsRetrieve(
+                    const response = await slackAppSettingsRetrieve(
                         String(values.currentTeamId),
                         String(values.selectedIntegrationId)
                     )
+                    // A later load, after a workspace switch, replaces this response.
+                    breakpoint()
+                    return response
                 },
                 updatePersonalSettings: async (change: PatchedSlackAppPersonalSettingsUpdateApi) => {
-                    if (values.selectedIntegrationId === null) {
+                    const integrationId = values.selectedIntegrationId
+                    if (integrationId === null) {
                         return values.settings
                     }
                     try {
-                        return await slackAppSettingsPersonalPartialUpdate(
+                        const response = await slackAppSettingsPersonalPartialUpdate(
                             String(values.currentTeamId),
-                            String(values.selectedIntegrationId),
+                            String(integrationId),
                             change
                         )
+                        return integrationId === values.selectedIntegrationId ? response : values.settings
                     } catch (error: any) {
                         lemonToast.error(error?.detail ?? "Couldn't save your Slack settings. Try again.")
                         return values.settings

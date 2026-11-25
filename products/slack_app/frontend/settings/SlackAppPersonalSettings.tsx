@@ -76,6 +76,8 @@ function SettingRow({
 export function SlackAppPersonalSettings(): JSX.Element {
     const { settings, settingsLoading, slackIntegrations, integrationsLoading } = useValues(slackAppSettingsLogic)
     const { updatePersonalSettings } = useActions(slackAppSettingsLogic)
+    // One change at a time, so two quick clicks can't save out of order.
+    const savingReason = settingsLoading ? 'Saving your last change' : undefined
 
     if ((integrationsLoading || settingsLoading) && !settings) {
         return <LemonSkeleton className="h-60" />
@@ -148,6 +150,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                 ),
                             })),
                         ]}
+                        disabledReason={savingReason}
                         data-attr="slack-app-settings-default-project"
                     />
                 </SettingRow>
@@ -158,21 +161,26 @@ export function SlackAppPersonalSettings(): JSX.Element {
                     <LemonSwitch
                         checked={personal.auto_model_choice}
                         onChange={(checked) => updatePersonalSettings({ auto_model_choice: checked })}
+                        disabledReason={savingReason}
                         data-attr="slack-app-settings-auto-model"
                     />
                 </SettingRow>
             </SettingsGroup>
 
             <SettingsGroup
-                title="When you don't tag PostHog"
-                description="PostHog can still pick up a message from you that doesn't tag it."
+                title="Messages that don't tag PostHog"
+                description="PostHog can still pick up a message that doesn't tag it."
             >
-                <SettingRow label="Replies in PostHog's threads" description="You reply in a thread PostHog is in.">
+                <SettingRow
+                    label="Replies in your threads"
+                    description="Anyone replies in a thread you started with PostHog, without tagging it."
+                >
                     <LemonSegmentedButton
                         size="small"
                         value={personal.untagged_followup_mode}
                         onChange={(value) => updatePersonalSettings({ untagged_followup_mode: value })}
                         options={UNTAGGED_MODE_OPTIONS}
+                        disabledReason={savingReason}
                         data-attr="slack-app-settings-untagged-replies"
                     />
                 </SettingRow>
@@ -182,6 +190,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         value={personal.untagged_question_mode}
                         onChange={(value) => updatePersonalSettings({ untagged_question_mode: value })}
                         options={UNTAGGED_MODE_OPTIONS}
+                        disabledReason={savingReason}
                         data-attr="slack-app-settings-untagged-questions"
                     />
                 </SettingRow>
@@ -210,6 +219,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         value={personal.thread_join_mode}
                                         onChange={(value) => updatePersonalSettings({ thread_join_mode: value })}
                                         options={THREAD_JOIN_OPTIONS}
+                                        disabledReason={savingReason}
                                         data-attr="slack-app-settings-thread-join"
                                     />
                                 </SettingRow>
@@ -222,6 +232,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         onChange={(checked) =>
                                             updatePersonalSettings({ feature_tips_enabled: checked })
                                         }
+                                        disabledReason={savingReason}
                                         data-attr="slack-app-settings-feature-tips"
                                     />
                                 </SettingRow>
