@@ -645,6 +645,7 @@ class TestQuotaMigration(SimpleTestCase):
                 ),
                 ("shadow_without_copy", "shadow", None, 1.0, False, {}),
                 ("live", "live", "redis://quota-secondary.test:6379/0", 1.0, True, {"copy_success": 2}),
+                ("live_in_other_case", " Live ", "redis://quota-secondary.test:6379/0", 1.0, True, {"copy_success": 2}),
                 ("live_without_copy", "live", None, 1.0, False, {}),
             ]
         ]
@@ -744,6 +745,21 @@ class TestQuotaMigration(SimpleTestCase):
         assert _changes(before, _read_counts(reader)) == {"copy_failure": 1, "copy_cooldown": 1, "error": 2}
         assert [log["event"] for log in logs] == ["quota_secondary_operation_failed"]
 
+    @parameterized.expand([(reader,) for reader in READERS])
+    def test_failed_shared_read_in_shadow_raises_and_skips_the_copy(self, reader: str) -> None:
+        self.secondary.zadd(self.key, {"limited": 1900000000})
+        before = _read_counts(reader)
+        outage = RedisConnectionError("shared Redis is down")
+        with (
+            self.settings(QUOTA_LIMITING_REDIS_READ_MODE="shadow", QUOTA_LIMITING_REDIS_SHADOW_READ_RATE=1.0),
+            patch.object(self.shared, "zscore", side_effect=outage),
+            patch.object(self.shared, "zrangebyscore", side_effect=outage),
+            patch.object(self.shared, "pipeline", side_effect=outage),
+            self.assertRaises(RedisConnectionError),
+        ):
+            _is_limited(reader, "limited")
+        assert _changes(before, _read_counts(reader)) == {}
+
     @parameterized.expand(
         [
             ("after_a_copy_read", "live", QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, ["limited"]),
@@ -830,13 +846,13 @@ class TestQuotaMigration(SimpleTestCase):
             ("nan", "nan", 0.0),
         ]
     )
-    def test_shadow_read_rate_setting_is_clamped_and_never_fails_startup(
-        self, _name: str, value: str, expected: float
-    ) -> None:
-        self.addCleanup(importlib.reload, data_stores)
-        with patch.dict(os.environ, {"QUOTA_LIMITING_REDIS_SHADOW_READ_RATE": value}):
+    def test_shadow_read_rate_is_clamped_and_never_fails(self, _name: str, value: str, expected: float) -> None:
+        assert data_stores._shadow_read_rate(value) == expected
+
+    def test_shadow_read_rate_setting_parses_the_env_without_failing_startup(self) -> None:
+        with patch.dict(os.environ, {"QUOTA_LIMITING_REDIS_SHADOW_READ_RATE": "ten percent"}):
             importlib.reload(data_stores)
-        assert data_stores.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE == expected
+        assert data_stores.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE == 0.0
 
     def test_shadow_mismatch_log_is_rate_limited_and_holds_no_token(self) -> None:
         for key in (self.key, "@posthog/quota-limits/recordings", "@posthog/quota-limits/exceptions"):

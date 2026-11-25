@@ -124,14 +124,18 @@ def run_secondary_quota_operation[T](
         return None
 
 
+def _quota_read_mode() -> str:
+    return settings.QUOTA_LIMITING_REDIS_READ_MODE.strip().lower()
+
+
 def quota_reads_use_secondary() -> bool:
-    return bool(settings.QUOTA_LIMITING_REDIS_URL) and settings.QUOTA_LIMITING_REDIS_READ_MODE == "live"
+    return bool(settings.QUOTA_LIMITING_REDIS_URL) and _quota_read_mode() == "live"
 
 
 def quota_shadow_read_sampled() -> bool:
     return (
         bool(settings.QUOTA_LIMITING_REDIS_URL)
-        and settings.QUOTA_LIMITING_REDIS_READ_MODE == "shadow"
+        and _quota_read_mode() == "shadow"
         and random.random() < settings.QUOTA_LIMITING_REDIS_SHADOW_READ_RATE
     )
 

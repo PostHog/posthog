@@ -752,7 +752,8 @@ def _shadow_read_rate(value: str) -> float:
 
 QUOTA_LIMITING_REDIS_URL = os.getenv("QUOTA_LIMITING_REDIS_URL", None)
 QUOTA_LIMITING_REDIS_CLUSTER_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
-# disabled, shadow or live. Any other value reads shared Redis only, as disabled does.
+# disabled, shadow or live, in any case and with surrounding spaces ignored. Any other value reads shared Redis
+# only, as disabled does.
 QUOTA_LIMITING_REDIS_READ_MODE = get_from_env("QUOTA_LIMITING_REDIS_READ_MODE", "disabled")
 QUOTA_LIMITING_REDIS_SHADOW_READ_RATE = get_from_env(
     "QUOTA_LIMITING_REDIS_SHADOW_READ_RATE", 0.0, type_cast=_shadow_read_rate
