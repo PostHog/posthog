@@ -18,10 +18,18 @@ export type Named = z.infer<typeof Named>
 
 export const RunningOnQueue = z
     .object({
-        name: z.literal('running_on_queue', { error: 'running_on_queue is the only predicate' }),
+        name: z.literal('running_on_queue'),
         params: z.object({ queue: z.enum(['hogflow', 'email']), atLeast: z.number().int().min(1) }).strict(),
     })
     .strict()
+
+export const EdgeAccepted = z
+    .object({ name: z.literal('edge_accepted'), params: z.object({ channel: z.literal('ses') }).strict() })
+    .strict()
+
+const When = z.discriminatedUnion('name', [RunningOnQueue, EdgeAccepted], {
+    error: 'the predicates are running_on_queue and edge_accepted',
+})
 
 export const ValveEntry = z
     .object({
@@ -29,7 +37,7 @@ export const ValveEntry = z
         target: z.string(),
         dose: z.record(z.string(), z.unknown()),
         at: Duration.optional(),
-        when: RunningOnQueue.optional(),
+        when: When.optional(),
         for: Duration,
     })
     .strict()

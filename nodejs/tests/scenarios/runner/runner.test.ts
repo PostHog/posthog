@@ -1966,12 +1966,23 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it.each<[string, true | undefined]>([
-        ['the scale card', undefined],
-        ['a ramp that stops on a break', true],
+    const noWriter = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        value: null,
+        key: null,
+        part: null,
+        passed: null,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
+    it.each<[string, true | undefined, unknown]>([
+        ['the scale card', undefined, undefined],
+        ['a ramp that stops on a break', true, [[noWriter], [noWriter]]],
     ])(
         'names the writer CPU bar as not judged for %s on a host without a run manifest',
-        async (_story, stopOnBreak) => {
+        async (_story, stopOnBreak, stepBars) => {
             const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
                 ({ name }) => name === 'writer_cpu_under'
             )
@@ -1988,6 +1999,9 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                stepBars: (api.captured[0]?.properties.ramp_steps as { bars: unknown }[] | undefined)?.map(
+                    ({ bars }) => bars
+                ),
                 reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
@@ -2002,6 +2016,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                stepBars,
                 reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
@@ -2118,6 +2133,7 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ scale: 1, lost: null }),
                     expect.objectContaining({ scale: 2, lost: null }),
                 ],
+                readings: [[], []],
             },
         })
     }, 30_000)
