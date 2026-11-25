@@ -34,6 +34,8 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
     | 'no_metric'
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
