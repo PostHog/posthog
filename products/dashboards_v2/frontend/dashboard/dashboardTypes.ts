@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 
 import type {
+    contentWidgetAppearanceSchema,
     contentWidgetPartsSchema,
     contentWidgetSchema,
     dashboardSchema,
@@ -46,6 +47,8 @@ export type TilePlace = z.infer<typeof tilePlaceSchema>
 export type TimeRange = z.infer<typeof timeRangeSchema>
 
 export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
+
+export type ContentWidgetAppearance = z.infer<typeof contentWidgetAppearanceSchema>
 
 export interface WidgetSize {
     w: number

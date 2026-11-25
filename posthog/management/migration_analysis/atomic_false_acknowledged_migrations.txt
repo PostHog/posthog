@@ -27,6 +27,7 @@ tasks.0139_remove_loop_models
 # (the partition list is only known at runtime), which the type-based check can't see.
 warehouse_sources_queue.0008_sourcebatch_superseded
 warehouse_sources_queue.0009_sourcebatch_job_id_idx
+warehouse_sources_queue.0013_restore_sourcebatch_failed_changed_idx
 # Scans every flag row but writes only the few hundred that need cleaning, each as its own
 # compare-and-swap. Atomic would hold one transaction open across the whole scan, pinning xmin
 # on the table the flags API writes to. Re-running is a no-op: the transform is idempotent and

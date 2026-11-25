@@ -15,8 +15,8 @@ function seriesNames(query: WidgetQuery): string[] {
     return / by (?!day)|breakdown|sum by|serviceNames/.test(text) ? ['Chrome', 'Safari', 'Firefox'] : ['Value']
 }
 
-// TODO(2026-11-23): Replace this with a runner that sends queries through the dashboard-v2 query batch endpoint.
-// The data is temporary. It is made up from each query's text, so the same query always draws the same chart.
+// Draws charts for people outside the dashboard-v2 query flags, and for stories. The data is made up from each
+// query's text, so the same query always draws the same chart.
 export const runSampleQuery: RunQuery = async ({ query, time }) => {
     const random = seededRandom(JSON.stringify({ query, time }))
     const today = new Date('2026-11-23T00:00:00Z')

@@ -27,6 +27,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
     classify_warehouse_read_error,
     get_hogql_field_for_column,
+    is_expected_warehouse_read_error,
     run_chdb_query,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -191,25 +193,35 @@ class TestSafeExposeChError:
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize("wrapped_by_sync_execute", [False, True])
     @pytest.mark.parametrize(
         "raw_message,expected_action",
         [
             ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
-            ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
             (
-                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
-                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "DB::Exception: Could not list objects in bucket my-bucket, S3 exception: `AccessDenied`, "
+                "message: 'Access Denied'",
+                "s3:ListBucket",
+            ),
+            (
+                "DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv'",
                 "s3:GetObject",
             ),
         ],
     )
     def test_native_s3_access_denials_name_the_iam_action_to_check(
-        self, raw_message: str, expected_action: str
+        self, raw_message: str, expected_action: str, wrapped_by_sync_execute: bool
     ) -> None:
         # A self-managed S3 source reads and lists the customer's own bucket, so an access denial
         # is theirs to fix — name the exact IAM action rather than dead-ending on "access denied".
+        err: Exception = ServerException(raw_message, code=499)
+        if wrapped_by_sync_execute:
+            err = wrap_clickhouse_query_error(err)
+
+        assert is_expected_warehouse_read_error(err)
         with pytest.raises(Exception, match=expected_action):
-            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=499))
+            DataWarehouseTable()._safe_expose_ch_error(err)
 
     def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
         # ClickHouse's own deltaLake() S3 table function hits the same transient object-store

@@ -64,7 +64,7 @@ export function TraceDrawerToolbar({
                             onNext ? undefined : position ? 'This is the last loaded trace' : NOT_IN_LIST_REASON
                         }
                     />
-                    {position ? (
+                    {position && position.total !== null ? (
                         <span className="ml-1 whitespace-nowrap text-xs text-secondary" aria-live="polite">
                             {`${position.index + 1} of ${position.total}`}
                         </span>

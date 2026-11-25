@@ -271,6 +271,14 @@ def _shape_key(row: dict[str, Any]) -> dict[str, Any]:
     return shaped
 
 
+def _shape_organization(row: dict[str, Any]) -> dict[str, Any]:
+    # Each organization embeds its full team rows, metadata included; the teams table has them, shaped.
+    shaped = {name: value for name, value in row.items() if name != "teams"}
+    if "metadata" in shaped:
+        shaped["metadata"] = _redact_credentials(shaped["metadata"])
+    return shaped
+
+
 def _shape_team(row: dict[str, Any]) -> dict[str, Any]:
     # Some versions embed full key objects in team rows; the keys table already has them, shaped.
     shaped = {name: value for name, value in row.items() if name != "keys"}
@@ -282,8 +290,40 @@ def _shape_team(row: dict[str, Any]) -> dict[str, Any]:
 _ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "keys": _shape_key,
     "teams": _shape_team,
+    "organizations": _shape_organization,
     "models": _with_model_id,
 }
+
+
+class _PagesWithoutTotalPaginator(PageNumberPaginator):
+    """Page numbers for a list that returns no page count.
+
+    A page with fewer or more rows than asked for is the last one. Rows that the page before
+    already held are dropped: an insert ahead of the offset between two requests pushes one row
+    onto the next page, and proxies that do not page the list yet ignore `page` and send the whole
+    list again. A page with no new rows ends the walk.
+    """
+
+    def __init__(self, page_size: int, primary_key: str) -> None:
+        super().__init__(base_page=1, page_param="page")
+        self.page_size = page_size
+        self.primary_key = primary_key
+        self._previous_ids: set[Any] = set()
+
+    def update_state(self, response: requests.Response, data: list[Any] | None = None) -> None:
+        rows = data or []
+        page_length = len(rows)
+        previous_ids = self._previous_ids
+        self._previous_ids = {row.get(self.primary_key) for row in rows if isinstance(row, dict)}
+        if data and previous_ids:
+            # The client yields this same list after this call, so the repeats are removed in place.
+            data[:] = [row for row in data if not (isinstance(row, dict) and row.get(self.primary_key) in previous_ids)]
+            if not data:
+                self._has_next_page = False
+                return
+        super().update_state(response, data)
+        if page_length != self.page_size:
+            self._has_next_page = False
 
 
 def _list_resource(
@@ -298,7 +338,11 @@ def _list_resource(
     paginator: BasePaginator = SinglePagePaginator()
     if config.page_size_param is not None:
         params[config.page_size_param] = LIST_PAGE_SIZE
-        paginator = PageNumberPaginator(base_page=1, page_param="page", total_path="total_pages")
+        paginator = (
+            _PagesWithoutTotalPaginator(LIST_PAGE_SIZE, config.primary_key)
+            if config.pages_without_total
+            else PageNumberPaginator(base_page=1, page_param="page", total_path="total_pages")
+        )
     if config.name == "keys":
         params["return_full_object"] = "true"
 

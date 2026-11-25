@@ -43,7 +43,8 @@ export interface VizSpec<Options = unknown> {
 
 /**
  * What a chart shows before it has rows to draw. Each one is optional: a kind of chart can set its own, the host can
- * set defaults for every chart with `createChartWidget`, and the chart widget has built-in ones for the rest.
+ * set defaults for every chart with `createChartWidget`, and the chart widget has built-in ones for the rest. The
+ * built-in kinds of chart set a skeleton shaped like the chart, which a host's `states.Loading` replaces.
  */
 export interface ChartStates<Options = unknown> {
     Loading?: ComponentType<{ options: Options }>

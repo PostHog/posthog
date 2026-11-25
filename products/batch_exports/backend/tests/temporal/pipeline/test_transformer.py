@@ -155,6 +155,22 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert row == expected_row
 
 
+def test_csv_stream_transformer_distinguishes_single_column_null_from_empty_string() -> None:
+    transformer = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_STRINGS, single_null_as_blank_line=True)
+    batch = pa.record_batch({"value": ["first", None, ""]})
+
+    assert transformer.write_record_batch(batch) == b'"first"\n\n""\n'
+
+
+def test_csv_stream_transformer_single_null_as_blank_line_is_opt_in() -> None:
+    batch = pa.record_batch({"value": [None]})
+    default = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_MINIMAL)
+    opted_in = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_MINIMAL, single_null_as_blank_line=True)
+
+    assert default.write_record_batch(batch) == b'""\n'
+    assert opted_in.write_record_batch(batch) == b"\n"
+
+
 async def iterate_record_batches(
     record_batches: list[pa.RecordBatch],
 ) -> collections.abc.AsyncIterator[pa.RecordBatch]:
