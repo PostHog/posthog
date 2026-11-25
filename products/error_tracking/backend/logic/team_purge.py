@@ -18,15 +18,28 @@ def delete_stack_frames_and_symbol_sets_for_team(
     team, and hold its locks until the whole cascade commits. The frames go first, so no symbol set batch finds a
     frame to update. ``should_stop`` is checked before each batch.
     """
+    frames = ErrorTrackingStackFrame.objects.filter(team_id=team_id)
     if not _delete_in_batches(
-        ErrorTrackingStackFrame.objects.filter(team_id=team_id), "raw_id", should_stop, batch_size
+        frames,
+        lambda last_key: frames.filter(raw_id__gte=last_key).order_by("raw_id").values_list("id", "raw_id"),
+        should_stop,
+        batch_size,
     ):
         return False
-    return _delete_in_batches(ErrorTrackingSymbolSet.objects.filter(team_id=team_id), "ref", should_stop, batch_size)
+    symbol_sets = ErrorTrackingSymbolSet.objects.filter(team_id=team_id)
+    return _delete_in_batches(
+        symbol_sets,
+        lambda last_key: symbol_sets.filter(ref__gte=last_key).order_by("ref").values_list("id", "ref"),
+        should_stop,
+        batch_size,
+    )
 
 
 def _delete_in_batches(
-    team_rows: QuerySet[Any], key: str, should_stop: Callable[[], bool] | None, batch_size: int
+    team_rows: QuerySet[Any],
+    keys_from: Callable[[str], QuerySet[Any, tuple[Any, str]]],
+    should_stop: Callable[[], bool] | None,
+    batch_size: int,
 ) -> bool:
     # Each batch resumes the walk of the (team_id, key) unique index at the last key it deleted, so no batch reads
     # the index entries of rows that earlier batches deleted.
@@ -34,7 +47,7 @@ def _delete_in_batches(
     while True:
         if should_stop is not None and should_stop():
             return False
-        batch = list(team_rows.filter(**{f"{key}__gte": last_key}).order_by(key).values_list("id", key)[:batch_size])
+        batch = list(keys_from(last_key)[:batch_size])
         if not batch:
             return True
         team_rows.filter(id__in=[row[0] for row in batch]).delete()
