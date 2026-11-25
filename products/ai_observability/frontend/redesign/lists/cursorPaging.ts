@@ -101,10 +101,11 @@ type PageRequestCache = Record<string, any>
 export async function readAbortablePage<Page>(
     cache: PageRequestCache,
     read: (signal: AbortSignal) => Promise<Page>,
-    breakpoint: () => void
+    breakpoint: () => void,
+    requestKey = 'pageRequest'
 ): Promise<Page> {
     const controller = new AbortController()
-    cache.disposables.add(() => () => controller.abort(), 'pageRequest', { pauseOnPageHidden: false })
+    cache.disposables.add(() => () => controller.abort(), requestKey, { pauseOnPageHidden: false })
     const page = await read(controller.signal).catch((error: unknown) => {
         // A superseded request must not show its failure over the newer selection.
         breakpoint()

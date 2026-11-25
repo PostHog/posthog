@@ -33,6 +33,13 @@ export const CountsLoading: Story = {
     },
 }
 
+export const CountLoadingSpinner: Story = {
+    args: {
+        chips: [{ id: 'new', label: 'New', count: null, countLoading: true }],
+        active: null,
+    },
+}
+
 export const NarrowContainer: Story = {
     decorators: [
         (StoryComponent) => (

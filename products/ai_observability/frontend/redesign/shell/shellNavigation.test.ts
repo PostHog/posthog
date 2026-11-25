@@ -68,7 +68,7 @@ describe('shellNavigation', () => {
     it.each<[string, (params: Record<string, string>) => Record<string, string>, Record<string, string>]>([
         ['tab and scope links keep the filters', shellLinkParams, { date_from: '-7d', view: 'new' }],
         [
-            'links between a list and a full page also keep the list scope, order and search',
+            'links between a list and a full page also keep the list scope, order, search, page and switches',
             listPageLinkParams,
             {
                 date_from: '-7d',
@@ -79,6 +79,9 @@ describe('shellNavigation', () => {
                 order: 'users',
                 error_search: 'timeout',
                 tool_search: 'search',
+                person_search: 'ana',
+                offset: '100',
+                include_anonymous: 'true',
             },
         ],
     ])('%s but not the open trace or session', (_name, linkParams, expected) => {
@@ -89,6 +92,9 @@ describe('shellNavigation', () => {
                 order: 'users',
                 error_search: 'timeout',
                 tool_search: 'search',
+                person_search: 'ana',
+                offset: '100',
+                include_anonymous: 'true',
                 person: 'p',
                 error: 'e',
                 tool: 't',

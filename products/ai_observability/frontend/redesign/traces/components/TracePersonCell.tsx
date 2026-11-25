@@ -8,6 +8,8 @@ export interface TracePersonCellProps {
     person: TracePersonApi | null
     status: TraceCellStatus
     failedMessage?: string
+    /** The widest the label grows before it truncates. */
+    maxWidthClassName?: string
 }
 
 function toPersonDisplayProps(person: TracePersonApi): Pick<PersonDisplayProps, 'person' | 'displayName'> {
@@ -19,11 +21,16 @@ function toPersonDisplayProps(person: TracePersonApi): Pick<PersonDisplayProps, 
     }
 }
 
-export function TracePersonCell({ person, status, failedMessage }: TracePersonCellProps): JSX.Element {
+export function TracePersonCell({
+    person,
+    status,
+    failedMessage,
+    maxWidthClassName = 'max-w-40',
+}: TracePersonCellProps): JSX.Element {
     return (
         <TraceCellValue status={status} skeletonWidth="w-24" failedMessage={failedMessage}>
             {person === null ? null : (
-                <span className="block max-w-40 min-w-0">
+                <span className={`block min-w-0 ${maxWidthClassName}`}>
                     {/* Fits the chip to its label, so a click beside a short name still opens the drawer. The label
                         names a customer's end user, so autocapture must not record this element or its title. */}
                     <span

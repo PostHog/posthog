@@ -39,10 +39,10 @@ describe('shellScopeLogic', () => {
         logic.unmount()
     })
 
-    it('starts on the last seven days', () => {
+    it('starts on the last 24 hours', () => {
         mountAt(TRACES)
 
-        expect(logic.values).toMatchObject({ dateFrom: '-7d', dateTo: null })
+        expect(logic.values).toMatchObject({ dateFrom: '-24h', dateTo: null })
     })
 
     it.each([

@@ -14,7 +14,7 @@ export interface ShellDateRange {
     dateTo: string | null
 }
 
-const DEFAULT_DATE_RANGE: ShellDateRange = { dateFrom: '-7d', dateTo: null }
+const DEFAULT_DATE_RANGE: ShellDateRange = { dateFrom: '-24h', dateTo: null }
 
 const SHELL_PATHS = [
     ...new Set(SHELL_TABS.flatMap((tab) => [tab.path, ...tab.scopes.map((scope) => scope.path)])),

@@ -5,6 +5,7 @@ import { QuickFilterChip, QuickFilterChips } from './QuickFilterChips'
 const CHIPS: QuickFilterChip[] = [
     { id: 'errors', label: 'Errors', count: 12, tone: 'danger' },
     { id: 'feedback', label: 'User feedback', count: null },
+    { id: 'new', label: 'New', count: null, countLoading: true },
 ]
 
 function chipButton(container: HTMLElement, id: string): HTMLElement {
@@ -31,7 +32,7 @@ describe('QuickFilterChips', () => {
         expect(chipButton(container, 'feedback').getAttribute('aria-pressed')).toBe(feedbackPressed)
     })
 
-    it('shows the count beside the label and reports the chip a person toggles', () => {
+    it('shows the count beside the label, a spinner while it loads, and reports the chip a person toggles', () => {
         const toggled: string[] = []
         const { container } = render(
             <QuickFilterChips
@@ -48,5 +49,7 @@ describe('QuickFilterChips', () => {
         expect(toggled).toEqual(['feedback', 'errors'])
         expect(chipButton(container, 'errors').textContent).toBe('Errors12')
         expect(chipButton(container, 'feedback').textContent).toBe('User feedback')
+        expect(chipButton(container, 'feedback').querySelector('.Spinner')).toBeNull()
+        expect(chipButton(container, 'new').querySelector('.Spinner')).not.toBeNull()
     })
 })

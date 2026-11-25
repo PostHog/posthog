@@ -146,10 +146,12 @@ export function buildApplyUrlStatePayload({
     }
 }
 
-const SHELL_LIST_PATH = new RegExp(`^(${urls.aiObservabilityTraces()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`)
+const SHELL_LIST_PATH = new RegExp(
+    `^(${urls.aiObservabilityTraces()}|${urls.aiObservabilityUsers()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`
+)
 
-// Under the navigation flag the traces list, the sessions list and the session page keep their own filters, dates and
-// search in the URL, and two writers would fight over them.
+// Under the navigation flag the traces list, the people list, the sessions list and the session page keep their own
+// filters, dates and search in the URL, and two writers would fight over them.
 export function shellListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
@@ -806,7 +808,13 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 }
                 applyNonDashboard(searchParams)
             },
-            [urls.aiObservabilityUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilityUsers()]: (_, searchParams) => {
+                if (shellBodyOwnsUrl(values.featureFlags)) {
+                    enterShellList()
+                    return
+                }
+                applyNonDashboard(searchParams)
+            },
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),

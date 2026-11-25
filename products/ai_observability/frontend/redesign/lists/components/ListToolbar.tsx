@@ -11,6 +11,8 @@ export interface ListToolbarProps {
     filters: ReactNode
     testAccounts: ReactNode
     dateRange: ReactNode
+    /** Controls of this list alone, placed before the date range. */
+    trailing?: ReactNode
     onReload: () => void
     reloading: boolean
     'data-attr': string
@@ -24,6 +26,7 @@ export function ListToolbar({
     filters,
     testAccounts,
     dateRange,
+    trailing,
     onReload,
     reloading,
     'data-attr': dataAttr,
@@ -47,6 +50,7 @@ export function ListToolbar({
             {filters}
             {testAccounts}
             <div className="ml-auto flex flex-wrap items-center gap-2">
+                {trailing}
                 {dateRange}
                 <LemonButton
                     type="secondary"

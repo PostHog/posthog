@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -6,7 +6,9 @@ export interface QuickFilterChip {
     id: string
     label: string
     count: number | null
+    countLoading?: boolean
     tone?: 'danger' | 'default'
+    tooltip?: string
 }
 
 export interface QuickFilterChipsProps {
@@ -30,6 +32,7 @@ export function QuickFilterChips({
                     type="secondary"
                     size="small"
                     active={chip.id === active}
+                    tooltip={chip.tooltip}
                     aria-pressed={chip.id === active}
                     icon={chip.tone === 'danger' ? <span className="size-2 rounded-full bg-danger" /> : undefined}
                     onClick={() => onToggle(chip.id)}
@@ -39,6 +42,8 @@ export function QuickFilterChips({
                     {chip.label}
                     {chip.count !== null ? (
                         <span className="ml-1.5 text-secondary tabular-nums">{humanFriendlyNumber(chip.count)}</span>
+                    ) : chip.countLoading ? (
+                        <Spinner className="ml-1.5" textColored />
                     ) : null}
                 </LemonButton>
             ))}

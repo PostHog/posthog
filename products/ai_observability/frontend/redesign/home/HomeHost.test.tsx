@@ -137,7 +137,7 @@ describe('HomeHost', () => {
 
         fireEvent.click(container.querySelector(`[data-attr="home-chart-${slug}-toggle"]`)!)
 
-        expect(panel()?.textContent).toContain(`${label} · Last 7 days`)
+        expect(panel()?.textContent).toContain(`${label} · Last 24 hours`)
         expect(panel()?.textContent).toContain(detail)
         expect(!!panel()?.querySelector(`[data-attr="home-chart-${slug}-activity"]`)).toBe(linksToActivity)
         expect(panel()?.querySelector(`[data-attr="home-chart-${slug}-insight"]`)?.getAttribute('href')).toContain(

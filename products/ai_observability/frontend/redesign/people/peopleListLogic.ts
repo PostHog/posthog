@@ -1,0 +1,614 @@
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+
+import { ApiConfig } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
+import { urls } from 'scenes/urls'
+
+import type { AnyPropertyFilter } from '~/types'
+
+import { aiObservabilityPeopleList, aiObservabilityPeopleNewCountRetrieve } from '../../generated/api'
+import {
+    AiObservabilityPeopleListOrder,
+    AiObservabilityPeopleListView,
+    type AiObservabilityPeopleListParams,
+    type AiObservabilityPeopleNewCountRetrieveParams,
+    type PersonListApi,
+    type PersonListItemApi,
+} from '../../generated/api.schemas'
+import type { ListTableState } from '../lists/components/ListTable'
+import { listRequestParams, readAbortablePage } from '../lists/cursorPaging'
+import { ListFilters, ListFiltersLogicProps, listFiltersLogic } from '../lists/listFiltersLogic'
+import {
+    LIST_ORDER_PARAM,
+    PEOPLE_INCLUDE_ANONYMOUS_PARAM,
+    PEOPLE_OFFSET_PARAM,
+    PEOPLE_SEARCH_PARAM,
+} from '../lists/listParams'
+import { shellScopeLogic } from '../shell/shellScopeLogic'
+import { currentUrlWith, rawSearchParam } from '../trace/rawSearchParam'
+import { peopleTracking } from './peopleTracking'
+
+export const PEOPLE_PAGE_SIZE = 50
+
+export const PEOPLE_LIST_FILTERS: ListFiltersLogicProps = {
+    listId: 'people',
+    path: urls.aiObservabilityUsers(),
+    searchParam: PEOPLE_SEARCH_PARAM,
+}
+
+// pinned: the param naming the person whose drawer is open, which saved links read
+const PERSON_PARAM = 'person'
+
+const DEFAULT_ORDER = AiObservabilityPeopleListOrder.LastSeen
+
+/** What the list holds, whichever page of it is shown. */
+export type PeopleSelection = Omit<AiObservabilityPeopleListParams, 'limit' | 'offset'>
+
+/** The New chip's count, with the params it was read for so an answer for another selection is never shown. */
+export interface NewCountRead {
+    params: AiObservabilityPeopleNewCountRetrieveParams
+    count: number
+}
+
+interface ShellScope {
+    dateFrom: string
+    dateTo: string | null
+    filterTestAccounts: boolean
+}
+
+interface PeopleUrlState {
+    order: AiObservabilityPeopleListOrder
+    includeAnonymous: boolean
+    offset: number
+}
+
+function isPeoplePath(pathname: string): boolean {
+    return removeProjectIdIfPresent(pathname) === PEOPLE_LIST_FILTERS.path
+}
+
+function toView(quickFilter: string | null): AiObservabilityPeopleListView | undefined {
+    return Object.values(AiObservabilityPeopleListView).find((view) => view === quickFilter)
+}
+
+function peopleSelection(
+    filters: ListFilters,
+    shell: ShellScope,
+    order: AiObservabilityPeopleListOrder,
+    includeAnonymous: boolean
+): PeopleSelection {
+    // People search on their own param, so the shared content search stays off.
+    return {
+        ...listRequestParams(filters, { ...shell, searchEnabled: false }),
+        person_search: filters.search || undefined,
+        view: toView(filters.quickFilter),
+        order,
+        include_anonymous: includeAnonymous,
+    }
+}
+
+function withoutPage({
+    limit: _limit,
+    offset: _offset,
+    ...selection
+}: AiObservabilityPeopleListParams): PeopleSelection {
+    return selection
+}
+
+function newCountParams({
+    order: _order,
+    view: _view,
+    ...params
+}: PeopleSelection): AiObservabilityPeopleNewCountRetrieveParams {
+    return params
+}
+
+// The link to the first page leaves its offset out.
+function linkedOffset(link: string | null | undefined): number | null {
+    return link ? Number(new URL(link, window.location.origin).searchParams.get('offset') ?? 0) : null
+}
+
+function narrowsSelection(params: AiObservabilityPeopleListParams | null): boolean {
+    return !!(params?.properties || params?.person_search || params?.view || params?.filter_test_accounts)
+}
+
+function urlStateOf(search: string): PeopleUrlState {
+    const order = Object.values(AiObservabilityPeopleListOrder).find(
+        (value) => value === rawSearchParam(search, LIST_ORDER_PARAM)
+    )
+    const offset = Number(rawSearchParam(search, PEOPLE_OFFSET_PARAM))
+    return {
+        order: order ?? DEFAULT_ORDER,
+        includeAnonymous: rawSearchParam(search, PEOPLE_INCLUDE_ANONYMOUS_PARAM) === 'true',
+        offset: Number.isInteger(offset) && offset > 0 ? offset : 0,
+    }
+}
+
+function urlParamsOf({ order, includeAnonymous, offset }: PeopleUrlState): Record<string, string | undefined> {
+    return {
+        [LIST_ORDER_PARAM]: order === DEFAULT_ORDER ? undefined : order,
+        [PEOPLE_INCLUDE_ANONYMOUS_PARAM]: includeAnonymous ? 'true' : undefined,
+        [PEOPLE_OFFSET_PARAM]: offset > 0 ? String(offset) : undefined,
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface peopleListLogicValues {
+    filters: ListFilters // listFiltersLogic
+    searchDraft: string // listFiltersLogic
+    location: {
+        pathname: string
+        search: string
+        hash: string
+    } // router
+    dateFrom: string // shellScopeLogic
+    dateTo: string | null // shellScopeLogic
+    filterTestAccounts: boolean // shellScopeLogic
+    count: number
+    includeAnonymous: boolean
+    items: PersonListItemApi[]
+    lookbackDays: number | null
+    needsIdentification: boolean
+    newCount: number | null
+    newCountLoading: boolean
+    newCountRead: NewCountRead | null
+    newCountReadLoading: boolean
+    newCountRequestParams: AiObservabilityPeopleNewCountRetrieveParams | null
+    nextPageOffset: number | null
+    offset: number
+    openPersonId: string | null
+    order: AiObservabilityPeopleListOrder
+    page: PersonListApi | null
+    pageFailed: boolean
+    pageLoading: boolean
+    pageParams: AiObservabilityPeopleListParams | null
+    personSearch: string
+    previousPageOffset: number | null
+    refreshing: boolean
+    requestParams: AiObservabilityPeopleListParams
+    selection: PeopleSelection
+    shownPage: PersonListApi | null
+    state: ListTableState
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface peopleListLogicActions {
+    clearScope: () => {
+        value: true
+    } // listFiltersLogic
+    resetFilters: () => {
+        value: true
+    } // listFiltersLogic
+    setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => {
+        propertyFilters: AnyPropertyFilter[]
+    } // listFiltersLogic
+    setSearch: (search: string) => {
+        search: string
+    } // listFiltersLogic
+    setSearchDraft: (search: string) => {
+        search: string
+    } // listFiltersLogic
+    toggleQuickFilter: (id: string) => {
+        id: string
+    } // listFiltersLogic
+    setDateRange: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    } // shellScopeLogic
+    setFilterTestAccounts: (value: boolean) => {
+        value: boolean
+    } // shellScopeLogic
+    applyUrlState: (urlState: PeopleUrlState) => {
+        urlState: PeopleUrlState
+    }
+    loadNewCount: (params: AiObservabilityPeopleNewCountRetrieveParams) => AiObservabilityPeopleNewCountRetrieveParams
+    loadNewCountFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNewCountSuccess: (
+        newCountRead: NewCountRead,
+        payload?: AiObservabilityPeopleNewCountRetrieveParams
+    ) => {
+        newCountRead: NewCountRead
+        payload?: AiObservabilityPeopleNewCountRetrieveParams
+    }
+    loadPeoplePage: (params: AiObservabilityPeopleListParams) => AiObservabilityPeopleListParams
+    loadPeoplePageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPeoplePageSuccess: (
+        page: PersonListApi,
+        payload?: AiObservabilityPeopleListParams
+    ) => {
+        page: PersonListApi
+        payload?: AiObservabilityPeopleListParams
+    }
+    offsetChosen: (offset: number) => {
+        offset: number
+    }
+    openPerson: (personId: string | null) => {
+        personId: string | null
+    }
+    reload: () => {
+        value: true
+    }
+    setIncludeAnonymous: (includeAnonymous: boolean) => {
+        includeAnonymous: boolean
+    }
+    setOffset: (offset: number) => {
+        offset: number
+    }
+    setOrder: (order: AiObservabilityPeopleListOrder) => {
+        order: AiObservabilityPeopleListOrder
+    }
+    setPersonSearch: (search: string) => {
+        search: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface peopleListLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        personSearch: (searchDraft: string) => string
+        selection: (
+            filters: ListFilters,
+            dateFrom: string,
+            dateTo: string | null,
+            filterTestAccounts: boolean,
+            order: AiObservabilityPeopleListOrder,
+            includeAnonymous: boolean
+        ) => PeopleSelection
+        requestParams: (selection: PeopleSelection, offset: number) => AiObservabilityPeopleListParams
+        shownPage: (
+            page: PersonListApi | null,
+            pageParams: AiObservabilityPeopleListParams | null,
+            selection: PeopleSelection
+        ) => PersonListApi | null
+        items: (shownPage: PersonListApi | null) => PersonListItemApi[]
+        count: (shownPage: PersonListApi | null) => number
+        newCount: (newCountRead: NewCountRead | null, selection: PeopleSelection) => number | null
+        newCountLoading: (
+            newCountReadLoading: boolean,
+            newCountRequestParams: AiObservabilityPeopleNewCountRetrieveParams | null,
+            selection: PeopleSelection
+        ) => boolean
+        lookbackDays: (shownPage: PersonListApi | null) => number | null
+        needsIdentification: (shownPage: PersonListApi | null) => boolean
+        previousPageOffset: (shownPage: PersonListApi | null) => number | null
+        nextPageOffset: (shownPage: PersonListApi | null) => number | null
+        refreshing: (pageLoading: boolean, shownPage: PersonListApi | null) => boolean
+        state: (
+            shownPage: PersonListApi | null,
+            pageFailed: boolean,
+            pageParams: AiObservabilityPeopleListParams | null
+        ) => ListTableState
+        openPersonId: (location: { hash: string; pathname: string; search: string }) => string | null
+    }
+}
+
+export type peopleListLogicType = MakeLogicType<
+    peopleListLogicValues,
+    peopleListLogicActions,
+    Record<string, any>,
+    peopleListLogicMeta
+>
+
+export const peopleListLogic = kea<peopleListLogicType>([
+    path(['products', 'ai_observability', 'frontend', 'redesign', 'people', 'peopleListLogic']),
+    connect(() => ({
+        values: [
+            listFiltersLogic(PEOPLE_LIST_FILTERS),
+            ['filters', 'searchDraft'],
+            shellScopeLogic,
+            ['dateFrom', 'dateTo', 'filterTestAccounts'],
+            router,
+            ['location'],
+        ],
+        actions: [
+            listFiltersLogic(PEOPLE_LIST_FILTERS),
+            ['setPropertyFilters', 'toggleQuickFilter', 'clearScope', 'setSearch', 'resetFilters', 'setSearchDraft'],
+            shellScopeLogic,
+            ['setDateRange', 'setFilterTestAccounts'],
+        ],
+    })),
+    actions({
+        setOrder: (order: AiObservabilityPeopleListOrder) => ({ order }),
+        setIncludeAnonymous: (includeAnonymous: boolean) => ({ includeAnonymous }),
+        setPersonSearch: (search: string) => ({ search }),
+        setOffset: (offset: number) => ({ offset }),
+        offsetChosen: (offset: number) => ({ offset }),
+        applyUrlState: (urlState: PeopleUrlState) => ({ urlState }),
+        openPerson: (personId: string | null) => ({ personId }),
+        reload: true,
+    }),
+    loaders(({ cache }) => ({
+        page: [
+            null as PersonListApi | null,
+            {
+                loadPeoplePage: async (params: AiObservabilityPeopleListParams, breakpoint): Promise<PersonListApi> => {
+                    cache.pageRequestedAt = performance.now()
+                    cache.requestedParams = params
+                    return readAbortablePage(
+                        cache,
+                        (signal) =>
+                            aiObservabilityPeopleList(String(ApiConfig.getCurrentProjectId()), params, { signal }),
+                        breakpoint
+                    )
+                },
+            },
+        ],
+        newCountRead: [
+            null as NewCountRead | null,
+            {
+                loadNewCount: async (
+                    params: AiObservabilityPeopleNewCountRetrieveParams,
+                    breakpoint
+                ): Promise<NewCountRead> => {
+                    const { count } = await readAbortablePage(
+                        cache,
+                        (signal) =>
+                            aiObservabilityPeopleNewCountRetrieve(String(ApiConfig.getCurrentProjectId()), params, {
+                                signal,
+                            }),
+                        breakpoint,
+                        'newCountRequest'
+                    )
+                    return { params, count }
+                },
+            },
+        ],
+    })),
+    reducers({
+        order: [
+            DEFAULT_ORDER as AiObservabilityPeopleListOrder,
+            {
+                setOrder: (_, { order }) => order,
+                applyUrlState: (_, { urlState }) => urlState.order,
+            },
+        ],
+        includeAnonymous: [
+            false,
+            {
+                setIncludeAnonymous: (_, { includeAnonymous }) => includeAnonymous,
+                applyUrlState: (_, { urlState }) => urlState.includeAnonymous,
+            },
+        ],
+        // Any change to what the list shows starts it on its first page.
+        offset: [
+            0,
+            {
+                offsetChosen: (_, { offset }) => offset,
+                applyUrlState: (_, { urlState }) => urlState.offset,
+                setOrder: () => 0,
+                setIncludeAnonymous: () => 0,
+                setPropertyFilters: () => 0,
+                toggleQuickFilter: () => 0,
+                clearScope: () => 0,
+                setSearch: () => 0,
+                resetFilters: () => 0,
+                setDateRange: () => 0,
+                setFilterTestAccounts: () => 0,
+            },
+        ],
+        pageParams: [
+            null as AiObservabilityPeopleListParams | null,
+            { loadPeoplePageSuccess: (current, { payload }) => payload ?? current },
+        ],
+        newCountRead: {
+            loadNewCountFailure: () => null,
+        },
+        // Kept after a failure too, so a count that timed out is not read again until the selection changes.
+        newCountRequestParams: [
+            null as AiObservabilityPeopleNewCountRetrieveParams | null,
+            { loadNewCount: (_, params) => params },
+        ],
+        pageFailed: [
+            false,
+            {
+                loadPeoplePage: () => false,
+                loadPeoplePageFailure: () => true,
+            },
+        ],
+    }),
+    selectors({
+        personSearch: [(s) => [s.searchDraft], (searchDraft: string): string => searchDraft],
+        selection: [
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.filterTestAccounts, s.order, s.includeAnonymous],
+            (
+                filters: ListFilters,
+                dateFrom: string,
+                dateTo: string | null,
+                filterTestAccounts: boolean,
+                order: AiObservabilityPeopleListOrder,
+                includeAnonymous: boolean
+            ): PeopleSelection =>
+                peopleSelection(filters, { dateFrom, dateTo, filterTestAccounts }, order, includeAnonymous),
+            { resultEqualityCheck: objectsEqual },
+        ],
+        requestParams: [
+            (s) => [s.selection, s.offset],
+            (selection: PeopleSelection, offset: number): AiObservabilityPeopleListParams => ({
+                ...selection,
+                limit: PEOPLE_PAGE_SIZE,
+                offset,
+            }),
+        ],
+        // The page in memory, while it is a page of the selection asked for. A page of another selection is never shown.
+        shownPage: [
+            (s) => [s.page, s.pageParams, s.selection],
+            (
+                page: PersonListApi | null,
+                pageParams: AiObservabilityPeopleListParams | null,
+                selection: PeopleSelection
+            ): PersonListApi | null =>
+                page && pageParams && objectsEqual(withoutPage(pageParams), selection) ? page : null,
+        ],
+        items: [
+            (s) => [s.shownPage],
+            (shownPage: PersonListApi | null): PersonListItemApi[] => shownPage?.results ?? [],
+        ],
+        count: [(s) => [s.shownPage], (shownPage: PersonListApi | null): number => shownPage?.count ?? 0],
+        // Null while the count of the selection on screen loads, and when it fails.
+        newCount: [
+            (s) => [s.newCountRead, s.selection],
+            (newCountRead: NewCountRead | null, selection: PeopleSelection): number | null =>
+                newCountRead && objectsEqual(newCountRead.params, newCountParams(selection))
+                    ? newCountRead.count
+                    : null,
+        ],
+        newCountLoading: [
+            (s) => [s.newCountReadLoading, s.newCountRequestParams, s.selection],
+            (
+                newCountReadLoading: boolean,
+                newCountRequestParams: AiObservabilityPeopleNewCountRetrieveParams | null,
+                selection: PeopleSelection
+            ): boolean => newCountReadLoading && objectsEqual(newCountRequestParams, newCountParams(selection)),
+        ],
+        lookbackDays: [
+            (s) => [s.shownPage],
+            (shownPage: PersonListApi | null): number | null => shownPage?.lookbackDays ?? null,
+        ],
+        needsIdentification: [
+            (s) => [s.shownPage],
+            (shownPage: PersonListApi | null): boolean => shownPage?.needsIdentification ?? false,
+        ],
+        previousPageOffset: [
+            (s) => [s.shownPage],
+            (shownPage: PersonListApi | null): number | null => linkedOffset(shownPage?.previous),
+        ],
+        nextPageOffset: [
+            (s) => [s.shownPage],
+            (shownPage: PersonListApi | null): number | null => linkedOffset(shownPage?.next),
+        ],
+        refreshing: [
+            (s) => [s.pageLoading, s.shownPage],
+            (pageLoading: boolean, shownPage: PersonListApi | null): boolean => pageLoading && shownPage !== null,
+        ],
+        state: [
+            (s) => [s.shownPage, s.pageFailed, s.pageParams],
+            (
+                shownPage: PersonListApi | null,
+                pageFailed: boolean,
+                pageParams: AiObservabilityPeopleListParams | null
+            ): ListTableState => {
+                if (!shownPage) {
+                    return pageFailed ? 'error' : 'loading'
+                }
+                if (shownPage.count > 0) {
+                    return 'ready'
+                }
+                return !shownPage.needsIdentification && narrowsSelection(pageParams) ? 'empty-filtered' : 'empty'
+            },
+        ],
+        openPersonId: [
+            (s) => [s.location],
+            (location: { pathname: string; search: string }): string | null =>
+                isPeoplePath(location.pathname) ? rawSearchParam(location.search, PERSON_PARAM) : null,
+        ],
+    }),
+    listeners(({ actions, values, cache }) => {
+        const writeUrl = (): void => {
+            const { location } = router.values
+            if (!isPeoplePath(location.pathname)) {
+                return
+            }
+            const params = urlParamsOf(values)
+            if (!objectsEqual(urlParamsOf(urlStateOf(location.search)), params)) {
+                router.actions.replace(...currentUrlWith(router.values, params))
+            }
+        }
+
+        return {
+            setOrder: writeUrl,
+            setIncludeAnonymous: writeUrl,
+            offsetChosen: writeUrl,
+            applyUrlState: writeUrl,
+            // The offset these changes reset leaves the url with them.
+            setPropertyFilters: writeUrl,
+            toggleQuickFilter: writeUrl,
+            clearScope: writeUrl,
+            setSearch: writeUrl,
+            resetFilters: writeUrl,
+            setDateRange: writeUrl,
+            setFilterTestAccounts: writeUrl,
+            setPersonSearch: ({ search }) => actions.setSearchDraft(search),
+            setOffset: ({ offset }) => {
+                // A step that failed leaves the page before it on screen, so asking for it again reads it again.
+                if (offset === values.offset) {
+                    actions.reload()
+                    return
+                }
+                actions.offsetChosen(offset)
+            },
+            reload: () => actions.loadPeoplePage(values.requestParams),
+            // Read after the page, because it reads the days before the range and would hold the rows back.
+            loadPeoplePageSuccess: ({ page, payload }) => {
+                const counted = payload && newCountParams(withoutPage(payload))
+                if (counted && !objectsEqual(counted, values.newCountRequestParams)) {
+                    actions.loadNewCount(counted)
+                }
+                peopleTracking.listLoaded({
+                    count: page.count,
+                    order: payload?.order ?? DEFAULT_ORDER,
+                    includeAnonymous: !!payload?.include_anonymous,
+                    loadMs: Math.round(performance.now() - cache.pageRequestedAt),
+                })
+            },
+            loadPeoplePageFailure: () => {
+                const failed: AiObservabilityPeopleListParams = cache.requestedParams
+                peopleTracking.listFailed({
+                    order: failed.order ?? DEFAULT_ORDER,
+                    includeAnonymous: !!failed.include_anonymous,
+                })
+                // With no rows on screen the list shows the error itself.
+                if (values.shownPage) {
+                    lemonToast.error("Couldn't load people. Try again.")
+                }
+            },
+            // Pushed, so Back closes the person opened last.
+            openPerson: ({ personId }) => {
+                if (isPeoplePath(router.values.location.pathname)) {
+                    router.actions.push(...currentUrlWith(router.values, { [PERSON_PARAM]: personId ?? undefined }))
+                }
+            },
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [PEOPLE_LIST_FILTERS.path]: (_, __, ___, { method, search }) => {
+            // A replace is a logic writing its own state. A filter change replaces the url before the offset it made
+            // stale is removed, so only opening a link, Back and Forward say which page to show.
+            if (method === 'REPLACE') {
+                return
+            }
+            const urlState = urlStateOf(search)
+            if (
+                !objectsEqual(urlState, {
+                    order: values.order,
+                    includeAnonymous: values.includeAnonymous,
+                    offset: values.offset,
+                })
+            ) {
+                actions.applyUrlState(urlState)
+            }
+        },
+    })),
+    // Fires on mount with the settled filters, range, order and page, then on each change of them.
+    subscriptions(({ actions }) => ({
+        requestParams: (params: AiObservabilityPeopleListParams) => actions.loadPeoplePage(params),
+    })),
+])

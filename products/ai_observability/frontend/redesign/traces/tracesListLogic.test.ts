@@ -24,7 +24,7 @@ const LIST_PATH = urls.aiObservabilityTraces()
 const COUNTS = { total: 3, errors: 1, feedback: 0 }
 const FIRST_PAGE = makeTraceListPage(['trace-a', 'trace-b'], { counts: COUNTS, nextCursor: 'cursor-2' })
 const SECOND_PAGE = makeTraceListPage(['trace-c'])
-const FIRST_PAGE_PARAMS = { date_from: '-7d', filter_test_accounts: 'false', limit: '50' }
+const FIRST_PAGE_PARAMS = { date_from: '-24h', filter_test_accounts: 'false', limit: '50' }
 const SEARCH_FLAG = FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH
 const MODEL_FILTER: AnyPropertyFilter = {
     key: '$ai_model',
@@ -150,8 +150,8 @@ describe('tracesListLogic', () => {
         ],
         [
             'the date range',
-            () => shellScopeLogic.actions.setDateRange('-24h', null),
-            { ...FIRST_PAGE_PARAMS, date_from: '-24h' },
+            () => shellScopeLogic.actions.setDateRange('-7d', null),
+            { ...FIRST_PAGE_PARAMS, date_from: '-7d' },
         ],
         [
             "the shell's test accounts switch",
@@ -337,7 +337,7 @@ describe('tracesListLogic', () => {
                 {
                     rows_wait_ms: expect.any(Number),
                     row_count: 2,
-                    date_from: '-7d',
+                    date_from: '-24h',
                     quick_filter: null,
                     searched: false,
                 },

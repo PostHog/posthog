@@ -29,7 +29,7 @@ import { tracesListLogic } from './tracesListLogic'
 const TRACES_URL = '/api/projects/:team_id/ai_observability/traces/'
 const LIST_PATH = urls.aiObservabilityTraces()
 const SEARCH_FLAG = FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH
-const FIRST_PAGE_PARAMS = { date_from: '-7d', filter_test_accounts: 'false', limit: '50' }
+const FIRST_PAGE_PARAMS = { date_from: '-24h', filter_test_accounts: 'false', limit: '50' }
 const PAGE: TraceListApi = {
     items: [
         makeTraceListItem({ id: 'trace-a', name: 'answer-billing-question' }),

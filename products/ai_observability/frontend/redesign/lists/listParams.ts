@@ -1,7 +1,10 @@
-// pinned: the URL params of a Diagnostics list's order and searches, which saved links read
+// pinned: the URL params of one list's order, searches, page and switches, which saved links read
 export const LIST_ORDER_PARAM = 'order'
 export const ERRORS_SEARCH_PARAM = 'error_search'
 export const TOOLS_SEARCH_PARAM = 'tool_search'
+export const PEOPLE_SEARCH_PARAM = 'person_search'
+export const PEOPLE_OFFSET_PARAM = 'offset'
+export const PEOPLE_INCLUDE_ANONYMOUS_PARAM = 'include_anonymous'
 
 /** The request params that narrow a list below everything in its date range. */
 export interface SelectionNarrowingParams {

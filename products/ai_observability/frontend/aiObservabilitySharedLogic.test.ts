@@ -149,7 +149,7 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
-    // The traces and sessions lists read and write their own filters and dates there.
+    // The traces, sessions and people lists read and write their own filters and dates there.
     describe('the redesigned list paths with the navigation flag on', () => {
         const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
 
@@ -185,6 +185,8 @@ describe('aiObservabilitySharedLogic', () => {
                 false,
             ],
             ['follows the sessions path with the flag off', [], urls.aiObservabilitySessions(), true],
+            ['leaves its range alone on the people path with the flag on', [NAV], urls.aiObservabilityUsers(), false],
+            ['follows the people path with the flag off', [], urls.aiObservabilityUsers(), true],
             ['follows the errors path with the flag on', [NAV], urls.aiObservabilityErrors(), true],
         ])('%s', async (_name, flags, path, follows) => {
             const logic = mountWithFlags(flags)
@@ -254,6 +256,7 @@ describe('aiObservabilitySharedLogic', () => {
                 { session: 'abc', timestamp: '2026-09-01T10:00:00Z' },
             ],
             ['a session page', urls.aiObservabilitySession('abc'), { timestamp: '2026-09-01T10:00:00Z', trace: 't1' }],
+            ['the people list', urls.aiObservabilityUsers(), { order: 'cost', person: 'person-a' }],
         ])('does not rewrite the URL of %s', async (_name, path, params) => {
             router.actions.push(path, params)
             const logic = mountWithFlags([NAV])

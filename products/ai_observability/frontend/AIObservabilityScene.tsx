@@ -57,6 +57,7 @@ import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { HomeHost } from './redesign/home/HomeHost'
+import { PeopleListHost } from './redesign/people/PeopleListHost'
 import { SessionPageHost } from './redesign/sessions/SessionPageHost'
 import { SessionsListHost } from './redesign/sessions/SessionsListHost'
 import { ShellHost } from './redesign/shell/ShellHost'
@@ -564,6 +565,7 @@ const SHELL_TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>>
     traces: () => <TracesListHost />,
     dashboard: () => <HomeHost />,
     sessions: () => <SessionsListHost />,
+    users: () => <PeopleListHost />,
 }
 
 function TabBody({

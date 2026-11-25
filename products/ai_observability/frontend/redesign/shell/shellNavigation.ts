@@ -2,7 +2,14 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ERRORS_SEARCH_PARAM, LIST_ORDER_PARAM, TOOLS_SEARCH_PARAM } from '../lists/listParams'
+import {
+    ERRORS_SEARCH_PARAM,
+    LIST_ORDER_PARAM,
+    PEOPLE_INCLUDE_ANONYMOUS_PARAM,
+    PEOPLE_OFFSET_PARAM,
+    PEOPLE_SEARCH_PARAM,
+    TOOLS_SEARCH_PARAM,
+} from '../lists/listParams'
 import { LIST_SCOPE_KINDS } from '../lists/listScopes'
 import { withoutTraceDrawerParams } from '../trace/traceDrawerRows'
 
@@ -133,13 +140,16 @@ export const SESSION_PARAM = 'session'
 export const SESSION_TIMESTAMP_PARAM = 'timestamp'
 
 const OPEN_SESSION_PARAMS: ReadonlySet<string> = new Set([SESSION_PARAM, SESSION_TIMESTAMP_PARAM])
-// A list scope's param means an open drawer on some paths, and the order and the search of one Diagnostics list mean
+// A list scope's param means an open drawer on some paths, and the order, search, page and switches of one list mean
 // nothing to the others, so they never travel to another tab or scope.
 const LIST_OWNED_PARAMS: ReadonlySet<string> = new Set([
     ...LIST_SCOPE_KINDS,
     LIST_ORDER_PARAM,
     ERRORS_SEARCH_PARAM,
     TOOLS_SEARCH_PARAM,
+    PEOPLE_SEARCH_PARAM,
+    PEOPLE_OFFSET_PARAM,
+    PEOPLE_INCLUDE_ANONYMOUS_PARAM,
 ])
 
 /**

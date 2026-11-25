@@ -57,18 +57,18 @@ describe('homeLogic', () => {
     it('loads metrics with the shell range and switch', async () => {
         await mount()
 
-        expect(requests).toEqual([{ date_from: '-7d', filter_test_accounts: 'false' }])
+        expect(requests).toEqual([{ date_from: '-24h', filter_test_accounts: 'false' }])
         expect(logic.values).toMatchObject({ metrics: METRICS, metricsFailure: null })
         expect(posthog.capture).toHaveBeenCalledWith('llma home metrics loaded', {
             load_ms: expect.any(Number),
-            date_from: '-7d',
+            date_from: '-24h',
             date_to: null,
             filter_test_accounts: false,
         })
     })
 
     it.each([
-        ['the range', () => shellScopeLogic.actions.setDateRange('-24h', null), { date_from: '-24h' }],
+        ['the range', () => shellScopeLogic.actions.setDateRange('-7d', null), { date_from: '-7d' }],
         ['the switch', () => shellScopeLogic.actions.setFilterTestAccounts(true), { filter_test_accounts: 'true' }],
     ])('reloads when %s changes', async (_name, change, expected) => {
         await mount()
@@ -91,7 +91,7 @@ describe('homeLogic', () => {
         })
 
         metricsAnswer = [200, METRICS]
-        shellScopeLogic.actions.setDateRange('-24h', null)
+        shellScopeLogic.actions.setDateRange('-7d', null)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values).toMatchObject({ metrics: METRICS, metricsFailure: null })
@@ -102,7 +102,7 @@ describe('homeLogic', () => {
         await mount()
 
         metricsAnswer = [500, { detail: 'boom' }]
-        shellScopeLogic.actions.setDateRange('-24h', null)
+        shellScopeLogic.actions.setDateRange('-7d', null)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values).toMatchObject({ metrics: null, metricsFailure: { kind: 'error' } })
