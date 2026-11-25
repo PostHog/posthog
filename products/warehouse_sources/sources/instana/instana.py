@@ -583,8 +583,11 @@ def _get_fan_out_rows(
                 continue
             _check_walk_bounds(config, walk_deadline, children_fetched)
             children_fetched += 1
-            path = config.path.format(**{fan_out.child_field: quote(parent_id, safe="")})
-            url = _build_url(root, path, window_params)
+            if fan_out.in_query:
+                url = _build_url(root, config.path, {**window_params, fan_out.child_field: parent_id})
+            else:
+                path = config.path.format(**{fan_out.child_field: quote(parent_id, safe="")})
+                url = _build_url(root, path, window_params)
             try:
                 data = _fetch(session, url, logger)
             except requests.HTTPError as e:

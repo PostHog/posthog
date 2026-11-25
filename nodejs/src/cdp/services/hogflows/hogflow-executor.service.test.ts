@@ -4295,6 +4295,28 @@ if (not res.success) { throw Error(res.error) }`,
                 send: (): QueuedSend | undefined => undefined,
                 expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
+            {
+                name: "a code send's reply thread",
+                step: storedStep,
+                stepConfig: {},
+                send: (): QueuedSend => ({
+                    tracking: { captureEngagement: false },
+                    thread: { inReplyTo: '<parent@x>', references: ['<root@x>'] },
+                }),
+                expected: () => ({
+                    type: 'email',
+                    ...storedStep(),
+                    thread: { inReplyTo: '<parent@x>', references: ['<root@x>'] },
+                    template: {},
+                }),
+            },
+            {
+                name: 'a step whose own email input sets a reply thread without it, because only an accepted send threads',
+                step: () => ({ ...storedStep(), thread: { inReplyTo: '<step@x>', references: [] } }),
+                stepConfig: {},
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
+            },
         ])('hands the email queue $name', async ({ step, stepConfig, send, expected }) => {
             await insertEmailSetup('ses')
             const invocation = flowInvocation(emailFlow(step(), stepConfig))

@@ -12,7 +12,10 @@ export interface CyclotronProbe {
     counts(query: JobQuery): Promise<QueueCounts>
 }
 
-export function createCyclotronProbe(cyclotronUrl: string): CyclotronProbe {
+export function createCyclotronProbe(
+    cyclotronUrl: string,
+    unconsumedIntake: () => Promise<number> = () => Promise.resolve(0)
+): CyclotronProbe {
     const count = ({ teams, queues }: JobQuery, statuses: string[]): Promise<number> =>
         withPostgres(async (client) => {
             const { rows } = await client.query<{ jobs: string }>(
@@ -24,7 +27,10 @@ export function createCyclotronProbe(cyclotronUrl: string): CyclotronProbe {
             return Number(rows[0].jobs)
         }, cyclotronUrl)
     return {
-        unfinishedJobs: (query) => count(query, ['available', 'running']),
+        unfinishedJobs: async (query) => {
+            const unconsumed = await unconsumedIntake()
+            return unconsumed + (await count(query, ['available', 'running']))
+        },
         runningJobs: (query) => count(query, ['running']),
         counts: ({ teams, queues }) =>
             withPostgres(async (client) => {

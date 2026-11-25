@@ -24,6 +24,7 @@ _ACTOR_QUERY = "query PostHogExpoActor { meActor { id } }"
 _REJECTED_TOKEN_HINT = "Create a new one at expo.dev under Access tokens."
 # `get_non_retryable_errors` in source.py matches sync errors that start with this prefix.
 _API_ERROR_PREFIX = "Expo API error: "
+PROJECT_NOT_FOUND_ERROR = f"{_API_ERROR_PREFIX}Expo project not found or inaccessible"
 _MAX_ERROR_DETAIL_CHARS = 200
 
 logger = structlog.get_logger(__name__)
@@ -137,7 +138,7 @@ def get_rows(
         data = _run_query(session, query, {"appId": project_id, "offset": offset, "limit": PAGE_SIZE})
         app = (data.get("app") or {}).get("byId")
         if app is None:
-            raise ExpoAPIError("Expo project not found or inaccessible")
+            raise ExpoAPIError(PROJECT_NOT_FOUND_ERROR)
         items = app.get(config.collection) or []
 
         if items:

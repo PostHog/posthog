@@ -1,6 +1,9 @@
+from collections.abc import Callable
+from datetime import datetime
 from enum import StrEnum
 
-from django.db.models import QuerySet
+from django.db.models import Expression, F, Model, QuerySet
+from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -21,6 +24,7 @@ from .relationships import relationships_for_team
 logger = structlog.get_logger(__name__)
 
 DEFAULT_SAMPLE_SIZE = 5
+CREATED_AT = F("created_at")
 
 
 class PendingKind(StrEnum):
@@ -37,6 +41,7 @@ class PendingGroup:
     noun: str
     count: int
     sample_names: list[str]
+    new_count: int = 0
 
 
 @frozen
@@ -54,14 +59,36 @@ class TeamPendingReview:
     total: int
 
 
-def _metrics_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = _proposed_metrics(team)
+def _group[ModelT: Model](
+    kind: PendingKind,
+    noun: str,
+    proposed: QuerySet[ModelT],
+    sample_name: Callable[[ModelT], str],
+    sample_size: int,
+    new_since: datetime | None,
+    entered_review: Expression | F = CREATED_AT,
+) -> PendingGroup:
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
-        kind=PendingKind.METRICS,
-        noun="metric",
+        kind=kind,
+        noun=noun,
         count=proposed.count(),
-        sample_names=[metric.display_name or metric.name for metric in oldest_first],
+        sample_names=[sample_name(item) for item in oldest_first],
+        new_count=proposed.alias(entered_review=entered_review).filter(entered_review__gte=new_since).count()
+        if new_since
+        else 0,
+    )
+
+
+def _metrics_group(proposed: QuerySet[Metric], sample_size: int, new_since: datetime | None) -> PendingGroup:
+    return _group(
+        PendingKind.METRICS,
+        "metric",
+        proposed,
+        lambda metric: metric.display_name or metric.name,
+        sample_size,
+        new_since,
+        entered_review=Coalesce("proposed_at", "created_at"),
     )
 
 
@@ -90,29 +117,31 @@ def _proposed_certifications(team: Team) -> QuerySet[TableCertification]:
     return certifications_for_team(team).filter(status=CertificationStatus.PROPOSED)
 
 
-def _relationships_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = _proposed_relationships(team)
-    oldest_first = proposed.order_by("created_at")[:sample_size]
-    return PendingGroup(
-        kind=PendingKind.RELATIONSHIPS,
-        noun="relationship",
-        count=proposed.count(),
-        sample_names=[f"{proposal.source_table_name} to {proposal.joining_table_name}" for proposal in oldest_first],
+def _relationships_group(team: Team, sample_size: int, new_since: datetime | None) -> PendingGroup:
+    return _group(
+        PendingKind.RELATIONSHIPS,
+        "relationship",
+        _proposed_relationships(team),
+        lambda proposal: f"{proposal.source_table_name} to {proposal.joining_table_name}",
+        sample_size,
+        new_since,
     )
 
 
-def _certifications_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = _proposed_certifications(team)
-    oldest_first = proposed.order_by("created_at")[:sample_size]
-    return PendingGroup(
-        kind=PendingKind.CERTIFICATIONS,
-        noun="certification",
-        count=proposed.count(),
-        sample_names=[certification_target_name(cert) for cert in oldest_first],
+def _certifications_group(team: Team, sample_size: int, new_since: datetime | None) -> PendingGroup:
+    return _group(
+        PendingKind.CERTIFICATIONS,
+        "certification",
+        _proposed_certifications(team),
+        certification_target_name,
+        sample_size,
+        new_since,
     )
 
 
-def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE) -> TeamPendingReview | None:
+def build_team_pending_review(
+    team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE, new_since: datetime | None = None
+) -> TeamPendingReview | None:
     """What a team still has to review, or None when every queue is empty.
 
     Samples are the oldest items first, so the ones that have waited longest are the ones named.
@@ -120,9 +149,9 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
     groups = [
         group
         for group in (
-            _metrics_group(team, sample_size),
-            _relationships_group(team, sample_size),
-            _certifications_group(team, sample_size),
+            _metrics_group(_proposed_metrics(team), sample_size, new_since),
+            _relationships_group(team, sample_size, new_since),
+            _certifications_group(team, sample_size, new_since),
         )
         if group.count
     ]
@@ -138,17 +167,33 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
 
 def pending_review_counts(team: Team, user: User, user_access_control: UserAccessControl) -> PendingReviewCounts:
     """How many items wait in each review queue, as the caller's lists show them, up to ten minutes behind an access change."""
-    proposed_metrics = metrics_visible_to_user(
+    return PendingReviewCounts(
+        metrics=_visible_proposed_metrics(team, user, user_access_control).count(),
+        relationships=_proposed_relationships(team).count(),
+        certifications=_proposed_certifications(team).count(),
+    )
+
+
+def groups_visible_to(
+    review: TeamPendingReview,
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    new_since: datetime | None = None,
+) -> list[PendingGroup]:
+    """The review's queues as `user` sees them: the metrics queue drops metrics that read a table `user` cannot read."""
+    others = [group for group in review.groups if group.kind != PendingKind.METRICS]
+    metrics = _metrics_group(_visible_proposed_metrics(team, user, user_access_control), DEFAULT_SAMPLE_SIZE, new_since)
+    return [metrics, *others] if metrics.count else others
+
+
+def _visible_proposed_metrics(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
+    return metrics_visible_to_user(
         team,
         user,
         user_access_control,
         MetricListFilters(status=MetricStatus.PROPOSED),
         load_denied_tables=_denied_tables_for_proposed_metrics,
-    )
-    return PendingReviewCounts(
-        metrics=proposed_metrics.count(),
-        relationships=_proposed_relationships(team).count(),
-        certifications=_proposed_certifications(team).count(),
     )
 
 
@@ -158,13 +203,15 @@ class PendingReviewBuild:
     failed_team_ids: list[int]
 
 
-def build_org_pending_reviews(teams: list[Team], sample_size: int = DEFAULT_SAMPLE_SIZE) -> PendingReviewBuild:
+def build_org_pending_reviews(
+    teams: list[Team], sample_size: int = DEFAULT_SAMPLE_SIZE, new_since: datetime | None = None
+) -> PendingReviewBuild:
     """Teams with something to review, keyed by team id, and the teams that raised. Raises if all raised."""
     reviews: dict[int, TeamPendingReview] = {}
     failed_team_ids: list[int] = []
     for team in teams:
         try:
-            review = build_team_pending_review(team, sample_size)
+            review = build_team_pending_review(team, sample_size, new_since)
         except Exception as e:
             logger.warning("failed to build data catalog pending review", team_id=team.id, error=str(e))
             capture_exception(e, {"team_id": team.id})

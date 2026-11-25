@@ -694,6 +694,68 @@ class TestBillingManager(BaseTest):
         assert rule.enabled is True
         assert rule.version == 2
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_update_available_product_features_keeps_organization_changes_made_during_the_request(
+        self, mock_get: MagicMock
+    ):
+        organization = Organization.objects.get(pk=self.organization.pk)
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def deactivate_while_pending(*args: Any, **kwargs: Any) -> MagicMock:
+            Organization.objects.filter(pk=organization.pk).update(is_active=False, members_can_create_projects=False)
+            response = MagicMock(status_code=200)
+            response.json.return_value = {"available_product_features": [{"key": "surveys", "name": "Surveys"}]}
+            return response
+
+        mock_get.side_effect = deactivate_while_pending
+
+        BillingManager(license).update_available_product_features(organization)
+
+        # The save hooks read this instance, so it must carry the change made during the request.
+        assert organization.is_active is False
+        organization.refresh_from_db()
+        assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
+        assert organization.is_active is False
+        assert organization.members_can_create_projects is False
+
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, {"detail": "Unauthorized"}, BillingServiceResponseError),
+            ("not_found", 404, {"detail": "Not found"}, BillingServiceResponseError),
+            ("empty_list", 200, {"available_product_features": []}, ValueError),
+            ("missing_list", 200, {}, ValueError),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_update_available_product_features_keeps_stored_features_on_an_error_response(
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        expected_error: type[Exception],
+        mock_get: MagicMock,
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        stored_features = [{"key": "access_control", "name": "Access control"}]
+        Organization.objects.filter(pk=self.organization.pk).update(available_product_features=stored_features)
+        organization = Organization.objects.get(pk=self.organization.pk)
+        mock_get.return_value.status_code = status_code
+        mock_get.return_value.json.return_value = body
+
+        with self.assertRaises(expected_error):
+            BillingManager(license).update_available_product_features(organization)
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == stored_features
+
     @parameterized.expand(
         [
             ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),

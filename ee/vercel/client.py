@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
@@ -29,6 +30,12 @@ INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS = 300
 # wait between them, keep a token request under five seconds.
 INSTALLATION_TOKEN_ATTEMPTS = 2
 INSTALLATION_TOKEN_ATTEMPT_SECONDS = 2
+INSTALLATION_TOKEN_LOCK_PREFIX = "vercel_installation_token_lock:"
+# The lock outlives the holder's token request, retries included, so it never expires mid-request.
+INSTALLATION_TOKEN_LOCK_SECONDS = 5
+# A waiter gives up after two seconds and requests its own token, which keeps it inside the webhook budget.
+INSTALLATION_TOKEN_LOCK_POLLS = 20
+INSTALLATION_TOKEN_LOCK_POLL_SECONDS = 0.1
 
 token_cache = caches["vercel_installation_tokens"]
 
@@ -71,8 +78,11 @@ class InstallationTokenError(APIError):
 
     @property
     def is_transient(self) -> bool:
-        # A transport error carries no status. A 4xx is Vercel's answer and stays the same on a retry.
-        return self.code != "invalid_response" and (self.status_code is None or self.status_code >= 500)
+        # A transport error carries no status. Any other 4xx than a rate limit is Vercel's answer and stays the
+        # same on a retry.
+        return self.code != "invalid_response" and (
+            self.status_code is None or self.status_code == 429 or self.status_code >= 500
+        )
 
 
 @frozen
@@ -487,44 +497,94 @@ def _token_error_code(detail: str | None) -> str | None:
     return error if isinstance(error, str) else None
 
 
-def get_installation_access_token(installation_id: str, *, fresh: bool = False) -> str:
-    """Return a short-lived token for one Vercel installation, from the cache when it has time left.
-
-    ``fresh`` skips the cached token, for a caller that acts on a 401 or 403 from Vercel.
-    """
-    cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
+def _read_cached_token(cache_key: str, installation_id: str) -> str | None:
     try:
-        cached = None if fresh else token_cache.get(cache_key)
+        cached = token_cache.get(cache_key)
     except Exception:
         # The cache only saves a token request, so an outage costs a request, not the call.
         logger.warning("Vercel token cache read failed", installation_id=installation_id, integration="vercel")
-        cached = None
-    if cached:
+        return None
+    if not cached:
+        return None
+    try:
+        return decrypt_payload(cached, salt=INSTALLATION_TOKEN_CACHE_SALT, ttl=INSTALLATION_TOKEN_MAX_AGE_SECONDS)[
+            "access_token"
+        ]
+    except (InvalidToken, KeyError):
+        # An entry from an earlier client secret; the next write replaces it.
+        return None
+
+
+def _acquire_token_lock(lock_key: str, installation_id: str) -> bool:
+    try:
+        return bool(token_cache.add(lock_key, True, timeout=INSTALLATION_TOKEN_LOCK_SECONDS))
+    except Exception:
+        logger.warning("Vercel token lock failed", installation_id=installation_id, integration="vercel")
+        return True
+
+
+def _release_token_lock(lock_key: str) -> None:
+    try:
+        token_cache.delete(lock_key)
+    except Exception:
+        pass  # The lock expires on its own.
+
+
+def _wait_for_token_from_lock_holder(cache_key: str, lock_key: str, installation_id: str) -> str | None:
+    for _ in range(INSTALLATION_TOKEN_LOCK_POLLS):
+        time.sleep(INSTALLATION_TOKEN_LOCK_POLL_SECONDS)
+        if token := _read_cached_token(cache_key, installation_id):
+            return token
         try:
-            return decrypt_payload(cached, salt=INSTALLATION_TOKEN_CACHE_SALT, ttl=INSTALLATION_TOKEN_MAX_AGE_SECONDS)[
-                "access_token"
-            ]
-        except (InvalidToken, KeyError):
-            # An entry from an earlier client secret; the write below replaces it.
-            pass
+            if token_cache.get(lock_key) is None:
+                return None  # The holder stopped without a token, so this caller requests its own.
+        except Exception:
+            return None
+    return None
+
+
+def get_installation_access_token(installation_id: str, *, fresh: bool = False) -> str:
+    """Return a short-lived token for one Vercel installation, from the cache when it has time left.
+
+    Callers that miss the cache together wait for one token request instead of each sending their own.
+    ``fresh`` skips the cached token and the wait, for a caller that acts on a 401 or 403 from Vercel.
+    """
+    cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
+    lock_key = f"{INSTALLATION_TOKEN_LOCK_PREFIX}{installation_id}"
+    if not fresh:
+        if cached_token := _read_cached_token(cache_key, installation_id):
+            return cached_token
 
     client_id = settings.VERCEL_CLIENT_INTEGRATION_ID
     client_secret = settings.VERCEL_CLIENT_INTEGRATION_SECRET
     if not client_id or not client_secret:
         raise InstallationTokenError("Vercel integration not configured", code="not_configured")
 
-    token = VercelAPIClient(bearer_token=None, timeout=INSTALLATION_TOKEN_ATTEMPT_SECONDS).request_installation_token(
-        installation_id, client_id, client_secret
-    )
+    holds_lock = fresh or _acquire_token_lock(lock_key, installation_id)
+    if not holds_lock:
+        if holder_token := _wait_for_token_from_lock_holder(cache_key, lock_key, installation_id):
+            return holder_token
 
-    cache_timeout = min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
-    if cache_timeout > 0:
-        try:
-            token_cache.set(
-                cache_key,
-                encrypt_payload({"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False),
-                timeout=cache_timeout,
-            )
-        except Exception:
-            logger.warning("Vercel token cache write failed", installation_id=installation_id, integration="vercel")
-    return token.access_token
+    try:
+        token = VercelAPIClient(
+            bearer_token=None, timeout=INSTALLATION_TOKEN_ATTEMPT_SECONDS, source="installation_token"
+        ).request_installation_token(installation_id, client_id, client_secret)
+
+        cache_timeout = (
+            min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
+        )
+        if cache_timeout > 0:
+            try:
+                token_cache.set(
+                    cache_key,
+                    encrypt_payload(
+                        {"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False
+                    ),
+                    timeout=cache_timeout,
+                )
+            except Exception:
+                logger.warning("Vercel token cache write failed", installation_id=installation_id, integration="vercel")
+        return token.access_token
+    finally:
+        if holds_lock and not fresh:
+            _release_token_lock(lock_key)

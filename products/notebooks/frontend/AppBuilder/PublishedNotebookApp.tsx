@@ -8,6 +8,7 @@ import { LemonBanner, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
 import { cn } from 'lib/utils/css-classes'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
@@ -47,7 +48,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
             v.name,
             (value: unknown) => {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-                    changeInput(v.name, value)
+                    changeInput(v.name, v.type === 'list' ? [String(value)] : value)
                 }
             },
         ])
@@ -62,7 +63,8 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
             {layout.description && <p>{layout.description}</p>}
             <PublishedNotebookAppControls viewer={viewer} release={release} cells={cells} />
             {results?.variables.some(
-                (variable) => variable.value !== release.variables.find((v) => v.name === variable.name)?.value
+                (variable) =>
+                    !objectsEqual(variable.value, release.variables.find((v) => v.name === variable.name)?.value)
             ) &&
                 layout.blocks.some(
                     (block) =>
