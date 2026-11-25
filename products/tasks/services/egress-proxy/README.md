@@ -176,7 +176,7 @@ Selected TaskRun -> ordinary VM provision and agent launch
   maintained enrollment handoff -> revoke old execution, enroll a fresh relay
 ```
 
-Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+Enrollment uses the existing probe lifecycle. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. By default, agent routing and credentials stay unchanged; the Git opt-in below moves clone/fetch credentials outside the guest. Neither mode changes agentsh or the sandbox network policy.
 
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
@@ -452,8 +452,42 @@ Initial publication runs in its own activity while the workflow renews the execu
 Slow minting does not suspend renewal; cancellation or loss of authority stops publication and closes the execution.
 If optional publication exhausts its retries, enrollment continues without a Git grant and the existing refresh activity can retry later.
 Public sandbox repositories need no token; GitHub's rejection of a repository scope leaves it without a grant.
-Before removing guest credentials, enrollment and grant publication must precede
-the first clone, and Git must use a renewable run capability through the adapter.
+Set `route_git_reads: true` alongside `publish_git_read_grant`, `maintain_for_run`
+and `renew_relay_certificate` to use the adapter for the initial Git cohort. Deploy
+the proxy's `git_read` configuration, HTTPS grant endpoint and lookup key first.
+Only fresh, noninteractive, read-only runs with one pinned GitHub repository and
+the default image qualify; public sandbox repositories are excluded. Repository snapshots, baked clones, sandbox rotation
+and workflow continuation are disabled for this pilot.
+
+```text
+Create VM -> enroll relay -> publish repository grant -> install Git route -> clone
+Git -> credential helper reads current run capability -> private relay HTTP listener
+    -> mTLS regional proxy -> GitHub with worker-minted repository token
+```
+
+The parent waits for the grant and route before cloning. Enrollment failure stops
+the clone; there is no raw-token fallback. The protected `agent_egress_git_reads`
+run state keeps later refreshes from writing `GITHUB_TOKEN`, `GH_TOKEN` or a
+token-bearing remote. A resumed run carrying this flag is refused until resume
+support is implemented. Refresh still rotates the encrypted grant.
+
+The workflow negotiates Git routing through a versioned input before the worker
+removes guest tokens. Older histories keep their previous command sequence.
+Git configuration is installed in both the control and task filesystem views.
+Grant refresh also runs without a task-linked integration, and sibling token
+rotation cannot deliver a user token to a scoped run. If required relay maintenance
+ends unexpectedly, the parent fails the run; optional observation remains non-fatal.
+
+Git's credential helper reads the capability file on each authentication challenge.
+It returns it as the Basic password for that relay and repository only; it does not
+store it in Git config or remotes. The proxy accepts this form only on enabled Git
+routes and still requires the bound relay certificate. The guest-to-relay hop uses
+the provider's private HTTP bridge; relay-to-proxy traffic uses mTLS.
+
+This cohort supports clone/fetch, not pushes, `gh`, LFS or submodule credentials.
+Other credentials and direct sandbox networking retain their current behavior.
+Transfers remain bounded by the relay timeout and the grant's authorization lease;
+long transfers need a separate continued-authorization design before rollout.
 
 ```text
 Worker: publish(version, previous_version, repository, token, expiry)

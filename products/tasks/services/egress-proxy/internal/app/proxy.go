@@ -212,13 +212,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.metrics.Request(event.Outcome, time.Since(started))
 	}()
 	state := p.state.Load()
+	gitRoute := state.git != nil && strings.HasPrefix(r.URL.Path, "/v1/git/")
+	if gitRoute && len(r.Header.Values("Authorization")) == 1 {
+		if username, capability, ok := r.BasicAuth(); ok && username == "egress" && capability != "" && len(capability) <= 8192 {
+			r = r.Clone(r.Context())
+			r.Header.Set("Authorization", "Bearer "+capability)
+		}
+	}
 	registration, err := state.verifier.Authorize(currentPeer(r, state.tls.ClientCAs))
 	if errors.Is(err, identity.ErrUnavailable) || !certificateActive(state.tls.Certificates[0].Leaf) {
 		event.Outcome, event.Status = "unavailable", http.StatusServiceUnavailable
 	} else if err == nil {
 		event.TeamID, event.RunID, event.ExecutionID = registration.TeamID, registration.RunID, registration.ExecutionID
 		event.ActorID, event.ActorEpoch = registration.ActorID, registration.ActorEpoch
-		if state.git != nil && strings.HasPrefix(r.URL.Path, "/v1/git/") {
+		if gitRoute {
 			admitted = true
 			serveGit(w, r, state.git, registration, record, &event)
 			return
@@ -242,6 +249,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	record.Emit(event)
 	admitted = true
+	if gitRoute && event.Status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Basic realm="agent-egress"`)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(event.Status)
 }
