@@ -15,8 +15,8 @@ SCOUT_AUDIENCE = "scout"
 INTERNAL_AUDIENCE = "internal"
 SERVED_AUDIENCES = (CUSTOMER_AUDIENCE, SCOUT_AUDIENCE)
 AUDIENCES = (*SERVED_AUDIENCES, INTERNAL_AUDIENCE)
-# The PostHog-run agents that read skills through `learn`. The MCP server knows the same names in
-# `services/mcp/src/skills/served-skills.ts`, and it refuses the whole served list if one entry names another.
+# The PostHog-run agents that read skills through `learn`. No caller identifies as any other name, so
+# a skill limited to a misspelled consumer would be served to nobody.
 KNOWN_CONSUMERS = ("slack", "posthog_ai")
 FIX_COMMAND = "hogli lint:skills -- --fix"
 
