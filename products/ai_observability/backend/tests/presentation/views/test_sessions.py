@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -155,6 +156,20 @@ class TestSessionViewSet(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, read: str, body: dict[str, object], scopes: list[str] | None, status: int
     ) -> None:
         assert self._post(read, body, scopes=scopes).status_code == status
+
+    @parameterized.expand([("turns",), ("previews",), ("people",)])
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.ai_observability.backend.presentation.views.trace_page.ConversationReadBurstThrottle.rate",
+        new="1/minute",
+    )
+    def test_throttles_a_browser_session_past_its_budget(self, read: str, _rate_limit: MagicMock) -> None:
+        def request() -> int:
+            if read == "turns":
+                return self._get(self._turns_url("missing")).status_code
+            return self._post(read, {"session_ids": ["missing"]}).status_code
+
+        assert [request(), request()][1] == 429
 
 
 class TestSessionRequestParsing(SimpleTestCase):

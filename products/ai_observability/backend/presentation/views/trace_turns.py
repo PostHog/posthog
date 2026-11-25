@@ -6,11 +6,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 
 from ...facade import api, contracts
-from .trace_page import PAGE_BOUNDS_BAD_REQUEST, TraceTurnsRequestSerializer
+from .trace_page import PAGE_BOUNDS_BAD_REQUEST, ConversationReadThrottled, TraceTurnsRequestSerializer
 from .trace_resource import THROTTLED_RESPONSE, TraceResourceViewSet
 
 
-class TraceTurnsViewSet(TraceResourceViewSet):
+class TraceTurnsViewSet(ConversationReadThrottled, TraceResourceViewSet):
     scope_object_read_actions = ["create"]
 
     @validated_request(

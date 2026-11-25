@@ -2,10 +2,33 @@ from typing import Any
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
+from rest_framework.throttling import BaseThrottle
+
+from posthog.rate_limit import _UserBucketRateThrottle
 
 from ...facade import api
 
 PAGE_BOUNDS_BAD_REQUEST = OpenApiResponse(description="The trace IDs or the page bounds are invalid.")
+
+
+# A conversation loads a page of up to 20 turns per request as it scrolls, so these rates clear fast scrolling by one
+# person and stop a scripted loop of reads that each scan the events of a page of traces.
+class ConversationReadBurstThrottle(_UserBucketRateThrottle):
+    scope = "ai_conversation_read_burst"
+    rate = "240/minute"
+
+
+class ConversationReadSustainedThrottle(_UserBucketRateThrottle):
+    scope = "ai_conversation_read_sustained"
+    rate = "2400/hour"
+
+
+class ConversationReadThrottled:
+    """A view whose reads spend the caller's conversation budget: one per personal API key, or per user for browser
+    sessions, which the default throttles leave unlimited."""
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        return [*super().get_throttles(), ConversationReadBurstThrottle(), ConversationReadSustainedThrottle()]  # type: ignore[misc]
 
 
 class TracePageRequestSerializer(serializers.Serializer):
