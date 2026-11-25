@@ -1,4 +1,4 @@
-"""Checks that the experiments API runs on its input before it hands the input to a write."""
+"""Input checks that the experiments API runs before it hands the input to a write."""
 
 from products.experiments.backend.models.experiment import ExperimentHoldout
 

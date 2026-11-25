@@ -538,19 +538,18 @@ class EnterpriseExperimentsViewSet(
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
-        # and retry precisely.
-        try:
-            return super().update(request, *args, **kwargs)
-        except ExperimentVersionConflict as conflict:
-            body: dict[str, Any] = {"detail": conflict.detail, "current_version": conflict.current_version}
-            if conflict.conflicting_fields:
-                body["conflicting_fields"] = conflict.conflicting_fields
-            if conflict.conflicting_metric_uuids:
-                body["conflicting_metric_uuids"] = conflict.conflicting_metric_uuids
-            return Response(body, status=409)
+        return super().update(request, *args, **kwargs)
 
     def handle_exception(self, exc: Exception) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely.
+        if isinstance(exc, ExperimentVersionConflict):
+            body: dict[str, Any] = {"detail": exc.detail, "current_version": exc.current_version}
+            if exc.conflicting_fields:
+                body["conflicting_fields"] = exc.conflicting_fields
+            if exc.conflicting_metric_uuids:
+                body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
+            return Response(body, status=409)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):

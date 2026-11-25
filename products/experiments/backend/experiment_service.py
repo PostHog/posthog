@@ -71,6 +71,7 @@ from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
+from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
@@ -114,7 +115,6 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
