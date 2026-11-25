@@ -1124,9 +1124,14 @@ class TestQueryBatchBucketedRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             return {"target": {"refId": ref, "language": "hogql", "query": query, "bucketed": bucketed}, "time": time}
 
         # Bucketed runs never write the whole-range cache entry, so the warm run reads the bucket store.
-        cold, unqualified = self._lines(
-            [panel("bucketed", sql, True), panel("no_filter", "select count() from events where {filters}", True)]
-        )
+        with patch("products.dashboards.backend.v2.query_batch.process_query_dict", wraps=process_query_dict) as runs:
+            cold, unqualified = self._lines(
+                [panel("bucketed", sql, True), panel("no_filter", "select count() from events where {filters}", True)]
+            )
+        # Each span runs under the access snapshot its store key was planned with, not one built later.
+        span_runs = [call for call in runs.call_args_list if call.args[1]["filters"]["dateRange"].get("explicitDate")]
+        self.assertGreater(len(span_runs), 0)
+        self.assertTrue(all(call.kwargs["user_access_control"] is not None for call in span_runs))
         (warm,) = self._lines([panel("bucketed", sql, True)])
         (whole,) = self._lines([panel("whole", sql, False)])
 

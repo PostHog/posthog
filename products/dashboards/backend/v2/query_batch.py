@@ -537,6 +537,7 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape)
 def _fetch_span(
     team: Team,
     user: User,
+    user_access_control: Optional[UserAccessControl],
     dashboard_id: Optional[int],
     query: ResolvedQuery,
     query_id: Optional[str],
@@ -557,6 +558,8 @@ def _fetch_span(
         limit_context=_limit_context(query.query),
         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         user=user,
+        # The snapshot the store key was planned under, so a span never runs with broader access than its key says.
+        user_access_control=user_access_control,
         query_id=query_id,
         dashboard_id=dashboard_id,
     )
@@ -1158,7 +1161,7 @@ class QueryBatch:
         # As HogQL prints it: its own LIMIT, held to the context's maximum.
         row_cap = None if checked.limit is None else min(checked.limit, get_max_limit_for_context(limit_context))
         limit = get_default_limit_for_context(limit_context) if row_cap is None else row_cap
-        fetch = partial(_fetch_span, team, self._user, self._dashboard_id, query, query_id)
+        fetch = partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, query_id)
         answer = assemble(
             query=checked,
             grid=grid,
@@ -1178,7 +1181,7 @@ class QueryBatch:
             date_from=resolved.date_from,
             date_to=date_to,
             now=started,
-            fetch=partial(_fetch_span, team, self._user, self._dashboard_id, query, None),
+            fetch=partial(_fetch_span, team, self._user, self._access_control, self._dashboard_id, query, None),
             store_key=key,
             on_done=connections.close_all,
         )
