@@ -7,10 +7,7 @@
     </p>
     <ul>
         {% for step in steps %}
-            <li>
-                <b>{{ step.name }}</b>:
-                {% if step.reason == "unverified" %}its sender's domain isn't verified yet.{% else %}its sender can't be found.{% endif %}
-            </li>
+            <li><b>{{ step.name }}</b>: {% if step.reason == "unverified" %}its sender's domain isn't verified yet.{% else %}its sender can't be found.{% endif %}</li>
         {% endfor %}
     </ul>
     <p><b>How to fix it</b></p>
