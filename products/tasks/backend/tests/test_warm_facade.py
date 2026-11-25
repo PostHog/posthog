@@ -503,14 +503,24 @@ class TestWarmTaskSandbox(APIBaseTest):
         ]
     )
     def test_births_repo_less_report_discussion_draft_without_consuming_the_report_cap(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
 
         report = SignalReport.objects.create(team=self.team)
+        default_image = SandboxCustomImage.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="Implementation image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="implementation-image:v1",
+        )
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image.id)
         captured: dict[str, Any] = {}
 
         def fake_warm(self_warmer, **kwargs):
             captured.update(kwargs)
-            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            run = self_warmer.task.create_run(
+                mode="interactive", extra_state={**kwargs["extra_state"], "await_user_message": True}
+            )
             return WarmResult(run=run, just_created=True)
 
         report_kwargs: dict[str, Any] = {
@@ -535,6 +545,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.github_integration_id == (self.integration.id if entitled else None)
         assert captured["extra_state"]["run_source"] == "signal_report"
         assert captured["extra_state"]["signal_report_id"] == str(report.id)
+        assert captured["extra_state"].get("custom_image_id") == (str(default_image.id) if entitled else None)
         assert (
             SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals") == []
         )
@@ -842,7 +853,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             self.team.id, self.user.id, validated_data=validated, client_provenance=client_provenance
         )
 
-    def _report_warm_run(self, report, *, github_integration: Integration | None = None) -> tuple[Task, TaskRun]:
+    def _report_warm_run(
+        self, report, *, github_integration: Integration | None = None, custom_image_id: str | None = None
+    ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
             title="",
@@ -862,6 +875,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 "branch": None,
                 "run_source": "signal_report",
                 "signal_report_id": str(report.id),
+                **({"custom_image_id": custom_image_id} if custom_image_id else {}),
             },
             branch=None,
         )
@@ -887,10 +901,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         ]
     )
     def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
 
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
+        default_image = SandboxCustomImage.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name="Implementation image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="implementation-image:v1",
+        )
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image.id)
+        warm_task, _run = self._report_warm_run(
+            report,
+            github_integration=self.integration if entitled else None,
+            custom_image_id=str(default_image.id) if entitled else None,
+        )
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, code_access_allowed=entitled)

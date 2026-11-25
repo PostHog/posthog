@@ -120,6 +120,29 @@ function checkIntakeVerdict(card: Card): string[] {
     ]
 }
 
+const INTAKE_TOPIC_MOVES =
+    "convergence reads each intake group's whole lag, so an intake topic that changes between cards keeps the old topic's lag"
+const REFUSED_INTAKE_SETTINGS: Record<string, string> = {
+    CDP_INTAKE_DLQ_DRAIN:
+        'the reset never seeks the drain groups and convergence never reads them, so a drain replays the dead-letter topic outside the verdict',
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: INTAKE_TOPIC_MOVES,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: INTAKE_TOPIC_MOVES,
+}
+
+function checkIntakeProfile(profile: Profile): string[] {
+    return [
+        ...Object.keys(profile.settings)
+            .filter((name) => Object.hasOwn(REFUSED_INTAKE_SETTINGS, name))
+            .map((name) => `profile.settings.${name}: ${REFUSED_INTAKE_SETTINGS[name]}`),
+        ...Object.entries(profile.replicas)
+            .filter(([role, replicas]) => role.startsWith('cdp-intake-') && (replicas ?? 1) > 1)
+            .map(
+                ([role]) =>
+                    `profile.replicas.${role}: each intake topic has one partition, so a second replica sits idle; run one`
+            ),
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -298,6 +321,7 @@ function check(
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
                   ...checkIntakeReplicaValves(card, loaded.profile),
+                  ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),

@@ -5,7 +5,7 @@ import { loadImageExportDialog } from 'lib/components/ImageSize/loadImageExportD
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { captureElementAsPng, copyElementImageToClipboard } from 'lib/utils/copyImageToClipboard'
+import { captureElementAsImage, copyElementImageToClipboard } from 'lib/utils/copyImageToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { retryImport } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -139,7 +139,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
 
             actions.setIsCapturing(true)
             try {
-                const captured = await captureElementAsPng(element, target.excludeSelector)
+                const captured = await captureElementAsImage(element, target.excludeSelector)
                 const { resizeImageBlob } = await retryImport(() => import('lib/components/ImageSize/resizeImageBlob'))
                 const blob = await resizeImageBlob(captured, size)
                 downloadFile(toFile(target, blob))

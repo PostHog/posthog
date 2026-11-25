@@ -16,7 +16,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -712,6 +712,25 @@ class ExperimentValidationError(Exception):
         self.field = field
 
 
+class ExperimentVersionConflict(Exception):
+    """Raised when a stale write raced a concurrent update and could not be applied safely. The detail is written for
+    the person who sent the write, so a caller at an HTTP boundary can return it as a 409."""
+
+    def __init__(
+        self,
+        detail: str = "This experiment changed since you loaded it. Review the latest changes and try again.",
+        *,
+        current_version: int,
+        conflicting_fields: list[str] | None = None,
+        conflicting_metric_uuids: list[str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.current_version = current_version
+        self.conflicting_fields = conflicting_fields or []
+        self.conflicting_metric_uuids = conflicting_metric_uuids or []
+
+
 class LegacyMigrationError(Exception):
     """Raised when a legacy experiment can't move onto the new engine. The message is written for the person who asked
     for the migration."""
@@ -919,6 +938,142 @@ class ExperimentRef:
     id: int
     team_id: int
     created_by_id: int | None
+
+
+@frozen
+class ExperimentFlag:
+    """The feature flag of an experiment, with the fields of the minimal flag shape of the feature flags API."""
+
+    id: int
+    team_id: int
+    name: str
+    # The stored key. A soft-deleted flag keeps its tombstone suffix here.
+    key: str
+    filters: dict[str, Any]
+    deleted: bool
+    active: bool
+    ensure_experience_continuity: bool | None
+    version: int | None
+    evaluation_runtime: str | None
+    bucketing_identifier: str | None
+    evaluation_contexts: tuple[str, ...]
+
+
+@frozen
+class ExperimentHoldoutView:
+    """The holdout of an experiment, as the experiment API shows it."""
+
+    id: int
+    name: str
+    description: str | None
+    filters: list[dict[str, Any]]
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class ExperimentSavedMetricLinkView:
+    """A shared metric that an experiment uses, as the experiment API shows it.
+
+    `query` names each action by its current name, and carries the calculation key of the link as its
+    `fingerprint`. `effective_query` is that query with the overrides from `metadata` applied. It is None when
+    the query is not an `ExperimentMetric` of a known metric type, because only those take overrides.
+    """
+
+    id: int
+    experiment_id: int
+    saved_metric_id: int
+    name: str
+    metadata: dict[str, Any]
+    query: dict[str, Any] | None
+    effective_query: dict[str, Any] | None
+    created_at: datetime
+
+
+@frozen
+class ExperimentBasic:
+    """An experiment, as the experiments list shows it.
+
+    `parameters` holds the stored parameters with the flag config keys replaced by the current config of the
+    feature flag, or of the rule for an experiment on a flag rule.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    # The key of the flag without the tombstone suffix of a soft-deleted flag.
+    feature_flag_key: str
+    feature_flag: ExperimentFlag
+    holdout: ExperimentHoldoutView | None
+    exposure_cohort_id: int | None
+    parameters: dict[str, Any]
+    running_time_calculation: dict[str, Any] | None
+    excluded_variants: tuple[str, ...] | None
+    archived: bool
+    deleted: bool | None
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    type: str | None
+    conclusion: str | None
+    conclusion_comment: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    # True when an inline or shared metric is an ExperimentTrendsQuery or an ExperimentFunnelsQuery.
+    is_legacy: bool
+    tags: tuple[str, ...]
+
+
+@frozen
+class ExperimentDetail(ExperimentBasic):
+    """An experiment, as the experiment API shows one experiment. The inline metrics name each action by its
+    current name."""
+
+    feature_flag_rule_id: "UUID | None"
+    holdout_id: int | None
+    filters: dict[str, Any]
+    secondary_metrics: list[dict[str, Any]] | None
+    metrics: list[dict[str, Any]] | None
+    metrics_secondary: list[dict[str, Any]] | None
+    saved_metrics: tuple[ExperimentSavedMetricLinkView, ...]
+    exposure_criteria: dict[str, Any] | None
+    stats_config: dict[str, Any] | None
+    scheduling_config: dict[str, Any] | None
+    primary_metrics_ordered_uuids: list[str] | None
+    secondary_metrics_ordered_uuids: list[str] | None
+    only_count_matured_users: bool
+    version: int | None
+    flag_cleanup_task_id: "UUID | None"
+    repository: str | None
+    can_freeze_exposure: bool
+    # The event that exposures are counted on when the experiment configures no custom exposure event.
+    resolved_exposure_event: str
+
+
+@frozen
+class ExperimentListFilters:
+    """The query parameters of the experiments list.
+
+    Each value is the raw text of the query parameter with the same name, so the list parses and refuses it
+    the way the API does.
+    """
+
+    status: str | None = None
+    created_by_id: str | None = None
+    archived: str | None = None
+    feature_flag_id: str | None = None
+    feature_flag_ids: str | None = None
+    prompt_name: str | None = None
+    event: str | None = None
+    tags: str | None = None
+    excluded_tags: str | None = None
+    search: str | None = None
+    order: str | None = None
 
 
 class WebExperimentNotFound(Exception):
@@ -1199,6 +1354,12 @@ class SavedMetricListFilters:
     search_terms: tuple[str, ...] = ()
     # Keeps the metrics whose query references this event, directly or through an action.
     event: str | None = None
+    # Keeps the metrics that any of these users created.
+    created_by_ids: tuple[int, ...] = ()
+    # Keeps the metrics that carry at least one of these tags.
+    tags: tuple[str, ...] = ()
+    # Keeps the metrics of this type. `funnel` also keeps legacy funnels, and `trend` keeps legacy trends.
+    metric_type: SharedMetricType | None = None
 
 
 SavedMetricWriteField = Literal["name", "description", "query", "tags"]
