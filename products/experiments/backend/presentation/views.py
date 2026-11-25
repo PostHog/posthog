@@ -74,7 +74,7 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.api import (
     get_experiment_health,
     get_running_time_target,
@@ -82,10 +82,15 @@ from products.experiments.backend.facade.api import (
 )
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
+    ExperimentVersionConflict,
     LegacyMigrationError,
     RunningTimeMode,
 )
-from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
+from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
+from products.experiments.backend.facade.legacy_migration import (
+    experiment_uses_legacy_metrics,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.facade.warehouse_native_access import (
@@ -96,13 +101,11 @@ from products.experiments.backend.llm_metric_templates import build_template, li
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
-    experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
@@ -538,14 +541,18 @@ class EnterpriseExperimentsViewSet(
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
-        # and retry precisely; the default exception handler would flatten it to a plain string.
-        try:
-            return super().update(request, *args, **kwargs)
-        except ExperimentVersionConflict as err:
-            return Response(err.response_data(), status=err.status_code)
+        return super().update(request, *args, **kwargs)
 
     def handle_exception(self, exc: Exception) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely.
+        if isinstance(exc, ExperimentVersionConflict):
+            body: dict[str, Any] = {"detail": exc.detail, "current_version": exc.current_version}
+            if exc.conflicting_fields:
+                body["conflicting_fields"] = exc.conflicting_fields
+            if exc.conflicting_metric_uuids:
+                body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
+            return Response(body, status=409)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):
@@ -1323,7 +1330,7 @@ class EnterpriseExperimentsViewSet(
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -1370,7 +1377,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
-        if not experiment_has_legacy_metrics(experiment):
+        if not experiment_uses_legacy_metrics(team=self.team, experiment_id=experiment.id):
             raise ValidationError(
                 "This experiment already uses the new experiments engine, so there is nothing to migrate."
             )
@@ -1504,7 +1511,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Copying is not supported for experiments using legacy metrics."},
                 status=400,

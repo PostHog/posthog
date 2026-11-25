@@ -1,6 +1,6 @@
 """How a person feels about the PostHog assistant, read from the message an answer replies to.
 
-Behind ``slack-app-frustration-response``, every answered message is classified, and each verdict is captured.
+Every answered message is classified, and each verdict is captured.
 A ``not_happy`` or ``frustrated`` message gets ``UNHAPPY_REACTION``. A ``frustrated`` message also gets a private
 GIF when ``slack-app-frustration-gif`` is on. The interview invitation reuses the verdict, so the model runs once
 per answer.
@@ -22,10 +22,7 @@ from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_frustration_response_enabled,
-    slack_app_frustration_gif_urls,
-)
+from products.slack_app.backend.feature_flags import slack_app_frustration_gif_urls
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY
@@ -174,10 +171,10 @@ SLACK_CALL_TIMEOUT_SECONDS = 5
 GIF_ALT_TEXT = "A calming GIF"
 # Used when the GIF flag is on but its payload names no GIFs.
 DEFAULT_FRUSTRATION_GIF_URLS: tuple[str, ...] = (
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnozMjJ4MzRiZjNtaTNvb3NoMTVlODFpaHZrZHM4MnExZms0Mm5xYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/CJZVh75FehozK/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcXlheHR2dXZtY3l2Y3BzNDJyODFtdjk3YnpvNDlnYnVlY3EyY3VodiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o6wNLivpQhzAEdYhq/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3psNG16cnlvbWtieDhlZjhlbTJjeHB2MnFlMDB6NG45OTQ3eXM1ZiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ijfxMxbdvLhM8PwHQF/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnozMjJ4MzRiZjNtaTNvb3NoMTVlODFpaHZrZHM4MnExZms0Mm5xYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7OfNbBQHgxYVG/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExemI3NGh0ZnJoMTJsZ3F2dWJ6ZmhuYjM1MGN0bHIzMjRoaXFueWgxdSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/AhblVIiTubL5k7utcx/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExemI3NGh0ZnJoMTJsZ3F2dWJ6ZmhuYjM1MGN0bHIzMjRoaXFueWgxdSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/tJibdDBnGmFr2/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3dWtpaHFyeGlvZGpuMzZjZXFudnRqOG1tYmRna2luajV2Y3l1NjNlbyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/XEVIW3pfo73IKCCKHM/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExaXJjYWc2ZTQ0dGRpdjBvNWZnanFwenB6c2w4Z2djNWVtN2V5OXo1ZCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/CJZVh75FehozK/giphy.gif",
 )
 
 
@@ -201,13 +198,13 @@ class SentimentResponseRequest:
 
 
 def respond_to_sentiment(request: SentimentResponseRequest) -> SentimentResult | None:
-    """React to how the person feels. ``None`` means no attempt, because the flag is off or there is no message."""
+    """React to how the person feels. ``None`` means no attempt, because there is no message."""
     # Deferred like the other ee imports in this product, so ee stays off the import path of every caller.
     from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
     integration = request.integration
     distinct_id = request.posthog_user.distinct_id if request.posthog_user is not None else None
-    if not request.person_message or not is_slack_app_frustration_response_enabled(integration, distinct_id):
+    if not request.person_message:
         return None
     try:
         verdict = classify_sentiment(

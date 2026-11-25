@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SessionRecordingType } from '~/types'
 
-export function SetPlaybackSpeed(): JSX.Element {
+export function SetPlaybackSpeed({ short = false }: { short?: boolean }): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
@@ -44,19 +44,21 @@ export function SetPlaybackSpeed(): JSX.Element {
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
-            label={`Speed ${speed}x`}
+            label={short ? `${speed}x` : `Speed ${speed}x`}
+            tooltip={short ? 'Playback speed' : undefined}
         />
     )
 }
 
-export function InspectDOM(): JSX.Element {
+export function InspectDOM({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <SettingsButton
             title="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
-            label="Inspect DOM"
+            label={iconOnly ? undefined : 'Inspect DOM'}
+            aria-label={iconOnly ? 'Inspect DOM' : undefined}
             data-attr="explore-dom"
             onClick={openExplorer}
             disabledReason={

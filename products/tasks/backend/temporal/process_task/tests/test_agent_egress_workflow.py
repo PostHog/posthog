@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from temporalio import activity
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -355,13 +355,20 @@ async def test_enrollment_outlives_diagnostics(
             activities.outcome = outcome
             if outcome == "cancelled":
                 await handle.cancel()
-            if outcome in ("cancelled", "run_cancelled", "renewal_failed"):
+            if outcome in ("cancelled", "renewal_failed"):
                 with pytest.raises(WorkflowFailureError) as failure:
                     await asyncio.wait_for(handle.result(), timeout=15)
                 expected = ActivityError if outcome == "renewal_failed" else CancelledError
                 assert isinstance(failure.value.cause, expected)
             else:
                 assert await asyncio.wait_for(handle.result(), timeout=15) == ({} if probe_fails else {204: 3})
+            assert (await handle.describe()).status == (
+                WorkflowExecutionStatus.CANCELED
+                if outcome == "cancelled"
+                else WorkflowExecutionStatus.FAILED
+                if outcome == "renewal_failed"
+                else WorkflowExecutionStatus.COMPLETED
+            )
             if outcome == "completed":
                 assert (await environment.get_current_time()).timestamp() >= expires_at
                 assert activities.renewal_attempts >= 3
@@ -428,7 +435,9 @@ async def test_workflow_cleans_up_its_execution(
                     await handle.cancel()
                 elif outcome in ("renewal_failed", "renewal_retry", "run_cancelled", "run_completed", "run_failed"):
                     await environment.sleep(11)
-                if outcome in ("run_completed", "run_failed") and (not cleanup_fails or outcome == "run_failed"):
+                if outcome in ("run_completed", "run_failed", "run_cancelled") and (
+                    not cleanup_fails or outcome != "run_completed"
+                ):
                     assert await asyncio.wait_for(handle.result(), timeout=15) == {}
                 elif (
                     outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails
@@ -437,9 +446,9 @@ async def test_workflow_cleans_up_its_execution(
                 else:
                     with pytest.raises(WorkflowFailureError) as failure:
                         await asyncio.wait_for(handle.result(), timeout=15)
-                    expected = CancelledError if outcome in ("cancelled", "run_cancelled") else ActivityError
+                    expected = CancelledError if outcome == "cancelled" else ActivityError
                     assert isinstance(failure.value.cause, expected)
-                    if outcome not in ("cancelled", "run_cancelled"):
+                    if outcome != "cancelled":
                         assert isinstance(failure.value.cause, ActivityError)
                         assert isinstance(failure.value.cause.cause, ApplicationError)
                         expected_message = {
@@ -448,6 +457,17 @@ async def test_workflow_cleans_up_its_execution(
                             "prepare_failed": "Provider write failed",
                         }.get(outcome, "Provider cleanup unavailable")
                         assert failure.value.cause.cause.message == expected_message
+                assert (await handle.describe()).status == (
+                    WorkflowExecutionStatus.CANCELED
+                    if outcome == "cancelled"
+                    else WorkflowExecutionStatus.COMPLETED
+                    if outcome in ("run_cancelled", "run_failed")
+                    or (
+                        outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout", "run_completed")
+                        and not cleanup_fails
+                    )
+                    else WorkflowExecutionStatus.FAILED
+                )
                 if outcome == "probe_rejected":
                     assert activities.probe_attempts == 1
                 assert activities.prepare_attempts == (2 if outcome in ("prepare_retry", "prepare_timeout") else 1)
