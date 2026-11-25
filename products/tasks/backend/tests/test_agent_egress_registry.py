@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEAS
 from products.tasks.backend.logic.services.agent_egress_git import (
     AgentEgressGitGrants,
     GitGrantConflict,
+    GitGrantInvalidCredential,
     GitReadCredential,
 )
 from products.tasks.backend.logic.services.connection_token import (
@@ -198,12 +199,15 @@ class TestAgentEgressRegistry(TestCase):
         credential = GitReadCredential(
             repository="example/repo", token="synthetic-git-token", expires_at=timezone.now() + timedelta(seconds=20)
         )
-        grants.publish(**scope, credential=credential, version=uuid4(), previous_version=None)
+        version = uuid4()
+        grants.publish(**scope, credential=credential, version=version, previous_version=None)
         self.clock.shift(timedelta(seconds=15))
         self.registry.renew(**scope)
         self.clock.shift(timedelta(seconds=5))
         self.assertIsNotNone(self.registry.lookup(**scope))
         self.assertIsNone(grants.lookup(**scope, repository="example/repo"))
+        with self.assertRaises(GitGrantInvalidCredential):
+            grants.publish(**scope, credential=credential, version=uuid4(), previous_version=version)
 
     def test_lookup_does_not_load_team_event_metadata(self) -> None:
         self.register()
