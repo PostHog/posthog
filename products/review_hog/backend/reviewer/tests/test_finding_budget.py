@@ -2,6 +2,7 @@ import pytest
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.constants import DEVEX_LENS
 from products.review_hog.backend.reviewer.finding_budget import (
     FINDING_BUDGET,
     ROUND_CAP,
@@ -15,11 +16,18 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 
 
 def _pair(
-    run_index: int, priority: IssuePriority, *, valid: bool = True
+    run_index: int, priority: IssuePriority, *, valid: bool = True, source: str = "flash-single-agent"
 ) -> tuple[ReviewIssueFinding, ValidationVerdict | None]:
-    key = f"r{run_index}:a.py:1:flash-single-agent:{priority.value}-{valid}"
+    key = f"r{run_index}:a.py:1:{source}:{priority.value}-{valid}"
     finding = ReviewIssueFinding(
-        issue_key=key, run_index=run_index, title="t", file="a.py", body="b", suggestion="", priority=priority
+        issue_key=key,
+        run_index=run_index,
+        title="t",
+        file="a.py",
+        body="b",
+        suggestion="",
+        priority=priority,
+        source_perspective=source,
     )
     return finding, ValidationVerdict(issue_key=key, is_valid=valid, argumentation="a")
 
@@ -48,6 +56,7 @@ def test_budget_counts_only_findings_that_published_turns_posted() -> None:
         _pair(1, IssuePriority.MUST_FIX, valid=False),
         _pair(2, IssuePriority.CONSIDER),
         _pair(2, IssuePriority.MUST_FIX),
+        _pair(2, IssuePriority.MUST_FIX, source=DEVEX_LENS.source),
         _pair(3, IssuePriority.SHOULD_FIX),
     ]
     # Turn 2 gated at must_fix, so its consider finding stayed off the PR; turn 3 never published.

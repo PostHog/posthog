@@ -1,10 +1,13 @@
 import {
     IconApps,
     IconChat,
+    IconDecisionTree,
+    IconDatabase,
     IconFlag,
     IconGear,
     IconHome,
     IconPeople,
+    IconPulse,
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
@@ -34,13 +37,14 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
-    release: { label: 'Releases', title: 'Releases', icon: <IconFlag /> },
+    release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
+    automate: { label: 'Automate', title: 'Automate', icon: <IconDecisionTree /> },
+    data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
-
-export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {
     return isMac() ? '⌘B' : 'Ctrl+B'

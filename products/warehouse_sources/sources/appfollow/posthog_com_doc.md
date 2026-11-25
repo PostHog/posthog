@@ -21,7 +21,7 @@ import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 [AppFollow](https://appfollow.io) aggregates App Store and Google Play data for app analytics, review
 management, and app store optimization. This connector pulls your tracked apps, their reviews, their
 rating history, and their app store optimization data (category ranks, tracked keyword positions,
-release history, and review statistics) into the PostHog Data warehouse, where you can join them with
+release history, App Store download reports, review statistics, and reply statistics) into the PostHog Data warehouse, where you can join them with
 product analytics, build insights, and monitor review sentiment over time.
 
 ## Prerequisites
@@ -46,7 +46,10 @@ through the `X-AppFollow-API-Token` header.
 <SyncModes />
 
 The `reviews` table syncs incrementally, and `ratings_history` and `reviews_stats` sync incrementally by
-date, so after the first backfill only new rows are fetched. Every other table syncs as full refresh.
+date, so after the first backfill only new rows are fetched.
+The review analytics and reply tables (`reviews_semantic`, `aso_reports`, `reviews_ratings_stats`, `reviews_replies_stats`, `reviews_replies_speed`, and `reviews_replies_count`) also sync incrementally by date.
+Each of their syncs reads the last 7 days again, because AppFollow keeps updating these statistics after the day they describe.
+Every other table syncs as full refresh.
 
 New sources use AppFollow API v3, where the `reviews` table syncs on each review's date. API v3 has no
 way to ask for recently changed reviews, so an edit to a review older than the last sync is not picked up.
@@ -68,6 +71,13 @@ Every table except `app_collections`, `app_lists`, and `users` is queried per ap
 `ext_id`, which is discovered by walking your collections (`app_collections`) and their apps
 (`app_lists`). Because those requests cost credits, only `app_collections`, `app_lists`, and `reviews`
 are on by default — enable the rest in the table picker if you want them.
+
+Some tables read a limited history on their first sync, because AppFollow charges for each day they cover:
+
+- `reviews_ratings_stats`, `reviews_replies_stats`, and `reviews_replies_speed` take one request per app per day, so their first sync reads the last 30 days.
+- `aso_reports` and `reviews_replies_count` read the last year.
+
+`reviews_semantic` needs the AppFollow Advanced API add-on, and `aso_reports` needs the App Store Connect integration in AppFollow.
 
 `app_versions` needs a store country, which AppFollow does not always record on an app. We use the
 country your collection tracks, and fall back to `us` when your collection does not name one.

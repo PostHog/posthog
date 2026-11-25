@@ -419,7 +419,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         defaultAutostartPriority: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): SignalReportPriority =>
-                teamConfig?.default_autostart_priority ?? 'P4',
+                teamConfig?.default_autostart_priority ?? 'P2',
         ],
         baseBranchOverrides: [
             (s) => [s.teamConfig],

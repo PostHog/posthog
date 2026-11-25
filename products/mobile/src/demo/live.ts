@@ -1,5 +1,7 @@
 import type { LiveQueryKey } from '@/api/live'
+import type { LivePreference } from '@/features/live/livePreference'
 import { type LiveProjectState, UNKNOWN_BREAKDOWN } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS, type LiveTrafficFilters } from '@/model/liveTrafficFilters'
 
 // Live demo traffic for hedgebox.net, a fictional file-sharing site. Every id, path and number is invented. A seeded
 // generator writes events up to the moment of each read, and each read answers in the shape of its live query, so demo
@@ -14,6 +16,7 @@ const MAX_DEPARTED_VISITORS = 100
 export const LIVE_DEMO_READ_MS = 350
 
 type Weights = Record<string, number>
+export type LiveDemoState = LiveProjectState | 'mixed'
 
 const PAGE_WEIGHTS: Weights = {
     '/': 118,
@@ -115,6 +118,7 @@ interface DemoPerson {
     country: string
     referrer: string
     sessionId: string | null
+    os: 'iOS' | 'Android'
 }
 
 interface DemoEvent {
@@ -125,6 +129,87 @@ interface DemoEvent {
     path: string | null
     screen: string | null
     url: string | null
+    isBot: boolean
+}
+
+// Each cohort represents distinct native visitors before the current Live window.
+const MOBILE_HISTORY = [
+    {
+        country: 'US',
+        device: 'Mobile',
+        referrer: 'google.com',
+        daily: 120,
+        weekly: 504,
+        installsToday: 9,
+        installsWeek: 46,
+    },
+    {
+        country: 'US',
+        device: 'Mobile',
+        referrer: '$direct',
+        daily: 70,
+        weekly: 371,
+        installsToday: 6,
+        installsWeek: 41,
+    },
+    {
+        country: 'GB',
+        device: 'Mobile',
+        referrer: 'twitter.com',
+        daily: 57,
+        weekly: 283,
+        installsToday: 5,
+        installsWeek: 33,
+    },
+    {
+        country: 'DE',
+        device: 'Tablet',
+        referrer: 'github.com',
+        daily: 35,
+        weekly: 221,
+        installsToday: 3,
+        installsWeek: 28,
+    },
+    {
+        country: 'BR',
+        device: 'Mobile',
+        referrer: 'reddit.com',
+        daily: 31,
+        weekly: 195,
+        installsToday: 2,
+        installsWeek: 20,
+    },
+    { country: 'CA', device: 'Mobile', referrer: null, daily: 29, weekly: 272, installsToday: 2, installsWeek: 25 },
+]
+
+function channelOf(referrer: string): string {
+    switch (referrer) {
+        case '$direct':
+            return 'Direct'
+        case 'google.com':
+        case 'bing.com':
+        case 'duckduckgo.com':
+            return 'Organic Search'
+        case 'twitter.com':
+        case 'reddit.com':
+            return 'Organic Social'
+        default:
+            return 'Referral'
+    }
+}
+
+function matchesVisitorFilters(
+    filters: LiveTrafficFilters,
+    country: string,
+    device: string,
+    sessionReferrer: string | null
+): boolean {
+    return (
+        (!filters.countryCode || filters.countryCode === country) &&
+        (!filters.deviceType || filters.deviceType === device) &&
+        (!filters.referringDomain || filters.referringDomain === sessionReferrer) &&
+        (!filters.channelType || (sessionReferrer !== null && filters.channelType === channelOf(sessionReferrer)))
+    )
 }
 
 function domainOf(path: string): string {
@@ -140,7 +225,7 @@ function minuteIso(at: number): string {
 
 export class LiveDemo {
     private seed: number
-    private readonly state: LiveProjectState
+    private readonly state: LiveDemoState
     private events: DemoEvent[] = []
     private active: DemoPerson[] = []
     private left: DemoPerson[] = []
@@ -149,7 +234,7 @@ export class LiveDemo {
     private driftMinute: number
 
     /** `state` picks the traffic: web visits, app events only, or none for the quiet and not set up states. */
-    constructor(seed: number, start: number, state: LiveProjectState = 'web') {
+    constructor(seed: number, start: number, state: LiveDemoState = 'web') {
         this.seed = seed
         this.state = state
         this.nextAt = start - WINDOW_MINUTES * MINUTE
@@ -160,12 +245,67 @@ export class LiveDemo {
         this.advance(start)
     }
 
-    respond(key: LiveQueryKey, now: number): unknown {
+    respond(
+        key: LiveQueryKey,
+        now: number,
+        trafficFilters: LiveTrafficFilters = DEFAULT_LIVE_TRAFFIC_FILTERS,
+        audience: LivePreference = 'all'
+    ): unknown {
         this.advance(now)
         const from = Math.floor(now / MINUTE) * MINUTE - (WINDOW_MINUTES - 1) * MINUTE
-        const inWindow = this.events.filter((event) => event.at >= from && event.at <= now)
+        const inWindow = this.events.filter(
+            ({ at, path, isBot, person }) =>
+                at >= from &&
+                at <= now &&
+                (audience !== 'web' || path !== null) &&
+                (audience !== 'mobile' || path === null) &&
+                (!trafficFilters.excludeBots || !isBot) &&
+                (!trafficFilters.hostname || (path !== null && domainOf(path) === trafficFilters.hostname)) &&
+                (!trafficFilters.pathPrefix ||
+                    (trafficFilters.pathMode === 'exact'
+                        ? path === trafficFilters.pathPrefix
+                        : path?.startsWith(trafficFilters.pathPrefix))) &&
+                matchesVisitorFilters(
+                    trafficFilters,
+                    person.country,
+                    person.device,
+                    person.sessionId ? person.referrer : null
+                )
+        )
         const pageviews = inWindow.filter((event) => event.event === '$pageview')
+        const mobile = inWindow.filter((event) => event.url === null && event.screen !== null)
         switch (key) {
+            case 'platforms':
+                return this.breakdown(
+                    mobile,
+                    (person) => person.os,
+                    (person) => person.distinctId
+                )
+            case 'mobileMetrics': {
+                const recentUsers = new Set(mobile.map((event) => event.person.distinctId)).size
+                const totals: [number, number, number, number, number] = [recentUsers, recentUsers, 0, 0, mobile.length]
+                if (!trafficFilters.hostname && !trafficFilters.pathPrefix && audience !== 'web') {
+                    for (const cohort of MOBILE_HISTORY) {
+                        if (!matchesVisitorFilters(trafficFilters, cohort.country, cohort.device, cohort.referrer))
+                            continue
+                        totals[0] += cohort.daily
+                        totals[1] += cohort.weekly
+                        totals[2] += cohort.installsToday
+                        totals[3] += cohort.installsWeek
+                        totals[4] += cohort.weekly
+                    }
+                }
+                return { results: [totals] }
+            }
+            case 'mobileSessions':
+                return {
+                    results: [
+                        [
+                            new Set(mobile.map((event) => event.person.sessionId).filter(Boolean)).size,
+                            mobile.filter((event) => event.person.sessionId).length,
+                        ],
+                    ],
+                }
             case 'usersPageviews':
                 return { results: this.activityRows(inWindow) }
             case 'device':
@@ -224,7 +364,7 @@ export class LiveDemo {
                         ]),
                 }
             case 'usersOnline': {
-                const recent = this.events.filter((event) => event.at > now - MINUTE && event.at <= now)
+                const recent = inWindow.filter((event) => event.at > now - MINUTE)
                 return { results: [[new Set(recent.map((event) => event.person.distinctId)).size]] }
             }
         }
@@ -282,6 +422,7 @@ export class LiveDemo {
                 ids.size,
                 seen.size - before,
                 group.filter((event) => event.event === '$pageview').length,
+                group.filter((event) => event.event === '$screen').length,
             ]
         })
     }
@@ -314,6 +455,8 @@ export class LiveDemo {
                 this.events.push(this.makeEvent(this.nextAt))
             } else if (this.state === 'app_only') {
                 this.events.push(this.makeAppEvent(this.nextAt))
+            } else if (this.state === 'mixed') {
+                this.events.push(this.random() < 0.55 ? this.makeAppEvent(this.nextAt) : this.makeEvent(this.nextAt))
             }
             this.nextAt += 1200 + this.random() * 2400
         }
@@ -367,6 +510,7 @@ export class LiveDemo {
             path,
             screen: event === '$screen' ? this.pick(SCREENS) : null,
             url: path ? `https://${domainOf(path)}${path}` : null,
+            isBot: path !== null && parseInt(person.distinctId.slice(-2), 16) % 5 === 0,
         }
     }
 
@@ -376,8 +520,14 @@ export class LiveDemo {
         return {
             ...event,
             event: this.weighted(APP_EVENT_WEIGHTS),
+            person: {
+                ...event.person,
+                device: event.person.device === 'Tablet' ? 'Tablet' : 'Mobile',
+                browser: UNKNOWN_BREAKDOWN,
+            },
             path: null,
             url: null,
+            isBot: false,
             screen: this.weighted(APP_SCREEN_WEIGHTS),
         }
     }
@@ -393,6 +543,7 @@ export class LiveDemo {
             country: this.weighted(COUNTRY_WEIGHTS),
             referrer: this.weighted(REFERRER_WEIGHTS),
             sessionId: this.random() < 0.82 ? this.uuid() : null,
+            os: this.random() < 0.64 ? 'iOS' : 'Android',
         }
     }
 
@@ -434,10 +585,10 @@ export class LiveDemo {
 }
 
 const DEMO_SEED = 1105
-const shared = new Map<LiveProjectState, LiveDemo>()
+const shared = new Map<LiveDemoState, LiveDemo>()
 
 /** One simulator per state for the app session, so leaving and reopening Live continues the same traffic. */
-export function liveDemo(now: number = Date.now(), state: LiveProjectState = 'web'): LiveDemo {
+export function liveDemo(now: number = Date.now(), state: LiveDemoState = 'web'): LiveDemo {
     let demo = shared.get(state)
     if (!demo) {
         demo = new LiveDemo(DEMO_SEED, now, state)
@@ -450,7 +601,20 @@ export function liveDemo(now: number = Date.now(), state: LiveProjectState = 'we
  * A dev aid for screenshots: `EXPO_PUBLIC_DEMO_LIVE_STATE=app_only|quiet|not_set_up` shows that Live state in demo
  * mode. Release builds ignore it, so the store demo always shows web traffic.
  */
-export function liveDemoState(): LiveProjectState {
+export function liveDemoState(): LiveDemoState {
     const value = __DEV__ ? process.env.EXPO_PUBLIC_DEMO_LIVE_STATE : undefined
-    return value === 'app_only' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
+    return value === 'app_only' || value === 'mixed' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
+}
+
+export function demoLiveEventProperties(event: { event: string }): Record<string, unknown> {
+    if (event.event.startsWith('$')) {
+        return { plan: 'pro', signed_in: true }
+    }
+    return {
+        file_type: 'pdf',
+        file_size_bytes: 245760,
+        plan: 'pro',
+        shared: false,
+        tags: ['design', 'review'],
+    }
 }

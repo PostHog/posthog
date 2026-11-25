@@ -43,6 +43,10 @@ LOCK_TAKEOVER_LATEST_ERROR = (
 )
 
 
+# `status` label of `data_import_finished` for a run whose activity was cancelled. The job row
+# still says Failed; the label keeps it out of the `status="failed"` failure-rate alerts.
+CANCELLED_METRIC_STATUS = "cancelled"
+
 FailureStreak = Literal["new", "ongoing", "none"]
 
 

@@ -386,6 +386,7 @@ gateway_credential_hypercache = HyperCache(
     cache_ttl=GATEWAY_CREDENTIAL_CACHE_TTL,
     cache_miss_ttl=GATEWAY_CREDENTIAL_CACHE_MISS_TTL,
     cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
+    s3_enabled=False,
 )
 
 

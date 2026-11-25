@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional, TypeIs
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from rest_framework.exceptions import APIException
 
 from posthog.hogql import errors as hogql_errors
@@ -11,6 +11,8 @@ from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
 from posthog.errors import (
     CHQueryErrorTooManyBytes,
+    CHQueryErrorUnknownType,
+    InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -86,7 +88,11 @@ def same_failure(rebuilt: Exception, error: Exception) -> bool:
 
 
 def _shared_failure_candidate(error: Exception) -> Optional[SharedFailure]:
+    if isinstance(error, CHQueryErrorUnknownType):
+        return SharedFailure(message=str(error), class_name="CHQueryErrorUnknownType")
     cause: Optional[BaseException] = error
+    if isinstance(error, InternalCHQueryError) and isinstance(error.__cause__, ServerException):
+        cause = error.__cause__
     while cause is not None:
         if isinstance(cause, ServerException) and cause.code is not None:
             return SharedFailure(message=str(cause.message), code=cause.code)
@@ -109,6 +115,8 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
     error: Exception
     if failure.code is not None:
         error = wrap_clickhouse_query_error(ServerException(failure.message, code=failure.code))
+    elif failure.class_name == "CHQueryErrorUnknownType":
+        error = CHQueryErrorUnknownType(failure.message, code=UnknownTypeError.code, code_name="unknown_type")
     else:
         cls = getattr(hogql_errors, failure.class_name or "", None)
         if not _is_shareable_hogql_error(cls):
@@ -117,7 +125,7 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
             error = cls(failure.message, start=failure.start, end=failure.end, fix=failure.fix)
         except TypeError:
             return None
-    error.served_from_query_single_flight = True  # type: ignore[attr-defined]
+    vars(error)["served_from_query_single_flight"] = True
     return error
 
 

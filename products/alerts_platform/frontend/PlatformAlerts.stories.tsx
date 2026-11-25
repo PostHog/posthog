@@ -7,6 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { userEvent } from 'storybook/test'
+
 import {
     AlertReceiverApi,
     AlertRouteApi,
@@ -86,7 +88,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
 const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000003',
-    name: 'Errors per service above 50',
+    name: 'Errors per service above 100',
     legacy_configuration_id: null,
     owner: 'platform',
     labels: { team: 'checkout', severity: 'page' },
@@ -136,6 +138,23 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ],
 }
 
+const SOURCE_KIND_OVERRIDES: Partial<PlatformAlertConfigurationApi>[] = [
+    { name: 'Stripe sync failing', source_kind: 'warehouse_source', check_interval_minutes: 120 },
+    { name: 'S3 export failing', source_kind: 'warehouse_destination', recurrence_unit: 'week' },
+    { name: 'p95 latency above 500 ms', source_kind: 'metrics', recurrence_unit: 'month' },
+    { name: 'Checkout spans erroring', source_kind: 'traces', check_interval_minutes: 15 },
+    { name: 'New issues in checkout', source_kind: 'error_tracking', check_interval_minutes: 60 },
+]
+
+const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_OVERRIDES.map((overrides, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-00000000060${index + 1}`,
+    source_config: {},
+    legacy_configuration_id: null,
+    alerts: [],
+    ...overrides,
+}))
+
 const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000004',
@@ -160,6 +179,25 @@ const RECEIVERS: AlertReceiverApi[] = [
         enabled: false,
         route_count: 1,
         webhook_url: 'https://example.webhook.office.com',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000403',
+        name: 'Infra on-call',
+        type: 'pagerduty',
+        enabled: true,
+        route_count: 0,
+        pagerduty_routing_key: '••••c3d4',
+        pagerduty_severity: 'critical',
+        pagerduty_region: 'us',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000404',
+        name: 'Platform incidents',
+        type: 'incident_io',
+        enabled: true,
+        route_count: 0,
+        incident_io_alert_source_config_id: '01GW2G3V0S59R238FAHPDS1R66',
+        incident_io_secret: '••••a9f2',
     },
 ]
 
@@ -203,10 +241,15 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/platform_alerts/': {
-                    count: 2,
+                    count: 3 + SOURCE_KIND_CONFIGURATIONS.length,
                     next: null,
                     previous: null,
-                    results: [CONFIGURATION, DISABLED_CONFIGURATION],
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        GROUPED_CONFIGURATION,
+                        ...SOURCE_KIND_CONFIGURATIONS,
+                    ],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
@@ -230,6 +273,26 @@ type Story = StoryObj<{}>
 
 export const List: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
+}
+
+export const ListIntervalTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        const interval = within(name.closest('tr') as HTMLElement).getByText('1d')
+        await userEvent.hover(interval)
+        await within(document.body).findByText('Every day at 09:00')
+    },
+}
+
+export const ListTypeTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('S3 export failing')
+        const type = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'Warehouse destination' })
+        await userEvent.hover(type)
+        await within(document.body).findByText('Warehouse destination')
+    },
 }
 
 export const Detail: Story = {

@@ -158,6 +158,7 @@ from products.slack_app.backend.services.slack_user_info import (
 from products.slack_app.backend.services.slack_user_oauth import (
     build_invite_url,
     find_linked_posthog_user,
+    linked_posthog_distinct_id,
     linked_posthog_user_ids,
     post_link_invite_message,
 )
@@ -591,7 +592,9 @@ def resolve_slack_user(
         # membership
         membership = (
             OrganizationMembership.objects.filter(
-                organization_id=integration.team.organization_id, user__email__iexact=slack_email
+                organization_id=integration.team.organization_id,
+                user__email__iexact=slack_email,
+                user__is_active=True,
             )
             .select_related("user")
             .first()
@@ -3576,19 +3579,13 @@ def _route_member_joined_channel(
     Slack fires ``member_joined_channel`` for every user (including bot users)
     added to a channel. We only act when the joining user is our own bot, and
     we cache the first post per (workspace, channel) so retries and re-adds
-    don't double-post. Externally-shared channels are dropped before any DB
-    work — anyone outside the home workspace would see the welcome, and the
-    first @PostHog mention there will run the existing approval flow.
+    don't double-post. Externally-shared channels get no welcome — anyone
+    outside the home workspace would see it, and the first @PostHog mention
+    there will run the existing approval flow.
     """
     joined_user = event.get("user") if isinstance(event.get("user"), str) else None
     channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
     if not joined_user or not channel_id:
-        return ROUTE_HANDLED_LOCALLY
-
-    # Drop ext-shared channels before touching the DB. Anyone outside the home
-    # workspace would see the welcome message, and the ``is_ext_shared_channel``
-    # flag lives on the event envelope so this costs nothing.
-    if is_ext_shared_channel:
         return ROUTE_HANDLED_LOCALLY
 
     workspace_result = load_integrations(slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND])
@@ -3608,12 +3605,24 @@ def _route_member_joined_channel(
         # event for every channel-membership change, so the volume is high.
         return ROUTE_HANDLED_LOCALLY
 
+    inviter = event.get("inviter") if isinstance(event.get("inviter"), str) else None
+    capture_slack_event(
+        integration,
+        "slack app bot joined channel",
+        slack_user_id=inviter,
+        channel_id=channel_id,
+        is_ext_shared_channel=is_ext_shared_channel,
+    )
+
+    # Anyone outside the home workspace would see the welcome message.
+    if is_ext_shared_channel:
+        return ROUTE_HANDLED_LOCALLY
+
     # The onboarding flow has its own messaging for the inbox channel — skip the generic welcome here.
     if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
     welcome_mode = resolve_channel_welcome_mode(slack_team_id)
-    inviter = event.get("inviter") if isinstance(event.get("inviter"), str) else None
     # With no inviter on the event, there is nobody to show a private welcome to.
     # Skip it rather than fall back to a post the whole channel sees.
     if welcome_mode == ChannelWelcomeMode.OFF or (welcome_mode == ChannelWelcomeMode.INVITER and not inviter):
@@ -3762,7 +3771,9 @@ def _route_team_join(
     if integration is None:
         return ROUTE_HANDLED_LOCALLY
 
-    if is_slack_app_onboarding_enabled(integration):
+    if is_slack_app_onboarding_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+    ):
         # The onboarding thread opens with the same welcome, and its stored state replaces the dedupe below.
         request_onboarding(integration, slack_user_id, may_start=True, spread_burst=True)
         return ROUTE_HANDLED_LOCALLY
@@ -6318,7 +6329,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
 
     Only Slack-side concerns live here (parsing, workspace-integration match, org membership) —
     alert-side authorization and the mutation itself belong to products.alerts and are reached
-    through its facade, never a direct cross-product model import (see tach.toml).
+    through its facade, never a direct cross-product model import (hoglint's `public-surface`).
     """
     action = _insight_alert_snooze_action(payload)
     slack_team_id = payload.get("team", {}).get("id")
@@ -6634,7 +6645,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # existence check alone settles region ownership — no need to consult Integration here.
         # Authorization (workspace-integration match + org-member gate) is enforced in
         # _handle_insight_alert_snooze. Routed through the alerts facade rather than the model
-        # directly — see tach.toml, products.slack_app doesn't depend on products.alerts's internals.
+        # directly, so products.slack_app stays off products.alerts's internals (hoglint's `public-surface`).
         from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product lookup kept off the slack import path
             get_alert_team_id,
         )

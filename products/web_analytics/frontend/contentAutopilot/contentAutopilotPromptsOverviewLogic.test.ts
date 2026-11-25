@@ -65,11 +65,12 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             hasChecks: true,
         })
         expect(mockOverview).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: 30,
+            date_from: '-30d',
             branded: 'non_branded',
         })
         expect(logic.values.visibilityQuery?.source.values).toEqual({
             window_start: '2026-09-01 00:00:00',
+            window_end: '2026-10-01 00:00:00',
             brand_pattern: '\\b(example)\\b',
         })
         // The legend shows the engine's display name, built into the SQL from the shared label map.
@@ -99,7 +100,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadPromptSetOverviewSuccess']).toFinishAllListeners()
 
             expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-                days: 30,
+                date_from: '-30d',
                 branded: segment,
             })
             const queries = [logic.values.visibilityQuery?.source, logic.values.sourcesQuery?.source].map(
@@ -131,7 +132,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ filters: expect.objectContaining({ branded: 'all' }) })
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: 30,
+            date_from: '-30d',
             branded: 'all',
         })
     })
@@ -172,7 +173,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             .toMatchValues({ overview: EXAMPLE_PROMPT_SET_OVERVIEW, overviewError: null })
     })
 
-    it('narrows the overview, its tiles and the prompt list to a topic picked from the table', async () => {
+    it('narrows the overview, its tiles and the prompt list to a topic picked from the table, and clears it when the topic is picked again in any letter case', async () => {
         mockOverview.mockImplementation(async (_, params) => ({
             ...EXAMPLE_PROMPT_SET_OVERVIEW,
             engine: params?.engine ?? null,
@@ -182,12 +183,13 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        const tabBefore = contentAutopilotLogic.values.workspaceTab
         logic.actions.selectOverviewTopic('Session replay')
         await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
 
-        expect(contentAutopilotLogic.values.workspaceTab).toEqual('prompts')
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual(tabBefore)
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: 30,
+            date_from: '-30d',
             branded: 'non_branded',
             topic: 'Session replay',
         })
@@ -196,12 +198,19 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ topic: 'Session replay' })
         )
+
+        logic.actions.selectOverviewTopic('session Replay')
+        await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
+
+        expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            date_from: '-30d',
+            branded: 'non_branded',
+        })
     })
 
     it('sends the date range and engine to the overview and the tiles', async () => {
         mockOverview.mockImplementation(async (_, params) => ({
             ...EXAMPLE_PROMPT_SET_OVERVIEW,
-            days: params?.days ?? 30,
             engine: params?.engine ?? null,
             topic: params?.topic ?? null,
         }))
@@ -209,12 +218,13 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        contentAutopilotFiltersLogic.actions.setDays(7, 'overview')
+        contentAutopilotFiltersLogic.actions.setDates('2026-10-01', '2026-10-07', 'overview')
         contentAutopilotFiltersLogic.actions.setEngine('claude-web-search', 'overview')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: 7,
+            date_from: '2026-10-01',
+            date_to: '2026-10-07',
             branded: 'non_branded',
             engine: 'claude-web-search',
         })

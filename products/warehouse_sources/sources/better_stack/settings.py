@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -110,6 +111,12 @@ _STATUS_PAGE_FANOUT = DependentEndpointConfig(
     child_response_actions=_SKIP_MISSING_PARENT,
 )
 
+# Paginated children start at the documented maximum page size. Each `pagination.next` URL carries
+# it on to later pages.
+_CHILD_PAGE_PARAMS = {"per_page": 250}
+
+_PAGINATED_STATUS_PAGE_FANOUT = dataclasses.replace(_STATUS_PAGE_FANOUT, child_params=_CHILD_PAGE_PARAMS)
+
 # Endpoint catalog — the streams a reliability team actually wants from an uptime/incident
 # platform: monitors and heartbeats (plus their groups), monitor availability and latency,
 # incident history and commentary, on-call calendars, escalation policies, status pages, and the
@@ -205,6 +212,52 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         primary_keys=["status_page_id", "id"],
         fanout=_STATUS_PAGE_FANOUT,
     ),
+    "status_page_groups": BetterStackEndpointConfig(
+        name="status_page_groups",
+        path="/v2/status-page-groups",
+        page_size=250,
+    ),
+    "status_page_sections": BetterStackEndpointConfig(
+        name="status_page_sections",
+        path="/v2/status-pages/{status_page_id}/sections",
+        primary_keys=["status_page_id", "id"],
+        fanout=_PAGINATED_STATUS_PAGE_FANOUT,
+    ),
+    # Published incident and maintenance reports. The endpoint takes a sort but no time filter, so
+    # each sync re-reads every report. `starts_at` is not a partition key: a maintenance report
+    # can be rescheduled.
+    "status_page_reports": BetterStackEndpointConfig(
+        name="status_page_reports",
+        path="/v2/status-pages/{status_page_id}/status-reports",
+        primary_keys=["status_page_id", "id"],
+        fanout=_PAGINATED_STATUS_PAGE_FANOUT,
+    ),
+    # Two levels deep: status pages, then their reports, then each report's updates. One request
+    # per report, so it is off by default.
+    "status_page_report_updates": BetterStackEndpointConfig(
+        name="status_page_report_updates",
+        path="/v2/status-pages/{status_page_id}/status-reports/{status_report_id}/status-updates",
+        primary_keys=["status_report_id", "id"],
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="status_page_reports",
+            resolve_param="status_report_id",
+            resolve_field="id",
+            include_from_parent=["status_page_id"],
+            child_params=_CHILD_PAGE_PARAMS,
+            child_response_actions=_SKIP_MISSING_PARENT,
+        ),
+    ),
+    # Email subscribers of each status page. Off by default, because every row holds an email
+    # address of someone outside the account.
+    "status_page_subscribers": BetterStackEndpointConfig(
+        name="status_page_subscribers",
+        path="/v2/status-pages/{status_page_id}/subscribers",
+        partition_key="created_at",
+        primary_keys=["status_page_id", "id"],
+        should_sync_default=False,
+        fanout=_PAGINATED_STATUS_PAGE_FANOUT,
+    ),
     # Small configuration collections — page size left at the documented default of 50 since
     # their maximums aren't documented.
     "on_calls": BetterStackEndpointConfig(
@@ -235,6 +288,20 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         name="escalation_policies",
         path="/v2/policies",
         v3_path="/v3/policies",
+    ),
+    "escalation_policy_groups": BetterStackEndpointConfig(
+        name="escalation_policy_groups",
+        path="/v2/policy-groups",
+        page_size=250,
+    ),
+    # Key-value metadata on monitors, heartbeats, incidents and integrations. The API returns one
+    # record per key and owner. Its `id` is the id of the record's first value, so it changes when
+    # that value is removed; the key and owner identify the record instead.
+    "metadata": BetterStackEndpointConfig(
+        name="metadata",
+        path="/v4/metadata",
+        primary_keys=["owner_type", "owner_id", "key"],
+        page_size=250,
     ),
     # The routes still carry the feature's former name, `urgencies`.
     "severities": BetterStackEndpointConfig(

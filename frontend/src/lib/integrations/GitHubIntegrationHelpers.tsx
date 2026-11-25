@@ -65,6 +65,8 @@ export type GitHubRepositoryPickerProps = {
      * stored short names working; 'full_name' is for callers matching a webhook delivery's
      * "owner/repo" property, which carries no owner otherwise. */
     valueKey?: 'name' | 'full_name'
+    /** Pick the repository on its own when it is the only option and nothing is selected yet. */
+    selectOnlyOption?: boolean
 }
 
 export const GitHubRepositoryPicker = ({
@@ -73,8 +75,16 @@ export const GitHubRepositoryPicker = ({
     integrationId,
     className,
     valueKey,
+    selectOnlyOption = false,
 }: GitHubRepositoryPickerProps): JSX.Element => {
     const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey })
+    const onlyOption = selectOnlyOption && !loading && options.length === 1 ? options[0].key : null
+
+    useEffect(() => {
+        if (onlyOption && !value) {
+            onChange(onlyOption)
+        }
+    }, [onlyOption, value, onChange])
 
     return (
         <div className={className}>

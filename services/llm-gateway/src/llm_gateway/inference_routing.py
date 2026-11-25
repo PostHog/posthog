@@ -1,8 +1,9 @@
 """Route supported models to their configured inference providers.
 
-GLM can be served by Cloudflare, Modal, or Baseten. DeepSeek V4 Flash is served only by
-Baseten. Provider selection is internal to the gateway; caller-forwarded feature flag headers
-cannot select a backend. There are no cross-provider retries.
+GLM 5.2 is served by Baseten, or by Modal when Baseten is not configured. Cloudflare retired it on
+2026-11-20, so it never falls back to Cloudflare. Other `@cf/` models are served by Cloudflare.
+DeepSeek V4 Flash is served only by Baseten. Provider selection is internal to the gateway, and
+there are no cross-provider retries.
 """
 
 from __future__ import annotations
@@ -41,21 +42,17 @@ from llm_gateway.baseten import (
 from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
-    is_cloudflare_configured,
     is_cloudflare_model,
     make_cloudflare_anthropic_call,
     make_cloudflare_completion_call,
     make_cloudflare_responses_call,
 )
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.flags import GLM_MODAL_FLAG, evaluate_flag
 from llm_gateway.modal import (
-    is_modal_configured,
     is_modal_served_model,
     make_modal_anthropic_call,
     make_modal_completion_call,
     make_modal_responses_call,
-    should_route_glm_to_modal,
 )
 from llm_gateway.modal_routing import send_modal_request
 
@@ -93,17 +90,6 @@ def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: st
         normalized["thinking"] = {"type": "adaptive"}
 
     return drop_orphaned_clear_thinking(normalized, product=product)
-
-
-async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, settings: Settings) -> bool:
-    if not is_modal_served_model(model) or not is_modal_configured(settings):
-        return False
-    # Modal is the only configured backend — don't route to a Cloudflare 503.
-    if not is_cloudflare_configured(settings):
-        return True
-    if should_route_glm_to_modal(model, product=product, user_key=str(user.user_id), settings=settings):
-        return True
-    return await evaluate_flag(GLM_MODAL_FLAG, user.distinct_id) or False
 
 
 def _route_to_baseten(model: str, settings: Settings) -> bool:
@@ -170,7 +156,8 @@ async def _send_inference_request(
             request_data, user, is_streaming, product, baseten_config, make_baseten_call(api_base, api_key)
         )
 
-    if await _route_to_modal(model, user, product, settings):
+    # Modal-served models have no Cloudflare backend, so an unconfigured Modal is a 503, not a 410.
+    if is_modal_served_model(model):
         return await send_modal_request(
             request_data, user, is_streaming, product, modal_config, make_modal_call, settings, handle_llm_request
         )

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Union
 
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 
 class NotificationType(str, Enum):

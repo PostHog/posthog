@@ -1,11 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -220,8 +221,8 @@ describe('todayLogic', () => {
 
     it('sends the Inbox ranking label events for the reports the home shows and acts on', async () => {
         const capture = jest.spyOn(posthog, 'capture')
-        const report = makeReport({ id: 'a' })
-        listResponse = [200, { results: [report], count: 1 }]
+        const report = makeReport({ id: 'a', personal_tier: 'top', personal_reason: 'You own this area.' })
+        listResponse = [200, { results: [report], count: 1, ranker: 'personal' }]
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -251,7 +252,15 @@ describe('todayLogic', () => {
                     expect.objectContaining({
                         surface: 'today',
                         list: 'briefing',
-                        impressions: [expect.objectContaining({ report_id: 'a', rank: 1 })],
+                        impressions: [
+                            expect.objectContaining({
+                                report_id: 'a',
+                                rank: 1,
+                                ranker_id: 'personal',
+                                personal_tier: 'top',
+                                personal_reason_shown: true,
+                            }),
+                        ],
                     }),
                     undefined,
                 ],
@@ -263,6 +272,9 @@ describe('todayLogic', () => {
                         open_method: 'click',
                         list: 'briefing',
                         rank: 1,
+                        ranker_id: 'personal',
+                        personal_tier: 'top',
+                        personal_reason_shown: true,
                     }),
                     undefined,
                 ],
@@ -273,6 +285,17 @@ describe('todayLogic', () => {
                 ],
             ])
         )
+        expect(capture.mock.calls.filter(([event]) => event === 'today report opened')).toEqual([
+            [
+                'today report opened',
+                expect.objectContaining({
+                    report_id: 'a',
+                    ranker_id: 'personal',
+                    personal_tier: 'top',
+                    personal_reason_shown: true,
+                }),
+            ],
+        ])
     })
 
     it('ranks the report list events by the position the list shows them in', async () => {
@@ -384,29 +407,23 @@ describe('todayLogic', () => {
         })
     })
 
-    it('asks for the personalized order with the personalized sort flag, and keeps its ranking for later pages', async () => {
+    it('keeps the ranking of the top reports for later pages', async () => {
         jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-            [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-        })
         listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5, ranking_id: 'ranking-1' }]
         const logic = todayLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(listParams!.get('sort')).toBe('personal')
 
         listResponse = [200, { results: [makeReport({ id: 'b' })], count: 5, ranking_id: 'ranking-1' }]
         await expectLogic(logic, () => {
             logic.actions.loadMoreReports()
         }).toDispatchActions(['loadMoreReportsSuccess'])
         expect(Object.fromEntries(listParams!.entries())).toMatchObject({
-            sort: 'personal',
+            sort: 'recommended',
             ranking_id: 'ranking-1',
             exclude: 'a',
         })
-        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
@@ -594,6 +611,19 @@ describe('todayLogic', () => {
         } finally {
             jest.mocked(posthog.getFeatureFlagResult).mockReset()
         }
+    })
+
+    it('keeps jump back pins separate for each person', () => {
+        const logic = todayLogic()
+        logic.mount()
+        const pin = { id: 'dash', path: 'Dashboards/Private', type: 'dashboard', ref: '1' }
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'first-person' })
+        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin, 'picker')
+        expect(logic.values.pinnedObjects.map((entry) => entry.id)).toEqual(['dash'])
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'second-person' })
+        expect(logic.values.pinnedObjects).toEqual([])
     })
 
     test.each([

@@ -52,6 +52,32 @@ const REASON_TEXT: Record<string, string> = {
     attachments_missing: "The email's attachments couldn't be found",
 }
 
+// pinned: values of the log's `reason` filter - kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts
+const REASON_FILTER_OPTIONS: Partial<Record<EmailDeliveryStatusEnumApi, { value: string; label: string }[]>> = {
+    bounced: [
+        { value: 'hard', label: 'Hard bounce' },
+        { value: 'soft', label: 'Soft bounce' },
+        { value: 'unknown', label: 'Unknown bounce' },
+    ],
+    failed: [
+        { value: 'recipient_unreachable', label: "Address can't receive email" },
+        { value: 'recipient_suppressed', label: 'On the suppression list' },
+        { value: 'missing_recipient', label: 'No recipient address' },
+        { value: 'recipient_opted_out', label: 'Opted out' },
+        { value: 'frequency_capped', label: 'Frequency capped' },
+        { value: 'sending_paused', label: 'Sending paused' },
+        { value: 'sending_suspended', label: 'Sending suspended' },
+        { value: 'provider_error', label: 'Provider error' },
+        { value: 'provider_rejected', label: 'Refused by the provider' },
+    ],
+}
+
+export function emailReasonOptions(
+    status: EmailDeliveryStatusEnumApi | null
+): { value: string; label: string }[] | null {
+    return (status && REASON_FILTER_OPTIONS[status]) || null
+}
+
 export function emailReasonText(reason: string | null | undefined): string | null {
     if (!reason) {
         return null

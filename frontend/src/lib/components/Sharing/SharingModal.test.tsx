@@ -140,6 +140,23 @@ describe('SharingModal (dashboard)', () => {
         return <SharingModal {...props} />
     }
 
+    it('puts custom dimensions in the public link and embed, and resets to responsive sizing', async () => {
+        render(<DashboardSharingModalWrapper />)
+        await userEvent.click(await screen.findByText('Size: Automatic'))
+        await userEvent.type(await screen.findByLabelText(/Width/), '1200')
+        await userEvent.type(await screen.findByLabelText(/Height/), '630')
+        const logic = sharingLogic({ dashboardId })
+        expect(logic.values.shareLink).toContain('width=1200')
+        expect(logic.values.shareLink).toContain('height=630')
+        expect(logic.values.embedCode).toContain('width="1200"')
+        expect(logic.values.embedCode).toContain('height="630"')
+        await userEvent.click(screen.getByText('Reset to automatic'))
+        expect(screen.getByLabelText(/Width/)).toHaveValue(null)
+        expect(screen.getByLabelText(/Height/)).toHaveValue(null)
+        expect(logic.values.shareLink).not.toContain('width=')
+        expect(logic.values.iframeProperties.width).toBe('100%')
+    })
+
     it('renders sharing options when sharing is enabled', async () => {
         render(<DashboardSharingModalWrapper />)
 

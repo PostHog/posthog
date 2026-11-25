@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='list_cohort_member_ids' */\n            SELECT person_id\n            FROM posthog_cohortpeople\n            WHERE cohort_id = $1::bigint AND person_id > $2\n            ORDER BY person_id ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d74da25915ea4a182eeeee9d996d1baab1cb714439b570c291118ef2c5bf9e01"
+}

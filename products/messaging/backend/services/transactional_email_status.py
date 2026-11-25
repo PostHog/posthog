@@ -1,12 +1,13 @@
 """The status of one transactional email, read from the email_status table that the email path writes.
 
-The send API writes `queued`, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
+The send API writes `queued`, or `scheduled` for a send that waits for its time, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -15,16 +16,22 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event.new_events_schema import events_route_scope
 
-from products.messaging.backend.facade.contracts import EmailDeliveryStatus, EmailStatus
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS, EMAIL_STATUS_TABLE
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
+from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_RETENTION_DAYS,
+    EMAIL_STATUS_SHOWN_REASON,
+    EMAIL_STATUS_TABLE,
+)
 
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
 _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
 _CONSUMER_LAG = timedelta(hours=2)
+_KEYED_RUN_ID_NAMESPACE = UUID("c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90")
+_TRANSACTIONAL_EMAIL_RUN_SCOPE = "transactional-email"
 # Every row of a message carries the message's own created_at, so the window prunes to its partition.
 _EMAIL_STATUS_QUERY = f"""
-SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
+SELECT argMax(status, version), argMax(status_at, version), argMax({EMAIL_STATUS_SHOWN_REASON}, version)
 FROM {EMAIL_STATUS_TABLE}
 WHERE team_id = %(team_id)s
   AND message_id = %(message_id)s
@@ -35,13 +42,15 @@ GROUP BY message_id
 
 
 # A keyed send's ID holds no time, so its own rows say when it was queued. email_status's sort key starts with the
-# team and the message, so this reads one message's rows in each partition the retention keeps.
+# team and the message, so this reads one message's rows in each partition the retention keeps. A refused send claims
+# no key, so a later retry under the same key is a newer attempt with the same ID, and the newest one is the send.
 _KEYED_CREATED_AT_QUERY = """
 SELECT created_at
 FROM {table}
 WHERE team_id = %(team_id)s
   AND message_id = %(message_id)s
   AND created_at >= %(start)s
+ORDER BY created_at DESC
 LIMIT 1
 """
 
@@ -55,6 +64,13 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     return message_id.version == 5
 
 
+def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
+    name = json.dumps([team_id, _TRANSACTIONAL_EMAIL_RUN_SCOPE, idempotency_key], separators=(",", ":"))
+    return uuid5(_KEYED_RUN_ID_NAMESPACE, name)
+
+
+# The events cluster has no email_status table, so a project that reads events_json still looks a send up here.
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def message_created_at(
     team_id: int, message_id: UUID, workload: Workload, lag_fallback_table: str | None = None
 ) -> datetime | None:
@@ -126,11 +142,11 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     if not rows:
         return None
     status, status_at, reason = rows[0]
-    if status not in EmailDeliveryStatus.values:
+    if status not in EmailSendStatus.values:
         return None
     return EmailStatus(
         message_id=str(message_id),
-        status=EmailDeliveryStatus(status),
+        status=EmailSendStatus(status),
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,

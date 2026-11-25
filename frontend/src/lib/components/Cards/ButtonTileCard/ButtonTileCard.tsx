@@ -79,7 +79,6 @@ function ButtonTileCardInternal(
     return (
         <DashboardTileShell
             transparent={isTransparent}
-            showResizeHandles={showResizeHandles}
             className={clsx('DashboardTileCard ButtonTileCard flex flex-col', className)}
             data-attr="button-tile-card"
             {...divProps}

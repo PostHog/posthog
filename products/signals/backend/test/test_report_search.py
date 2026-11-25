@@ -77,7 +77,7 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
                     "report",
                     EMBEDDING_RENDERING_TITLE_SUMMARY,
                     str(report.id),
-                    self.inserted_at,
+                    report.created_at,
                     at,
                     "a report",
                     json.dumps({"deleted": deleted}),
@@ -96,6 +96,8 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_report_matched_by_both_sides_outranks_one_matched_by_either(self) -> None:
         semantic_only = self._report("Purchases stall after the payment step")
+        semantic_only.created_at -= datetime.timedelta(days=10)
+        semantic_only.save(update_fields=["created_at"])
         self._embed(semantic_only, _vector(1.0, 0.0))
         both = self._report("Checkout button does nothing")
         self._embed(both, _vector(0.9, 0.2))

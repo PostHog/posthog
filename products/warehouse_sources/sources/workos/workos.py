@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSourceManager,
     WebhookSyncResult,
     build_dependent_resource,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
 )
@@ -122,21 +123,56 @@ class WorkOSPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def get_resource(name: str) -> EndpointResource:
+class WorkOSEventsPaginator(WorkOSPaginator):
+    """Cursor paginator for the WorkOS events stream.
+
+    WorkOS refuses `range_start` together with `after`, so the time filter only goes out until a
+    cursor exists. An empty page also ends the walk, in case the stream echoes its last cursor.
+    """
+
+    def init_request(self, request: Request) -> None:
+        super().init_request(request)
+        self._drop_range_start(request)
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if not data:
+            self._after = None
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        super().update_request(request)
+        self._drop_range_start(request)
+
+    def _drop_range_start(self, request: Request) -> None:
+        if self._after is not None and request.params:
+            request.params.pop("range_start", None)
+
+
+def get_resource(name: str, db_incremental_field_last_value: Optional[Any] = None) -> EndpointResource:
     config = WORKOS_ENDPOINTS[name]
+
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["limit"] = config.page_size
+    if config.order is not None:
+        # Stable creation-ordered pagination so the cursor walks deterministically.
+        # Must be "desc" (the WorkOS SDK default): the high-volume directory_users
+        # and directory_groups list endpoints reject "order=asc" with a 422, while
+        # "desc" is accepted on every WorkOS list endpoint.
+        params["order"] = config.order
+    params.update(config.params)
+    if db_incremental_field_last_value is not None:
+        # WorkOS accepts only a `Z` suffix here, not a `+00:00` offset.
+        params["range_start"] = format_datetime(db_incremental_field_last_value, "iso_z_millis")
 
     endpoint_config: Endpoint = {
         "path": config.path,
         "data_selector": "data",
-        "params": {
-            "limit": config.page_size,
-            # Stable creation-ordered pagination so the cursor walks deterministically.
-            # Must be "desc" (the WorkOS SDK default): the high-volume directory_users
-            # and directory_groups list endpoints reject "order=asc" with a 422, while
-            # "desc" is accepted on every WorkOS list endpoint.
-            "order": "desc",
-        },
+        "params": params,
     }
+    if config.incremental_fields:
+        endpoint_config["paginator"] = WorkOSEventsPaginator()
 
     return {
         "name": config.name,
@@ -346,6 +382,7 @@ def workos_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WorkOSResumeConfig],
     webhook_source_manager: WebhookSourceManager,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = WORKOS_ENDPOINTS[endpoint]
 
@@ -379,7 +416,7 @@ def workos_source(
         "resource_defaults": {
             "write_disposition": "replace",
         },
-        "resources": [get_resource(endpoint)],
+        "resources": [get_resource(endpoint, db_incremental_field_last_value)],
     }
 
     # Seed the paginator from the saved checkpoint when resuming.
@@ -392,7 +429,8 @@ def workos_source(
         if state and state.get("after"):
             resumable_source_manager.save_state(WorkOSResumeConfig(after=str(state["after"])))
 
-    webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+    # Only the tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync, so the others skip the lookup.
+    webhook_enabled = endpoint in WEBHOOK_SCHEMA_NAMES and async_to_sync(webhook_source_manager.webhook_enabled)()
 
     resource = rest_api_resource(
         config,
@@ -404,6 +442,9 @@ def workos_source(
     )
     if endpoint in WEBHOOK_SCHEMA_NAMES:
         resource = resource.add_map(lambda row: {**row, DELETED_COLUMN: False, DELETED_AT_COLUMN: None})
+    if endpoint_config.excluded_fields:
+        excluded = frozenset(endpoint_config.excluded_fields)
+        resource = resource.add_map(lambda row: {key: value for key, value in row.items() if key not in excluded})
 
     return SourceResponse(
         name=endpoint,
@@ -418,6 +459,7 @@ def workos_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[endpoint_config.partition_key],
+        sort_mode=endpoint_config.sort_mode,
     )
 
 
@@ -444,11 +486,17 @@ def _fanout_source_response(
         job_id=job_id,
         db_incremental_field_last_value=None,
         parent_endpoint_extra={"data_selector": "data"},
-        child_endpoint_extra={"data_selector": "data"},
-        # The parent takes no page-size param, so the child's `limit` rides in `child_params`.
+        # Set the paginator explicitly. A path that ends in `{param}`, like the memberships
+        # `?organization_id={organization_id}`, otherwise reads as a single-object endpoint and
+        # gets a single-page paginator.
+        child_endpoint_extra={"data_selector": "data", "paginator": WorkOSPaginator()},
+        # The waitlists parent takes no page-size param, so each fan-out sets `limit` in its own
+        # `parent_params` and `child_params`.
         page_size_param=None,
         resume_hook=save_checkpoint,
         initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        # Organizations can span many pages, so a resume starts at the saved parent page.
+        resume_parent_pagination=True,
     )
 
     return SourceResponse(

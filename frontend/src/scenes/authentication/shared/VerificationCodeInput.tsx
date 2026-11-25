@@ -4,6 +4,9 @@ import { OTPField } from '@base-ui/react/otp-field'
 import clsx from 'clsx'
 import { useId } from 'react'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillVerificationCodeInput } from './QuillVerificationCodeInput'
 import { normalizeVerificationCode } from './verificationCode'
 
 export const VERIFICATION_CODE_LENGTH = 6
@@ -31,6 +34,24 @@ export function VerificationCodeInput({
 }: VerificationCodeInputProps): JSX.Element {
     const generatedId = useId()
     const inputId = id ?? generatedId
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillVerificationCodeInput
+                inputId={inputId}
+                labelled={!!id}
+                length={VERIFICATION_CODE_LENGTH}
+                value={value}
+                onChange={onChange}
+                onComplete={onComplete}
+                disabled={disabled}
+                invalid={status === 'danger'}
+                data-attr={dataAttr}
+            />
+        )
+    }
+
     return (
         <OTPField.Root
             id={inputId}

@@ -44,7 +44,6 @@ describe('recording cleanup (integration)', () => {
             keyStore,
             {} as unknown as RecordingDecryptor,
             undefined,
-            undefined,
             postgres,
             undefined
         )
@@ -53,10 +52,10 @@ describe('recording cleanup (integration)', () => {
             PostgresUse.COMMON_WRITE,
             `INSERT INTO replay_vision_replayscanner
                  (id, team_id, name, description, scanner_type, scanner_config, query, sampling_rate,
-                  sampling_mode, provider, model, enabled, emits_signals, scanner_version, last_swept_at,
+                  provider, model, enabled, emits_signals, scanner_version, last_swept_at,
                   admission_credits_since_refresh, created_at, updated_at)
              VALUES ($1, $2, 'cleanup-scanner', '', 'monitor', '{}'::jsonb, '{}'::jsonb, 1.0,
-                     'comprehensive', 'google', 'gemini-3.8-flash', true, false, 1, now(),
+                     'google', 'gemini-3.8-flash', true, false, 1, now(),
                      0, now(), now())`,
             [scannerId, teamId],
             'fixtureScanner'

@@ -261,7 +261,8 @@ const aeoKeywordsModifiersGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/modifiers/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 keyword: params.keyword,
                 topic: params.topic,
@@ -286,7 +287,8 @@ const aeoKeywordsReportGet = (): ToolBase<ReturnType<typeof AeoKeywordsReportGet
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/report/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -400,6 +402,39 @@ const aeoPromptsChecksList = (): ToolBase<
     },
 })
 
+const AeoPromptsCitationsListSchema = () => {
+    const AeoPromptsCitationsQueryParams = orvalSchemas.AeoPromptsCitationsQueryParams()
+    return AeoPromptsCitationsQueryParams
+}
+
+const aeoPromptsCitationsList = (): ToolBase<
+    ReturnType<typeof AeoPromptsCitationsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAEOPromptCitationList>
+> => ({
+    name: 'aeo-prompts-citations-list',
+    schema: AeoPromptsCitationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsCitationsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAEOPromptCitationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/citations/`,
+            query: {
+                branded: params.branded,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                domain: params.domain,
+                engine: params.engine,
+                include_answer_text: params.include_answer_text,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                url: params.url,
+            },
+        })
+        return await withPostHogUrl(context, result, '/web/ai-visibility')
+    },
+})
+
 const AeoPromptsCreateDashboardSchema = () => z.object({})
 
 const aeoPromptsCreateDashboard = (): ToolBase<
@@ -480,7 +515,8 @@ const aeoPromptsList = (): ToolBase<
             query: {
                 active: params.active,
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 include_archived: params.include_archived,
                 limit: params.limit,
@@ -522,7 +558,8 @@ const aeoPromptsOverviewGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -549,7 +586,8 @@ const aeoPromptsRankingsGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/rankings/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -817,6 +855,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-keywords-suggestion-get': aeoKeywordsSuggestionGet,
     'aeo-prompts-archive': aeoPromptsArchive,
     'aeo-prompts-checks-list': aeoPromptsChecksList,
+    'aeo-prompts-citations-list': aeoPromptsCitationsList,
     'aeo-prompts-create-dashboard': aeoPromptsCreateDashboard,
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,

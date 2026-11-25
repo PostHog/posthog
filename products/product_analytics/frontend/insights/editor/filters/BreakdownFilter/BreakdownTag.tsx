@@ -7,8 +7,8 @@ import { useState } from 'react'
 import { IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { BreakdownType } from '~/types'

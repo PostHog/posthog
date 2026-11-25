@@ -42,6 +42,7 @@ export type ProviderEdgeOptions = {
     caDir?: string
     region?: string
     feedbackUrl?: string
+    truth?: Truth
 }
 
 export type ProviderEdge = {
@@ -86,13 +87,15 @@ function integerAtLeast(value: string | null, min: number, fallback: number): nu
 type Feedback = { signer: SnsSigner; url: string }
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
-    const truth = new Truth()
+    const truth = options.truth ?? new Truth()
     const sent: SesMessage[] = []
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
-    const actionIdOf = (trackingCode: string | undefined): string | undefined =>
-        trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)?.actionId
+    const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
+        const tracked = trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)
+        return { actionId: tracked?.actionId, flowId: tracked?.functionId }
+    }
 
     const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
@@ -102,7 +105,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         const { message } = request
         const recipients = addressesOf(message.to)
-        const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
+        const correlation = { unitId: unitIdOf(recipients), ...trackedOf(trackingCodeOf(message)) }
         const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
         if (fault && fault.answer.kind !== 'status' && fault.answer.kind !== 'bounce') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
@@ -165,23 +168,15 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     }
 
-    const unsignedBounce = (rule: FaultRule): string | undefined => {
-        if (rule.answer.kind !== 'bounce' || feedback) {
-            return undefined
-        }
-        const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
-        return `params.type: a bounce needs an edge with ${missing}`
-    }
-
     const addCardFault = (body: unknown): Reply => {
         const parsed = CardFault.safeParse(body)
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
         const rule = ruleOf(parsed.data)
-        const problem = unsignedBounce(rule)
-        if (problem) {
-            return { status: 400, body: { problems: [problem] } }
+        if (rule.answer.kind === 'bounce' && !feedback) {
+            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+            return { status: 400, body: { problems: [`params.type: a bounce needs an edge with ${missing}`] } }
         }
         return { status: 201, body: { id: faults.add(rule) } }
     }
@@ -306,10 +301,6 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         sent,
         addFault: (rule) => faults.add(rule),
         hold: (rule) => {
-            const problem = unsignedBounce(rule)
-            if (problem) {
-                throw new Error(problem)
-            }
             const id = faults.add(rule)
             return {
                 observed: async (holdEnds) => {

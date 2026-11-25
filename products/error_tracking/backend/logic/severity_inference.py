@@ -37,7 +37,7 @@ def severity_inference_enabled(team_id: int) -> bool:
     return team_flag_enabled(SEVERITY_INFERENCE_FLAG, team_id)
 
 
-def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -> str:
+def build_exception_state(stacktrace: str, event_properties: dict[str, object]) -> str:
     lines = [stacktrace.rstrip("\n")]
     handled = mechanism_handled(event_properties)
     if handled is not None:

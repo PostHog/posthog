@@ -1,6 +1,8 @@
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { SCREENSHOT_ATTRIBUTE } from './mobile/transformer/transformers'
 import { RecordingSegment, RecordingSnapshot } from './types'
+import { isObject } from './utils'
 
 // nodejs/src/ingestion/pipelines/sessionreplay/segmentation.ts has a cut-down version of this
 // for computing activeMilliseconds during ingestion. It intentionally differs:
@@ -19,11 +21,27 @@ const activeSources = [
 
 const ACTIVITY_THRESHOLD_MS = 5000
 
+// processSnapshot turns a mobile screenshot frame into an attribute mutation of the previous frame's img.
+// Flutter and iOS screenshot recordings carry no touch events, so those frames are their only activity.
+const isScreenshotMutation = (event: eventWithTime): boolean => {
+    return (
+        event.type === EventType.IncrementalSnapshot &&
+        event.data?.source === IncrementalSource.Mutation &&
+        // the swap carries exactly one attribute entry, so web mutations are rejected without a scan
+        Array.isArray(event.data.attributes) &&
+        event.data.attributes.length === 1 &&
+        isObject(event.data.attributes[0]) &&
+        isObject(event.data.attributes[0].attributes) &&
+        SCREENSHOT_ATTRIBUTE in event.data.attributes[0].attributes
+    )
+}
+
 const isActiveEvent = (event: eventWithTime): boolean => {
     return (
         event.type === EventType.FullSnapshot ||
         event.type === EventType.Meta ||
-        (event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source))
+        (event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source)) ||
+        isScreenshotMutation(event)
     )
 }
 

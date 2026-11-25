@@ -37,11 +37,31 @@ if [ -f "$FLOX_MANIFEST" ]; then
   fi
 fi
 
+# Claude Code keeps one CLAUDE_ENV_FILE for the whole session and runs SessionStart
+# again on every resume and compaction. It prepends the file to every Bash command, so
+# a block appended on each start grows the file until every command fails with
+# "argument list too long". Each block ends with a marker line that carries the
+# checksum of its exports. When the file ends with the marker of the same block, that
+# block is the last thing sourced and is in effect, so the hook skips it. In every
+# other case the hook appends: a changed environment, a switch back to an earlier
+# manifest, a partial block, or lines written after the marker by another version of
+# this hook. The hook only appends, because lines in the file that this hook did not
+# write are not its to remove.
+append_env_block() {
+  local block="$1" marker
+  marker="# setup-flox block: $(printf '%s' "$block" | cksum | awk '{print $1 "-" $2}')"
+  if [ "$(tail -n 1 "$CLAUDE_ENV_FILE" 2>/dev/null)" != "$marker" ]; then
+    # The leading newline starts the block on its own line when the file does not
+    # end with one.
+    printf '\n%s\n%s\n' "$block" "$marker" >> "$CLAUDE_ENV_FILE"
+  fi
+}
+
 # Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
-    tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
+    append_env_block "$(tail -n +2 "$CACHE_FILE")"
     exit 0
   fi
 fi
@@ -71,7 +91,7 @@ if [ -d "$VENV_DIR/bin" ]; then
 fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
-printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
+append_env_block "$(printf '%s' "$ENV_CONTENT")"
 printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0

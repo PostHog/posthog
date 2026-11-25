@@ -8,8 +8,12 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Waker};
 use std::time::Instant;
 
-use posthog_rs::PostHogError;
+use posthog::{CaptureFailure, PostHogError};
 use serde_json::Value;
+
+pub mod capture_outcomes;
+
+use capture_outcomes::{event_outcome, request_outcome, EventOutcome};
 
 /// Hard cap on captured exceptions per process per minute. Bounds both outage
 /// storms (every request failing at once) and self-amplification: cymbal
@@ -22,6 +26,10 @@ const MAX_CAPTURES_PER_MINUTE: u32 = 10;
 /// every service that inits through this crate; the `service` label keeps them
 /// cleanly faceted regardless of scrape topology.
 const SDK_DELIVERY_FAILURES: &str = "posthog_sdk_delivery_failures_total";
+
+const SDK_CAPTURE_UNPERSISTED_EVENTS: &str = "posthog_sdk_capture_unpersisted_events_total";
+
+const SDK_CAPTURE_REQUEST_FAILURES: &str = "posthog_sdk_capture_request_failures_total";
 
 static SERVICE: OnceLock<ServiceContext> = OnceLock::new();
 static CAPTURE_WINDOW: RateWindow = RateWindow::new();
@@ -48,7 +56,7 @@ pub async fn init(
     service: &'static str,
     api_key: Option<&str>,
     endpoint: &str,
-) -> Result<(), posthog_rs::Error> {
+) -> Result<(), posthog::Error> {
     let context = SERVICE
         .get_or_init(|| ServiceContext {
             service,
@@ -60,19 +68,19 @@ pub async fn init(
         .clone();
 
     let Some(api_key) = api_key else {
-        posthog_rs::disable_global();
+        posthog::disable_global();
         tracing::warn!("PostHog client disabled (no API key)");
         return Ok(());
     };
 
     // Exclude this crate's own frames from in-app classification so captured
     // stacks lead with the real service call site, not the shared wrapper.
-    let error_tracking = posthog_rs::ErrorTrackingOptionsBuilder::default()
+    let error_tracking = posthog::ErrorTrackingOptionsBuilder::default()
         .capture_panics(true)
         .in_app_exclude_paths(vec!["common_posthog::".to_string()])
         .build()
         .expect("all error tracking options have defaults");
-    let options = posthog_rs::ClientOptionsBuilder::default()
+    let options = posthog::ClientOptionsBuilder::default()
         .api_key(api_key.to_string())
         .host(normalize_host(endpoint))
         .error_tracking(error_tracking)
@@ -83,7 +91,7 @@ pub async fn init(
         .on_error(move |err| report_sdk_error(service, err))
         .build()
         .expect("all client options have defaults");
-    posthog_rs::init_global(options).await?;
+    posthog::init_global(options).await?;
     tracing::info!("PostHog client initialized");
     Ok(())
 }
@@ -101,7 +109,7 @@ pub fn capture_exception<E>(
 ) where
     E: std::error::Error + Send + Sync + 'static,
 {
-    if posthog_rs::global_is_disabled() {
+    if posthog::global_is_disabled() {
         return;
     }
 
@@ -111,13 +119,13 @@ pub fn capture_exception<E>(
 
     // Strings and pre-built JSON values always serialize.
     let prop_err = "string and JSON property values always serialize";
-    let mut options = posthog_rs::CaptureExceptionOptions::new();
+    let mut options = posthog::CaptureExceptionOptions::new();
     for (key, value) in properties {
         options = options.property(key, value).expect(prop_err);
     }
 
     let send = async move {
-        if let Err(e) = posthog_rs::capture_exception_with(&*error, options).await {
+        if let Err(e) = posthog::capture_exception_with(&*error, options).await {
             tracing::error!(error = ?e, "Failed to capture exception to PostHog");
         }
     };
@@ -134,9 +142,9 @@ pub fn capture_exception<E>(
 }
 
 fn prepare_event_for_capture(
-    mut event: posthog_rs::Event,
+    mut event: posthog::Event,
     context: &ServiceContext,
-) -> Option<posthog_rs::Event> {
+) -> Option<posthog::Event> {
     if is_fatal_exception(&event)
         && !CAPTURE_WINDOW.allows(clock_window_minutes(), MAX_CAPTURES_PER_MINUTE)
     {
@@ -158,7 +166,7 @@ fn prepare_event_for_capture(
     Some(event)
 }
 
-fn is_fatal_exception(event: &posthog_rs::Event) -> bool {
+fn is_fatal_exception(event: &posthog::Event) -> bool {
     event.event_name() == "$exception"
         && event
             .properties()
@@ -186,12 +194,49 @@ fn report_sdk_error(service: &'static str, err: &PostHogError<'_>) {
         "reason" => reason,
     )
     .increment(1);
+    if let PostHogError::Capture(failure) = err {
+        record_capture_failure(service, failure);
+    }
     tracing::warn!(
         service,
         surface,
         reason,
         "posthog-rs dropped telemetry after terminal delivery failure"
     );
+}
+
+fn record_capture_failure(service: &'static str, failure: &CaptureFailure<'_>) {
+    if let Some(error) = failure.error() {
+        let outcome = request_outcome(error);
+        metrics::counter!(
+            SDK_CAPTURE_REQUEST_FAILURES,
+            "service" => service,
+            "status" => outcome.status,
+            "error" => outcome.error,
+        )
+        .increment(1);
+        return;
+    }
+    for result in failure.event_results().values() {
+        let outcome = event_outcome(result);
+        if !matches!(outcome.result, "ok" | "warning") {
+            count_unpersisted(service, outcome, 1);
+        }
+        if let Some(copies) = result.duplicates_dropped.filter(|n| *n > 0) {
+            count_unpersisted(service, EventOutcome::DUPLICATE_COPY, u64::from(copies));
+        }
+    }
+}
+
+fn count_unpersisted(service: &'static str, outcome: EventOutcome, events: u64) {
+    metrics::counter!(
+        SDK_CAPTURE_UNPERSISTED_EVENTS,
+        "service" => service,
+        "result" => outcome.result,
+        "class" => outcome.class,
+        "detail" => outcome.detail,
+    )
+    .increment(events);
 }
 
 /// Map a `PostHogError` to bounded `(surface, reason)` metric labels. `surface`
@@ -212,19 +257,19 @@ fn classify_sdk_error(err: &PostHogError<'_>) -> (&'static str, &'static str) {
     }
 }
 
-/// Bounded failure class for a `posthog_rs::Error`. Mirrors the tag split the
+/// Bounded failure class for a `posthog::Error`. Mirrors the tag split the
 /// batch-import-worker uses so `quota` (expected billing enforcement) stays
 /// separable from actionable transport/server failures in alerts.
-/// `posthog_rs::Error` is `#[non_exhaustive]`, hence the catch-all arm.
-fn sdk_error_reason(err: &posthog_rs::Error) -> &'static str {
+/// `posthog::Error` is `#[non_exhaustive]`, hence the catch-all arm.
+fn sdk_error_reason(err: &posthog::Error) -> &'static str {
     match err {
-        posthog_rs::Error::BillingLimitExceeded(_) => "quota",
-        posthog_rs::Error::BadRequest(_) => "bad_request",
-        posthog_rs::Error::ServerError { .. } => "server_error",
-        posthog_rs::Error::RateLimit => "rate_limited",
-        posthog_rs::Error::Unauthorized => "unauthorized",
-        posthog_rs::Error::Connection(_) => "transport",
-        posthog_rs::Error::Serialization(_) => "serialization",
+        posthog::Error::BillingLimitExceeded(_) => "quota",
+        posthog::Error::BadRequest(_) => "bad_request",
+        posthog::Error::ServerError { .. } => "server_error",
+        posthog::Error::RateLimit => "rate_limited",
+        posthog::Error::Unauthorized => "unauthorized",
+        posthog::Error::Connection(_) => "transport",
+        posthog::Error::Serialization(_) => "serialization",
         _ => "other",
     }
 }
@@ -326,7 +371,7 @@ mod tests {
 
     #[test]
     fn sdk_error_reason_maps_every_variant() {
-        use posthog_rs::Error;
+        use posthog::Error;
         // The exact tag per variant is an alerting contract: `quota` (expected
         // billing enforcement) MUST stay separable from actionable failures.
         let cases: &[(Error, &str)] = &[

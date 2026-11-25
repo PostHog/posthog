@@ -12,6 +12,7 @@ export type TraceDrawerListId =
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
+    | 'clusters'
     | 'eval-suggestions'
 
 export interface TraceDrawerListConfig {
@@ -93,7 +94,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,
         backTo: 'cluster',
         backLabel: 'Back to cluster',
-        openingMode: 'summary',
+        openingMode: 'thread',
+        rowClick: false,
+    },
+    clusters: {
+        pathMatcher: /^\/ai-observability\/clusters(?:\/[^/]+)?$/,
+        backTo: 'clusters',
+        backLabel: 'Back to clusters',
+        openingMode: 'thread',
         rowClick: false,
     },
     'eval-suggestions': {

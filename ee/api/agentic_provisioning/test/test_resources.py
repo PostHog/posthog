@@ -2,13 +2,20 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
+from posthog.project_creation_limits import (
+    ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+    PLAN_PROJECT_LIMIT_MESSAGE,
+    PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
+)
 from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
@@ -16,8 +23,234 @@ from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
+RESOURCES_URL = "/api/agentic/provisioning/resources"
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
+PROJECT_WRITE_SCOPES = ["query:read", "project:write"]
+MEMBERS_CAN_CREATE_PROJECTS_FEATURE = {
+    "key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+    "name": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+}
+
 
 class TestProvisioningResources(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        self._set_organization_features([UNLIMITED_PROJECTS_FEATURE])
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _bearer_token_with_scopes(self, scopes: list[str]) -> str:
+        # The partner's own scopes cap what a token can carry, so widen them first.
+        self.partner.scopes = sorted({*self.partner.scopes, *scopes})
+        self.partner.save()
+        return self._request_bearer_token(scopes=scopes).json()["access_token"]
+
+    def _set_organization_features(self, features: list[dict]) -> None:
+        self.organization.available_product_features = features
+        self.organization.save()
+
+    @parameterized.expand(
+        [
+            ("without_projects_feature", [], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_plan_limit", [ONE_PROJECT_FEATURE], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+            (
+                "at_organization_maximum_below_the_plan_limit",
+                [{**ONE_PROJECT_FEATURE, "limit": 5000}],
+                1,
+                ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+            ),
+        ]
+    )
+    def test_create_resource_with_new_project_id_refused_at_project_limit(
+        self, _name: str, features: list[dict], organization_maximum: int | None, message: str
+    ) -> None:
+        self._set_organization_features(features)
+        token = self._get_bearer_token()
+        team_count = Team.objects.filter(organization=self.organization).count()
+
+        with patch(
+            "posthog.project_creation_limits.MAX_ALLOWED_PROJECTS_PER_ORG",
+            organization_maximum or 2000,
+        ):
+            res = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_over_limit"}, token=token)
+
+        assert res.status_code == 403
+        assert res.json() == {
+            "status": "error",
+            "id": "",
+            "error": {"code": "project_limit_reached", "message": message},
+        }
+        assert Team.objects.filter(organization=self.organization).count() == team_count
+        assert not TeamProvisioningConfig.objects.filter(stripe_project_id="proj_over_limit").exists()
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 403),
+            ("member_when_organization_allows_it", OrganizationMembership.Level.MEMBER, True, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+        ]
+    )
+    def test_create_resource_with_new_project_id_follows_project_creation_policy(
+        self, _name: str, level: OrganizationMembership.Level, members_can_create_projects: bool, expected_status: int
+    ) -> None:
+        self._set_organization_features([UNLIMITED_PROJECTS_FEATURE, MEMBERS_CAN_CREATE_PROJECTS_FEATURE])
+        self.organization.members_can_create_projects = members_can_create_projects
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        token = self._get_bearer_token()
+        team_count = Team.objects.filter(organization=self.organization).count()
+
+        res = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_policy"}, token=token)
+
+        assert res.status_code == expected_status, res.content
+        if expected_status == 403:
+            assert res.json()["error"] == {"code": "forbidden", "message": PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE}
+            assert Team.objects.filter(organization=self.organization).count() == team_count
+        else:
+            assert Team.objects.filter(organization=self.organization).count() == team_count + 1
+
+    def test_first_new_project_id_claims_the_partner_project_and_a_second_is_refused_on_free_plan(self) -> None:
+        self._set_organization_features([])
+        TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._bearer_token_with_scopes(PROJECT_WRITE_SCOPES)
+
+        first = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_first", "configuration": {"project_name": "Partner app"}},
+            token=token,
+        )
+        repeated = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_first"}, token=token)
+        second = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_second"}, token=token)
+
+        assert first.status_code == 200, first.content
+        assert first.json()["id"] == str(self.team.id)
+        assert repeated.json()["id"] == str(self.team.id)
+        assert TeamProvisioningConfig.objects.get(team=self.team).stripe_project_id == "proj_first"
+        assert Team.objects.get(id=self.team.id).name == "Partner app"
+        assert second.status_code == 403
+        assert second.json()["error"]["code"] == "project_limit_reached"
+        assert list(Team.objects.filter(organization=self.organization).values_list("id", flat=True)) == [self.team.id]
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, PROJECT_WRITE_SCOPES, "Partner app"),
+            ("admin_with_a_read_only_token", OrganizationMembership.Level.ADMIN, ["query:read"], "Bootstrap project"),
+            ("member", OrganizationMembership.Level.MEMBER, PROJECT_WRITE_SCOPES, "Bootstrap project"),
+        ]
+    )
+    def test_claim_applies_the_requested_name_only_for_project_admins_with_project_write(
+        self, _name: str, level: OrganizationMembership.Level, scopes: list[str], expected_name: str
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        self.team.name = "Bootstrap project"
+        self.team.save()
+        Project.objects.filter(id=self.team.id).update(name="Bootstrap project")
+        TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._bearer_token_with_scopes(scopes)
+
+        res = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_named", "configuration": {"project_name": "Partner app"}},
+            token=token,
+        )
+
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(self.team.id)
+        assert Team.objects.get(id=self.team.id).name == expected_name
+        assert Project.objects.get(id=self.team.id).name == expected_name
+
+    def test_new_project_id_resolves_to_a_concurrent_claim_of_the_same_project_id(self) -> None:
+        self._set_organization_features([])
+        config = TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._get_bearer_token()
+
+        def lose_claim_to_concurrent_request(project_id: str, *args, **kwargs) -> None:
+            config.stripe_project_id = project_id
+            config.save()
+
+        with patch(
+            "ee.api.agentic_provisioning.teams._claim_provisioned_team", side_effect=lose_claim_to_concurrent_request
+        ):
+            res = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_raced"}, token=token)
+
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("not_a_string", 123),
+            ("null", None),
+            ("empty", ""),
+            ("too_long", "x" * 201),
+            ("null_character", "Partner\x00app"),
+        ]
+    )
+    def test_create_resource_rejects_invalid_project_name_without_claiming(
+        self, _name: str, project_name: object
+    ) -> None:
+        TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._get_bearer_token()
+
+        res = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_named", "configuration": {"project_name": project_name}},
+            token=token,
+        )
+
+        assert res.status_code == 400
+        assert res.json()["error"] == {
+            "code": "invalid_request",
+            "message": "configuration: project_name must be a string of 1 to 200 characters",
+        }
+        assert TeamProvisioningConfig.objects.get(team=self.team).stripe_project_id is None
+
+    @parameterized.expand(
+        [
+            ("claimed_by_another_project_id", "proj_existing", None),
+            ("provisioned_by_another_partner", None, "other_partner"),
+            ("not_provisioned_by_a_partner", None, "none"),
+            ("this_partners_project_other_than_the_base_team", None, "other_team"),
+        ]
+    )
+    def test_new_project_id_does_not_claim_a_project_unavailable_to_this_partner(
+        self, _name: str, existing_project_id: str | None, owner: str | None
+    ) -> None:
+        other_team = None
+        if owner == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Teammate's partner project")
+            TeamProvisioningConfig.objects.create(team=other_team, application=self.partner)
+        elif owner != "none":
+            application = (
+                OAuthApplication.objects.create(
+                    name="Other example partner",
+                    client_id="other_example_partner",
+                    client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    redirect_uris="https://other.example.com/callback",
+                    algorithm="RS256",
+                )
+                if owner == "other_partner"
+                else self.partner
+            )
+            TeamProvisioningConfig.objects.create(
+                team=self.team, application=application, stripe_project_id=existing_project_id
+            )
+        token = self._get_bearer_token()
+
+        res = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_new"}, token=token)
+
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] != str(self.team.id)
+        assert TeamProvisioningConfig.objects.filter(team=self.team, stripe_project_id="proj_new").count() == 0
+        if other_team is not None:
+            assert other_team.id in OAuthAccessToken.objects.get(token=token).scoped_teams
+            assert res.json()["id"] != str(other_team.id)
+            assert TeamProvisioningConfig.objects.get(team=other_team).stripe_project_id is None
+
     @parameterized.expand(
         [
             (operation, ip, restrict_target, expected)
@@ -629,7 +862,10 @@ class TestProvisioningResources(ProvisioningTestBase):
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            MEMBERS_CAN_CREATE_PROJECTS_FEATURE,
+            UNLIMITED_PROJECTS_FEATURE,
         ]
+        self.organization.members_can_create_projects = True
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

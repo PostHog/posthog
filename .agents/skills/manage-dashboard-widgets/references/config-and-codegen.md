@@ -16,7 +16,7 @@ widget_specs/configs.py          Pydantic *WidgetConfig per type (+ shared commo
         ├─► registry.py          WIDGET_SPECS manifest + validate_widget_config() (config, catalog labels, run_*)
         └─► widget_catalog.py    config_schema = model_json_schema() (for agents)
 
-bin/build-dashboard-widget-types.py  (hogli build:widget-types — step 1)
+products/dashboards/scripts/build_widget_types.py  (hogli build:widget-types — step 1)
         ├─► widget-date-from-options.json   date preset values + labels (from `constants.py`)
         └─► widget-form-fields.json         modal `.pick()` fields (from `WidgetSpec.form_fields`)
 
@@ -46,8 +46,8 @@ hogli build:openapi
 | `generated/widget-config-schemas/*.zod.ts`   | Per-component Orval Zod (`ErrorTrackingListWidgetConfig`, shared `WidgetDateRange`, etc.)                                  |
 | `generated/widget-configs.zod.ts`            | Friendly re-exports, inferred types, form `.pick()` schemas (`hogli build:widget-types`)                                   |
 | `generated/widget-config-property-keys.json` | Per-type top-level config keys from catalog OpenAPI slice (`generate-widget-config-zod.mjs`)                               |
-| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build-dashboard-widget-types.py`)                                    |
-| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build-dashboard-widget-types.py`)                          |
+| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build_widget_types.py`)                                              |
+| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build_widget_types.py`)                                    |
 | `widgets/widgetConfigValidation.ts`          | Shared HogQL filter helpers + `parseWidgetConfigApiError` — not the per-type schema                                        |
 | `widget_types/widgetConfigShared.ts`         | Re-exports date select options from generated JSON + `resolveWidgetFilterTestAccounts`                                     |
 | `widgets/*/*WidgetConfigValidation.ts`       | Import generated form schema; API error parsing only (colocated with validation)                                           |

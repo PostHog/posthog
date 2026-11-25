@@ -6,7 +6,16 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 # Notion search and query endpoints cap page_size at 100.
 NOTION_PAGE_SIZE = 100
 
-StreamType = Literal["search", "users", "blocks", "comments", "permission_groups"]
+StreamType = Literal[
+    "search",
+    "users",
+    "blocks",
+    "comments",
+    "permission_groups",
+    "permission_group_members",
+    "user_credit_usage",
+    "agent_credit_usage",
+]
 
 
 @dataclass(frozen=False)
@@ -20,6 +29,11 @@ class NotionEndpointConfig:
     # From API version 2025-09-03 onward the schema-bearing "database" tables are returned as
     # "data_source" objects, so the databases stream filters on "data_source".
     object_filter: Optional[str] = None
+    primary_keys: tuple[str, ...] = ("id",)
+    # Admin API endpoints only: the organization bot token scope the endpoint needs, and the workspace
+    # list path that the stream pages through (the parent list for a fan-out stream).
+    admin_scope: Optional[str] = None
+    admin_path: Optional[str] = None
 
 
 NOTION_ENDPOINTS: dict[str, NotionEndpointConfig] = {
@@ -49,10 +63,32 @@ NOTION_ENDPOINTS: dict[str, NotionEndpointConfig] = {
         stream_type="comments",
         partition_key="created_time",
     ),
-    # Admin API endpoint: needs an organization bot token, and the organization must be on the Enterprise plan.
+    # Admin API endpoints: they need an organization bot token, and the organization must be on the Enterprise plan.
     "permission_groups": NotionEndpointConfig(
         name="permission_groups",
         stream_type="permission_groups",
+        admin_scope="permission-group:read",
+        admin_path="/v1/spaces/{workspace_id}/groups",
+    ),
+    "permission_group_members": NotionEndpointConfig(
+        name="permission_group_members",
+        stream_type="permission_group_members",
+        # Membership rows have no id of their own, and a user can be in many groups.
+        primary_keys=("group_id", "user_id"),
+        admin_scope="permission-group:read",
+        admin_path="/v1/spaces/{workspace_id}/groups",
+    ),
+    "user_credit_usage": NotionEndpointConfig(
+        name="user_credit_usage",
+        stream_type="user_credit_usage",
+        admin_scope="user:read",
+        admin_path="/v1/spaces/{workspace_id}/users/credit_usage",
+    ),
+    "agent_credit_usage": NotionEndpointConfig(
+        name="agent_credit_usage",
+        stream_type="agent_credit_usage",
+        admin_scope="workflows:read",
+        admin_path="/v1/spaces/{workspace_id}/agents/credit_usage",
     ),
 }
 

@@ -5,8 +5,10 @@ from django.test import RequestFactory
 from django.urls import reverse
 
 from posthog.admin import register_all_admin
+from posthog.models import Team
 
 from products.warehouse_sources.backend.admin.data_warehouse_table_admin import DataWarehouseTableAdmin
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -55,3 +57,37 @@ class TestDataWarehouseTableAdmin(BaseTest):
 
         assert response.status_code == 403
         assert not DataWarehouseTable.objects.filter(name="attacker_table").exists()
+
+    def test_change_view_does_not_move_a_table_to_another_team(self) -> None:
+        register_all_admin()
+        self.client.force_login(self.user)
+        other_team = Team.objects.create(organization=self.organization)
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customer_table",
+            format="CSVWithNames",
+            url_pattern="https://s3.us-east-1.amazonaws.com/customer-bucket/data/*.csv",
+            credential=DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
+            columns={},
+        )
+        change_url = reverse(
+            f"admin:{DataWarehouseTable._meta.app_label}_{DataWarehouseTable._meta.model_name}_change", args=[table.pk]
+        )
+
+        response = self.client.post(
+            change_url,
+            {
+                "team": other_team.pk,
+                "name": table.name,
+                "format": table.format,
+                "url_pattern": table.url_pattern,
+                "options": "{}",
+                "row_count": "0",
+                "size_in_s3_mib": "0",
+                "columns": "{}",
+            },
+        )
+
+        assert response.status_code == 302
+        table.refresh_from_db()
+        assert table.team_id == self.team.pk

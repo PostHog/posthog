@@ -28,6 +28,17 @@ def _last_refresh_iso(response: dict) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def _last_refresh(response: dict) -> Optional[datetime]:
+    value = _last_refresh_iso(response)
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 @dataclass(frozen=True)
 class CacheLookup:
     """Everything the cache knows about a cache key: the stored entry and any open failure record."""
@@ -158,6 +169,7 @@ class QueryCache:
                 insight_id=self.insight_id,
                 dashboard_id=self.dashboard_id,
                 target_age=target_age,
+                last_refresh=_last_refresh(response),
             )
         else:
             remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)

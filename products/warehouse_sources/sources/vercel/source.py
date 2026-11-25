@@ -164,7 +164,7 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Vercel access token to pull your Vercel deployments, deployment check runs, projects, teams, domains, aliases, and billing usage into the PostHog Data warehouse.
 
-Create an access token in your [Vercel account settings](https://vercel.com/account/tokens). A read-only token is sufficient.
+Create an access token on your [Vercel Account Tokens page](https://vercel.com/account/tokens). In **Scope**, choose **Full Account**. A token scoped to a single project can't read your account, and an AI Gateway API key doesn't work here.
 
 To sync resources owned by a team, also enter the team's ID (found under **Team Settings**). Leave it blank to sync resources owned by the token's user. Syncing the **billing_charges** table needs a token whose role can read billing (Owner, Member, Developer, Security, Billing, or Enterprise Viewer).""",
             iconPath="/static/services/vercel.png",

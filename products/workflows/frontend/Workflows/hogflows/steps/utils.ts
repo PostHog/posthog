@@ -15,13 +15,16 @@ const COUNTABLE_PROPERTY_TYPES: string[] = [PropertyFilterType.Person, PropertyF
  * Whether a branch condition's filters can be counted as a share of persons. A condition evaluated
  * against an event rather than a person would produce a misleading percentage, so it gets no estimate.
  */
-export function isCountableCondition(filters?: { properties?: unknown[] } | null): boolean {
-    const properties = (filters?.properties ?? []) as AnyPropertyFilter[]
-    // An unconfigured condition matches everyone, so an estimate of it carries no information.
-    if (properties.length === 0) {
+export function isCountableCondition(filters?: { properties?: unknown } | null): boolean {
+    const properties = filters?.properties ?? []
+    // An unconfigured condition matches everyone, so an estimate of it carries no information. The
+    // audience endpoint reads a flat list only, so a condition with filter groups gets no estimate.
+    if (!Array.isArray(properties) || properties.length === 0) {
         return false
     }
-    return properties.every((property) => property.type != null && COUNTABLE_PROPERTY_TYPES.includes(property.type))
+    return (properties as AnyPropertyFilter[]).every(
+        (property) => property.type != null && COUNTABLE_PROPERTY_TYPES.includes(property.type)
+    )
 }
 
 /**

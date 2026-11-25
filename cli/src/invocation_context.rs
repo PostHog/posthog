@@ -3,7 +3,7 @@ use inquire::{
     validator::{ErrorMessage, Validation},
     CustomUserError,
 };
-use posthog_rs::{ErrorTrackingOptionsBuilder, Event};
+use posthog::{ErrorTrackingOptionsBuilder, Event};
 use reqwest::blocking::Client;
 use std::{
     io::{self, IsTerminal},
@@ -150,7 +150,7 @@ pub fn current_invocation_id() -> String {
 pub fn capture_command_run_without_context() -> JoinHandle<()> {
     std::thread::spawn(|| {
         debug!("Capturing command run event");
-        posthog_rs::capture(Event::new_anon("posthog cli command run"));
+        posthog::capture(Event::new_anon("posthog cli command run"));
         debug!("Event queued successfully");
     })
 }
@@ -194,7 +194,7 @@ pub fn init_posthog_telemetry() {
         .capture_panics(true)
         .build()
         .expect("Building error tracking config succeeds");
-    let ph_config = posthog_rs::ClientOptionsBuilder::default()
+    let ph_config = posthog::ClientOptionsBuilder::default()
         .api_key(token.to_string())
         .request_timeout_seconds(5) // It's a CLI, 5 seconds is an eternity
         .error_tracking(error_tracking)
@@ -208,9 +208,9 @@ pub fn init_posthog_telemetry() {
         .build()
         .expect("Building PH config succeeds");
 
-    match posthog_rs::init_global(ph_config) {
+    match posthog::init_global(ph_config) {
         Ok(()) => {}
-        Err(posthog_rs::Error::AlreadyInitialized) => {
+        Err(posthog::Error::AlreadyInitialized) => {
             debug!("PostHog client already initialized");
         }
         Err(err) => {
@@ -322,7 +322,7 @@ impl InvocationContext {
             }
 
             debug!("Capturing event");
-            posthog_rs::capture(event);
+            posthog::capture(event);
             debug!("Event queued successfully");
         });
 
@@ -335,7 +335,7 @@ impl InvocationContext {
             .unwrap()
             .drain(..)
             .for_each(|handle| handle.join().unwrap());
-        posthog_rs::flush();
+        posthog::flush();
     }
 }
 

@@ -74,3 +74,20 @@ export const Vertical: Story = {
     },
 } satisfies Story
 
+export const DisabledReason: Story = {
+    render: () => {
+        return (
+            <ToggleGroup variant="outline" multiple>
+                <ToggleGroupItem value="filter" aria-label="Filter">
+                    <Filter />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="favorite" aria-label="Favorite">
+                    <Heart />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="sort" aria-label="Sort" disabledReason="This view can't be sorted">
+                    <ArrowDownAZ />
+                </ToggleGroupItem>
+            </ToggleGroup>
+        )
+    },
+} satisfies Story

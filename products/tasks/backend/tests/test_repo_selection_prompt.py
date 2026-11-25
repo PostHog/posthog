@@ -86,8 +86,17 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "1. `acme/a` (private)" in prompt
     assert "2. `acme/b` (public)" in prompt
     assert "3. `acme/c` (visibility unknown)" in prompt
-    assert "**Source privacy.**" in prompt
-    assert "source privacy rule" in prompt
+    # The candidate filter enforces source privacy in code. A prompt rule only widened it to wrong cases.
+    assert "privacy" not in prompt.lower()
+
+
+def test_named_repository_outside_the_candidates_is_a_reason_to_abstain() -> None:
+    prompt = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
+    abstain_rules = prompt[prompt.index("## When to return `null`") : prompt.index("## Examples")]
+
+    assert "**When the request names a repository that is not a candidate.**" in abstain_rules
+    # The domain rule is what led the agent to a name match, so it must yield to the named repository.
+    assert "A domain match does not override a repository the" in abstain_rules
 
 
 def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:

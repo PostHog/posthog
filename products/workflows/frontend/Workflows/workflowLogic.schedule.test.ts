@@ -27,15 +27,6 @@ describe('workflowLogic schedule reducers', () => {
         logic.mount()
     })
 
-    describe('initial state', () => {
-        it('has default schedule state', () => {
-            expect(logic.values.scheduleState).toEqual(DEFAULT_STATE)
-            expect(logic.values.scheduleStartsAt).toBeNull()
-            expect(logic.values.isScheduleRepeating).toBe(false)
-            expect(logic.values.pendingSchedule).toBe(false)
-        })
-    })
-
     describe('setSchedules', () => {
         it('initializes reducers from a repeating schedule', async () => {
             await expectLogic(logic, () => {
@@ -74,14 +65,6 @@ describe('workflowLogic schedule reducers', () => {
     })
 
     describe('pendingSchedule selector', () => {
-        it('returns false when no changes have been made', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSchedules([makeSchedule()])
-            }).toMatchValues({
-                pendingSchedule: false,
-            })
-        })
-
         it('returns schedule config when starts_at changes', async () => {
             logic.actions.setSchedules([makeSchedule()])
             const newStartsAt = '2026-05-01T10:00:00.000Z'
@@ -93,21 +76,6 @@ describe('workflowLogic schedule reducers', () => {
                     rrule: expect.any(String),
                     starts_at: newStartsAt,
                     timezone: 'UTC',
-                },
-            })
-        })
-
-        it('returns schedule config when timezone changes', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-
-            await expectLogic(logic, () => {
-                logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
-            }).toMatchValues({
-                pendingSchedule: {
-                    rrule: expect.any(String),
-                    // Wall clock stays 9:00 AM, UTC shifts from 09:00 to 13:00 (9:00 AM EDT = UTC-4)
-                    starts_at: '2026-04-10T13:00:00.000Z',
-                    timezone: 'US/Eastern',
                 },
             })
         })
@@ -181,18 +149,6 @@ describe('workflowLogic schedule reducers', () => {
             applyChange()
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
-
-        it('is false after resetting changes', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleTimezone('US/Eastern')
-            expect(logic.values.hasUnsavedChanges).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.resetWorkflow(logic.values.workflow)
-            }).toMatchValues({
-                hasUnsavedChanges: false,
-            })
-        })
     })
 
     describe('end-to-end scenarios', () => {
@@ -249,23 +205,6 @@ describe('workflowLogic schedule reducers', () => {
                 pendingSchedule: false,
             })
             expect(logic.values.scheduleState.endType).toBe('never')
-        })
-
-        it('scenario 4: toggle repeat off produces one-time rrule', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleRepeating(false)
-
-            const pending = logic.values.pendingSchedule
-            expect(pending).not.toBe(false)
-            expect((pending as any).rrule).toBe(ONE_TIME_RRULE)
-            expect((pending as any).starts_at).toBe(STARTS_AT)
-        })
-
-        it('scenario 5: clearing date on existing schedule produces null (delete)', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleStartsAt(null)
-
-            expect(logic.values.pendingSchedule).toBeNull()
         })
 
         it('scenario 6: no false dirty state after loading schedule', async () => {

@@ -20,7 +20,7 @@ import { logger } from '~/common/utils/logger'
 import { promiseRetry, retryIfRetriable } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
 import { PersonMergeCallFailedError, PersonMergeNotAppliedError, PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
@@ -377,8 +377,6 @@ export class RoutingPersonsStore implements PersonsStore {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -394,8 +392,6 @@ export class RoutingPersonsStore implements PersonsStore {
                 this.pg.createPerson(
                     createdAt,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     teamId,
                     isUserId,
                     isIdentified,
@@ -409,8 +405,6 @@ export class RoutingPersonsStore implements PersonsStore {
                 this.personhog.createPerson(
                     createdAt,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     teamId,
                     isUserId,
                     isIdentified,
@@ -426,8 +420,6 @@ export class RoutingPersonsStore implements PersonsStore {
                         this.personhog.createPerson(
                             createdAt,
                             properties,
-                            propertiesLastUpdatedAt,
-                            propertiesLastOperation,
                             teamId,
                             isUserId,
                             isIdentified,

@@ -80,6 +80,10 @@ class ExecutionTimeRecorder:
     def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback) -> None:
         if self._start_counter is None:
             raise RuntimeError("Start counter not initialized, did you call `__enter__`?")
+        # Workflow eviction can close suspended coroutines without their Temporal context.
+        if isinstance(exc_value, GeneratorExit):
+            self._start_counter = None
+            return
         end_counter = time.perf_counter()
         delta_milli_seconds = int((end_counter - self._start_counter) * 1000)
         delta = dt.timedelta(milliseconds=delta_milli_seconds)

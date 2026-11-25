@@ -126,11 +126,11 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
 
 
 def realtime_cohort_can_finish(cohort: Cohort) -> bool:
-    """Whether this cohort's team is at the `serving` level, so the cohort can become ready at all.
+    """Whether realtime is on for this cohort and its team is at the `serving` level, so it can become ready at all.
 
     A `processing` team runs the pipeline, but its users must not see a realtime audience come alive.
     """
-    return is_serving_team(cohort.team_id)
+    return cohort.realtime_enabled and is_serving_team(cohort.team_id)
 
 
 def realtime_cohort_is_ready(cohort: Cohort) -> bool:
@@ -151,8 +151,7 @@ def realtime_cohort_status(cohort: Cohort) -> RealtimeCohortStatus:
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if realtime_cohort_is_ready(cohort):
         state: str = CohortRealtimeState.READY
-    elif not is_serving_team(cohort.team_id):
-        # The pipeline doesn't serve this team, so the cohort never finishes calculating.
+    elif not realtime_cohort_can_finish(cohort):
         state = CohortRealtimeState.NEEDS_ATTENTION
     elif readiness is not None and readiness.state in _REPORTED_PENDING_STATES:
         state = readiness.state

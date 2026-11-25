@@ -96,6 +96,11 @@ async fn assert_answer(mode: CaptureMode, path: &str, expected: Answer) {
 #[case::ai_batch_trailing_slash("/i/v0/ai/batch/", Answer::Served(StatusCode::OK))]
 #[case::ai_multipart("/i/v0/ai", Answer::Served(StatusCode::UNAUTHORIZED))]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Served(StatusCode::UNAUTHORIZED))]
+#[case::ai_otel_traces_signal_path(
+    "/i/v0/ai/otel/v1/traces",
+    Answer::Served(StatusCode::UNAUTHORIZED)
+)]
+#[case::ai_otel_logs_signal_path("/i/v0/ai/otel/v1/logs", Answer::Absent)]
 #[case::analytics_batch("/batch", Answer::Absent)]
 #[case::analytics_event("/e", Answer::Absent)]
 #[case::analytics_capture("/capture", Answer::Absent)]
@@ -119,6 +124,7 @@ async fn ai_mode_registers_only_the_ai_paths(#[case] path: &str, #[case] expecte
 #[case::ai_batch("/i/v0/ai/batch", Answer::Absent)]
 #[case::ai_multipart("/i/v0/ai", Answer::Absent)]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
+#[case::ai_otel_traces_signal_path("/i/v0/ai/otel/v1/traces", Answer::Absent)]
 #[tokio::test]
 async fn events_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
@@ -140,6 +146,7 @@ async fn events_mode_registers_only_the_analytics_paths(
 #[case::ai_multipart_trailing_slash("/i/v0/ai/", Answer::Absent)]
 #[case::ai_otel("/i/v0/ai/otel", Answer::Absent)]
 #[case::ai_otel_trailing_slash("/i/v0/ai/otel/", Answer::Absent)]
+#[case::ai_otel_traces_signal_path("/i/v0/ai/otel/v1/traces", Answer::Absent)]
 #[tokio::test]
 async fn import_mode_registers_only_the_analytics_paths(
     #[case] path: &str,
@@ -226,4 +233,60 @@ async fn non_ai_modes_never_serve_the_v1_ai_endpoint(
     #[case] expected: Answer,
 ) {
     assert_v1_answer(mode, path, expected).await;
+}
+
+// ---------------------------------------------------------------------------
+// Unmatched paths
+// ---------------------------------------------------------------------------
+
+/// An unmatched path gets the legacy 404 without running the v1 middleware.
+/// The `PostHog-Request-Id` echo comes from the v1 stack, so it shows whether
+/// those layers ran; the served cases prove the echo works.
+#[rstest]
+#[case::ai_otel_unserved_signal_path(CaptureMode::Ai, "/i/v0/ai/otel/v1/logs", true)]
+#[case::ai_unknown_v1_path(CaptureMode::Ai, "/i/v1/ai/bogus", true)]
+#[case::ai_unknown_path(CaptureMode::Ai, "/does/not/exist", true)]
+#[case::events_unknown_v1_path(CaptureMode::Events, "/i/v1/analytics/bogus", true)]
+#[case::events_unknown_path(CaptureMode::Events, "/does/not/exist", true)]
+#[case::import_unknown_path(CaptureMode::Import, "/does/not/exist", true)]
+#[case::recordings_unknown_path(CaptureMode::Recordings, "/does/not/exist", true)]
+#[case::ai_served_v1(CaptureMode::Ai, "/i/v1/ai/events", false)]
+#[case::events_served_v1(CaptureMode::Events, "/i/v1/analytics/events", false)]
+#[tokio::test]
+async fn unmatched_paths_skip_the_v1_middleware(
+    #[case] mode: CaptureMode,
+    #[case] path: &str,
+    #[case] unmatched: bool,
+) {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let mut event = capture::v1::test_utils::valid_event();
+    event.event = "$ai_generation".to_string();
+
+    let response = TestClient::new(build_router_for_mode(mode))
+        .post(path)
+        .body(capture::v1::test_utils::batch_payload(&[event]))
+        .header("Authorization", "Bearer phc_route_surface_token")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+        .header("PostHog-Attempt", "1")
+        .header("PostHog-Request-Id", request_id.as_str())
+        .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00Z")
+        .header("User-Agent", "test-agent/1.0")
+        .send()
+        .await;
+
+    let status = response.status();
+    let echoed = response
+        .headers()
+        .get("PostHog-Request-Id")
+        .map(|v| v.to_str().unwrap().to_owned());
+
+    if unmatched {
+        assert_eq!(status, StatusCode::NOT_FOUND, "{mode:?} {path}");
+        assert_eq!(echoed, None, "{mode:?} {path} ran the v1 middleware");
+    } else {
+        assert_eq!(status, StatusCode::OK, "{mode:?} {path}");
+        assert_eq!(echoed, Some(request_id), "{mode:?} {path}");
+    }
 }

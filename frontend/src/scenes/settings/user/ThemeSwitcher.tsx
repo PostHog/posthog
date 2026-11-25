@@ -2,12 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconDay, IconLaptop, IconNight, IconPalette } from '@posthog/icons'
-import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { UserTheme } from '~/types'
+
+import { QuillThemeSwitcher } from './QuillThemeSwitcher'
 
 export function ThemeSwitcher({
     onlyLabel,
@@ -16,8 +20,9 @@ export function ThemeSwitcher({
     const { themeMode } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const { customCssEnabled } = useValues(themeLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const themeOptions: LemonSelectOptions<string> = [
+    const themeOptions: LemonSelectSection<string>[] = [
         {
             options: [
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
@@ -31,6 +36,18 @@ export function ThemeSwitcher({
         themeOptions.push({
             options: [{ icon: <IconPalette />, value: 'custom', label: 'Edit custom CSS' }],
         })
+    }
+
+    const handleChange = (value: string | null): void => {
+        if (value === 'custom') {
+            router.actions.push(urls.customCss())
+        } else {
+            updateUser({ theme_mode: value as UserTheme | null })
+        }
+    }
+
+    if (todayRailNav) {
+        return <QuillThemeSwitcher sections={themeOptions} value={themeMode} onChange={handleChange} />
     }
 
     return (
@@ -50,13 +67,7 @@ export function ThemeSwitcher({
                     </>
                 )
             }}
-            onChange={(value) => {
-                if (value === 'custom') {
-                    router.actions.push(urls.customCss())
-                } else {
-                    updateUser({ theme_mode: value })
-                }
-            }}
+            onChange={handleChange}
             dropdownPlacement="right-start"
             dropdownMatchSelectWidth={false}
             {...props}
