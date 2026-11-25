@@ -228,12 +228,16 @@ export const sourceFilterPreviewLogic: LogicWrapper<sourceFilterPreviewLogicType
     }),
     listeners(({ actions, values, props: logicProps, cache }) => {
         const schedule = (ms: number, run: () => void): void => {
+            // The plugin runs setup again when a hidden tab shows, so each run waits only for what is left.
+            const deadline = Date.now() + ms
             cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    // Drop the entry once it fires, because the plugin runs setup again when a hidden tab shows.
-                    cache.disposables.dispose(PREVIEW_TIMER_KEY)
-                    run()
-                }, ms)
+                const timerId = setTimeout(
+                    () => {
+                        cache.disposables.dispose(PREVIEW_TIMER_KEY)
+                        run()
+                    },
+                    Math.max(0, deadline - Date.now())
+                )
                 return () => clearTimeout(timerId)
             }, PREVIEW_TIMER_KEY)
         }

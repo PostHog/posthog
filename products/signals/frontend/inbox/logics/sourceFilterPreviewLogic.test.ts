@@ -276,6 +276,32 @@ describe('sourceFilterPreviewLogic', () => {
         expect(logic.values).toMatchObject({ previewResult: okPreview(2), previewRequestError: null })
     })
 
+    it('retries at once when the tab shows again after the retry deadline passed', async () => {
+        let throttle = true
+        respondToPreview = () => (throttle ? throttled('60') : [200, okPreview(4)])
+
+        logic.actions.setPreviewInput({ expression: 'assignee_id IS NULL', scopeIds: null })
+        await advance(800)
+        expect(logic.values.previewRequestError).toBe('throttled')
+
+        const hiddenSpy = jest.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+        try {
+            document.dispatchEvent(new Event('visibilitychange'))
+            throttle = false
+            await advance(120_000)
+            expect(previewBodies).toHaveLength(1)
+
+            hiddenSpy.mockReturnValue(false)
+            document.dispatchEvent(new Event('visibilitychange'))
+            await advance(0)
+            expect(previewBodies).toHaveLength(2)
+            expect(logic.values).toMatchObject({ previewResult: okPreview(4), previewRequestError: null })
+        } finally {
+            hiddenSpy.mockRestore()
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+    })
+
     it('sends nothing for an input equal to the current one', async () => {
         logic.actions.setPreviewInput({ expression: 'assignee_id IS NULL', scopeIds: ['team-a', 'team-b'] })
         await advance(800)
