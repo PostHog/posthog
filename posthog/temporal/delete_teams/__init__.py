@@ -24,6 +24,7 @@ from posthog.temporal.delete_teams.activities import (
 from posthog.temporal.delete_teams.workflows import (
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
@@ -31,6 +32,7 @@ WORKFLOWS = [
     DeleteTeamsDataWorkflow,
     DeleteProjectDataWorkflow,
     DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
 ]
 
 ACTIVITIES = [

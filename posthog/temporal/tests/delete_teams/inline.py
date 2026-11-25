@@ -39,10 +39,16 @@ from posthog.temporal.delete_teams.types import (
 from posthog.temporal.delete_teams.workflows import (
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
-WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
+WORKFLOWS = [
+    DeleteTeamsDataWorkflow,
+    DeleteProjectDataWorkflow,
+    DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
+]
 
 # Activities swapped for no-op stubs in the inline worker, matched by object identity so the swap
 # stays correct regardless of how the Temporal SDK derives the registered activity name.

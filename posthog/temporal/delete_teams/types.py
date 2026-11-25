@@ -60,6 +60,7 @@ class DeleteTeamsDataWorkflowInputs:
 
     team_ids: list[int]
     user_id: int
+    delete_task_sessions: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

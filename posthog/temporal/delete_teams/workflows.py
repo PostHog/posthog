@@ -59,6 +59,7 @@ SIDE_EFFECT_RETRY_POLICY = temporalio.common.RetryPolicy(
 
 HEAVY_ACTIVITY_TIMEOUT = dt.timedelta(hours=2)
 TASK_SESSIONS_ACTIVITY_TIMEOUT = dt.timedelta(hours=12)
+TASK_UPLOAD_URLS_EXPIRY = dt.timedelta(hours=1, minutes=5)
 # Persons batches wait for TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES slots, so a large deletion takes hours.
 PERSONS_ACTIVITY_TIMEOUT = dt.timedelta(hours=12)
 HEAVY_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
@@ -186,7 +187,7 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
                 )
 
         task_storage_patched = temporalio.workflow.patched("delete-task-storage")
-        if task_storage_patched:
+        if task_storage_patched and inputs.delete_task_sessions:
             await temporalio.workflow.execute_activity(
                 delete_task_session_storage_activity,
                 team_inputs,
@@ -218,6 +219,29 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
                 heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
                 retry_policy=DELETE_RETRY_POLICY,
             )
+            info = temporalio.workflow.info()
+            await temporalio.workflow.start_child_workflow(
+                DeleteTaskStorageAfterUploadsExpireWorkflow.run,
+                team_inputs,
+                id=f"{info.workflow_id}-{info.run_id}-task-storage-after-uploads-expire",
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+            )
+
+
+@temporalio.workflow.defn(name="delete-task-storage-after-uploads-expire")
+class DeleteTaskStorageAfterUploadsExpireWorkflow(PostHogWorkflow):
+    inputs_cls = TeamDataActivityInputs
+
+    @temporalio.workflow.run
+    async def run(self, inputs: TeamDataActivityInputs) -> None:
+        await temporalio.workflow.sleep(TASK_UPLOAD_URLS_EXPIRY)
+        await temporalio.workflow.execute_activity(
+            delete_task_storage_activity,
+            inputs,
+            start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+            retry_policy=DELETE_RETRY_POLICY,
+        )
 
 
 async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workflow_id: str) -> None:
@@ -305,7 +329,9 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
         if inputs.team_ids:
             await _delete_teams_data_child(
-                DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),
+                DeleteTeamsDataWorkflowInputs(
+                    team_ids=inputs.team_ids, user_id=inputs.user_id, delete_task_sessions=False
+                ),
                 f"{temporalio.workflow.info().workflow_id}-teams-data",
             )
 

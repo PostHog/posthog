@@ -114,6 +114,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
     TASK_DESCRIPTION_PREVIEW_LENGTH,
+    TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
@@ -346,6 +347,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS",
     "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",

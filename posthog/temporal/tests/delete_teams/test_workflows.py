@@ -28,14 +28,25 @@ from posthog.temporal.delete_teams.types import (
     TeamDataActivityInputs,
 )
 from posthog.temporal.delete_teams.workflows import (
+    TASK_UPLOAD_URLS_EXPIRY,
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
+from products.tasks.backend.facade.api import TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS
+
 pytestmark = pytest.mark.asyncio
 
-WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
+WORKFLOWS = [
+    DeleteTeamsDataWorkflow,
+    DeleteProjectDataWorkflow,
+    DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
+]
+
+TEST_EXECUTION_TIMEOUT = dt.timedelta(hours=6)
 
 CORE_ACTIVITY_ORDER = [
     "queue_recording_deletions_activity",
@@ -123,6 +134,7 @@ async def _run(workflow, inputs, calls: list[str], project_pending: bool = True)
                 inputs,
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
             )
 
 
@@ -130,6 +142,43 @@ async def test_core_workflow_runs_every_phase_in_order():
     calls: list[str] = []
     await _run(DeleteTeamsDataWorkflow.run, DeleteTeamsDataWorkflowInputs(team_ids=[1, 2], user_id=7), calls)
     assert calls == CORE_ACTIVITY_ORDER
+
+
+async def test_core_workflow_leaves_a_storage_resweep_running_after_it_completes():
+    calls: list[str] = []
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=_recording_activities(calls),
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            workflow_id = str(uuid.uuid4())
+            handle = await env.client.start_workflow(
+                DeleteTeamsDataWorkflow.run,
+                DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
+                id=workflow_id,
+                task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
+            )
+            await handle.result()
+            resweep = await env.client.get_workflow_handle(
+                f"{workflow_id}-{handle.result_run_id}-task-storage-after-uploads-expire"
+            ).describe()
+
+    assert resweep.workflow_type == "delete-task-storage-after-uploads-expire"
+
+
+async def test_storage_resweep_deletes_team_storage_after_waiting():
+    calls: list[str] = []
+    await _run(DeleteTaskStorageAfterUploadsExpireWorkflow.run, TeamDataActivityInputs(team_ids=[1], user_id=7), calls)
+    assert calls == ["delete_task_storage_activity"]
+
+
+def test_the_storage_resweep_waits_out_every_task_upload_url():
+    assert TASK_UPLOAD_URLS_EXPIRY.total_seconds() > TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS
 
 
 async def test_core_workflow_noop_for_empty_team_ids():
@@ -222,7 +271,7 @@ async def test_organization_workflow_deletes_record_then_emails():
     )
     assert calls == [
         "deprovision_managed_warehouse_activity",
-        *CORE_ACTIVITY_ORDER,
+        *(name for name in CORE_ACTIVITY_ORDER if name != "delete_task_session_storage_activity"),
         "delete_organization_record_activity",
         "delete_organization_task_storage_activity",
         "send_organization_deleted_email_activity",
@@ -263,6 +312,7 @@ async def _run_core_with(activities: list) -> None:
                 DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
             )
 
 
