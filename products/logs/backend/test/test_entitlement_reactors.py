@@ -10,6 +10,7 @@ from posthog.entitlements.execution import execute_entitlement_reactor
 from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.models.organization import Organization
 from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
+from posthog.models.team.logs_retention import EntitlementSnapshotOutOfDateError
 
 from products.logs.backend.entitlement_reactors import LOGS_RETENTION_REACTOR_KEY
 from products.logs.backend.models import LogsRetentionRule
@@ -70,6 +71,18 @@ class TestLogsRetentionReactor(BaseTest):
         self.assert_retention(*expected)
         self.reactor.react(change)
         self.assert_retention(*expected)
+
+    def test_react_raises_and_keeps_paid_retention_when_the_feature_is_back_after_the_snapshot(self) -> None:
+        Organization.objects.filter(id=self.organization.id).update(
+            available_product_features=PAID_RETENTION.to_snapshot()
+        )
+        change = EntitlementChange(
+            organization_id=str(self.organization.id), previous=PAID_RETENTION, current=NO_PAID_RETENTION
+        )
+
+        with self.assertRaises(EntitlementSnapshotOutOfDateError):
+            self.reactor.react(change)
+        self.assert_retention(30, 90, 1)
 
     def test_execution_resets_retention_and_advances_the_checkpoint(self) -> None:
         organization_id = str(self.organization.id)

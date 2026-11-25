@@ -11,7 +11,7 @@ def reset_logs_retention_without_entitlement(change: EntitlementChange) -> None:
     if not missing_feature_keys:
         return
     organization = Organization.objects.using("default").only("id").get(id=change.organization_id)
-    reset_logs_retention_for_missing_features(organization, missing_feature_keys)
+    reset_logs_retention_for_missing_features(organization, missing_feature_keys, recheck_features=True)
 
 
 ENTITLEMENT_REACTORS: tuple[EntitlementReactor, ...] = (
