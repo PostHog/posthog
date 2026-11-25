@@ -249,6 +249,15 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/properties', 'data', 'products'],
         ['/project/1/models/0190-model', 'data', 'products'],
         ['/project/1/data-catalog', 'data', 'products'],
+        ['/project/1/warehouse', 'data', null],
+        ['/project/1/warehouse/usage', 'data', null],
+        ['/project/1/warehouse/queries', 'data', null],
+        ['/project/1/warehouse/storage', 'data', null],
+        ['/project/1/warehouse/posthog-data', 'data', null],
+        ['/project/1/warehouse/source-data', 'data', null],
+        ['/project/1/warehouse/access', 'data', null],
+        ['/project/1/warehouse/connect', 'data', null],
+        ['/project/1/warehouse/settings', 'data', null],
         ['/project/1/sql', 'products', 'products'],
     ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
         expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)

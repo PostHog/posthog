@@ -1,4 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+
+import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TODAY_DATA_RECENT_TYPES } from './todayDataRecents'
 import type { TodayPaneProductSpec, TodayProductPaneConfig } from './todayPaneProducts'
@@ -14,8 +17,44 @@ function dataPipelineSpecs(): TodayPaneProductSpec[] {
     ]
 }
 
+// The warehouse console pages are not in the product list, so each row carries its own entry and flag.
+function warehouseConsolePage(
+    path: string,
+    href: string,
+    sceneKey: string,
+    // pinned: autocapture `data-attr` suffix, `data-sidebar-warehouse-<key>`.
+    key: string
+): TodayPaneProductSpec & { item: FileSystemImport } {
+    return {
+        href,
+        key,
+        item: { path, iconType: 'data_warehouse', href, flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE, sceneKey },
+    }
+}
+
 function dataWarehouseSpecs(): TodayPaneProductSpec[] {
-    return [{ href: urls.dataOps() }, { href: urls.models() }, { href: urls.dataWarehouseManagedViewsets() }]
+    return [
+        { href: urls.dataOps() },
+        { href: urls.models() },
+        { href: urls.dataWarehouseManagedViewsets() },
+        warehouseConsolePage(
+            'PostHog data',
+            urls.warehousePostHogData(),
+            'WarehousePostHogData',
+            'warehouse-posthog-data'
+        ),
+        warehouseConsolePage('Source data', urls.warehouseSourceData(), 'WarehouseSourceData', 'warehouse-source-data'),
+        warehouseConsolePage('Usage', urls.warehouseUsage(), 'WarehouseUsage', 'warehouse-usage'),
+        warehouseConsolePage('Queries', urls.warehouseQueries(), 'WarehouseQueries', 'warehouse-queries'),
+        warehouseConsolePage('Storage', urls.warehouseStorage(), 'WarehouseStorage', 'warehouse-storage'),
+        warehouseConsolePage('Access', urls.warehouseAccess(), 'WarehouseAccess', 'warehouse-access'),
+        warehouseConsolePage('Connect', urls.warehouseConnect(), 'WarehouseConnect', 'warehouse-connect'),
+        {
+            ...warehouseConsolePage('Settings', urls.warehouseSettings(), 'WarehouseSettings', 'warehouse-settings'),
+            // The upsell page at /warehouse sends people to setup, so it opens the Data pane with this row active.
+            section: urls.warehouse(),
+        },
+    ]
 }
 
 function dataDefinitionSpecs(): TodayPaneProductSpec[] {

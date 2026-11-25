@@ -2009,6 +2009,21 @@
         "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
+    "warehouse": {
+        "template": "/warehouse",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseAccess": {
+        "template": "/warehouse/access",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseConnect": {
+        "template": "/warehouse/connect",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseDestination": {
         "template": "/data-management/warehouse-destinations",
         "params": [],
@@ -2019,8 +2034,38 @@
         "params": [],
         "scope": "project"
     },
+    "warehousePostHogData": {
+        "template": "/warehouse/posthog-data",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseProperties": {
         "template": "/data-management/warehouse-properties",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseQueries": {
+        "template": "/warehouse/queries",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseSettings": {
+        "template": "/warehouse/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseSourceData": {
+        "template": "/warehouse/source-data",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseStorage": {
+        "template": "/warehouse/storage",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseUsage": {
+        "template": "/warehouse/usage",
         "params": [],
         "scope": "project"
     },

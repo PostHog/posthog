@@ -39,10 +39,16 @@ from products.cdp.backend.facade.models import HogFunction, HogFunctionState, Ho
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
 from products.data_quality.backend.presentation.views import data_quality_gate_response
-from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
+from products.data_warehouse.backend.facade.api import (
+    get_managed_warehouse_data_status,
+    get_managed_warehouse_landing_history,
+    get_source_schema_statuses,
+)
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
     ManagedWarehouseDataStatusResponseSerializer,
+    ManagedWarehouseLandingHistoryQuerySerializer,
+    ManagedWarehouseLandingHistoryResponseSerializer,
     ManagedWarehouseSourceSchemasQuerySerializer,
     ManagedWarehouseSourceSchemasResponseSerializer,
 )
@@ -1756,6 +1762,31 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             }
         )
+
+    @validated_request(
+        query_serializer=ManagedWarehouseLandingHistoryQuerySerializer,
+        responses={200: OpenApiResponse(response=ManagedWarehouseLandingHistoryResponseSerializer)},
+        summary="Get daily landing history for the managed warehouse",
+        description="Per-day counts of completed and failed source workflow attempts and backfill partitions "
+        "over the last 7 or 30 days, oldest first.",
+    )
+    # nosemgrep: api-path-underscore -- new path matches the sibling managed-warehouse-* routes
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-landing-history",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_landing_history(self, request: Request, **kwargs) -> Response:
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
+        history = get_managed_warehouse_landing_history(
+            self.team_id,
+            days=int(request.validated_query_data["days"]),
+            timezone_name=self.team.timezone,
+            user_access_control=self.user_access_control,
+        )
+        return Response(ManagedWarehouseLandingHistoryResponseSerializer(history).data)
 
     @extend_schema(
         responses={
