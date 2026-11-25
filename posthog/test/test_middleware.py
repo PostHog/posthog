@@ -40,6 +40,7 @@ from structlog.testing import capture_logs
 from posthog.api.current_alias_usage import (
     CURRENT_ALIAS_USED_EVENT,
     FLAT_ROUTE_USED_EVENT,
+    REQUEST_SCOPE_SHADOW_METRIC,
     TOKEN_ON_PROJECT_PATH_USED_EVENT,
     CurrentAliasScope,
     current_alias_scope,
@@ -4020,6 +4021,70 @@ class TestCurrentAliasUsage(APIBaseTest):
         assert [(event["properties"]["token_matches_path"], event["properties"]["team_id"]) for event in events] == [
             (matches, teams[team].id) for matches, team in expected
         ]
+
+    @parameterized.expand(
+        [
+            ("path_id", "session", "/api/projects/{project_id}/feature_flags/", None, ("project", "path", "same")),
+            (
+                "alias_follows_the_user",
+                "session",
+                "/api/projects/@current/feature_flags/",
+                None,
+                ("project", "", "unplaced"),
+            ),
+            (
+                "path_and_token_disagree",
+                "key",
+                "/api/projects/{project_id}/feature_flags/",
+                "other",
+                ("project", "path", "different"),
+            ),
+            (
+                "token_on_a_view_that_refuses_it",
+                "key",
+                "/api/projects/@current/feature_flags/",
+                "own",
+                ("project", "", "unplaced"),
+            ),
+            (
+                "token_on_prompt_views",
+                "key",
+                "/api/environments/@current/llm_prompts/",
+                "own",
+                ("team", "token", "same"),
+            ),
+            (
+                "organization_alias",
+                "session",
+                "/api/organizations/@current/members/",
+                None,
+                ("organization", "", "unplaced"),
+            ),
+            ("flat_route", "session", "/api/feature_flag/", None, ("project", "", "unplaced")),
+        ]
+    )
+    def test_records_where_the_request_names_its_scope(
+        self, _name: str, caller: str, url: str, token: str | None, expected: tuple[str, str, str]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        headers: dict[str, str] = {}
+        if caller == "key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
+            self.client.logout()
+            headers["Authorization"] = f"Bearer {key}"
+        query = {"token": {"own": self.team, "other": other_team}[token].api_token} if token else {}
+        client = MagicMock()
+
+        with patch("posthog.api.current_alias_usage.posthoganalytics.default_client", client):
+            self.client.get(url.format(project_id=self.team.project_id), query, headers=headers)
+
+        shadows = [
+            call.kwargs["attributes"]
+            for call in client.metrics.count.call_args_list
+            if call.args[0] == REQUEST_SCOPE_SHADOW_METRIC
+        ]
+        assert [(shadow["level"], shadow["source"], shadow["outcome"]) for shadow in shadows] == [expected]
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()
