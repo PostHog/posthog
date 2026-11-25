@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{collections::HashSet, fmt, sync::Arc, time::Instant};
 
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Json, Request, State},
@@ -9,6 +9,7 @@ use axum::{
 use common_ingestion_response::{codes, ItemResult, ItemResults, PerItemResults, Warning};
 use common_ingestion_warnings::WarningType;
 use reqwest::StatusCode;
+use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, SeqAccess, Visitor};
 use uuid::Uuid;
 
 use serde_json::{json, value::RawValue, Map, Value};
@@ -58,6 +59,7 @@ pub enum ProcessEventsError {
     Backpressure,
     Rejected(JsonRejection),
     TooManyEvents { events: usize, limit: usize },
+    NotEvents(String),
 }
 
 impl From<JsonRejection> for ProcessEventsError {
@@ -86,6 +88,14 @@ impl IntoResponse for ProcessEventsError {
             )
                 .into_response(),
             ProcessEventsError::Rejected(rejection) => rejection.into_response(),
+            ProcessEventsError::NotEvents(details) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "error": "The /process body is not an array of events",
+                    "details": details,
+                })),
+            )
+                .into_response(),
             ProcessEventsError::TooManyEvents { events, limit } => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(json!({
@@ -149,9 +159,14 @@ pub async fn process_events(
 
     // A raw event is not parsed here, so an event that only its own parse rejects, such as one
     // nested past the recursion limit, fails alone.
-    let Json(bodies) = Json::<Vec<Box<RawValue>>>::from_request(request, &()).await?;
-    let request_items = bodies.len();
+    let Json(body) = Json::<Box<RawValue>>::from_request(request, &()).await?;
     let limit = ctx.config.process_max_events_per_request;
+    let RawEvents {
+        bodies,
+        total: request_items,
+    } = RawEvents::deserializer(limit)
+        .deserialize(&mut serde_json::Deserializer::from_str(body.get()))
+        .map_err(|err| ProcessEventsError::NotEvents(err.to_string()))?;
     if request_items > limit {
         metrics::counter!(ERRORS, "cause" => "process_too_many_events").increment(1);
         return Err(ProcessEventsError::TooManyEvents {
@@ -192,6 +207,54 @@ pub async fn process_events(
         .map_err(|err| {
             ProcessEventsError::Unhandled(Arc::new(UnhandledError::Other(err.to_string())))
         })
+}
+
+struct RawEvents {
+    bodies: Vec<Box<RawValue>>,
+    total: usize,
+}
+
+impl RawEvents {
+    fn deserializer(limit: usize) -> RawEventsLimit {
+        RawEventsLimit(limit)
+    }
+}
+
+/// Keeps at most the limit of raw events and only counts the rest, so a body of many small
+/// items cannot make the parse allocate one value for each of them.
+struct RawEventsLimit(usize);
+
+impl<'de> DeserializeSeed<'de> for RawEventsLimit {
+    type Value = RawEvents;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<RawEvents, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de> Visitor<'de> for RawEventsLimit {
+    type Value = RawEvents;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("an array of events")
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<RawEvents, A::Error> {
+        let mut bodies = Vec::new();
+        let mut total = 0;
+        loop {
+            if total < self.0 {
+                match seq.next_element::<Box<RawValue>>()? {
+                    Some(body) => bodies.push(body),
+                    None => break,
+                }
+            } else if seq.next_element::<IgnoredAny>()?.is_none() {
+                break;
+            }
+            total += 1;
+        }
+        Ok(RawEvents { bodies, total })
+    }
 }
 
 fn to_item_result(outcome: ProcessOutcome) -> ItemResult<AnyEvent> {
