@@ -301,7 +301,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         return state
                     }
                     const updated = [...state]
-                    updated[index] = { key: name, result_path: name ? `output.${name}` : '' }
+                    updated[index] = { ...updated[index], key: name, result_path: name ? `output.${name}` : '' }
                     return updated
                 },
                 addMapping: (state) => [...state, { key: '', result_path: '' }],
@@ -384,10 +384,18 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         // `copyFrom` carries a renamed agent field's type and description over to its new variable.
         const ensureVariable = (key: string, label: string, copyFrom?: string): void => {
             const existingVars = values.workflow.variables ?? []
+            const source = copyFrom && copyFrom !== key ? existingVars.find((v) => v.key === copyFrom) : undefined
             if (existingVars.some((v) => v.key === key)) {
+                // Renaming onto an existing variable keeps the field's current type and description.
+                if (source) {
+                    workflowLogic(props).actions.setWorkflowInfo({
+                        variables: existingVars.map((v) =>
+                            v.key === key ? { ...v, type: source.type, description: source.description } : v
+                        ),
+                    })
+                }
                 return
             }
-            const source = existingVars.find((v) => v.key === copyFrom)
             workflowLogic(props).actions.setWorkflowInfo({
                 variables: [
                     ...existingVars,

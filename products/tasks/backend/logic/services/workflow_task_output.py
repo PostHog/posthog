@@ -43,7 +43,12 @@ def build_output_schema(fields: Mapping[str, str], descriptions: Mapping[str, st
                 f"output field {name!r} has type {field_type!r}; expected one of {', '.join(OUTPUT_FIELD_TYPES)}"
             )
         # A JSON field takes any object or list; the agent reads its description for the shape.
-        properties[name] = {"type": ["object", "array"]} if field_type == "json" else {"type": field_type}
+        # `additionalProperties` keeps adapters with strict schemas from forbidding every key.
+        properties[name] = (
+            {"type": ["object", "array"], "additionalProperties": True}
+            if field_type == "json"
+            else {"type": field_type}
+        )
         if description := (descriptions or {}).get(name):
             properties[name]["description"] = description[:MAX_FIELD_DESCRIPTION]
         if field_type == "string":

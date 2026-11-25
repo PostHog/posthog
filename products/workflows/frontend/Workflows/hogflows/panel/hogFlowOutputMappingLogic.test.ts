@@ -545,17 +545,40 @@ describe('hogFlowOutputMappingLogic', () => {
                     variables: [{ key: 'score', label: 'score', type: 'json', default: '', description: 'Tags' }],
                 })
                 editorLogic.actions.setSelectedNodeId('action-rename')
-                logic.actions.initMappings([{ key: 'score', result_path: 'output.score' }])
+                logic.actions.initMappings([{ key: 'score', result_path: 'output.score', spread: true }])
 
                 logic.actions.setAgentField(0, 'tags')
 
-                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags' }])
+                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags', spread: true }])
                 expect(wfLogic.values.workflow.variables).toContainEqual({
                     key: 'tags',
                     label: 'tags',
                     type: 'json',
                     default: '',
                     description: 'Tags',
+                })
+            })
+
+            it('renaming onto an existing variable gives it the field current type and description', async () => {
+                const node = makeActionNode('action-rename-back')
+                wfLogic.actions.setWorkflowInfo({
+                    actions: [node.data],
+                    variables: [
+                        { key: 'score', label: 'score', type: 'string', default: '' },
+                        { key: 'rating', label: 'rating', type: 'number', default: '', description: '1 to 5' },
+                    ],
+                })
+                editorLogic.actions.setSelectedNodeId('action-rename-back')
+                logic.actions.initMappings([{ key: 'rating', result_path: 'output.rating' }])
+
+                logic.actions.setAgentField(0, 'score')
+
+                expect(wfLogic.values.workflow.variables).toContainEqual({
+                    key: 'score',
+                    label: 'score',
+                    type: 'number',
+                    default: '',
+                    description: '1 to 5',
                 })
             })
         })

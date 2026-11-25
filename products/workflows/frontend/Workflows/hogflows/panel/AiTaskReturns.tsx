@@ -70,10 +70,13 @@ export function AiTaskReturns(): JSX.Element {
         return { mapping, index, isAgentField: !!fieldName || (!mapping.key && !mapping.result_path), fieldName }
     })
     const agentFields = rows.filter((row) => row.isAgentField && row.fieldName)
+    const hasJsonField = agentFields.some((row) => variableFor(row.mapping.key)?.type === 'json')
     const overBudget =
         worstCaseBytes(agentFields.map((row) => ({ name: row.fieldName!, type: variableFor(row.mapping.key)?.type }))) >
         RESULT_BYTE_CAP
-    const missingBuiltIns = BUILT_IN_RESULTS.filter((r) => !mappings.some((m) => m.result_path === r.result_path))
+    const missingBuiltIns = BUILT_IN_RESULTS.filter(
+        (r) => !mappings.some((m) => m.result_path === r.result_path || m.key === r.key)
+    )
 
     return (
         <div className="flex flex-col gap-2 w-full">
@@ -160,11 +163,12 @@ export function AiTaskReturns(): JSX.Element {
                     <code>{`{variables.${agentFields[0].fieldName}}`}</code>.
                 </span>
             )}
-            {overBudget && (
+            {(overBudget || hasJsonField) && (
                 <LemonBanner type="warning">
-                    These fields can add up to more than the workflow keeps from the agent (about 4 KB), and anything
-                    past that is cut off. Each text field can hold up to {RESULT_STRING_CAP} characters, so remove a
-                    text field or switch one to a number or true or false.
+                    The workflow keeps about 4 KB from the agent, and anything past that is cut off.{' '}
+                    {overBudget
+                        ? `Each text field can hold up to ${RESULT_STRING_CAP} characters, so remove a text field or switch one to a number or true or false.`
+                        : 'A JSON field has no fixed size, so describe a small shape for it.'}
                 </LemonBanner>
             )}
         </div>

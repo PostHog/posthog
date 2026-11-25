@@ -713,7 +713,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "properties": {
                 "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
                 "score": {"type": "number", "description": "1 (urgent) to 4 (low)"},
-                "tags": {"type": ["object", "array"], "description": "Product areas, as a list"},
+                "tags": {
+                    "type": ["object", "array"],
+                    "additionalProperties": True,
+                    "description": "Product areas, as a list",
+                },
             },
             "required": ["verdict", "score", "tags"],
         }
