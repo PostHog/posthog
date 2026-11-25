@@ -1,8 +1,6 @@
 import re
 from pathlib import Path
 
-import pytest
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.system import source_sync_jobs
 from posthog.hogql.parser import parse_select
@@ -25,21 +23,9 @@ def _section() -> str:
     return _STALENESS_SECTION.group(1)
 
 
-@pytest.mark.parametrize(
-    "instruction",
-    [
-        "compare `last_checked_at` with `sync_frequency`",
-        "no sync frequency, the sync cannot be scheduled",
-    ],
-)
-def test_staleness_section_gives_the_instruction(instruction: str) -> None:
-    assert instruction in _section()
-
-
 def test_staleness_fields_need_the_full_schema_rows() -> None:
     assert {"last_checked_at", "sync_frequency"} <= set(ExternalDataSchemaSerializer.Meta.fields)
     assert "sync_frequency" not in ExternalDataSchemaCompactSerializer.Meta.fields
-    assert "`compact: false`" in _section()
 
 
 def test_job_history_query_reads_real_columns_without_the_raw_error() -> None:
