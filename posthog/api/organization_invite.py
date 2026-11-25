@@ -249,8 +249,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(
                 "A user with this email address already belongs to the organization.", code="existing_member"
             )
-        # A service account never signs in, so an invite to its address could never be accepted.
-        if User.objects.filter(email__iexact=email).exclude(type=UserType.HUMAN).exists():
+        # Service accounts cannot accept invites.
+        if User.objects.filter(email__iexact=email, type=UserType.SERVICE_ACCOUNT).exists():
             raise exceptions.ValidationError(
                 "This email address belongs to a service account, which can't be invited.", code="service_account"
             )
