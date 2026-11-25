@@ -87,6 +87,7 @@ describe('credentials server end to end', () => {
             [BURNED_KEY]: 'sk-live-value',
             [SIGNING_KEY_ENTRY]: CALLER_SIGNING_KEY,
             __CALLER_KEY_OTHER_DEPLOYMENT: OTHER_SIGNING_KEY,
+            __ALLOWED_SECRETS_OTHER_DEPLOYMENT: KEY,
         })
         const { server, port, exitCode } = await boot(dir)
         const token = await mint({ signingKey: CALLER_SIGNING_KEY })
@@ -163,6 +164,18 @@ describe('credentials server end to end', () => {
             await rename(held, dir)
             await server.reload()
 
+            // An edit the key load refuses must not reach the credentials, or the keys still held
+            // would read the values it rotated.
+            await writeFile(join(dir, '__ALLOWED_SECRETS_NO_SUCH_DEPLOYMENT'), KEY)
+            await writeFile(join(dir, KEY), 'refused-value')
+            await server.reload()
+            expect(await (await resolve(port, token)).json()).toMatchObject({
+                secrets: { [KEY]: { value: 'current-value-1' } },
+            })
+            await unlink(join(dir, '__ALLOWED_SECRETS_NO_SUCH_DEPLOYMENT'))
+            await writeFile(join(dir, KEY), 'current-value-1')
+            await server.reload()
+
             // Revoke the caller: the same token must stop working, other callers must not.
             await unlink(join(dir, SIGNING_KEY_ENTRY))
             await server.reload()
@@ -170,7 +183,8 @@ describe('credentials server end to end', () => {
             expect((await resolve(port, await mint({ signingKey: OTHER_SIGNING_KEY }))).status).toBe(200)
 
             // Revoking the last caller in the same edit as a rotation must refuse that caller,
-            // or its old key would read the new value.
+            // or its old key would read the new value. Its allowlist stays behind, which makes
+            // the key load refuse the snapshot.
             const lastCaller = await mint({ signingKey: OTHER_SIGNING_KEY })
             await unlink(join(dir, '__CALLER_KEY_OTHER_DEPLOYMENT'))
             await writeFile(join(dir, KEY), 'rotated-value-2')
