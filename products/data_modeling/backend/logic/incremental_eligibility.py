@@ -87,6 +87,9 @@ TIME_ORDER_PRESERVING_FUNCTIONS = {
 INCREMENTAL_KEY_FIELD = "incremental_key"
 UNIQUE_KEY_FIELD = "unique_key"
 
+EVENTS_TABLE = "events"
+EVENT_ID_COLUMN = "uuid"
+
 _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DateTimeType: "datetime",
     ast.DateType: "date",
@@ -247,6 +250,43 @@ def propose_incremental_config(
     config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
     result = check_incremental_eligibility(query, config, column_types=dict(column_types), database=database)
     return config if result.eligible else None
+
+
+def repeated_keys_are_event_duplicates(query: str, unique_key: tuple[str, ...]) -> bool:
+    """True when the query returns stored event rows and the unique key includes the event uuid."""
+    try:
+        node = parse_model_query(query)
+    except (ExposedHogQLError, ValueError):
+        return False
+    if not isinstance(node, ast.SelectQuery) or not _is_plain_event_projection(node):
+        return False
+    event_id = _event_id_output(node)
+    return event_id is not None and event_id in unique_key
+
+
+def _is_plain_event_projection(select: ast.SelectQuery) -> bool:
+    source = select.select_from
+    return (
+        source is not None
+        and source.next_join is None
+        and _table_name(source) == EVENTS_TABLE
+        and not select.array_join_list
+        and not _is_grouped(select)
+        and not any(has_aggregation(item) for item in select.select)
+    )
+
+
+def _event_id_output(select: ast.SelectQuery) -> Optional[str]:
+    source_alias = select.select_from.alias if select.select_from else None
+    event_id_chains = [
+        [EVENT_ID_COLUMN],
+        *([qualifier, EVENT_ID_COLUMN] for qualifier in (EVENTS_TABLE, source_alias) if qualifier),
+    ]
+    for item in select.select:
+        expression = item.expr if isinstance(item, ast.Alias) else item
+        if isinstance(expression, ast.Field) and expression.chain in event_id_chains:
+            return _output_name(item)
+    return None
 
 
 def _is_nondeterministic(node: ast.SelectQuery) -> bool:

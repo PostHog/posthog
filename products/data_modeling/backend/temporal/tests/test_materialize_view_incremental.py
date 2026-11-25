@@ -140,6 +140,22 @@ async def _run(
         )
 
 
+EVENT_COLUMN_TYPES = [("uuid", "UUID"), ("timestamp", "DateTime64(6, 'UTC')")]
+
+
+def _event_batch(uuids: list[str], timestamp: datetime) -> pa.RecordBatch:
+    arrays = cast(
+        Collection[pa.Array],
+        [pa.array(uuids, type=pa.string()), pa.array([timestamp] * len(uuids), type=pa.timestamp("us", tz="UTC"))],
+    )
+    return pa.RecordBatch.from_arrays(arrays, names=["uuid", "timestamp"])
+
+
+def _stored_uuids(table_uri: str) -> list[str]:
+    table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
+    return sorted(str(value) for value in table.column("uuid").to_pylist())
+
+
 async def _configure(asaved_query, config: dict | None = None) -> None:
     asaved_query.incremental_config = config if config is not None else CONFIG
     await database_sync_to_async(asaved_query.save)(update_fields=["incremental_config"])
@@ -730,6 +746,39 @@ class TestIncrementalMaterialization:
 
         assert result.row_count == 2
         assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 20), (DAY3, 30)]
+
+    async def test_a_repeated_event_uuid_keeps_one_row_on_both_write_paths(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        asaved_query.query = {"kind": "HogQLQuery", "query": "SELECT uuid, timestamp FROM events"}
+        await database_sync_to_async(asaved_query.save)(update_fields=["query"])
+        await _configure(asaved_query, {"enabled": True, "incremental_key": "timestamp", "unique_key": ["uuid"]})
+
+        with _settings(bucket_name):
+            first = await _run(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _event_batch(["a", "a", "b"], DAY1),
+                column_types=EVENT_COLUMN_TYPES,
+            )
+            second = await _run(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _event_batch(["c"], DAY2),
+                _event_batch(["c", "b"], DAY2),
+                column_types=EVENT_COLUMN_TYPES,
+            )
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert get_incremental_state(asaved_query).last_run_mode == "incremental"
+        assert first.table_uri == second.table_uri
+        assert _stored_uuids(first.table_uri) == ["a", "b", "c"]
 
     async def test_a_duplicate_key_across_batches_fails_the_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

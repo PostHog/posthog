@@ -165,6 +165,7 @@ _LAZY = {
     "EligibilityResult": "facade.contracts",
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
+    "repeated_keys_are_event_duplicates": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
     "failing_model_count": "logic.node_attention",
     "managed_views_hidden": "logic.node_visibility",

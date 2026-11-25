@@ -101,6 +101,38 @@ def test_distinct_keys_across_batches_pass() -> None:
     tracker.check(_batch([3, 4], ["c", "d"]))
 
 
+@pytest.mark.parametrize(
+    "batches,expected",
+    [
+        pytest.param([([1, 1, 2], ["a", "b", "c"])], [["a", "c"]], id="repeat_within_a_batch"),
+        pytest.param(
+            [([1, 2], ["a", "b"]), ([2, 3, 1], ["c", "d", "e"])],
+            [["a", "b"], ["d"]],
+            id="repeat_across_batches",
+        ),
+        pytest.param([([1], ["a"]), ([1, 1], ["b", "c"])], [["a"], []], id="a_batch_of_only_repeats"),
+    ],
+)
+@_spill_modes
+def test_dropping_repeated_keys_keeps_the_first_row_of_each_key(
+    batches: list[tuple], expected: list[list[str]], max_bytes: int
+) -> None:
+    tracker = UniqueKeyTracker(("id",), max_bytes=max_bytes, drop_repeated_keys=True)
+
+    kept = [tracker.check(_batch(ids, names)).column("name").to_pylist() for ids, names in batches]
+
+    assert kept == expected
+
+
+def test_dropping_repeated_keys_spans_slices_of_one_batch() -> None:
+    tracker = UniqueKeyTracker(("id",), drop_repeated_keys=True)
+
+    with patch(f"{_MODULE}.UNIQUE_KEY_CHECK_SLICE_ROWS", 2):
+        kept = tracker.check(_batch([1, 2, 3, 1], ["a", "b", "c", "d"]))
+
+    assert kept.column("name").to_pylist() == ["a", "b", "c"]
+
+
 @_spill_modes
 def test_composite_key_is_checked_as_a_tuple(max_bytes: int) -> None:
     tracker = UniqueKeyTracker(("id", "name"), max_bytes=max_bytes)

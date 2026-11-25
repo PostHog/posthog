@@ -11,6 +11,7 @@ from products.data_modeling.backend.facade.contracts import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
     propose_incremental_config,
+    repeated_keys_are_event_duplicates,
 )
 
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
@@ -745,3 +746,34 @@ class TestProposeIncrementalConfig(SimpleTestCase):
         )
 
         assert proposed is None
+
+
+class TestRepeatedKeysAreEventDuplicates(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain_projection_keyed_on_uuid", "SELECT uuid, timestamp, event FROM events", ("uuid",), True),
+            (
+                "filtered_and_qualified",
+                "SELECT e.uuid AS event_id, e.timestamp FROM events AS e WHERE e.event = '$pageview'",
+                ("event_id", "timestamp"),
+                True,
+            ),
+            ("key_without_the_event_uuid", "SELECT uuid, timestamp, event FROM events", ("event",), False),
+            ("a_property_named_uuid", "SELECT properties.uuid AS uuid, timestamp FROM events", ("uuid",), False),
+            ("not_the_events_table", "SELECT id AS uuid, created_at FROM persons", ("uuid",), False),
+            ("array_join_fans_out_an_event", "SELECT uuid, tag FROM events ARRAY JOIN [1, 2] AS tag", ("uuid",), False),
+            (
+                "join_fans_out_an_event",
+                "SELECT e.uuid FROM events AS e JOIN persons AS p ON e.person_id = p.id",
+                ("uuid",),
+                False,
+            ),
+            ("grouped", "SELECT uuid, max(timestamp) AS ts FROM events GROUP BY uuid", ("uuid",), False),
+            ("aggregates_without_grouping", "SELECT any(uuid) AS uuid FROM events", ("uuid",), False),
+            ("unparseable", "SELECT FROM", ("uuid",), False),
+        ]
+    )
+    def test_only_a_stored_event_row_keyed_on_its_uuid_counts(
+        self, _name: str, query: str, unique_key: tuple[str, ...], expected: bool
+    ) -> None:
+        assert repeated_keys_are_event_duplicates(query, unique_key) is expected
