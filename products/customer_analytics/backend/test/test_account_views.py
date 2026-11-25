@@ -513,7 +513,8 @@ class TestAccountViews(APIBaseTest):
         self.assertTrue(updated.json()["can_edit"])
         self.assertFalse(updated.json()["can_delete"])
 
-    def test_only_creator_or_project_admin_can_change_team_visibility_or_delete(self) -> None:
+    @parameterized.expand([("creator",), ("org_admin",)])
+    def test_only_creator_or_admin_can_change_team_visibility_or_delete(self, role: str) -> None:
         view = self._publish(self._create())
 
         self.client.force_login(self.editor)
@@ -526,8 +527,21 @@ class TestAccountViews(APIBaseTest):
         denied_delete = self.client.delete(f"{self.endpoint}{view['id']}/?version={view['version']}")
         self.assertEqual(denied_delete.status_code, status.HTTP_403_FORBIDDEN, denied_delete.json())
 
-        self.client.force_login(self.user)
-        deleted = self.client.delete(f"{self.endpoint}{view['id']}/?version={view['version']}")
+        actor = self.user
+        if role == "org_admin":
+            actor = User.objects.create_and_join(self.organization, "org-admin@example.com", "testtest")
+            OrganizationMembership.objects.filter(user=actor, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+        self.client.force_login(actor)
+        made_private = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {"visibility": "private", "version": view["version"]},
+            format="json",
+        )
+        self.assertEqual(made_private.status_code, status.HTTP_200_OK, made_private.json())
+        self.assertEqual(made_private.json()["visibility"], "private")
+        deleted = self.client.delete(f"{self.endpoint}{view['id']}/?version={made_private.json()['version']}")
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_project_admin_without_account_editor_can_only_change_team_view_visibility(self) -> None:

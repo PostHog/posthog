@@ -160,18 +160,7 @@ _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 def _custom_property_access(request: Request) -> contracts.CustomPropertyAccess:
     return contracts.CustomPropertyAccess(
         subject=Subject(user_id=request.user.pk),
-        missing_scopes=frozenset(
-            scopes_caller_lacks(
-                request,
-                (
-                    "external_data_source:read",
-                    "external_data_source:write",
-                    "warehouse_view:read",
-                    "warehouse_view:write",
-                    "hog_flow:read",
-                ),
-            )
-        ),
+        missing_scopes=frozenset(scopes_caller_lacks(request, contracts.CUSTOM_PROPERTY_ACCESS_SCOPES.values())),
     )
 
 
@@ -883,6 +872,14 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             organization_id=self.organization_id,
         )
 
+    def _is_project_admin(self) -> bool:
+        return authorization.check(resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS)
+
+    def _can_edit_team_views(self) -> bool:
+        return authorization.check(
+            resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
+        )
+
     def dangerously_get_permissions(self) -> list[BasePermission]:
         if self.action not in ("partial_update", "destroy"):
             raise NotImplementedError()
@@ -899,12 +896,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         views = api.list_account_views(
             team_id=self.team_id,
             user_id=cast(User, request.user).id,
-            can_edit_team_views=authorization.check(
-                resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
-            ),
-            is_project_admin=authorization.check(
-                resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS
-            ),
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
         )
         return Response(AccountViewSerializer(instance=views, many=True).data)
 
@@ -914,12 +907,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             team_id=self.team_id,
             user_id=cast(User, request.user).id,
             view_id=UUID(self.kwargs["pk"]),
-            can_edit_team_views=authorization.check(
-                resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
-            ),
-            is_project_admin=authorization.check(
-                resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS
-            ),
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
         )
         if view is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -943,9 +932,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 name=request.validated_data["name"],
                 content=request.validated_data["content"],
-                is_project_admin=authorization.check(
-                    resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS
-                ),
+                is_project_admin=self._is_project_admin(),
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
@@ -978,12 +965,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 view_id=UUID(self.kwargs["pk"]),
                 expected_version=request.validated_data["version"],
-                can_edit_team_views=authorization.check(
-                    resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
-                ),
-                is_project_admin=authorization.check(
-                    resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS
-                ),
+                can_edit_team_views=self._can_edit_team_views(),
+                is_project_admin=self._is_project_admin(),
                 name=request.validated_data.get("name"),
                 content=request.validated_data.get("content"),
                 visibility=request.validated_data.get("visibility"),
@@ -1020,9 +1003,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 view_id=UUID(self.kwargs["pk"]),
                 expected_version=query.validated_data["version"],
-                is_project_admin=authorization.check(
-                    resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS
-                ),
+                is_project_admin=self._is_project_admin(),
             )
         except api.AccountViewVersionConflict as error:
             raise Conflict(str(error))

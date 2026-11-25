@@ -343,6 +343,7 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
         # Customer analytics to some of its members keeps that limit instead of losing it here.
         if not every_member_has_resource_access(team_id=team.id, resource="account", required_level="viewer"):
             return ""
+        # The reply has no request user. Pick a stable active member to resolve definition names.
         reader_id = (
             OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
             .order_by("pk")
@@ -351,6 +352,7 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
         )
         if reader_id is None:
             return ""
+        # Hide workflow references and warehouse metadata, since the reply only needs the definition name.
         access = CustomPropertyAccess(
             subject=Subject(user_id=reader_id),
             missing_scopes=frozenset({"hog_flow:read", "external_data_source:read", "warehouse_view:read"}),

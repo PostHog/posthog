@@ -2992,6 +2992,21 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert runs.status_code == status.HTTP_200_OK
         assert any(run["status"] == "running" for run in runs.json()["results"])
 
+    @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_person_source_sync_rejects_personal_api_keys(self, _flag, trigger_schema_sync) -> None:
+        source_id = self._create_person_source()
+        endpoint = f"{self.endpoint}{source_id}/sync/"
+        self.client.logout()
+        for warehouse_scope in ("external_data_source:read", "external_data_source:write"):
+            with self.subTest(warehouse_scope=warehouse_scope):
+                key = self.create_personal_api_key_with_scopes(["account:write", warehouse_scope])
+
+                denied = self.client.post(endpoint, HTTP_AUTHORIZATION=f"Bearer {key}")
+
+                assert denied.status_code == status.HTTP_403_FORBIDDEN, denied.content
+        trigger_schema_sync.assert_not_called()
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_create_group_definition_and_source_round_trip(self, _flag):
         # Group support: a group definition carries a group_type_index, and its source binds the same

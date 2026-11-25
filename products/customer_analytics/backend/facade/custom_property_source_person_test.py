@@ -200,13 +200,19 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         view = self._create(access=self._access(allowed=True))
         assert view.external_data_schema == self.schema.id
 
+    @parameterized.expand([("object_denied", False), ("scope_missing", True)])
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
-    def test_trigger_sync_denied_without_warehouse_source_editor(self, _flag):
+    def test_trigger_sync_requires_warehouse_source_write_access(self, _name, scope_missing, _flag):
         source = self._create()
-        with self.assertRaises(api.ResourceForbiddenError):
-            api.trigger_person_property_sync(
-                team_id=self.team.id, source_id=source.id, access=self._access(allowed=False)
+        access = (
+            contracts.CustomPropertyAccess(
+                subject=Subject(user_id=self.user.pk), missing_scopes=frozenset({"external_data_source:write"})
             )
+            if scope_missing
+            else self._access(allowed=False)
+        )
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_sync(team_id=self.team.id, source_id=source.id, access=access)
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_trigger_backfill_denied_without_warehouse_source_editor(self, _flag):

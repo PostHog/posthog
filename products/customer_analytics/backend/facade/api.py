@@ -1619,15 +1619,32 @@ def _custom_property_definitions_queryset(
     return queryset
 
 
+def _has_custom_property_scope(
+    resource_type: ResourceType, access: contracts.CustomPropertyAccess, action: Action
+) -> bool:
+    return contracts.CUSTOM_PROPERTY_ACCESS_SCOPES[resource_type, action] not in access.missing_scopes
+
+
+def _can_access(resource: Resource, access: contracts.CustomPropertyAccess | None, action: Action) -> bool:
+    return access is None or (
+        _has_custom_property_scope(resource.type, access, action)
+        and authorization.check(resource=resource, action=action, subject=access.subject)
+    )
+
+
+def _visible_workflow_references(
+    team_id: int, references: dict[str, list[HogFlowReference]], access: contracts.CustomPropertyAccess | None
+) -> dict[str, list[HogFlowReference]]:
+    if access is None or not _has_custom_property_scope(ResourceType.HOG_FLOW, access, Action.VIEW):
+        return {}
+    return filter_hog_flow_references_by_access_level(team_id, references, access.subject)
+
+
 def _to_custom_property_definition_views(
     team_id: int, page: list[CustomPropertyDefinition], access: contracts.CustomPropertyAccess
 ) -> list[contracts.CustomPropertyDefinitionView]:
     workflow_references = _custom_property_references_by_definition_id(team_id)
-    references = (
-        filter_hog_flow_references_by_access_level(team_id, workflow_references, access.subject)
-        if "hog_flow:read" not in access.missing_scopes
-        else {}
-    )
+    references = _visible_workflow_references(team_id, workflow_references, access)
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
@@ -1693,12 +1710,8 @@ def get_custom_property_definition(
         team_id, definition_id=str(definition.id)
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = (
-        filter_hog_flow_references_by_access_level(team_id, workflow_references_by_definition_id, access.subject).get(
-            str(definition.id), []
-        )
-        if "hog_flow:read" not in access.missing_scopes
-        else []
+    references = _visible_workflow_references(team_id, workflow_references_by_definition_id, access).get(
+        str(definition.id), []
     )
     return _to_custom_property_definition_view(
         definition,
@@ -1827,12 +1840,8 @@ def update_custom_property_definition(
         team_id, definition_id=str(definition.id)
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = (
-        filter_hog_flow_references_by_access_level(team_id, workflow_references_by_definition_id, access.subject).get(
-            str(definition.id), []
-        )
-        if access is not None and "hog_flow:read" not in access.missing_scopes
-        else []
+    references = _visible_workflow_references(team_id, workflow_references_by_definition_id, access).get(
+        str(definition.id), []
     )
     return _to_custom_property_definition_view(
         definition,
@@ -1944,6 +1953,10 @@ def _profile_binding(source: CustomPropertySource) -> "WarehouseBinding | None":
     return None
 
 
+def _warehouse_resource(resource_type: ResourceType, obj: Any) -> Resource:
+    return Resource(type=resource_type, id=str(obj.pk), project_id=obj.team_id, created_by_id=obj.created_by_id)
+
+
 def _resolve_schema(team_id: int, schema_id: Any, access: contracts.CustomPropertyAccess | None) -> Any:
     """The ``ExternalDataSchema`` (with ``.source`` loaded) for a schema-bound source, or None when it
     no longer exists or the caller lacks object-level ``external_data_source`` viewer access.
@@ -1953,18 +1966,10 @@ def _resolve_schema(team_id: int, schema_id: Any, access: contracts.CustomProper
     schema = schema_model.objects.filter(id=schema_id, team_id=team_id).select_related("source", "table").first()
     if schema is None:
         return None
-    if access is not None and (
-        "external_data_source:read" in access.missing_scopes
-        or not authorization.check(
-            resource=Resource(
-                type=ResourceType.EXTERNAL_DATA_SOURCE,
-                project_id=schema.source.team_id,
-                id=str(schema.source_id),
-                created_by_id=schema.source.created_by_id,
-            ),
-            action=Action.VIEW,
-            subject=access.subject,
-        )
+    if not _can_access(
+        _warehouse_resource(ResourceType.EXTERNAL_DATA_SOURCE, schema.source),
+        access,
+        Action.VIEW,
     ):
         return None
     return schema
@@ -1978,18 +1983,10 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, access: contracts.Cu
     saved_query = saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).first()
     if saved_query is None:
         return None
-    if access is not None and (
-        "warehouse_view:read" in access.missing_scopes
-        or not authorization.check(
-            resource=Resource(
-                type=ResourceType.WAREHOUSE_VIEW,
-                project_id=saved_query.team_id,
-                id=str(saved_query.id),
-                created_by_id=saved_query.created_by_id,
-            ),
-            action=Action.VIEW,
-            subject=access.subject,
-        )
+    if not _can_access(
+        _warehouse_resource(ResourceType.WAREHOUSE_VIEW, saved_query),
+        access,
+        Action.VIEW,
     ):
         return None
     return saved_query
@@ -2192,18 +2189,10 @@ def _batched_meta(
         saved_query = saved_queries_by_id.get(binding.id)
         if saved_query is None:
             return None
-        if access is not None and (
-            "warehouse_view:read" in access.missing_scopes
-            or not authorization.check(
-                resource=Resource(
-                    type=ResourceType.WAREHOUSE_VIEW,
-                    project_id=saved_query.team_id,
-                    id=str(saved_query.id),
-                    created_by_id=saved_query.created_by_id,
-                ),
-                action=Action.VIEW,
-                subject=access.subject,
-            )
+        if not _can_access(
+            _warehouse_resource(ResourceType.WAREHOUSE_VIEW, saved_query),
+            access,
+            Action.VIEW,
         ):
             return None
         return _saved_query_meta(saved_query, schedules_by_saved_query_id.get(binding.id))
@@ -2211,18 +2200,10 @@ def _batched_meta(
     schema = schemas_by_id.get(binding.id)
     if schema is None:
         return None
-    if access is not None and (
-        "external_data_source:read" in access.missing_scopes
-        or not authorization.check(
-            resource=Resource(
-                type=ResourceType.EXTERNAL_DATA_SOURCE,
-                project_id=schema.source.team_id,
-                id=str(schema.source_id),
-                created_by_id=schema.source.created_by_id,
-            ),
-            action=Action.VIEW,
-            subject=access.subject,
-        )
+    if not _can_access(
+        _warehouse_resource(ResourceType.EXTERNAL_DATA_SOURCE, schema.source),
+        access,
+        Action.VIEW,
     ):
         return None
     return _schema_meta(schema)
@@ -2500,7 +2481,11 @@ def _assert_warehouse_access(
     access: contracts.CustomPropertyAccess | None,
     action: Action,
 ) -> None:
-    """Profile sources expose warehouse metadata and drive warehouse runs through account endpoints."""
+    """Authorize profile-source access to the warehouse object, raising ResourceForbiddenError on denial.
+
+    Internal calls pass access=None and skip authorization. A missing warehouse object leaves no
+    object to authorize and lets the caller handle the stale binding.
+    """
     if access is None or binding is None:
         return
     if binding.is_saved_query:
@@ -2508,27 +2493,14 @@ def _assert_warehouse_access(
         saved_query = saved_query_model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
         if saved_query is None:
             return
-        resource = Resource(
-            type=ResourceType.WAREHOUSE_VIEW,
-            project_id=saved_query.team_id,
-            id=str(saved_query.id),
-            created_by_id=saved_query.created_by_id,
-        )
+        resource = _warehouse_resource(ResourceType.WAREHOUSE_VIEW, saved_query)
     else:
         schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
         schema = schema_model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
         if schema is None:
             return
-        resource = Resource(
-            type=ResourceType.EXTERNAL_DATA_SOURCE,
-            project_id=schema.source.team_id,
-            id=str(schema.source_id),
-            created_by_id=schema.source.created_by_id,
-        )
-    scope_action = "read" if action == Action.VIEW else "write"
-    if f"{resource.type}:{scope_action}" in access.missing_scopes or not authorization.check(
-        resource=resource, action=action, subject=access.subject
-    ):
+        resource = _warehouse_resource(ResourceType.EXTERNAL_DATA_SOURCE, schema.source)
+    if not _can_access(resource, access, action):
         raise ResourceForbiddenError()
 
 
