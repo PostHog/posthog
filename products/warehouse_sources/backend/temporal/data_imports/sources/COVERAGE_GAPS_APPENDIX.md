@@ -9599,18 +9599,18 @@ Note (2026-11-19): The root OpenAPI file only holds path refs, so I fetched each
 
 ## Megaphone — **thin**
 
-Today (3): `episodes`, `networks`, `podcasts`
+Today (7): `advertisers`, `campaign_orders`, `campaigns`, `episodes`, `networks`, `podcasts`, `sponsorships`
 
 Diffed against: <https://developers.megaphone.fm/openapi.yaml>
 
-- [ ] `Campaigns (GET /api/organizations/{organization_id}/campaigns)` — ad campaigns with dates, budget and status, the core ad-sales object next to synced podcasts (high)
-- [ ] `Campaign orders (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders)` — orders per campaign with booked impressions, pacing and dates for ad delivery analysis (high)
-- [ ] `Advertisers (GET /api/organizations/{organization_id}/advertisers)` — resolve advertiser IDs on campaigns and orders (high)
+- [x] `Campaigns (GET /api/organizations/{organization_id}/campaigns)` — ad campaigns with dates, budget and status, the core ad-sales object next to synced podcasts (high) → `campaigns` (full refresh, v2 `GET /api/v2/organizations/{organization_id}/campaigns`; the legacy route stopped working on 2026-07-14)
+- [x] `Campaign orders (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders)` — orders per campaign with booked impressions, pacing and dates for ad delivery analysis (high) → `campaign_orders` (full refresh, v2 route, fan-out over `campaigns`)
+- [x] `Advertisers (GET /api/organizations/{organization_id}/advertisers)` — resolve advertiser IDs on campaigns and orders (high) → `advertisers` (full refresh, v2 route)
 - [ ] `Campaign order advertisements (GET /api/organizations/{organization_id}/campaigns/{campaign_id}/orders/{order_id}/advertisements)` — ad creatives and placements per order (medium)
 - [ ] `Agencies (GET /api/organizations/{organization_id}/agencies)` — resolve agency IDs on advertisers and campaigns (medium)
 - [ ] `Promos (GET /api/organizations/{organization_id}/promos)` — house promo orders that run across shows (medium)
 - [ ] `Promo advertisements (GET /api/organizations/{organization_id}/promos/{promo_id}/advertisements)` — promo creatives and placements (low)
-- [ ] `Sponsorships (GET /api/v2/organizations/{organization_id}/sponsorships)` — sponsorship deals with sponsors for revenue analysis (medium)
+- [x] `Sponsorships (GET /api/v2/organizations/{organization_id}/sponsorships)` — sponsorship deals with sponsors for revenue analysis (medium) → `sponsorships` (full refresh, unpaginated)
 - [ ] `Sponsors (GET /api/v2/organizations/{organization_id}/sponsors)` — resolve sponsor IDs on sponsorships (low)
 - [ ] `Tags (GET /api/organizations/{organization_id}/tags)` — organization tags used to label content (low)
 
