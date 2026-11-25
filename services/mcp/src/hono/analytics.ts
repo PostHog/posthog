@@ -353,11 +353,8 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
-// Their results are live credentials: a SCIM bearer token, and a skill-store key that the
-// install commands also embed in a git URL. Creating or updating an identity provider config
-// returns the SCIM token when the call turns SCIM on. A destination connect link puts its
-// connect token in the `connect_url` query string. The result reaches analytics as formatted
-// text, so key-based redaction can't find the credential in it.
+// Their results can hold a live credential, including the SCIM token that IdP create and update
+// return when they turn SCIM on. Key-based redaction can't find it in the formatted result text.
 const CREDENTIAL_ISSUING_TOOL_NAMES = [
     'identity-provider-configs-scim-token-create-execute',
     'identity-provider-configs-create-execute',
