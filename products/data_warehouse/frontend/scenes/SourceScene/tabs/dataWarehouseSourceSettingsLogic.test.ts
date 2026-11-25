@@ -63,6 +63,22 @@ describe('sourceSettingsLogic', () => {
         jest.restoreAllMocks()
     })
 
+    it('pins the schema name by default and keeps pinned columns across sources', async () => {
+        localStorage.clear()
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        expect(logic.values.pinnedSchemaColumns).toEqual(['name'])
+
+        logic.actions.togglePinnedSchemaColumn('status')
+        logic.actions.togglePinnedSchemaColumn('name')
+        expect(logic.values.pinnedSchemaColumns).toEqual(['status'])
+        logic.unmount()
+
+        logic = sourceSettingsLogic({ id: 'source-2' })
+        logic.mount()
+        expect(logic.values.pinnedSchemaColumns).toEqual(['status'])
+    })
+
     it('debounces schema saves and only sends the latest queued change', async () => {
         const bulkUpdateSchemasSpy = jest
             .spyOn(api.externalDataSources, 'bulkUpdateSchemas')

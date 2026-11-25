@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
-import { IconChevronDown, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -97,8 +97,56 @@ type SchemaColumn = LemonTableColumn<ExternalDataSourceSchema, keyof ExternalDat
 // A file upload schema has no schedule or sync method to choose, and never syncs on its own, so it isn't dimmed.
 const FILE_UPLOAD_HIDDEN_COLUMN_KEYS = ['sync_type', 'sync_frequency', 'should_sync']
 
-// Long table names make the table scroll sideways. The name stays pinned so that each row stays identifiable.
-const PINNED_COLUMN_KEYS = ['name']
+interface ColumnPinning {
+    pinnedColumnKeys: string[]
+    togglePinnedColumn: (columnKey: string) => void
+}
+
+// The columns that scroll pass under a pinned cell, so a pinned cell must stay opaque. `opacity` on the cell would
+// also make its background see-through, so a pinned column dims only its content.
+function dimContentWhenNotSyncing(column: SchemaColumn): SchemaColumn {
+    const { render } = column
+    return {
+        ...column,
+        className: undefined,
+        render: (value, schema, recordIndex, rowCount) => (
+            <div className={dimWhenNotSyncing(value, schema)}>
+                {render?.(value, schema, recordIndex, rowCount) as ReactNode}
+            </div>
+        ),
+    }
+}
+
+function withColumnPinning(
+    columns: SchemaColumn[],
+    { pinnedColumnKeys, togglePinnedColumn }: ColumnPinning
+): SchemaColumn[] {
+    return columns.map((column) => {
+        const columnKey = column.key
+        if (!columnKey || columnKey === 'actions') {
+            return column
+        }
+        const isPinned = pinnedColumnKeys.includes(columnKey)
+        return {
+            ...(isPinned && column.className === dimWhenNotSyncing ? dimContentWhenNotSyncing(column) : column),
+            moreIcon: isPinned ? <IconPinFilled /> : undefined,
+            more: (
+                <LemonButton
+                    fullWidth
+                    icon={isPinned ? <IconPinFilled /> : <IconPin />}
+                    data-attr={isPinned ? 'source-schema-unpin-column' : 'source-schema-pin-column'}
+                    onClick={() => togglePinnedColumn(columnKey)}
+                >
+                    {isPinned ? 'Unpin column' : 'Pin column'}
+                </LemonButton>
+            ),
+        }
+    })
+}
+
+function schemaTableColumns(isFileUpload: boolean, pinning: ColumnPinning, columns: SchemaColumn[]): SchemaColumn[] {
+    return withColumnPinning(fileUploadColumns(isFileUpload, columns), pinning)
+}
 
 function fileUploadColumns(isFileUpload: boolean, columns: SchemaColumn[]): SchemaColumn[] {
     if (!isFileUpload) {
@@ -537,8 +585,8 @@ function ManagedSchemaTable({
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
-    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
-    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
+    const { inProgressRowsBySchema, pinnedSchemaColumns } = useValues(sourceSettingsLogic)
+    const { setSelectedSchemas, togglePinnedSchemaColumn } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -548,6 +596,7 @@ function ManagedSchemaTable({
     }, [isLoading, initialLoad])
 
     const isFileUpload = !!onReplaceFile
+    const pinning = { pinnedColumnKeys: pinnedSchemaColumns, togglePinnedColumn: togglePinnedSchemaColumn }
 
     return (
         <LemonTable
@@ -556,7 +605,7 @@ function ManagedSchemaTable({
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            pinnedColumns={PINNED_COLUMN_KEYS}
+            pinnedColumns={pinnedSchemaColumns}
             bulkSelection={
                 isFileUpload
                     ? undefined
@@ -573,7 +622,7 @@ function ManagedSchemaTable({
                           ),
                       }
             }
-            columns={fileUploadColumns(isFileUpload, [
+            columns={schemaTableColumns(isFileUpload, pinning, [
                 {
                     title: 'Schema',
                     key: 'name',

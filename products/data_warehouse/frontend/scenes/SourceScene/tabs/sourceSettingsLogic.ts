@@ -403,6 +403,7 @@ export interface sourceSettingsLogicValues {
     isSourceConfigValid: boolean
     jobs: ExternalDataJob[]
     jobsLoading: boolean
+    pinnedSchemaColumns: string[]
     pollPauseCount: number
     refreshingSchemas: boolean
     schemaFilterOptions: {
@@ -653,6 +654,9 @@ export interface sourceSettingsLogicActions {
     syncNow: () => {
         value: true
     }
+    togglePinnedSchemaColumn: (columnKey: string) => {
+        columnKey: string
+    }
     touchSourceConfigField: (key: string) => {
         key: string
     }
@@ -752,6 +756,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        togglePinnedSchemaColumn: (columnKey: string) => ({ columnKey }),
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         setStatusFilter: (status: string | null) => ({ status }),
         setSyncMethodFilter: (syncMethod: string | null) => ({ syncMethod }),
@@ -913,6 +918,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             { persist: true },
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        pinnedSchemaColumns: [
+            ['name'] as string[],
+            // One storage key for every source, so that a column a person pins stays pinned on their other sources
+            { persist: true, storageKey: 'products.dataWarehouse.sourceSettingsLogic.pinnedSchemaColumns' },
+            {
+                togglePinnedSchemaColumn: (state, { columnKey }) =>
+                    state.includes(columnKey) ? state.filter((key) => key !== columnKey) : [...state, columnKey],
             },
         ],
         schemaNameFilter: [
