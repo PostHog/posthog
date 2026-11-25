@@ -51,7 +51,9 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
+from products.experiments.backend.logic.experiments import LIST_DEFERRED_FIELDS
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
@@ -69,7 +71,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -643,7 +645,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     def test_list_query_defers_heavy_metric_columns(self) -> None:
         # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
         # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
-        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # is_legacy annotation references them in its predicate (see _list_is_legacy_annotation), so
         # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
         # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
         self._create_experiment_with_action_metrics(0)
@@ -1325,7 +1327,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             override_exposure_event_cutoff(enabled=True),
         ):
             serialized = ExperimentSerializer(
-                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+                get_experiment(team=self.team, experiment_id=experiment.id),
+                context={"team_id": self.team.id, "get_team": lambda: self.team},
             ).data
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
