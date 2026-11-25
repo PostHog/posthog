@@ -90,13 +90,12 @@ export async function startEdgeProcess(
             process.kill(-child.pid, 'SIGKILL')
         }
     }
+    const readQueuedRepliesThen = (next: () => void): void => void setImmediate(next)
     const waitFor = (what: string, withinMs: number, settle: Pending, stillWaiting: () => boolean): Waiting => ({
         ...settle,
-        // Timers run before the loop reads I/O, so a runner blocked past the deadline would end an edge whose reply
-        // already waits on the channel. One more poll reads that reply first.
         deadline: setTimeout(
             () =>
-                setImmediate(() => {
+                readQueuedRepliesThen(() => {
                     if (stillWaiting()) {
                         ended ??= new Error(`the provider edge process did not ${what} within ${withinMs} ms`)
                         kill()
@@ -163,12 +162,20 @@ export async function startEdgeProcess(
         }
         const id = next++
         return new Promise<T>((resolve, reject) => {
-            const settle = { resolve: resolve as Pending['resolve'], reject }
-            pending.set(
-                id,
-                waitFor(`answer ${request.op}`, answersWithinMs, settle, () => pending.has(id))
+            const waiting = waitFor(
+                `answer ${request.op}`,
+                answersWithinMs,
+                { resolve: resolve as Pending['resolve'], reject },
+                () => pending.has(id)
             )
-            child.send({ ...request, id } satisfies Request)
+            pending.set(id, waiting)
+            try {
+                child.send({ ...request, id } satisfies Request)
+            } catch (error) {
+                clearTimeout(waiting.deadline)
+                pending.delete(id)
+                reject(error as Error)
+            }
         })
     }
 

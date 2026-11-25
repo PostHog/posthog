@@ -164,6 +164,15 @@ describe('provider edge process', () => {
         expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({ outcome: 'answered', edgeRuns: true })
     }, 10_000)
 
+    it('keeps answering after a call it could not send', async () => {
+        await withFakeTimers(async () => {
+            await expect(edge.hold(Object.assign({}, REJECT, { unsendable: 1n }))).rejects.toThrow('BigInt')
+            jest.advanceTimersByTime(30_001)
+
+            await expect(edge.clearFaults()).resolves.toBeUndefined()
+        })
+    })
+
     it('gives up on an edge process that does not start, and kills what it started', async () => {
         const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
         const pidFile = path.join(bin, 'openssl.pid')
@@ -180,8 +189,11 @@ describe('provider edge process', () => {
                 return !execFileSync('ps', ['-o', 'stat=', '-p', String(opensslPid())], {
                     encoding: 'utf8',
                 }).startsWith('Z')
-            } catch {
-                return false
+            } catch (error) {
+                if ((error as { status?: number }).status === 1) {
+                    return false
+                }
+                throw error
             }
         }
         try {
