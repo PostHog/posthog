@@ -1,9 +1,9 @@
 from collections import defaultdict
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import BooleanField, Case, ExpressionWrapper, IntegerField, Q, QuerySet, Value, When
 
 from posthog.dataclasses import frozen
 from posthog.models import User
@@ -206,6 +206,55 @@ def actionable_open_counts(
     """Counts the open suggestions `user` can act on: assigned to `user`, and with no assignee who can take them."""
     if not is_warehouse_suggestions_enabled(team):
         return NO_OPEN_SUGGESTIONS
+    suggestions = _actionable_open(
+        team, user, kinds, subject_kinds, excluded_surface, select=lambda rows: rows.only(*_ACTIONABLE_FIELDS)
+    )
+    return OpenCounts(
+        assigned_to_viewer=sum(1 for suggestion in suggestions if suggestion.assignee_id == user.pk),
+        unassigned=sum(1 for suggestion in suggestions if suggestion.assignee_id != user.pk),
+    )
+
+
+def actionable_open_suggestions(team: "Team", user: "User") -> list[WarehouseSuggestion]:
+    """Every open suggestion `user` can act on, oldest surfaced first, each marked `on_models_surface`. Callers check the flag."""
+    return _actionable_open(
+        team,
+        user,
+        frozenset(WarehouseSuggestionKind),
+        frozenset(WarehouseSuggestionSubjectKind),
+        None,
+        select=lambda rows: (
+            rows.only(*_ACTIONABLE_FIELDS, "surfaced_at", "payload")
+            .annotate(
+                **{
+                    ON_MODELS_SURFACE: ExpressionWrapper(
+                        surface_q(WarehouseSuggestionSurface.MODELS), output_field=BooleanField()
+                    )
+                }
+            )
+            .order_by("surfaced_at", "id")
+        ),
+    )
+
+
+def is_on_models_surface(suggestion: WarehouseSuggestion) -> bool:
+    """For a suggestion from `actionable_open_suggestions`, whether Models is where it is reviewed."""
+    return bool(getattr(suggestion, ON_MODELS_SURFACE))
+
+
+_ACTIONABLE_FIELDS = ("id", "kind", "subject_kind", "subject_id", "assignee")
+ON_MODELS_SURFACE = "on_models_surface"
+
+
+def _actionable_open(
+    team: "Team",
+    user: "User",
+    kinds: frozenset[WarehouseSuggestionKind],
+    subject_kinds: frozenset[WarehouseSuggestionSubjectKind],
+    excluded_surface: WarehouseSuggestionSurface | None,
+    *,
+    select: Callable[[QuerySet[WarehouseSuggestion]], QuerySet[WarehouseSuggestion]],
+) -> list[WarehouseSuggestion]:
     visible, access = visible_suggestions(
         team.pk,
         UserAccessControl(user, team),
@@ -215,18 +264,11 @@ def actionable_open_counts(
     actionable = visible.filter(access.editable_q(), kind__in=kinds)
     if excluded_surface is not None:
         actionable = actionable.exclude(surface_q(excluded_surface))
-    suggestions = list(
-        actionable.select_related(None).order_by().only("id", "kind", "subject_kind", "subject_id", "assignee")
-    )
+    suggestions = list(select(actionable.select_related(None).order_by()))
     taken_ids = _taken_by_other_assignees(
         team, [suggestion for suggestion in suggestions if suggestion.assignee_id not in (None, user.pk)]
     )
-    return OpenCounts(
-        assigned_to_viewer=sum(1 for suggestion in suggestions if suggestion.assignee_id == user.pk),
-        unassigned=sum(
-            1 for suggestion in suggestions if suggestion.assignee_id != user.pk and suggestion.id not in taken_ids
-        ),
-    )
+    return [suggestion for suggestion in suggestions if suggestion.id not in taken_ids]
 
 
 def _taken_by_other_assignees(team: "Team", suggestions: Sequence[WarehouseSuggestion]) -> frozenset[UUID]:

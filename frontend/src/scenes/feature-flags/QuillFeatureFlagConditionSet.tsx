@@ -250,6 +250,7 @@ export function QuillFeatureFlagConditionSet({
                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             showCohortFlagTargeting
+                            allowNonCapturedPersonProperties
                         />
                         <CohortFlagTargetingNotice properties={group.properties ?? []} />
                     </div>

@@ -4,6 +4,7 @@ The facade reaches this module through a call-time import, because it imports th
 the Temporal client and the HogQL parser, none of which may load on the ``django.setup()`` path.
 """
 
+import json
 import typing
 import contextlib
 import dataclasses
@@ -620,6 +621,14 @@ def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) 
     secret_fields = _SECRET_FIELDS.get(destination_type, frozenset())
 
     for k, v in config.items():
+        if destination_type == "Redshift" and k == "copy_inputs" and isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(v, dict):
+                continue
+
         if k in secret_fields:
             continue
         elif isinstance(v, dict):

@@ -148,13 +148,16 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
     def test_create_email_domain_allows_sibling_team_in_same_org(self):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
+        dns_zone = FakeDnsZone(FaultInjector())
+        dns_zone.add_zone("partner.com")
 
-        provider.create_email_domain(
-            "partner.com",
-            "feedback",
-            team_id=2,
-            org_team_ids=[1, 2, 3, 4, 5],
-        )
+        with dns_zone.installed():
+            provider.create_email_domain(
+                "partner.com",
+                "feedback",
+                team_id=2,
+                org_team_ids=[1, 2, 3, 4, 5],
+            )
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     def test_takeover_after_owner_deletes_integration_is_blocked(self, mock_create_email_domain):

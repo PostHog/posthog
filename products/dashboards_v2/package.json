@@ -4,6 +4,7 @@
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-router": "catalog:",
+        "posthog-js": "catalog:",
         "react-grid-layout": "^2.3.0"
     },
     "devDependencies": {
@@ -13,6 +14,7 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "*",
         "@types/react": "*",

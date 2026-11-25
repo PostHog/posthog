@@ -57,7 +57,7 @@ use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::cache::PersonCacheKey;
-use crate::pg::PgFallback;
+use crate::pg::{release_or_discard, PgFallback, QUERY_DEADLINE};
 
 /// A person's live fence: the operation that froze it, and when this pod
 /// sealed it. A takeover fence, rebuilt from the rows, has no seal time.
@@ -156,15 +156,12 @@ pub async fn rebuild_partition_fences(
             op = tables.op,
         )
     );
-    let query = sqlx::query(&sql).fetch_all(&fallback.pool);
-
-    let rows = match tokio::time::timeout(SCAN_TIMEOUT, query).await {
-        Ok(result) => result?,
-        Err(_) => {
-            counter!("personhog_leader_fence_scan_timeouts_total").increment(1);
-            return Err(sqlx::Error::PoolTimedOut);
-        }
-    };
+    let mut conn = crate::pg::acquire_timed(&fallback.pool, "rebuild_partition_fences").await?;
+    let outcome = tokio::time::timeout(SCAN_TIMEOUT, sqlx::query(&sql).fetch_all(&mut *conn)).await;
+    if outcome.is_err() {
+        counter!("personhog_leader_fence_scan_timeouts_total").increment(1);
+    }
+    let rows = release_or_discard(conn, outcome, "rebuild_partition_fences")?;
     histogram!("personhog_leader_fence_scan_duration_seconds")
         .record(start.elapsed().as_secs_f64());
     // Read next to installed is the scan's amplification: it reads the
@@ -349,12 +346,12 @@ pub async fn mark_status(
             fallback.lifecycle.op_person
         )
     );
-    sqlx::query_scalar(&sql)
+    let query = sqlx::query_scalar(&sql)
         .bind(op_id)
         .bind(team_id as i32)
-        .bind(person_id)
-        .fetch_optional(&mut *conn)
-        .await
+        .bind(person_id);
+    let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
+    release_or_discard(conn, outcome, "mark_status")
 }
 
 /// The fold's check: the status of the op's mark row claiming this person
@@ -381,12 +378,12 @@ pub async fn target_mark_status(
             fallback.lifecycle.op_person
         )
     );
-    sqlx::query_scalar(&sql)
+    let query = sqlx::query_scalar(&sql)
         .bind(op_id)
         .bind(team_id as i32)
-        .bind(person_id)
-        .fetch_optional(&mut *conn)
-        .await
+        .bind(person_id);
+    let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
+    release_or_discard(conn, outcome, "target_mark_status")
 }
 
 /// A memory bound only; what a snapshot may vouch for does not depend on its age.
@@ -430,7 +427,9 @@ impl MarkSource for PgMarkSource {
                 self.op_person_table
             )
         );
-        let rows = sqlx::query(&sql).bind(op_id).fetch_all(&mut *conn).await?;
+        let query = sqlx::query(&sql).bind(op_id);
+        let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_all(&mut *conn)).await;
+        let rows = release_or_discard(conn, outcome, "mark_snapshot")?;
         Ok(rows
             .into_iter()
             .map(|row| MarkRow {

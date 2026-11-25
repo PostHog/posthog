@@ -3,10 +3,13 @@
 Particle's Cloud API lives at https://api.particle.io and authenticates with a bearer access token.
 The recommended credential is an API user token: it can be scoped to one product and never expires.
 
-Two tables:
-- `devices` is pulled from the device list. Without a product ID it reads the devices the token's
-  user owns (`/v1/devices`, not paginated). With a product ID it reads the product fleet
-  (`/v1/products/:id/devices`, paginated with `page`/`perPage` and `meta.total_pages`).
+Pull tables read the token user's own resources under `/v1` when no product ID is set, and the
+product fleet under `/v1/products/:id` when one is. Product lists are paginated with
+`page`/`perPage` and `meta.total_pages`; the sandbox lists return everything in one response.
+- `devices` and `sims` are the device and SIM card lists.
+- `sim_data_usage` and `device_diagnostics` fan out over `sims` and `devices`, one request per SIM
+  or device.
+- `device_groups` only exists in a product.
 - `events` only fills from webhooks. Particle keeps no event history to page through, so
   `create_webhook` registers one Particle webhook per event name prefix (Particle matches on prefix
   and has no wildcard). The webhook template also captures each delivery as a PostHog event.
@@ -16,6 +19,8 @@ Particle delivers webhooks at least once and retries a failed delivery twice bef
 
 import logging
 import secrets
+import dataclasses
+from collections.abc import Iterable
 from typing import Any, cast
 
 import pyarrow as pa
@@ -23,14 +28,19 @@ from requests import Response, Session
 
 from products.warehouse_sources.sources.particle._config import ParticleSourceConfig
 from products.warehouse_sources.sources.particle.settings import (
-    DEVICES_PAGE_SIZE,
     DEVICES_SCHEMA_NAME,
+    PAGE_SIZE,
     PARTICLE_BASE_URL,
+    PRODUCT_BASE_PATH,
+    PULL_ENDPOINTS,
+    SANDBOX_BASE_PATH,
     WEBHOOK_BODY,
     WEBHOOK_QUERY,
     WEBHOOK_SECRET_HEADER,
+    ParticleEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
     ExternalWebhookInfo,
     PaginatorConfig,
@@ -38,6 +48,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     WebhookCreationResult,
     WebhookDeletionResult,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
@@ -77,9 +88,17 @@ def event_prefixes(config: ParticleSourceConfig) -> list[str]:
     return prefixes
 
 
-def _devices_path(config: ParticleSourceConfig) -> str:
+def _base_path(config: ParticleSourceConfig) -> str:
     product_id = _product_id(config)
-    return f"/v1/products/{product_id}/devices" if product_id else "/v1/devices"
+    return PRODUCT_BASE_PATH.replace("{product_id}", product_id) if product_id else SANDBOX_BASE_PATH
+
+
+def _path(config: ParticleSourceConfig, endpoint: ParticleEndpointConfig) -> str:
+    return endpoint.path.replace("{base}", _base_path(config))
+
+
+def _devices_path(config: ParticleSourceConfig) -> str:
+    return _path(config, PULL_ENDPOINTS[DEVICES_SCHEMA_NAME])
 
 
 def _integrations_url(config: ParticleSourceConfig) -> str:
@@ -110,32 +129,85 @@ def probe_devices(config: ParticleSourceConfig) -> int | None:
     return response.status_code
 
 
-def particle_source(config: ParticleSourceConfig, team_id: int, job_id: str) -> SourceResponse:
-    endpoint: Endpoint
-    if _product_id(config):
-        endpoint = {
-            "path": _devices_path(config),
-            "params": {"perPage": DEVICES_PAGE_SIZE},
-            "data_selector": "devices",
-            "paginator": cast(
-                PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": "meta.total_pages"}
-            ),
-        }
+def _list_endpoint_extra(config: ParticleSourceConfig, endpoint: ParticleEndpointConfig) -> Endpoint:
+    extra: Endpoint = {}
+    if endpoint.data_selector and not (endpoint.sandbox_body_is_list and not _product_id(config)):
+        extra["data_selector"] = endpoint.data_selector
+    if endpoint.paginated_in_product and _product_id(config):
+        extra["paginator"] = cast(
+            PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": "meta.total_pages"}
+        )
     else:
-        endpoint = {"path": _devices_path(config), "paginator": "single_page"}
+        extra["paginator"] = "single_page"
+    return extra
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": PARTICLE_BASE_URL,
-            "auth": {"type": "bearer", "token": config.access_token},
-            "allow_redirects": False,
-            "allowed_hosts": [],
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-        },
-        "resources": [{"name": DEVICES_SCHEMA_NAME, "endpoint": endpoint, "write_disposition": "replace"}],
+
+def _list_params(config: ParticleSourceConfig, endpoint: ParticleEndpointConfig) -> dict[str, Any]:
+    return {"perPage": PAGE_SIZE} if endpoint.paginated_in_product and _product_id(config) else {}
+
+
+def _client_config(config: ParticleSourceConfig) -> ClientConfig:
+    return {
+        "base_url": PARTICLE_BASE_URL,
+        "auth": {"type": "bearer", "token": config.access_token},
+        "allow_redirects": False,
+        "allowed_hosts": [],
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
-    return SourceResponse(name=DEVICES_SCHEMA_NAME, items=lambda: resource, primary_keys=["id"])
+
+
+def _no_request_window(_field: str) -> None:
+    # Particle's fan-out children take no date filter; the child still merges on its primary key.
+    return None
+
+
+def particle_source(
+    config: ParticleSourceConfig,
+    schema_name: str,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool = False,
+) -> SourceResponse:
+    endpoint = PULL_ENDPOINTS[schema_name]
+    items: Iterable[Any]
+
+    if endpoint.product_only and not _product_id(config):
+        # Sandbox accounts have no such resource; `get_endpoint_permissions` tells the user why.
+        items = []
+    elif endpoint.fanout is not None:
+        parent = PULL_ENDPOINTS[endpoint.fanout.parent_name]
+        fanout = dataclasses.replace(endpoint.fanout, parent_params=_list_params(config, parent))
+        items = cast(
+            Iterable[Any],
+            build_dependent_resource(
+                endpoint_configs=PULL_ENDPOINTS,
+                child_endpoint=schema_name,
+                fanout=fanout,
+                client_config=_client_config(config),
+                path_format_values={"base": _base_path(config)},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_config_factory=_no_request_window,
+                # The children take no page size; the parent's `perPage` rides in `parent_params`.
+                page_size_param=None,
+                parent_endpoint_extra=_list_endpoint_extra(config, parent),
+                child_endpoint_extra=_list_endpoint_extra(config, endpoint),
+            ),
+        )
+    else:
+        list_endpoint: Endpoint = {"path": _path(config, endpoint), **_list_endpoint_extra(config, endpoint)}
+        params = _list_params(config, endpoint)
+        if params:
+            list_endpoint["params"] = params
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(config),
+            "resources": [{"name": schema_name, "endpoint": list_endpoint, "write_disposition": "replace"}],
+        }
+        items = rest_api_resource(rest_config, team_id, job_id, None)
+
+    return SourceResponse(name=schema_name, items=lambda: items, primary_keys=endpoint.primary_keys)
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:

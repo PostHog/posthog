@@ -81,6 +81,7 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # warpstream-ingestion topics.tf, kafka_tophog_ws via CH migration 0227); only the
     # producer-side override was missing.
     KAFKA_CLICKHOUSE_TOPHOG: KafkaClusterProfile.INGESTION,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.INGESTION,
     # --- SHARED (Warpstream shared — low-volume / early-stage topics) ---
     KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.SHARED,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.SHARED,
@@ -108,8 +109,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # the same cluster the CDP workers produce to or the rows never arrive.
     KAFKA_HOG_INVOCATION_RESULTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_EMAIL_STATUS: KafkaClusterProfile.CYCLOTRON,
-    # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: KafkaClusterProfile.REPLAY,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: KafkaClusterProfile.REPLAY,

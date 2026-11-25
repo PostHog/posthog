@@ -125,6 +125,47 @@ class TestMegaphonePodcasts:
         assert result.paths == [f"/api/organizations/{ORG_ID}/networks", "/api/networks/n2/podcasts"]
 
 
+class TestMegaphoneDirectSales:
+    @parameterized.expand(
+        [
+            ("advertisers", f"/api/v2/organizations/{ORG_ID}/advertisers", "50"),
+            ("campaigns", f"/api/v2/organizations/{ORG_ID}/campaigns", "50"),
+            ("sponsorships", f"/api/v2/organizations/{ORG_ID}/sponsorships", None),
+        ]
+    )
+    def test_top_level_list_request_shaping(self, endpoint: str, path: str, per_page: str | None) -> None:
+        result = _driver().run(
+            endpoint, [ScriptedResponse(json=[{"id": "x1", "createdAt": "2026-10-01T10:00:00.000Z"}])]
+        )
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.requests[0].param("per_page") == per_page
+        assert [row["id"] for row in result.rows] == ["x1"]
+
+    def test_campaign_orders_fan_out_over_every_campaign_page(self) -> None:
+        campaigns_path = f"/api/v2/organizations/{ORG_ID}/campaigns"
+        next_campaigns = f"https://cms.megaphone.fm{campaigns_path}?page=2&per_page=50"
+        result = _driver().run(
+            "campaign_orders",
+            route(
+                {
+                    campaigns_path: [
+                        ScriptedResponse(json=[{"id": "c1"}], headers={"Link": f'<{next_campaigns}>; rel="next"'}),
+                        ScriptedResponse(json=[{"id": "c2"}]),
+                    ],
+                    f"{campaigns_path}/c1/orders": [ScriptedResponse(json=[{"id": "o1"}])],
+                    f"{campaigns_path}/c2/orders": [ScriptedResponse(json=[{"id": "o1"}, {"id": "o2"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["campaign_id"], row["id"]) for row in result.rows] == [("c1", "o1"), ("c2", "o1"), ("c2", "o2")]
+        assert all("_campaigns_id" not in row for row in result.rows)
+        assert {r.param("per_page") for r in result.requests if r.param("page") is None} == {"50"}
+
+
 class TestMegaphoneValidateCredentials:
     @parameterized.expand(
         [

@@ -524,8 +524,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
                     // ...and only once the checker has confirmed there's no self-managed proxy
-                    // routing events. While it's still null (not yet checked) we hold the nudge
-                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    // routing events. While it's still null (not yet checked, or no $pageview
+                    // traffic to judge, as in a mobile-only project) we hold the nudge back.
                     hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'

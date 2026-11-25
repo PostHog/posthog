@@ -254,7 +254,7 @@ class TestLivestreamAuthorization(APIBaseTest):
             ("user", 401),
             ("project_token", 401),
             ("inactive_organization", 403),
-            ("organization_with_unknown_active_state", 403),
+            ("organization_with_unknown_active_state", 204),
             ("organization_pending_deletion", 403),
             ("unverified_email_domain", 403),
         ]

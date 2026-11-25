@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-dashboard-refresh-live-preferences",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-live-traffic-filters",
+    "notes": "Eligible tiles refresh when you open a dashboard or return to it after at least a minute away from the app. In Live, hide the filter banner while keeping your filters active. Live remembers your filters and banner visibility across app launches."
+}

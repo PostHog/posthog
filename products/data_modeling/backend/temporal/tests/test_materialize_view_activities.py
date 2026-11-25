@@ -27,6 +27,7 @@ from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ServerConfigurationQueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -57,7 +58,11 @@ from products.data_modeling.backend.facade.api import (
     link_table_if_materializing,
     set_incremental_state,
 )
-from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import (
+    ResolutionCycleError,
+    ResolutionTimeoutError,
+    bounded_resolver_factory_for_view,
+)
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -86,6 +91,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     LOGGER,
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
+    HogQLModelQueryError,
     IncrementalWindow,
     InvalidNodeTypeException,
     _adaptive_retry_delay,
@@ -103,6 +109,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view_managed
     materialize_view_managed_warehouse_activity,
 )
 from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _SavedQueryViewers
+from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckSeverity,
@@ -474,6 +481,30 @@ class TestFailMaterializationActivity:
         # The UI derives run duration and the log-search window from last_run_at, so a
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
+
+    # When the last attempt cannot mark the job failed, the job stays Running with nothing
+    # else watching it, so that attempt has to reach error tracking. Earlier attempts retry.
+    @pytest.mark.parametrize("attempt,expect_captured", [(1, False), (3, True)])
+    async def test_reports_when_the_last_attempt_cannot_mark_the_job_failed(
+        self, activity_environment, ateam, anode, adag, attempt, expect_captured
+    ):
+        activity_environment.info = replace(activity_environment.info, attempt=attempt)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(uuid4()),
+            error="Query failed: timeout",
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.fail_materialization.capture_exception"
+        ) as capture:
+            with pytest.raises(DataModelingJob.DoesNotExist):
+                await activity_environment.run(fail_materialization_activity, inputs)
+
+        assert capture.called is expect_captured
+        if expect_captured:
+            assert isinstance(capture.call_args.args[0], DataModelingJob.DoesNotExist)
 
     @pytest.mark.parametrize(
         "status,error",
@@ -2400,12 +2431,21 @@ class TestHogqlTableModifiers:
             ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
             ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
             ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            (
+                "Array(Variant(Int64, String))",
+                "arrayMap(x -> accurateCastOrNull(x, %(hogql_val_0)s), person_ids) AS person_ids",
+            ),
+            ("Variant(Int64, String)", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Dynamic", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
+            ("Tuple(value Variant(Int64, String))", "accurateCastOrNull(person_ids, %(hogql_val_0)s) AS person_ids"),
             ("Array(String)", None),
             ("Array(Tuple(uuid String))", None),
             ("Array(Array(UUID))", None),
+            ("Tuple(variant String, dynamic String, uuid String)", None),
+            ("Tuple(`variant` String)", None),
         ],
     )
-    async def test_applies_arrow_conversions_to_array_elements(
+    async def test_applies_arrow_conversions(
         self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
@@ -2422,7 +2462,7 @@ class TestHogqlTableModifiers:
 
         assert client.arrow_query is not None
         if expected_conversion is None:
-            assert "arrayMap(" not in client.arrow_query
+            assert client.arrow_query.startswith("SELECT [] AS person_ids FORMAT ArrowStream")
         else:
             assert expected_conversion in client.arrow_query
 
@@ -2685,9 +2725,17 @@ class TestMaterializeViewPromptJev:
 
         with (
             override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            pytest.raises(ResolutionCycleError),
+            pytest.raises(HogQLModelQueryError) as error,
         ):
             [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]
+
+        assert isinstance(error.value.__cause__, ResolutionCycleError)
+
+    async def test_a_server_without_native_clickhouse_still_reports_and_retries(self, ateam):
+        query = "SELECT jev(text, 'Is this a refund request?') AS is_refund FROM (SELECT 'refund' AS text)"
+
+        with override_settings(CLICKHOUSE_USE_HTTP=True), pytest.raises(ServerConfigurationQueryError):
+            [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
 
 class TestHogqlTableEmptyResults:
@@ -2987,6 +3035,20 @@ class TestHogqlTableDuplicateOutputColumns:
         assert len(materialized) == expected_row_count
 
 
+class TestHogqlTableCustomerQueryErrors:
+    async def test_a_query_selecting_a_missing_column_fails_without_retry_or_report(self, ateam: Team) -> None:
+        with pytest.raises(HogQLModelQueryError) as error:
+            _ = [
+                batch
+                async for batch in hogql_table("SELECT column_that_does_not_exist FROM events", ateam, LOGGER.bind())
+            ]
+
+        assert isinstance(error.value, NonReportableError)
+        assert type(error.value).__name__ in NON_RETRYABLE_ERRORS
+        assert str(error.value) == str(error.value.__cause__)
+        assert "column_that_does_not_exist" in str(error.value)
+
+
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
 
@@ -3047,6 +3109,19 @@ class TestHogqlTableResolutionDeadline:
 
         assert [name for name, _ in batches[0][1]] == ["ts"]
 
+    async def test_an_exhausted_resolution_deadline_stays_retryable(self, ateam):
+        def expired_deadline_factory(view_name: str | None, **kwargs: Any) -> ResolverFactory:
+            return bounded_resolver_factory_for_view(view_name, **{**kwargs, "deadline_seconds": -1.0})
+
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.bounded_resolver_factory_for_view",
+                expired_deadline_factory,
+            ),
+            pytest.raises(ResolutionTimeoutError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1 AS one", ateam, LOGGER.bind())]
+
 
 class TestMaterializeViewStagesPersonPropertyRows:
     """A view feeding a warehouse property stages its projected rows as it writes, so the post-run sync
@@ -3102,6 +3177,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
 
         # The workflow gates the person-property child on this field.
         assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is True
 
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix.removeprefix(f"{bucket_name}/"))
         keys = [obj["Key"] for obj in listing.get("Contents", [])]
@@ -3112,6 +3188,27 @@ class TestMaterializeViewStagesPersonPropertyRows:
         # Only the projected columns leave the pipeline — "plan" isn't mapped by this projection.
         assert table.column_names == ["distinct_id"]
         assert table.column("distinct_id").to_pylist() == ["a", "b"]
+
+    @pytest.mark.parametrize("failing_method", ["clear", "stage_chunk"])
+    async def test_staging_failure_marks_the_full_read_incomplete(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, failing_method: str
+    ) -> None:
+        projection = [PersonPropertySourceProjection(key_column="distinct_id", columns=frozenset({"distinct_id"}))]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            self._env(bucket_name, projection),
+            unittest.mock.patch(
+                f"products.data_modeling.backend.temporal.activities.materialize_view."
+                f"PersonPropertyRowSink.{failing_method}",
+                new=unittest.mock.AsyncMock(side_effect=RuntimeError("staging failed")),
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.person_property_sync_enabled is True
+        assert result.person_property_complete_table_read is False
 
     async def test_unmapped_view_stages_nothing_and_leaves_the_flag_off(
         self, activity_environment, ateam, anode, ajob, adag, bucket_name, minio_client
@@ -3124,6 +3221,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
             result = await activity_environment.run(materialize_view_activity, inputs)
 
         assert result.person_property_sync_enabled is False
+        assert result.person_property_complete_table_read is False
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
         assert listing.get("Contents", []) == []
 

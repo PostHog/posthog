@@ -45,7 +45,7 @@ class MegaphoneSource(ResumableSource[MegaphoneSourceConfig, MegaphoneResumeConf
             name=ExternalDataSourceType.MEGAPHONE,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Megaphone",
-            caption="""Sync your Megaphone networks, podcasts and episodes into PostHog. Download and impression metrics are not available through the Megaphone API.
+            caption="""Sync your Megaphone networks, podcasts, episodes, advertisers, campaigns, campaign orders and sponsorships into PostHog. Download and impression metrics are not available through the Megaphone API.
 
 Create an API token in Megaphone under **Settings > Generate new token**. The organization ID is in the address bar after `/organizations/` when you are signed in.""",
             iconPath="/static/services/megaphone.png",

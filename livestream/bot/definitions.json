@@ -246,6 +246,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "claude-code-mcp-client",
+    "name": "Claude Code",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "GitHubCopilot",
     "name": "GitHub Copilot",
     "category": "ai_assistant",
@@ -1231,6 +1237,18 @@
   },
   {
     "pattern": "FirecrawlAgent",
+    "name": "FirecrawlAgent",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "firecrawl-search/",
+    "name": "FirecrawlAgent",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "FirecrawlLocal/",
     "name": "FirecrawlAgent",
     "category": "ai_crawler",
     "traffic_type": "AI Agent"
@@ -2812,5 +2830,191 @@
     "name": "Netcraft",
     "category": "monitoring",
     "traffic_type": "Bot"
+  },
+  {
+    "pattern": "kapa.ai",
+    "name": "kapa.ai",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "code-docs-corpus/",
+    "name": "code-docs-corpus",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ConareBot",
+    "name": "ConareBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "atlaswiedzy/",
+    "name": "Atlas Wiedzy",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "TrainingDataFoundationBot",
+    "name": "TrainingDataFoundationBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Docs-Mirrors-",
+    "name": "Docs Mirrors",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "-docs-ingest",
+    "name": "Docs ingest",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ClawifiBot",
+    "name": "ClawifiBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "InfraStack surface reader",
+    "name": "InfraStack",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "GeneralRetrieval-Research",
+    "name": "GeneralRetrieval",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "AiInsightsBot",
+    "name": "AiInsightsBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "imagelocbot",
+    "name": "imagelocbot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "KeenableBot",
+    "name": "Keenable",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "zedsearch-bot/",
+    "name": "zedsearch",
+    "category": "ai_search",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ZenaAI-DocResearch",
+    "name": "Zena AI",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "mdbrowse",
+    "name": "mdbrowse",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "docs-reader",
+    "name": "docs-reader",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "vault-research-capture",
+    "name": "vault-research-capture",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "OpenAI File Downloader",
+    "name": "OpenAI File Downloader",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "XaiImageApiFetch",
+    "name": "xAI Image Fetch",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Bravebot",
+    "name": "Bravebot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Kagibot",
+    "name": "Kagibot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "CREDBot",
+    "name": "CREDBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SearchMisterBot",
+    "name": "SearchMisterBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SearcliBot",
+    "name": "SearcliBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RiverBot",
+    "name": "RiverBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "BashBot",
+    "name": "BashBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Blackbox Exporter/",
+    "name": "Prometheus Blackbox Exporter",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "markdown-link-check/",
+    "name": "markdown-link-check",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "link-check/",
+    "name": "link-check",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "scrapibara",
+    "name": "scrapibara",
+    "category": "http_client",
+    "traffic_type": "Automation"
   }
 ]

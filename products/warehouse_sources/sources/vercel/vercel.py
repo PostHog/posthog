@@ -194,6 +194,9 @@ def _rejected_token_error(access_token: str) -> str:
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """Confirm the access token is genuine via GET /v2/user, the cheapest authenticated probe.
     Vercel denies it to project-scoped tokens, which also can't read most of the tables we sync."""
+    # A token copied from the Vercel dashboard often carries a trailing newline or space, which
+    # Vercel refuses with a 400 as if the token itself were bad.
+    access_token = access_token.strip()
     # The token rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request. That is not a RequestException, so it
     # would escape as an internal error; reject it as user input instead.
@@ -211,14 +214,17 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (400, 401, 404):
+    if response.status_code in (400, 401):
         # The probe carries no query string and no body, so a 400 is Vercel rejecting the token
-        # itself rather than anything we sent — a token pasted with stray characters reads as
-        # malformed at the gateway before it is ever looked up. A 404 here isn't documented for
-        # this endpoint, but is observed when the token doesn't resolve to a Vercel user at all
-        # (e.g. a team-scoped token used where an account access token is expected); the fix is
-        # the same as an invalid token, so it shares the message.
+        # itself rather than anything we sent.
         return False, _rejected_token_error(access_token)
+    if response.status_code == 404:
+        # Not documented for this endpoint, but observed when the token doesn't resolve to a Vercel
+        # user (e.g. a team-scoped token). The token can be new and valid, so calling it revoked
+        # would send the user to create the same kind of token again.
+        if access_token.startswith(_VERCEL_AI_GATEWAY_KEY_PREFIX):
+            return False, _VERCEL_AI_GATEWAY_KEY_ERROR
+        return False, _VERCEL_TOKEN_SCOPE_ERROR
     if response.status_code == 403:
         # Vercel answers an unknown or revoked token with 403 rather than 401 on this endpoint, and
         # only the body tells it apart from a real token that lacks access.

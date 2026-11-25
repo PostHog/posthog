@@ -61,10 +61,10 @@ The SQL suite retains its seven existing scorer versions.
 The discovery-wide enrollment test checks every enrolled suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges.
 Provide the API key through the environment before running the suite:
 
-| Variable                       | Purpose                                                                                                                                                                                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal API key with `offline_evaluation_ingestion:write` and `evaluation:write` to upload and tag results. Ingestion-only personal or project secret keys can upload without tags. A public project token cannot authenticate uploads. |
-| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                                                                                                                        |
+| Variable                       | Purpose                                                                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal or project secret API key with `offline_evaluation_ingestion:write` to upload results. Add `evaluation:write` to tag them. |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                   |
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
@@ -135,7 +135,7 @@ The final summary shows a PostHog results link only after a successful offline u
 
 ### Testing uploads against local PostHog
 
-Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal API key created in that local instance.
+Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal or project secret API key created in that local instance.
 HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; other hosts require HTTPS.
 The eval harness's temporary test database is separate from the development instance receiving uploads.
 
@@ -180,7 +180,7 @@ Score definitions and experiment runs use the same team and component tags:
 
 `OfflineEvalSuite.tags` supplies the experiment tags. Delivery records the successful upload and results link once the experiment has completed, then calls the publisher's `tag()` method to update tags through the Python SDK's `experiment.set_tags(...)`. Tagging has its own five-second deadline outside the upload deadline. Tags are mutable metadata, separate from the immutable creation declaration and scorer versions.
 
-To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
+To upload **and tag** experiments, grant the API key both `offline_evaluation_ingestion:write` and `evaluation:write`. With only ingestion access the upload succeeds and the tag update warns. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
 
 Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
 
@@ -342,6 +342,12 @@ Use the base path `/api/projects/{project_id}/ai_observability/offline_experimen
 
 Programmatic callers use a personal or project secret API key with `offline_evaluation_ingestion:write`.
 Project secret keys grant these operations across their project.
+Project admins need viewer access to grant dataset, evaluation, or AI observability read scopes, and editor access to grant their write scopes. Rotating a key checks the admin's current access to each of those resources.
+In project key settings, grant **Dataset** (`dataset:read` or `dataset:write`) for datasets and items, **Evaluation** (`evaluation:read` or `evaluation:write`) for experiment reads and corrections, and **AI observability** (`llm_analytics:read` or `llm_analytics:write`) for scorers and trace reviews. Each write scope includes the corresponding read permission. Use a personal API key with `dataset:read` to create, check, or download a dataset export. Export files are private to the requesting user.
+A project key needs `dataset:write` to call the `extend_retention` action. Reading a dataset or snapshot and using a revision in an offline experiment also refresh retention as part of normal use.
+
+Datasets, items, and scorers identify the project key that created them. Dataset item history, dataset revisions, and scorer version history identify the key that wrote each version. A trace review identifies the user or project key that last saved it. The activity log records project-key scorer changes and trace review creation, edits, and deletion. When someone takes over or deletes a review last saved by a project key, the audit entry includes that key's public ID. When a project key clears a pending queue item, the trace review activity includes the removed item's ID even if the reviewer and scores stay the same.
+
 Personal keys and logged-in users require evaluation editor access.
 They also require viewer access to the dataset when linking a revision or adding hosted items, and viewer access to the scorer definition when adding results.
 Missing and inaccessible references return the same validation error.
@@ -447,8 +453,8 @@ Numeric composites use minimum and maximum bounds but do not accept a manual-sco
 Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
 `calculate` is only for composite scorers. For reported scorers, omit it or set it to false and supply the result.
 All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
-Using stored inputs requires `evaluation:read` and `llm_analytics:read` in addition to ingestion access, including on retries.
-Ingestion-only and project secret keys must include every input result in the same upload. Previously uploaded inputs may be resubmitted with their original values and metadata.
+Using stored inputs requires evaluation and scorer read access in addition to ingestion access, including on retries.
+Ingestion-only keys must include every input result in the same upload. Previously uploaded inputs may be resubmitted with their original values and metadata.
 Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
@@ -562,7 +568,7 @@ An item and its payload share a revision, as do a result and its payload.
 Adding, editing, or deleting a result on an existing item also advances the item revision, as does editing or deleting a result payload. If another writer makes one of these changes after you read the item, read it again before deleting it.
 Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
 
-These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
+Corrections require `evaluation:write`. Result operations and item deletion also require scorer read access. Human callers need evaluation editor access and access to the affected scorers and composite inputs.
 MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
 An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
 Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
@@ -656,7 +662,7 @@ Candidate selection skips expired revisions that are retained only for shared ve
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.
 Tags belong to the resource, not to dataset revisions or scorer versions, and do not propagate between linked resources.
 Their list and detail responses include `tags`. Dataset and scorer creation and updates accept a `tags` array.
-Use `PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/` with `{"tags": ["quality", "production"]}` to replace experiment tags; it requires evaluation editor access and `evaluation:write` for personal API keys. Ingestion credentials cannot edit tags.
+Use `PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/` with `{"tags": ["quality", "production"]}` to replace experiment tags. Both key types require `evaluation:write`. Personal keys also require evaluation editor access.
 Omitting `tags` preserves existing assignments, including an empty experiment PATCH body; sending `[]` clears them. Names are trimmed and lowercased, with up to 100 tags of at most 255 characters each after normalization.
 Saving unchanged scorer tags preserves the update timestamp and does not emit a scorer update event.
 Removing the last assignment of a tag removes it from the shared project tag vocabulary.
@@ -694,18 +700,17 @@ The following GET paths are relative to `/api/projects/{project_id}/ai_observabi
 | `offline_experiments/{experiment_id}/scorer_summaries/`            | Summaries grouped by exact scorer version.                                           |
 | `offline_scorers/{definition_id}/history/`                         | Experiment summaries for one stable scorer definition.                               |
 
-Reads accept logged-in sessions and personal API keys.
-Experiment and item metadata, including shared item payloads, require `evaluation:read` and evaluation viewer access.
-Results, result payloads, summaries, history, and scorer filters also require `llm_analytics:read` and viewer access to the corresponding scorer definitions.
+Reads accept logged-in sessions, personal API keys, and project secret API keys.
+Experiment and item metadata, including shared item payloads, require `evaluation:read`. Human callers need evaluation viewer access.
+Results, result payloads, summaries, history, and scorer filters also require scorer read access. Human callers need viewer access to the corresponding scorer definitions.
 An upload-only credential cannot read stored results or payloads.
-Project secret API keys remain limited to the ingestion and lifecycle operations above.
 Reads allow 600 requests per minute and 6,000 per hour per caller, with shared project limits of 3,000 per minute and 30,000 per hour.
 These limits are separate from ingestion so fetching individual payloads does not consume the upload budget.
 The shared read budget includes child environments of the same parent project.
 
 Experiment responses expose `accepted_item_count` separately from `visible_result_count`, `visible_scorer_definition_count`, and `visible_scorer_version_count`.
 Visible counts include only authorized scorers and are marked with `result_count_scope: "authorized"`.
-For personal keys without `llm_analytics:read`, these three counts are null and `result_count_scope` is `"unavailable"`.
+For keys without scorer read access, these three counts are null and `result_count_scope` is `"unavailable"`.
 Declared expected counts remain caller-supplied totals, so they are not a measure of the reader's visible result coverage.
 Missing and inaccessible scorer references produce the same response.
 
@@ -879,6 +884,8 @@ Short date ranges show time-of-day labels, and short period comparisons show ela
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+Choose **Pretty** or **Raw** to change how the inspector displays item and result payloads. The browser remembers the choice across items.
+In Pretty view, select **Show more** under a shortened text value to read and copy the full string.
 Boolean score cells and numeric or categorical cells with a passing rule retain their raw values or custom labels, with a success/check or danger/cross treatment based on the pinned version's rule. Execution errors use a separate warning treatment; skipped, not-applicable, missing, and numeric or categorical results without a passing rule remain neutral.
 The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
 Small application and evaluator trace buttons appear only after a background lookup confirms their IDs in the current project. The lookup batches both IDs in one AI events query, then checks only missing IDs in one shared events query using the trace reader's fallback window, without reading trace payloads. Each query has a two-second execution limit; a timeout preserves any trace IDs already found. Buttons stay hidden while checking, on failure, or when no match was found within the budget. Changing the selection or closing the inspector cancels obsolete requests; reopening or refreshing the inspector checks again. The evaluator button appears beside the selected score. Buttons open a single trace in the drawer without previous/next controls when the new trace view is enabled; closing it returns to the same item and selected result. Modified clicks open the full trace page, as do buttons when using the legacy trace view.

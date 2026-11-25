@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { withoutTraceDrawerParams } from '../trace/traceDrawerRows'
+
 export type ShellTabId = 'home' | 'activity' | 'diagnostics' | 'people'
 export type ShellScopeId = 'sessions' | 'traces' | 'errors' | 'tools'
 
@@ -122,4 +124,17 @@ export function shellDocsUrl(location: ShellLocation): string {
 
 export function shellHref(path: string, linkParams: Record<string, unknown>): string {
     return combineUrl(path, linkParams).url
+}
+
+// pinned: the params that carry the open session and its first turn's time, which saved links read
+export const SESSION_PARAM = 'session'
+export const SESSION_TIMESTAMP_PARAM = 'timestamp'
+
+const OPEN_SESSION_PARAMS: ReadonlySet<string> = new Set([SESSION_PARAM, SESSION_TIMESTAMP_PARAM])
+
+/** The params a tab or scope link keeps. An open trace or session belongs to the list it was opened on. */
+export function shellLinkParams<T>(searchParams: Record<string, T>): Record<string, T> {
+    return Object.fromEntries(
+        Object.entries(withoutTraceDrawerParams(searchParams)).filter(([name]) => !OPEN_SESSION_PARAMS.has(name))
+    )
 }

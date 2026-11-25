@@ -2,7 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import type { ApiError } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -252,24 +253,19 @@ export const organizationLogic = kea<organizationLogicType>([
         currentOrganization: [
             null as OrganizationType | null,
             {
-                loadCurrentOrganization: async () => {
+                loadCurrentOrganization: async (): Promise<OrganizationType | null> => {
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }
+                    const getCurrentOrganization = (): OrganizationType | null =>
+                        values.currentOrganization ?? userLogic.values.user?.organization ?? null
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get('api/organizations/@current')
                     } catch (error) {
-                        if (error instanceof ApiError && error.status && error.status < 500) {
-                            // The organization is gone or out of reach, so let the
-                            // unavailable-organization screen take over.
-                            return null
-                        }
-                        // A transient failure keeps the organization we already have. Dropping it leaves
-                        // every reader of `currentOrganization.teams` with nothing for the rest of the
-                        // session, which is why the project switcher then lists one project.
-                        return values.currentOrganization
+                        const { recoverOrganization } = await import('./recoverOrganization')
+                        return recoverOrganization(error, getCurrentOrganization)
                     }
                 },
                 createOrganization: async (name: string) => {

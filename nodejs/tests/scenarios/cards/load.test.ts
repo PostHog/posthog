@@ -57,6 +57,8 @@ const emailWorkerKill = {
     for: '1s',
 }
 
+const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
+
 describe('load', () => {
     let dir: string
 
@@ -240,6 +242,21 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-api': 2 } },
             `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
         ]),
+        ...[
+            ['role.kill', 'cdp-api'],
+            ['role.freeze', 'cdp-cyclotron-worker-email'],
+        ].map(([valve, target]): [string, object, object, string] => [
+            `edge_accepted on ${valve} of ${target}`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+        ]),
+        [
+            'edge_accepted while the profile runs more than one email worker',
+            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
+        ],
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -281,10 +298,10 @@ describe('load', () => {
             'valves.0: exactly one of at, when',
         ],
         [
-            'a when predicate other than running_on_queue',
+            'a when predicate the runner does not know',
             { ...card, valves: [{ ...emailWorkerKill, when: { ...emailWorkerKill.when, name: 'queue_empty' } }] },
             undefined,
-            'valves.0.when.name: running_on_queue is the only predicate',
+            'valves.0.when.name: the predicates are running_on_queue and edge_accepted',
         ],
         [
             'running_on_queue without its queue',
@@ -327,6 +344,24 @@ describe('load', () => {
             card,
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: '60000' } },
             'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles or the load producer read',
+        ],
+        [
+            'a profile that turns on the intake dead-letter drain',
+            card,
+            { ...profile, settings: { CDP_INTAKE_DLQ_DRAIN: 'true' } },
+            'profile.settings.CDP_INTAKE_DLQ_DRAIN: the reset never seeks the drain groups',
+        ],
+        [
+            'a profile that moves an intake topic',
+            card,
+            { ...profile, settings: { CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: 'scenario_intake_email' } },
+            "profile.settings.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: convergence reads each intake group's whole lag",
+        ],
+        [
+            'a profile that runs a second intake replica',
+            card,
+            { ...profile, replicas: { 'cdp-intake-transactional-email': 2 } },
+            'profile.replicas.cdp-intake-transactional-email: each intake topic has one partition',
         ],
         [
             'a profile setting only the object prototype has',
@@ -702,6 +737,7 @@ describe('load', () => {
 
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
+        ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],

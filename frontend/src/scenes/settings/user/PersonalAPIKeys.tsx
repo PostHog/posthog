@@ -475,6 +475,9 @@ function PersonalAPIKeysTable(): JSX.Element {
                         >
                             {key.label}
                         </Link>
+                        {key.provisioned_by_name && (
+                            <span className="text-muted text-xs truncate max-w-60">{`Created by ${key.provisioned_by_name}`}</span>
+                        )}
                         {key.description && (
                             <Tooltip title={key.description}>
                                 <span className="text-muted text-xs truncate max-w-60">{key.description}</span>
