@@ -729,9 +729,22 @@ def _sends_to_follow(team: Team, workflow_id: str, period: _Period) -> list[_Fol
 
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
-    for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
-        converted |= {batch[index - 1].message_id for index in _converted_in_batch(team, user, event, batch)}
+    for run in _runs_of_overlapping_windows(sorted(sends, key=lambda send: send.since)):
+        for batch in _batches_by_query_size(team.id, run, _query_bytes_of):
+            converted |= {batch[index - 1].message_id for index in _converted_in_batch(team, user, event, batch)}
     return converted
+
+
+def _runs_of_overlapping_windows(sends: list[_FollowedSend]) -> Iterator[list[_FollowedSend]]:
+    window = timedelta(days=IMPACT_WINDOW_DAYS)
+    run: list[_FollowedSend] = []
+    for send in sends:
+        if run and send.since - run[-1].since > window:
+            yield run
+            run = []
+        run.append(send)
+    if run:
+        yield run
 
 
 def _max_query_size(team_id: int) -> int:

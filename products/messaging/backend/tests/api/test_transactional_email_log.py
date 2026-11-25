@@ -771,15 +771,43 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert few > 0
         assert more == few
 
-    def test_names_the_type_of_every_query_impact_runs(self, _flag):
-        query_types = self._impact_query_types_after_adding_sends([], 2)
+    def test_counts_each_send_to_one_distinct_id_that_a_single_conversion_follows(self, _flag):
+        create_person(team=self.team, distinct_ids=["repeat"])
+        for minutes_ago in (180, 120):
+            message_id = self._send(minutes_ago, "repeat@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, "repeat", "repeat@example.com", NOW - timedelta(minutes=minutes_ago))
+        _create_event(team=self.team, event="purchase", distinct_id="repeat", timestamp=NOW - timedelta(minutes=60))
+        flush_persons_and_events()
 
-        assert set(query_types) == {
-            "transactional_email_impact_funnel",
-            "transactional_email_impact_sends",
-            "message_assets_for_invocations",
-            "transactional_email_impact_conversions",
-        }
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": 2, "converted": 2}
+
+    def test_reads_conversions_of_send_bursts_further_apart_than_the_window_in_separate_queries(self, _flag):
+        for name, minutes_ago in (("early", 15 * 24 * 60), ("late", 60)):
+            create_person(team=self.team, distinct_ids=[name])
+            message_id = self._send(minutes_ago, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            sent_at = NOW - timedelta(minutes=minutes_ago)
+            self._record_distinct_id(message_id, name, f"{name}@example.com", sent_at)
+            _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=sent_at + timedelta(minutes=30))
+        flush_persons_and_events()
+        [(since_micros,)] = sync_execute("SELECT toUnixTimestamp64Micro(now64(6))")
+
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=20)).isoformat())
+
+        assert impact["without_click"] == {"sends": 2, "converted": 2}
+        sync_execute("SYSTEM FLUSH LOGS")
+        [(conversion_queries,)] = sync_execute(
+            """
+            SELECT count() FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s)
+              AND current_database = currentDatabase()
+              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
+              AND JSONExtractString(log_comment, 'query_type') = 'transactional_email_impact_conversions'
+            """,
+            {"since_micros": since_micros, "team_id": self.team.id},
+        )
+        assert conversion_queries == 2
 
     def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
         for _ in range(count):
