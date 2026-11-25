@@ -9278,11 +9278,17 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/realtime/", {"enabled": enabled}, format="json"
         )
 
-    def test_turning_realtime_on_and_off_logs_both_changes(self) -> None:
+    @patch("posthog.api.cohort.report_user_action")
+    def test_turning_realtime_on_and_off_logs_both_changes(self, mock_report_user_action: MagicMock) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
 
         turned_on = self._switch(cohort, True)
         turned_off = self._switch(cohort, False)
+
+        assert [(call.args[1], call.args[2]["cohort_id"]) for call in mock_report_user_action.call_args_list] == [
+            ("cohort realtime enabled", cohort.pk),
+            ("cohort realtime disabled", cohort.pk),
+        ]
 
         assert (turned_on.status_code, turned_on.json()["realtime_enabled"]) == (200, True)
         assert (turned_off.status_code, turned_off.json()["realtime_enabled"]) == (200, False)
@@ -9515,6 +9521,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         [
             ("sequence", "sequence", False, "unsupported_criteria"),
             ("action", "action", False, "action_criteria"),
+            ("action_with_a_string_id", "action_with_a_string_id", False, "action_criteria"),
             ("daily_cohort_reference", "daily_cohort_reference", False, "includes_non_realtime_cohort"),
             ("test_account_filter", "pageview", True, "test_account_filter"),
         ]
@@ -9543,6 +9550,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         elif criteria == "action":
             action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
             leaves = [{**pageview, "key": action.id, "event_type": "actions"}]
+        elif criteria == "action_with_a_string_id":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": str(action.id), "event_type": "actions"}]
         elif criteria == "daily_cohort_reference":
             daily = Cohort.objects.create(
                 team=self.team,
