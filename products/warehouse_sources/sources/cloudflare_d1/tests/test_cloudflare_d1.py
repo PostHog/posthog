@@ -219,6 +219,28 @@ def test_a_table_that_is_gone_fails_with_a_message_the_source_maps() -> None:
     assert "no such table: users" in str(result.raised)
 
 
+@pytest.mark.parametrize(
+    ("status", "message", "retryable"),
+    [
+        (429, "Too many requests. Try again later.", True),
+        (429, "Rate limit exceeded for this database.", True),
+        (400, 'near "SELEC": syntax error: SQLITE_ERROR', False),
+    ],
+)
+def test_only_a_rate_limit_that_outlasts_the_session_retries_is_retryable(
+    status: int, message: str, retryable: bool
+) -> None:
+    response = ScriptedResponse(
+        status=status, json={"result": [], "success": False, "errors": [{"code": 7500, "message": message}]}
+    )
+
+    result = _driver().run("users", always(response))
+
+    assert isinstance(result.raised, D1QueryError)
+    retryable_errors = CloudflareD1Source().get_retryable_errors()
+    assert any(pattern in str(result.raised) for pattern in retryable_errors) is retryable
+
+
 def test_a_dropped_incremental_column_fails_instead_of_syncing_nothing() -> None:
     setup = "CREATE TABLE users (id INTEGER PRIMARY KEY, updated_at DATETIME);"
 

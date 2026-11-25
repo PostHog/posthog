@@ -103,6 +103,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
             "no such column": "The incremental column no longer exists in the D1 table. Pick another column in the table's settings.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The session retries a 429 for only a few seconds, so a longer rate limit escapes it.
+        # Temporal retries the activity and the sync recovers, so this is not a bug to report.
+        return {"D1 query failed (429)"}
+
     def validate_credentials(
         self,
         config: CloudflareD1SourceConfig,
