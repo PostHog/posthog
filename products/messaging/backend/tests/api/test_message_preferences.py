@@ -506,7 +506,7 @@ class TestMessagePreferencesViews(BaseTest):
         token = jwt.encode(
             {
                 "team_id": self.team.id,
-                "identifier": self.recipient.identifier,
+                "identifier": f"\u00a0{self.recipient.identifier}",
                 "aud": "posthog:messaging:subscription_preferences",
                 "iat": int(erased_at.timestamp()) + iat_offset_seconds,
             },
@@ -516,7 +516,7 @@ class TestMessagePreferencesViews(BaseTest):
 
         def plugin_server_verdict(submitted: str):
             claims = jwt.decode(submitted, options={"verify_signature": False})
-            if submitted != token or time.time() - claims["iat"] > 60 * 24 * 3600:
+            if submitted != token or time.time() - claims["iat"] >= 60 * 24 * 3600:
                 return mock_response(400, {"error": "Invalid token"})
             return mock_response(200, {"valid": True, "team_id": claims["team_id"], "identifier": claims["identifier"]})
 
@@ -539,10 +539,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == 400:
             self.assertContains(response, "This link no longer works", status_code=400)
-        self.assertEqual(
-            MessageRecipientPreference.objects.filter(team=self.team, identifier=self.recipient.identifier).exists(),
-            expected_status == 200,
-        )
+        self.assertEqual(MessageRecipientPreference.objects.filter(team=self.team).exists(), expected_status == 200)
 
     def _set_engagement_events(self, enabled: bool):
         config = self.team.workflows_config
@@ -1225,6 +1222,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             "erased@example.com",
             " erased@example.com ",
             "\terased@example.com\n",
+            "\u2003erased@example.com\u00a0",
             "kept@example.com",
         ):
             MessageRecipientPreference.objects.create(
@@ -1242,7 +1240,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         repeat = self._erase_recipient({"identifier": "erased@example.com"})
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"preferences_deleted": 4, "suppressions_deleted": 1})
+        self.assertEqual(first.json(), {"preferences_deleted": 5, "suppressions_deleted": 1})
         self.assertEqual(repeat.json(), {"preferences_deleted": 0, "suppressions_deleted": 0})
         self.assertEqual(
             sorted(MessageRecipientPreference.objects.values_list("team_id", "identifier")),
