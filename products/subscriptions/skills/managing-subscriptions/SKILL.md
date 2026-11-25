@@ -173,6 +173,5 @@ Create a new subscription if the user needs it again.
 
 - `creating-ai-subscription`: Create a report from a free-text AI prompt.
 - `building-a-dashboard`: Create a dashboard before you subscribe to it.
-- `adding-product-alerting`: Notify users when data meets a condition.
 - `managing-reminders`: Schedule a private prompt to inspect a resource.
 - `understanding-billing-usage`: Investigate PostHog AI credit use.
