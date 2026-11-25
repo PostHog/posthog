@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from aioresponses import CallbackResult, aioresponses
+from prometheus_client import REGISTRY
 
 from posthog.internal_logs import send_internal_log
 from posthog.models.team import Team
@@ -127,6 +128,36 @@ def test_send_in_a_forked_child_starts_its_own_loop(
 
     assert arrived.wait(WAIT_SECONDS)
     assert _records(bodies) == [("parent", 17), ("child", 17)]
+
+
+def _dropped_records() -> float:
+    return (
+        REGISTRY.get_sample_value("logs_internal_producer_records_total", {"source": "endpoints", "outcome": "dropped"})
+        or 0
+    )
+
+
+def test_send_drops_entries_past_the_budget_while_the_loop_is_stalled(
+    settings: Any, received: tuple[list[dict[str, Any]], threading.Event]
+) -> None:
+    settings.LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES = 10_000
+    _send()
+    loop = internal_logs_thread._loop
+    assert loop is not None
+    stall = threading.Event()
+    loop.call_soon_threadsafe(stall.wait, WAIT_SECONDS)
+    dropped_before = _dropped_records()
+
+    for _ in range(5):
+        _send(message="x" * 4_000)
+
+    assert internal_logs_thread._pending_bytes <= 10_000
+    assert _dropped_records() - dropped_before == 3
+    stall.set()
+    deadline = time.monotonic() + WAIT_SECONDS
+    while internal_logs_thread._pending_bytes and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert internal_logs_thread._pending_bytes == 0
 
 
 @pytest.mark.django_db

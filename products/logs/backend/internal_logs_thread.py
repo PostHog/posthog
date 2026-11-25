@@ -10,6 +10,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async_pool
 
 from products.logs.backend.internal_logs_producer import (
+    RECORDS_COUNTER,
     InternalLogEntry,
     InternalLogsProducer,
     InternalLogsProducerConfig,
@@ -29,6 +30,8 @@ _lock = threading.Lock()
 _pid: int | None = None
 _producer: InternalLogsProducer | None = None
 _loop: asyncio.AbstractEventLoop | None = None
+_max_pending_bytes = 0
+_pending_bytes = 0
 _token_lock = threading.Lock()
 _token_cache: dict[int, tuple[float, str]] = {}
 
@@ -58,7 +61,10 @@ async def _api_token(team_id: int) -> str | None:
     return await database_sync_to_async_pool(_read_api_token)(team_id)
 
 
-def _enqueue(producer: InternalLogsProducer, source: str, entries: list[InternalLogEntry]) -> None:
+def _enqueue(producer: InternalLogsProducer, source: str, entries: list[InternalLogEntry], size: int) -> None:
+    global _pending_bytes
+    with _lock:
+        _pending_bytes -= size
     producer.enqueue(source, entries)
     producer.flush()
 
@@ -75,16 +81,24 @@ def _drain(pid: int, producer: InternalLogsProducer, loop: asyncio.AbstractEvent
 
 def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
     """Hands the entries of allowed teams to this process's producer. Does not wait for the network."""
-    global _pid, _producer, _loop
+    global _pid, _producer, _loop, _max_pending_bytes, _pending_bytes
     with _lock:
         if _producer is None or _pid != os.getpid():
-            _producer = InternalLogsProducer(InternalLogsProducerConfig.from_settings(), _api_token)
+            config = InternalLogsProducerConfig.from_settings()
+            _producer = InternalLogsProducer(config, _api_token)
             _loop = None
             _pid = os.getpid()
+            _max_pending_bytes = config.max_buffered_bytes
+            _pending_bytes = 0
         producer = _producer
         entries = [entry for entry in entries if producer.accepts(source, entry.team_id)]
         if not entries:
             return
+        size = sum(len(entry.message) for entry in entries)
+        if _pending_bytes + size > _max_pending_bytes:
+            RECORDS_COUNTER.labels(source=source, outcome="dropped").inc(len(entries))
+            return
+        _pending_bytes += size
         if _loop is None:
             _loop = asyncio.new_event_loop()
             threading.Thread(target=_loop.run_forever, name="internal-logs-producer", daemon=True).start()
@@ -92,4 +106,4 @@ def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
             # producer needs one to read the team token and to resolve the capture-logs host.
             _register_before_thread_shutdown(_drain, _pid, producer, _loop)
         loop = _loop
-    loop.call_soon_threadsafe(_enqueue, producer, source, entries)
+    loop.call_soon_threadsafe(_enqueue, producer, source, entries, size)
