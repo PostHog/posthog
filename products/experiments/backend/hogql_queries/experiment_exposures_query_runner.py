@@ -35,6 +35,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
@@ -677,9 +678,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             multiple_variant_handling=multiple_variant_handling,
         )
         response = self._run_in_warehouse(builder.build_exposures(self.team.timezone), connection_id)
-        # A second pass over the exposure query, so a wrong total comes with the rows it left out and why.
-        left_out = self._run_in_warehouse(builder.build_exposure_rows_left_out(), connection_id)
-        self._rows_left_out = _exposure_rows_left_out(left_out.results or [])
+        # A second pass over the exposure query, so a wrong total comes with the rows it left out and why. The counts
+        # only explain the totals, so a timeout or an outage on this statement leaves them unknown and keeps the totals.
+        try:
+            left_out = self._run_in_warehouse(builder.build_exposure_rows_left_out(), connection_id)
+        except ExposedHogQLError as error:
+            logger.warning("warehouse_native_rows_left_out_failed", experiment_id=self.experiment.id, error=str(error))
+            self._rows_left_out = None
+        else:
+            self._rows_left_out = _exposure_rows_left_out(left_out.results or [])
         return [
             ExposureDayCount(
                 # The BigQuery client returns a DATE column as a date. A response that went through JSON carries text.

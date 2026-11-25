@@ -32,6 +32,7 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.query_access_check import denied_query_resources
@@ -187,6 +188,34 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert response.exposed_by_library is None
         # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
         assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+
+    def test_a_failing_diagnostic_keeps_the_exposures(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        with (
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
+            ) as warehouse,
+        ):
+            warehouse.side_effect = [
+                HogQLQueryResponse(columns=["day", "variant", "exposures"], results=[[date(2024, 1, 2), "control", 3]]),
+                DirectQueryTimeoutError("BigQuery query timed out."),
+            ]
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._warehouse_native_query(str(connection.id))
+            ).calculate()
+
+        assert response.total_exposures["control"] == 3
+        assert response.rows_left_out is None
 
     def test_publishing_and_shared_links_need_access_to_the_connection(self):
         connection = ExternalDataSource.objects.create(
