@@ -2346,9 +2346,6 @@ describe('EmailService', () => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
         }
-        const sensitiveTemplate = (): void => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
-        }
         const codeSendOpensOff = (): void => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
@@ -2621,6 +2618,24 @@ describe('EmailService', () => {
                         to: [expect.stringContaining(recipient)],
                         attachments: inFilenameOrder(deliveredFiles.map((file) => file())),
                     },
+                ])
+            })
+
+            it('publishes clicks_untracked on the sent row of a sensitive transactional email', async () => {
+                sendAsTransactionalEmail()
+                invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+                bucket.answer = 'pass'
+
+                const result = await sender().executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(await recordedEmailStatuses()).toEqual([
+                    expect.objectContaining({
+                        team_id: team.id,
+                        message_id: invocation.id,
+                        status: 'sent',
+                        reason: 'clicks_untracked',
+                    }),
                 ])
             })
 
@@ -3213,14 +3228,6 @@ describe('EmailService', () => {
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
                 codeSendClicksOff,
-                'sent',
-                'clicks_untracked',
-            ],
-            [
-                'a sensitive transactional email, whose click tracking is off by default',
-                TRANSACTIONAL_EMAIL_EVENT,
-                false,
-                sensitiveTemplate,
                 'sent',
                 'clicks_untracked',
             ],
