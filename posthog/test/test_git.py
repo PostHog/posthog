@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes, get_git_commit_full
+from posthog.git import (
+    extract_explicit_repo,
+    extract_linked_repo,
+    extract_repo_from_scopes,
+    get_git_commit_full,
+    get_git_commit_short,
+)
 
 REPOS = ["posthog/posthog", "posthog/posthog-js", "posthog/posthog.com"]
 
@@ -129,14 +135,55 @@ class TestExtractRepoFromScopes:
 
 
 FULL_SHA = "0123456789abcdef0123456789abcdef01234567"
+CHECKED_OUT_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+STALE_GIT_SHA = "1111111111222222222233333333334444444444"
 
 
-class TestGetGitCommitFull:
+def stale_git_rev_parse(args: list[str]) -> bytes:
+    sha = STALE_GIT_SHA[:7] if "--short" in args else STALE_GIT_SHA
+    return f"{sha}\n".encode()
+
+
+class TestGitCommit:
     @pytest.fixture(autouse=True)
-    def clear_cache(self):
+    def isolate(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("POSTHOG_GIT_COMMIT", raising=False)
         get_git_commit_full.cache_clear()
+        get_git_commit_short.cache_clear()
         yield
         get_git_commit_full.cache_clear()
+        get_git_commit_short.cache_clear()
+
+    @parameterized.expand(
+        [
+            ("injected_beats_git", None, CHECKED_OUT_SHA, CHECKED_OUT_SHA),
+            ("injected_is_stripped", None, f"  {CHECKED_OUT_SHA}\n", CHECKED_OUT_SHA),
+            ("baked_in_beats_injected", FULL_SHA, CHECKED_OUT_SHA, FULL_SHA),
+            ("blank_injected_falls_back_to_git", None, " \n ", STALE_GIT_SHA),
+        ]
+    )
+    def test_resolves_the_full_commit(self, _name: str, baked_in: str | None, injected: str, expected: str):
+        with (
+            patch("posthog.git._git_commit_baked_in", baked_in),
+            patch.dict("os.environ", {"POSTHOG_GIT_COMMIT": injected}),
+            patch("posthog.git.subprocess.check_output", side_effect=stale_git_rev_parse),
+        ):
+            assert get_git_commit_full() == expected
+
+    @parameterized.expand(
+        [
+            ("injected_is_cut_like_baked_in", None, CHECKED_OUT_SHA, CHECKED_OUT_SHA[:10]),
+            ("baked_in_beats_injected", FULL_SHA, CHECKED_OUT_SHA, FULL_SHA[:10]),
+            ("blank_injected_falls_back_to_git", None, "   ", STALE_GIT_SHA[:7]),
+        ]
+    )
+    def test_resolves_the_short_commit(self, _name: str, baked_in: str | None, injected: str, expected: str):
+        with (
+            patch("posthog.git._git_commit_baked_in", baked_in),
+            patch.dict("os.environ", {"POSTHOG_GIT_COMMIT": injected}),
+            patch("posthog.git.subprocess.check_output", side_effect=stale_git_rev_parse),
+        ):
+            assert get_git_commit_short() == expected
 
     def test_returns_the_full_baked_in_commit(self):
         with (

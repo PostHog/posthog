@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from collections.abc import Iterator
@@ -15,6 +16,10 @@ except FileNotFoundError:
     pass
 
 
+def _known_git_commit() -> Optional[str]:
+    return _git_commit_baked_in or os.environ.get("POSTHOG_GIT_COMMIT", "").strip() or None
+
+
 @cache
 def get_git_commit_short() -> Optional[str]:
     """Return the short hash of the last commit.
@@ -24,8 +29,8 @@ def get_git_commit_short() -> Optional[str]:
     Cached: the commit cannot change within a running process, and callers on the
     request path (SLO events) would otherwise spawn a `git rev-parse` per request.
     """
-    if _git_commit_baked_in:
-        return _git_commit_baked_in[:10]  # 10 characters is almost guaranteed to identify a commit uniquely
+    if known_commit := _known_git_commit():
+        return known_commit[:10]  # 10 characters is almost guaranteed to identify a commit uniquely
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
     except Exception:
@@ -34,8 +39,8 @@ def get_git_commit_short() -> Optional[str]:
 
 @cache
 def get_git_commit_full() -> Optional[str]:
-    if _git_commit_baked_in:
-        return _git_commit_baked_in
+    if known_commit := _known_git_commit():
+        return known_commit
     try:
         return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
     except Exception:
