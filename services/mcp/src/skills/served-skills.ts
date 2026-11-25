@@ -4,7 +4,7 @@ import servedSkillsJson from '@/generated/served-skills.json'
 import { POSTHOG_AI_CONSUMER, SLACK_CONSUMER } from '@/lib/client-detection'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
-import contextMillSkillsJson from './context-mill-skills.json'
+import type { SkillHeader } from './skill-catalog'
 
 // The PostHog-run agents that read skills through `learn`. Other PostHog consumers read an installed copy.
 const SkillConsumerSchema = z.enum([SLACK_CONSUMER, POSTHOG_AI_CONSUMER])
@@ -19,10 +19,9 @@ const ServedSkillSchema = z.strictObject({
 // Strict, so a misspelled key fails the load instead of serving a gated skill to everyone.
 const ServedSkillsSchema = z.strictObject({
     skills: z.record(z.string(), ServedSkillSchema),
-    context_mill_skills: z.record(z.string(), ServedSkillSchema),
 })
 
-export type ServedSkills = Map<string, z.infer<typeof ServedSkillSchema>>
+export type ServedSkills = ReadonlyMap<string, z.infer<typeof ServedSkillSchema>>
 
 export interface SkillCaller {
     featureFlags?: EvaluatedFlags | undefined
@@ -30,28 +29,43 @@ export interface SkillCaller {
 }
 
 export function parseServedSkills(json: unknown): ServedSkills {
-    const { skills, context_mill_skills } = ServedSkillsSchema.parse(json)
-    const contextMillNames = new Set(Object.keys(context_mill_skills))
-    const listedTwice = Object.keys(skills).filter((name) => contextMillNames.has(name))
-    if (listedTwice.length > 0) {
-        // The second entry would replace the first and could drop its flag or consumer limit.
-        throw new Error(`Served skills listed in both sections: ${listedTwice.join(', ')}`)
-    }
-    return new Map([...Object.entries(skills), ...Object.entries(context_mill_skills)])
+    return new Map(Object.entries(ServedSkillsSchema.parse(json).skills))
 }
 
-// Product skills come from the file generated from their headers. Context-mill skills live in another repo, so their list is kept here.
-const SERVED_SKILLS = parseServedSkills({ skills: servedSkillsJson.skills, context_mill_skills: contextMillSkillsJson })
+// The product skills, from the file generated from their headers.
+export const PRODUCT_SERVED_SKILLS = parseServedSkills(servedSkillsJson)
 
-export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS): string[] {
+// Context-mill skills live in another repo, so no generated file lists them. Each one says in its
+// own header who it is for, and a skill whose header does not say `customer` is not served.
+export function servedSkillsFromHeaders(headers: Iterable<SkillHeader>): ServedSkills {
+    const served = new Map<string, z.infer<typeof ServedSkillSchema>>()
+    for (const { name, audience, featureFlag } of headers) {
+        if (audience === 'customer') {
+            served.set(name, { audience, ...(featureFlag ? { feature_flag: featureFlag } : {}) })
+        }
+    }
+    return served
+}
+
+export function getServedSkillFeatureFlags(served: ServedSkills = PRODUCT_SERVED_SKILLS): string[] {
     return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]
 }
 
-export function isSkillListed(name: string, served: ServedSkills = SERVED_SKILLS): boolean {
+export function isSkillListed(name: string, served: ServedSkills = PRODUCT_SERVED_SKILLS): boolean {
     return served.has(name)
 }
 
-export function isSkillServed(name: string, caller: SkillCaller = {}, served: ServedSkills = SERVED_SKILLS): boolean {
+// For a caller that cannot evaluate feature flags, such as the CLI. It leaves out a skill limited to one consumer.
+export function isSkillServedWithoutFlags(name: string, served: ServedSkills = PRODUCT_SERVED_SKILLS): boolean {
+    const entry = served.get(name)
+    return entry !== undefined && entry.consumers === undefined
+}
+
+export function isSkillServed(
+    name: string,
+    caller: SkillCaller = {},
+    served: ServedSkills = PRODUCT_SERVED_SKILLS
+): boolean {
     const entry = served.get(name)
     if (!entry) {
         return false

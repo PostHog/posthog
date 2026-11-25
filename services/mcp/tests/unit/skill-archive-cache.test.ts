@@ -413,6 +413,58 @@ describe('SkillCatalogService', () => {
         expect(pinned.getCatalog()?.listNames()).toEqual(['product'])
     })
 
+    it('serves a context-mill skill only when its own header says it is for customers', async () => {
+        const [listedSkill] = Object.keys(servedSkillsJson.skills)
+        const [flaggedName, flaggedEntry] = Object.entries(servedSkillsJson.skills).find(
+            ([name, entry]) => 'feature_flag' in entry && name !== listedSkill
+        )!
+        const skill = (name: string, metadata = ''): Uint8Array =>
+            strToU8(`---\nname: ${name}\ndescription: Sample.\n${metadata}---\n# ${name}`)
+        const redis = makeRedis()
+        const omnibus = new OmnibusSkillsCache(redis)
+        await omnibus.publish(
+            zipSync({
+                'instrument-logs/SKILL.md': skill('instrument-logs', 'metadata:\n  audience: customer\n'),
+                'instrument-metrics/SKILL.md': skill(
+                    'instrument-metrics',
+                    'metadata:\n  audience: customer\n  feature_flag: metrics\n'
+                ),
+                'instrument-draft/SKILL.md': skill('instrument-draft'),
+                'instrument-bad-flag/SKILL.md': skill(
+                    'instrument-bad-flag',
+                    'metadata:\n  audience: customer\n  feature_flag: []\n'
+                ),
+                // On the generated list with a flag, but missing from this product archive.
+                [`${flaggedName}/SKILL.md`]: skill(flaggedName, 'metadata:\n  audience: customer\n'),
+                'internal-runbook/SKILL.md': skill('internal-runbook', 'metadata:\n  audience: customer\n'),
+            })
+        )
+        const product = zipSync({
+            [`${listedSkill}/SKILL.md`]: skill(listedSkill!),
+            'internal-runbook/SKILL.md': skill('internal-runbook'),
+        })
+        const service = new SkillCatalogService(redis, {
+            fetchArchive: async () => downloaded(product),
+            omnibusSkills: omnibus,
+        })
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+        await service.warmup()
+        warn.mockRestore()
+
+        expect(service.getCatalog()?.listNames()).toEqual(
+            ['instrument-logs', 'instrument-metrics', listedSkill!, flaggedName].sort((left, right) =>
+                left.localeCompare(right)
+            )
+        )
+        expect(service.getServedSkills().get(flaggedName)).toEqual(flaggedEntry)
+        expect(service.getServedSkills().get('instrument-metrics')).toEqual({
+            audience: 'customer',
+            feature_flag: 'metrics',
+        })
+        expect(service.getServedSkills().has('internal-runbook')).toBe(false)
+    })
+
     it('loads a new pin at the same URL without reusing an older cached archive', async () => {
         const redis = makeRedis()
         const firstBytes = makeArchive('first')

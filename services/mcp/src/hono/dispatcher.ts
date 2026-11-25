@@ -39,6 +39,7 @@ import {
     STATELESS_PROTOCOL_VERSION,
     validateModernRequest,
 } from '@/lib/stateless-protocol'
+import { getServedSkillFeatureFlags } from '@/skills/served-skills'
 
 import { trackInitEvent } from './analytics'
 import { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
@@ -167,7 +168,10 @@ class McpDispatcher {
         this.catalog = catalog
         const omnibusSkills = env.POSTHOG_MCP_OMNIBUS_SKILLS === 'off' ? undefined : new OmnibusSkillsCache(redis)
         this.resourceCatalog = new ResourceCatalog(env, redis, omnibusSkills)
-        this.stateResolver = new RequestStateResolver(catalog, redis, env)
+        // A context-mill skill names its flag in its header, so the set of flags changes with the loaded release.
+        this.stateResolver = new RequestStateResolver(catalog, redis, env, () =>
+            getServedSkillFeatureFlags(this.skillCatalogService.getServedSkills())
+        )
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.skillCatalogService = new SkillCatalogService(redis, {
             archiveUrl: env.POSTHOG_MCP_SKILLS_URL,

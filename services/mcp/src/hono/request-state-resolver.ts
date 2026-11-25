@@ -199,11 +199,18 @@ export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
     private readonly env: Env
+    private readonly servedSkillFeatureFlags: () => string[]
 
-    constructor(catalog: ToolCatalog, redis: RedisLike, env: Env) {
+    constructor(
+        catalog: ToolCatalog,
+        redis: RedisLike,
+        env: Env,
+        servedSkillFeatureFlags: () => string[] = getServedSkillFeatureFlags
+    ) {
         this.catalog = catalog
         this.redis = redis
         this.env = env
+        this.servedSkillFeatureFlags = servedSkillFeatureFlags
     }
 
     async resolve(props: RequestProperties, lookups?: StateLookupCache): Promise<ResolvedState> {
@@ -245,7 +252,7 @@ export class RequestStateResolver {
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
-                ...getServedSkillFeatureFlags(),
+                ...this.servedSkillFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_CURSOR_EXEC_MODE_FLAG,

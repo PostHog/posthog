@@ -32,10 +32,16 @@ export interface SkillFile {
     kind: SkillFileKind
 }
 
-export interface SkillDefinition {
-    name: string
+export interface SkillDefinition extends SkillHeader {
     description: string
     files: readonly SkillFile[]
+}
+
+// What a SKILL.md header says about who the skill is for. Absent when the header does not say.
+export interface SkillHeader {
+    name: string
+    audience?: string
+    featureFlag?: string
 }
 
 export interface SkillManifestEntry {
@@ -150,7 +156,7 @@ export class SkillCatalog {
     mapText(rewrite: (text: string) => string): SkillCatalog {
         return new SkillCatalog(
             [...this.skillsByName.values()].map((skill) => ({
-                name: skill.name,
+                ...skill,
                 description: rewrite(skill.description),
                 files: skill.files.map((file) => makeSkillFile(file.path, rewrite(file.content))),
             }))
@@ -163,6 +169,14 @@ export class SkillCatalog {
 
     listNames(): string[] {
         return [...this.skillsByName.keys()].sort((left, right) => left.localeCompare(right))
+    }
+
+    listHeaders(): SkillHeader[] {
+        return [...this.skillsByName.values()].map(({ name, audience, featureFlag }) => ({
+            name,
+            audience,
+            featureFlag,
+        }))
     }
 
     has(name: string): boolean {
@@ -262,7 +276,7 @@ export class SkillCatalog {
 
 const FRONTMATTER_PATTERN = /^---\n([\s\S]*?)\n---(?:\n|$)/
 
-export function parseFrontmatter(content: string, source: string): { name: string; description: string } {
+export function parseFrontmatter(content: string, source: string): SkillHeader & { description: string } {
     const match = content.match(FRONTMATTER_PATTERN)
     if (!match?.[1]) {
         throw new Error(`Missing YAML frontmatter in "${source}"`)
@@ -276,7 +290,18 @@ export function parseFrontmatter(content: string, source: string): { name: strin
     if (!name || !description || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
         throw new Error(`Invalid skill metadata in "${source}"`)
     }
-    return { name, description }
+    const metadata = isRecord(parsed.metadata) ? parsed.metadata : {}
+    const flag = metadata.feature_flag
+    const hasFlag = typeof flag === 'string' && flag !== ''
+    // A flag that is present but unreadable must not read as "no flag", which would serve a gated skill
+    // to everyone. Dropping the audience leaves the skill unserved instead.
+    const flagIsUnreadable = 'feature_flag' in metadata && !hasFlag
+    return {
+        name,
+        description,
+        ...(typeof metadata.audience === 'string' && !flagIsUnreadable ? { audience: metadata.audience } : {}),
+        ...(hasFlag ? { featureFlag: flag } : {}),
+    }
 }
 
 function validateArchivePath(path: string): string[] {
@@ -551,11 +576,7 @@ function parseSkillFiles(archive: Unzipped): SkillDefinition[] {
         if (metadata.name === 'skills') {
             throw new Error('Skill name "skills" is reserved by the learn command')
         }
-        return {
-            name: metadata.name,
-            description: metadata.description,
-            files: files.sort((left, right) => compareSkillPaths(left.path, right.path)),
-        }
+        return { ...metadata, files: files.sort((left, right) => compareSkillPaths(left.path, right.path)) }
     })
 
     if (skills.length === 0) {
