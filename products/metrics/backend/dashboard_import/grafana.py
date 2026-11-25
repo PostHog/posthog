@@ -52,6 +52,7 @@ MAX_EXPRESSION_LENGTH = 4000
 MAX_TITLE_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 1000
 MAX_TEXT_LENGTH = 4000
+MAX_SAVED_VALUE_LENGTH = 100
 
 _KIND_BY_TYPE: dict[str, PanelKind] = {
     "timeseries": "timeseries",
@@ -532,6 +533,11 @@ class GrafanaDashboardParser:
                 if templated is not None:
                     templated = drop_match_all_matchers(strip_grafana_ranges(templated))
             notes.extend(f"The variable ${name} has no saved value." for name in unresolved)
+            notes.extend(
+                f"PostHog can't keep ${name} as a dashboard variable, so the panel uses its saved value: "
+                f"{_text(value, MAX_SAVED_VALUE_LENGTH) or 'empty'}."
+                for name, value in self._variables.fixed(expression, templated=templated is not None).items()
+            )
             legend = target.get("legendFormat")
             targets.append(
                 TargetSpec(

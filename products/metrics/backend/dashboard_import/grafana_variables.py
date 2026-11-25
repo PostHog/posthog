@@ -286,9 +286,15 @@ def _resolvable(
 
 
 class TemplateVariables:
-    def __init__(self, variables: dict[str, Variable], live: dict[str, MetricsDashboardVariable] | None = None) -> None:
+    def __init__(
+        self,
+        variables: dict[str, Variable],
+        live: dict[str, MetricsDashboardVariable] | None = None,
+        intervals: frozenset[str] = frozenset(),
+    ) -> None:
         self._variables = variables
         self._live = live or {}
+        self._intervals = intervals
 
     @classmethod
     def from_templating(
@@ -297,6 +303,7 @@ class TemplateVariables:
         """`datasource_type` gives the type of a Grafana datasource reference, or None when it is unknown."""
         variables: dict[str, Variable] = {}
         live: dict[str, MetricsDashboardVariable] = {}
+        intervals: set[str] = set()
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                 continue
@@ -309,6 +316,7 @@ class TemplateVariables:
             if not values and kind in ("constant", "textbox"):
                 values = _strings(item.get("query"))
             if kind == "interval":
+                intervals.add(item["name"])
                 # An "auto" interval resolves per panel in Grafana, which is the query step here.
                 values = tuple("$__interval" if value.startswith("$__auto") else value for value in values)
             options = tuple(
@@ -337,7 +345,7 @@ class TemplateVariables:
                 )
                 if definition is not None:
                     live[item["name"]] = definition
-        return cls(variables, _resolvable(live, variables))
+        return cls(variables, _resolvable(live, variables), frozenset(intervals))
 
     def summary(self) -> dict[str, str]:
         return {
@@ -358,6 +366,19 @@ class TemplateVariables:
             else definition
             for definition in self._live.values()
         ]
+
+    def fixed(self, expr: str, *, templated: bool) -> dict[str, str]:
+        """The saved value of each variable in `expr` that does not stay live in the imported panel.
+
+        Without `templated`, the panel query gets the saved values of all variables. Interval variables are left
+        out, because the query step takes the place of their select.
+        """
+        saved = self.summary()
+        return {
+            name: saved[name]
+            for name in dict.fromkeys(referenced_names(expr))
+            if name in saved and name not in self._intervals and not (templated and name in self._live)
+        }
 
     def substitute(self, expr: str) -> Substitution:
         """Replace variable references with their saved values. Also returns the names it could not resolve."""
