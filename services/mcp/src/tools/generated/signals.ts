@@ -431,11 +431,12 @@ const inboxReportArtefactsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                type: params.type,
             },
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/inbox'),
-            "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
+            "Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
         )
     },
 })
