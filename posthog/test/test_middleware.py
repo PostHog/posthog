@@ -2328,15 +2328,22 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
     @parameterized.expand([("html", False), ("json", True)])
     def test_impersonation_succeeds_with_reason(self, _name, json_response):
         """Verify impersonation succeeds when a reason is provided."""
+        self.client = cast(Any, DjangoClient(enforce_csrf_checks=True))
+        self.client.force_login(self.user)
+        csrf_token = "a" * 32
+        self.client.cookies[settings.CSRF_COOKIE_NAME] = csrf_token
+
         response = self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
             data={"read_only": "true", "reason": "Investigating support ticket #1234"},
             HTTP_ACCEPT="application/json" if json_response else "text/html",
-            follow=not json_response,
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
-        assert response.status_code == 200
+        assert response.status_code == (200 if json_response else 302)
         if json_response:
             assert response.json() == {"success": True}
+        assert response.cookies[settings.CSRF_COOKIE_NAME].value != csrf_token
+        assert "Cookie" in response.headers["Vary"]
 
         # Should now be logged in as other user
         assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
