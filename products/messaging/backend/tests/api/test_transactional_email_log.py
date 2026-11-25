@@ -52,12 +52,13 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {
-    "sent": 9,
-    "delivered": 7,
-    "opened": 5,
+    "sent": 10,
+    "delivered": 8,
+    "opened": 6,
     "clicked": 5,
-    "not_clicked": 3,
+    "not_clicked": 2,
     "untracked": 2,
+    "clicks_untracked": 1,
     "window_days": 7,
 }
 LONG_ID_SENDS = 20
@@ -317,14 +318,27 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
         sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
+        clicks_off_id = self._send(4, "kim@example.com", [("sent", 1, "clicks_untracked"), ("opened", 2, "")])
         relayed_id = self._send(3, "ann@example.com", [("sent", 1, "relayed")])
 
         body = self.client.get(self._url(f"{sent_id}/")).json()
         delivered_body = self.client.get(self._url(f"{message_id}/")).json()
+        clicks_off_body = self.client.get(self._url(f"{clicks_off_id}/")).json()
         relayed_body = self.client.get(self._url(f"{relayed_id}/")).json()
 
         assert (body["status"], body["reason"]) == ("sent", None)
+        assert [b["tracking"] for b in (body, delivered_body, clicks_off_body, relayed_body)] == [
+            {"opens": False, "clicks": False},
+            {"opens": False, "clicks": False},
+            {"opens": True, "clicks": False},
+            {"opens": True, "clicks": True},
+        ]
         assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [("queued", None), ("sent", None)]
+        assert [(event["kind"], event["reason"]) for event in clicks_off_body["timeline"]] == [
+            ("queued", None),
+            ("sent", None),
+            ("opened", None),
+        ]
         assert [(event["kind"], event["reason"]) for event in delivered_body["timeline"]] == [
             ("queued", None),
             ("sent", None),
@@ -338,10 +352,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         listed = self.client.get(self._url()).json()["results"]
         assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
             ("ann@example.com", "sent", "relayed"),
+            ("kim@example.com", "sent", None),
             ("bob@example.com", "sent", None),
             ("jane@example.com", "delivered", None),
         ]
         assert self.client.get(self._url(), {"reason": "untracked"}).json()["results"] == []
+        assert self.client.get(self._url(), {"reason": "clicks_untracked"}).json()["results"] == []
         assert [row["message_id"] for row in self.client.get(self._url(), {"reason": "relayed"}).json()["results"]] == [
             relayed_id
         ]
@@ -697,7 +713,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def _seed_impact_sends(self) -> None:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
-        for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced"]:
+        for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced", "clicks-off"]:
             create_person(team=self.team, distinct_ids=[name])
         delivered = [("sent", 1, ""), ("delivered", 2, "")]
         clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
@@ -721,6 +737,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (5_000, "late", [("sent", 1, "untracked"), ("delivered", 2, "")], timedelta(days=7, hours=1)),
             (6_000, "bounced", [("sent", 1, "untracked"), ("bounced", 2, "")], timedelta(hours=1)),
             (7_000, None, [("sent", 1, ""), ("clicked", 3600, "")], None),
+            (
+                8_000,
+                "clicks-off",
+                [("sent", 1, "clicks_untracked"), ("delivered", 2, ""), ("opened", 60, "")],
+                timedelta(hours=1),
+            ),
         ]
         for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", statuses)
@@ -757,7 +779,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat()) == {
             **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
-            "without_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 2, "converted": 2},
         }
 
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
@@ -859,6 +881,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "clicked": 1,
             "not_clicked": 0,
             "untracked": 0,
+            "clicks_untracked": 0,
             "window_days": 7,
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},

@@ -281,7 +281,7 @@ posthog:llma-evaluation-create
   "output_config": { "allows_na": true },
   "model_configuration": {
     "provider": "openai",
-    "model": "gpt-5-mini"
+    "model": "gpt-6-luna"
   },
   "enabled": false
 }

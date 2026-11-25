@@ -5453,6 +5453,69 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
 
+    @parameterized.expand([("narrowed_to_one_team", True), ("emptied", False)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_dcr_non_rotating_refresh_reads_teams_changed_while_waiting_for_the_lock(
+        self, _name: str, keeps_a_team: bool
+    ):
+        # The request reads the refresh token in autocommit, then a resource removal narrows its
+        # teams while the request waits for the connection lock. Narrowing the row from inside the
+        # lock call stands in for that commit. The new access token must carry the narrowed teams.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        refresh_token = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        ).json()["refresh_token"]
+        OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=[self.team.id, other_team.id])
+
+        remaining_teams = [other_team.id] if keeps_a_team else []
+
+        def remove_the_team(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=remaining_teams)
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=remove_the_team):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+
+        if keeps_a_team:
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            new_access_token = OAuthAccessToken.objects.get(token=refresh_response.json()["access_token"])
+            self.assertEqual(new_access_token.scoped_teams, [other_team.id])
+        else:
+            self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(refresh_response.json()["error"], "invalid_grant")
+
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False

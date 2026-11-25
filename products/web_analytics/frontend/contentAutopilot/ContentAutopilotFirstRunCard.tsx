@@ -71,8 +71,8 @@ export const ContentAutopilotFirstRunCard = ({
                 <>
                     <h3 className="m-0">Your prompts are saved, paused</h3>
                     <p className="m-0 mt-1 text-muted">
-                        Nothing is checked yet, so nothing is spent. Turn on your {prompts} prompts and run them once to
-                        see where you stand. After that, each engine checks them on its schedule.
+                        Nothing runs and nothing is spent until you turn them on. Run your {prompts} prompts once to see
+                        your first results.
                     </p>
                     <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
                         <div className="min-w-0 flex-1 basis-80">

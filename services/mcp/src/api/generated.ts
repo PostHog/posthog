@@ -1359,6 +1359,8 @@ export namespace Schemas {
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
       active_prompts: number;
+      /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+      max_active_prompts: number;
       /** Unarchived prompts that are turned off. No run checks them. */
       paused_prompts: number;
       /** Keywords in the project's keyword list. */
@@ -1427,7 +1429,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
       detail?: string;
     }
 
@@ -1472,7 +1474,7 @@ export namespace Schemas {
       run_first_check?: boolean;
       /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
       only_first_run?: boolean;
-      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
     }
 
@@ -90689,7 +90691,7 @@ export namespace Schemas {
 
     export interface PatchedAEOPromptUpdateRequest {
       /**
-         * Turn the prompt on or off for future runs.
+         * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
          * @nullable
          */
       active?: boolean | null;
@@ -129678,10 +129680,12 @@ export namespace Schemas {
       opened: number;
       /** Sends with at least one tracked link click. */
       clicked: number;
-      /** Delivered sends nobody clicked. */
+      /** Delivered sends nobody clicked, of those that tracked clicks. */
       not_clicked: number;
       /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
+      /** Sends that went out with opens tracked and click tracking off, counted like `untracked`. They can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends. */
+      clicks_untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
       /** Clicked sends and how many converted. Null without an event. */
@@ -129709,6 +129713,13 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+    }
+
+    export interface TransactionalEmailTracking {
+      /** False when the email went out with open tracking off, so it can never record an open. */
+      opens: boolean;
+      /** False when the email went out with click tracking off, so it can never record a click. */
+      clicks: boolean;
     }
 
     export interface TransactionalEmailLogDetail {
@@ -129764,6 +129775,8 @@ export namespace Schemas {
       action_id: string;
       /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
       sensitive: boolean;
+      /** What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it. */
+      tracking: TransactionalEmailTracking;
     }
 
     export interface TransactionalEmailLogEntry {

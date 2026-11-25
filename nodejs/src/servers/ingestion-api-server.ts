@@ -532,6 +532,7 @@ export class IngestionApiServer implements NodeServer {
             )
             const personhogStore = new PersonhogPersonsStore(writeRepository, {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
+                flushTransientRetryBudgetMs: this.config.PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
                 requestTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
