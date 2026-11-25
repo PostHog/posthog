@@ -491,7 +491,8 @@ jobs:
                         - conftest.py
                         - .test_quarantine.json
                         # No product package owns this file, so Turbo marks no product affected and
-                        # discovery would test nothing. Here it runs Django and every product.
+                        # discovery would test nothing. Listing it here sends it down the same path
+                        # as a posthog/ edit.
                         - products/db_routing.yaml
                         # Python reads only the generated products.json, and ci-frontend fails a
                         # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
