@@ -108,7 +108,12 @@ def test_get_source_imports_only_the_requested_source(empty_registry):
 @pytest.mark.django_db
 def test_load_sources_in_use_imports_only_the_types_that_have_a_live_source():
     team = Team.objects.create(organization=Organization.objects.create(name="org"))
-    for source_type, deleted in [(ExternalDataSourceType.PYPI, False), (ExternalDataSourceType.STRIPE, True)]:
+    for source_type, deleted in [
+        (ExternalDataSourceType.PYPI, False),
+        (ExternalDataSourceType.PYPI, False),
+        (ExternalDataSourceType.STRIPE, True),
+        ("NoSuchSource", False),
+    ]:
         ExternalDataSource.objects.create(
             team=team, source_id="id", connection_id="id", status="Completed", source_type=source_type, deleted=deleted
         )

@@ -78,8 +78,13 @@ def load_sources_in_use() -> None:
     # Imported here because this package is imported during django.setup(), before models load.
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource  # noqa: PLC0415
 
-    source_types = ExternalDataSource.objects.exclude(deleted=True).order_by().values_list("source_type", flat=True)
-    for source_type in sorted(set(source_types)):
+    source_types = (
+        ExternalDataSource.objects.exclude(deleted=True)
+        .order_by("source_type")
+        .values_list("source_type", flat=True)
+        .distinct()
+    )
+    for source_type in source_types:
         load_source(source_key(source_type))
 
 

@@ -18,6 +18,7 @@ from posthog.temporal.common.open_telemetry import initialize_otel
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
+    from django.db import DatabaseError
 
 from posthog.hogql import parser as hogql_parser
 
@@ -282,8 +283,14 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
 def preload_data_import_sources() -> None:
     if settings.TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES:
         load_all_sources()
-    else:
+        return
+    try:
         load_sources_in_use()
+    except DatabaseError:
+        # Importing a source late can register its vendor SDK twice, so a worker that cannot read the
+        # source types imports every source, as it does by default, instead of importing none.
+        LOGGER.warning("Could not read the source types in use, so importing every data import source")
+        load_all_sources()
 
 
 if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
