@@ -75,6 +75,24 @@ async function ensureAdminOAuth2(): Promise<void> {
     })
 }
 
+async function verifyImpersonatedSession(userId: number): Promise<void> {
+    let user: UserApi
+    try {
+        user = await usersRetrieve('@me')
+        if (!user || !Number.isSafeInteger(user.id) || user.id <= 0 || typeof user.is_impersonated !== 'boolean') {
+            throw new Error('Invalid session identity response')
+        }
+    } catch (error) {
+        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.', {
+            cause: error,
+        })
+    }
+    if (user.id !== userId || !user.is_impersonated) {
+        const LoginError = user.is_impersonated ? ImpersonationSessionUncertainError : Error
+        throw new LoginError('Could not log in as this user. Check that impersonation is allowed and try again.')
+    }
+}
+
 export interface AdminLoginAsParams {
     userId: number
     reason: string
@@ -114,16 +132,5 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
         throw new LoginError(`django-loginas request resulted in status ${loginResponse.status}`)
     }
 
-    let user: UserApi
-    try {
-        user = await usersRetrieve('@me')
-    } catch (error) {
-        throw new ImpersonationSessionUncertainError('Could not verify the session. Reload the page to continue.', {
-            cause: error,
-        })
-    }
-    if (user.id !== userId || !user.is_impersonated) {
-        const LoginError = user.is_impersonated ? ImpersonationSessionUncertainError : Error
-        throw new LoginError('Could not log in as this user. Check that impersonation is allowed and try again.')
-    }
+    await verifyImpersonatedSession(userId)
 }

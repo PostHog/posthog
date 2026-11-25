@@ -24,7 +24,7 @@ async function listLocalMembers(externalId: string): Promise<AccountOrganization
             limit: LOCAL_MEMBERS_PAGE_SIZE,
             offset: members.length,
         })
-        members.push(...response.results.map((member) => ({ ...member, region })))
+        members.push(...response.results.map((member) => ({ ...member, region, source: 'api' as const })))
         if (!response.results.length || members.length >= response.count) {
             break
         }

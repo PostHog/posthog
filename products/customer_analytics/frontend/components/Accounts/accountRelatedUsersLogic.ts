@@ -36,6 +36,7 @@ import { AccountsEvents } from './constants'
 
 export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'> & {
     region: Region.US | Region.EU
+    source: 'api' | 'warehouse'
 }
 
 export const PAGE_SIZE = 20
@@ -122,6 +123,7 @@ export const fetchEuMembers = async (externalId: string): Promise<AccountOrganiz
             } as AccountOrganizationMember['user'],
             last_login: (row[7] as string | null) ?? null,
             region: Region.EU,
+            source: 'warehouse',
         }))
     } catch (error) {
         if (!isEuOrgMembersViewMissingError(error)) {
@@ -272,6 +274,7 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                                 results: response.results.map((member) => ({
                                     ...member,
                                     region: getCurrentCloudRegion() ?? Region.US,
+                                    source: 'api' as const,
                                 })),
                             }
                         }

@@ -257,10 +257,12 @@ User tab changes preserve URL search and hash state and capture `TabViewed`; URL
 
 `AccountMemberImpersonateButton` is the staff Impersonate action in both member tables.
 API-backed members use the current cloud region, including US on `app.posthog.com`. The warehouse fallback retains EU.
-For a member in this origin's region, it opens `ImpersonationReasonModal` and calls `adminLoginAs`, which runs the same server path as the PostHog Admin "Log in as user" operation, then loads the home page.
+For an API member in this origin's region, it opens `ImpersonationReasonModal` and calls `adminLoginAs`, which runs the same server path as the PostHog Admin "Log in as user" operation, then loads the home page.
 The helper checks `/api/users/@me/` for the requested user ID and an impersonated session before returning. A refusal keeps the modal open and shows an error. `RelatedUserImpersonated` fires only after that check passes.
 An uncertain login result forces a full page load. The modal stays locked during submission and navigation so the old staff scene cannot remain interactive under a changed session.
+Empty or malformed identity responses count as uncertain results. Only a valid, non-impersonated identity permits retry without navigation.
 For a member in the other region, it links to that region's PostHog Admin log in as form, because the in-app request needs this origin's session and CSRF cookie.
+Warehouse members always use the admin form so staff confirm the server's identity before logging in. Both loaders retain each member's API or warehouse source.
 
 AccountsTable keeps the left expansion button. `AccountPinnedPropertiesExpansion` shows only the user's pinned properties in saved order.
 The expansion and sidebar share `AccountPinnedPropertiesPanel` and `AccountPropertyField`, including the Properties header, pin configurator, source icons, and edit controls.

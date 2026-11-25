@@ -20,14 +20,14 @@ export function AccountMemberImpersonateButton({ member }: { member: AccountOrga
     const [readOnly, setReadOnly] = useState(true)
     const [isLoggingIn, setIsLoggingIn] = useState(false)
 
-    if (!canLogInAsFromCurrentOrigin(member.region)) {
+    if (member.source !== 'api' || !canLogInAsFromCurrentOrigin(member.region)) {
         return (
             <LemonButton
                 type="secondary"
                 size="xsmall"
                 to={getUserLogInAsUrl(member.region, member.user.id)}
                 targetBlank
-                tooltip={`This user is in ${member.region} Cloud. Log in as them in ${member.region} PostHog Admin.`}
+                tooltip={`Confirm this user's identity and log in as them in ${member.region} PostHog Admin.`}
                 data-attr="customer-analytics-account-user-admin-link"
                 onClick={() => posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })}
             >

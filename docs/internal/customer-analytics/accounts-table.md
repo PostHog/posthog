@@ -1,5 +1,13 @@
 # Accounts table
 
+## Staff impersonation
+
+The Impersonate action in account member tables opens an in-app reason modal for API members in the current region.
+Members from the warehouse fallback or another region open the PostHog Admin form, where staff confirm the user's identity before logging in.
+The in-app flow starts in read-only mode.
+The in-app flow keeps the modal locked until the session check finishes and the page navigates.
+An empty, malformed, or failed session check forces a full page load so the displayed identity matches the session.
+
 ## Account automations
 
 The Automations tab and view widget show retained workflow runs for an account.

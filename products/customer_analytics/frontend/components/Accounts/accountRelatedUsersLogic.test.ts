@@ -71,14 +71,14 @@ describe('accountRelatedUsersLogic', () => {
 
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region }] } })
+            .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region, source: 'api' }] } })
         expect(listForOrg).toHaveBeenCalledWith('org-uuid', { limit: 20, offset: 0 })
 
         adminLinksLogic = accountMemberAdminLinksLogic({ externalId: 'org-uuid' })
         adminLinksLogic.mount()
         await expectLogic(adminLinksLogic)
             .toFinishAllListeners()
-            .toMatchValues({ members: [{ ...member, region }] })
+            .toMatchValues({ members: [{ ...member, region, source: 'api' }] })
     })
 
     it('does not load when the account has no external id', async () => {
@@ -216,6 +216,7 @@ describe('accountRelatedUsersLogic', () => {
                     user: { id: 101, first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
                     last_login: '2026-01-02T03:04:05Z',
                     region: Region.EU,
+                    source: 'warehouse',
                 },
                 {
                     id: 'eu-m-2',
@@ -223,6 +224,7 @@ describe('accountRelatedUsersLogic', () => {
                     user: { id: 102, first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
                     last_login: null,
                     region: Region.EU,
+                    source: 'warehouse',
                 },
             ],
         })

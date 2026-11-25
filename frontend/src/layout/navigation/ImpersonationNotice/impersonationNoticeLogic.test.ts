@@ -286,8 +286,16 @@ describe('impersonationNoticeLogic', () => {
             { status: 200, probeStatus: 200, currentUser: { ...MOCK_IMPERSONATED_USER, id: 456 }, shouldReload: true },
             { status: 200, probeStatus: 503, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
             { status: 500, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
+            ...[
+                undefined,
+                null,
+                {},
+                { id: 123 },
+                { is_impersonated: false },
+                { id: '123', is_impersonated: false },
+            ].map((currentUser) => ({ status: 200, probeStatus: 200, currentUser, shouldReload: true })),
         ])(
-            'handles login $status and identity $probeStatus for session $currentUser.id/$currentUser.is_impersonated',
+            'handles login $status, probe $probeStatus, and identity $currentUser',
             async ({ status, probeStatus, currentUser, shouldReload }) => {
                 const { reload, restore } = mockLocationReload()
                 try {
@@ -299,7 +307,8 @@ describe('impersonationNoticeLogic', () => {
                     useMocks({
                         get: {
                             '/admin/auth_check': () => [200, {}],
-                            '/api/users/@me/': () => [probeStatus, currentUser],
+                            '/api/users/@me/': () =>
+                                currentUser === undefined ? [probeStatus] : [probeStatus, currentUser],
                         },
                         post: {
                             '/admin/login/user/:id/': () => [status, {}],
