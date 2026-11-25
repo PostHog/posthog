@@ -745,14 +745,20 @@ describe('valves', () => {
 
             await valves.start([killAfterAccept], stack.context)
             await stack.held
+            const heldSend = acceptedAsDriveEnds ? send(stack.worker) : Promise.resolve(undefined)
+            if (acceptedAsDriveEnds) {
+                await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+            }
             await valves.releaseAll()
 
             expect({
                 error: valves.timeline()[0].error,
+                heldSend: await heldSend,
                 next: await send(),
                 sentWhenKilled: stack.sentWhenKilled,
             }).toEqual({
                 error,
+                heldSend: acceptedAsDriveEnds ? 'sent' : undefined,
                 next: 'sent',
                 sentWhenKilled: [],
             })
