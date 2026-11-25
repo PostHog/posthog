@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from products.warehouse_sources.sources.sdk import (
     DependentEndpointConfig,
@@ -12,9 +12,11 @@ TINYEMAIL_BASE_URL = "https://api.tinyemail.com/v1"
 
 # tinyEmail does not document a maximum page size, so these mirror the page sizes the
 # vendor's own tooling has verified against the live API. Campaign pages are 0-indexed
-# while contact member pages are 1-indexed.
+# while contact member pages are 1-indexed. Template rows carry the full HTML body, so their
+# pages keep the documented default size.
 CAMPAIGNS_PAGE_SIZE = 20
 CONTACT_MEMBERS_PAGE_SIZE = 100
+TEMPLATES_PAGE_SIZE = 20
 
 # The new-subscriber engagement report rejects a from/to range longer than 7 days.
 NEW_SUBSCRIBER_ENGAGEMENT_WINDOW_DAYS = 7
@@ -31,6 +33,8 @@ class TinyemailEndpointConfig:
     page_size: int = CONTACT_MEMBERS_PAGE_SIZE
     paginated: bool = False
     base_page: int = 0
+    total_path: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
     primary_key: str | list[str] = "id"
     method: Literal["get", "post", "put"] = "get"
     fanout: DependentEndpointConfig | None = None
@@ -78,6 +82,17 @@ TINYEMAIL_ENDPOINTS: dict[str, TinyemailEndpointConfig] = {
         name="suppressions",
         path="/suppression",
         data_selector="suppressions",
+    ),
+    "templates": TinyemailEndpointConfig(
+        name="templates",
+        path="/template",
+        data_selector="content",
+        paginated=True,
+        base_page=0,
+        page_size=TEMPLATES_PAGE_SIZE,
+        total_path="totalPages",
+        # The default sort is updatedAt, so a template edited mid-sync would jump pages and be read twice or not at all.
+        params={"sort": "createdAt,asc"},
     ),
     "campaign_domain_stats": TinyemailEndpointConfig(
         name="campaign_domain_stats",

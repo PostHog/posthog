@@ -313,7 +313,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_V2: 'dashboard-v2', // owner: @DanielVisca, aggregated by project. Loads and refreshes only the dashboard tiles on screen, and queues metrics tiles apart from analytics tiles
     DASHBOARD_V2_USERS: 'dashboard-v2-users', // owner: @DanielVisca, aggregated by person. Who sees dashboard-v2 behaviour in the UI; it applies only together with DASHBOARD_V2
     DASHBOARDS_V2: 'dashboards-v2', // owner: #team-dashboards-and-charts, gates the dashboards v2 scene with nested layout containers
-    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data rail entry under today-rail-nav, which groups sources, pipelines, the warehouse, definitions and setup tools
+    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data and Automate rail entries under today-rail-nav. Data groups sources, pipelines, the warehouse, definitions and setup tools; Automate groups workflows, transactional email, destinations, subscriptions and scouts
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
@@ -383,6 +383,7 @@ export const FEATURE_FLAGS = {
     INBOX_NEEDS_YOU_SCOPE: 'inbox-needs-you-scope', // owner: #team-self-driving, gates the Needs you scope on the inbox report list
     INBOX_REPORT_EDITABLE_DECISIONS: 'inbox-report-editable-decisions', // owner: #team-self-driving, gates the editable agent decision rows (repository, priority) in the report Status section
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
+    INBOX_SLACK_CHANNEL_SCOUTS: 'inbox-slack-channel-scouts', // owner: #team-self-driving, gates the Slack channel scouts card on the inbox Sources tab
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
     INBOX_TAG_FILTER: 'inbox-tag-filter', // owner: #team-self-driving, gates the report tag chips and the Tags filter on the inbox report list

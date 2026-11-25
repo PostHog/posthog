@@ -73,7 +73,7 @@ from products.feature_flags.backend.legacy_definitions import (
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
-    PropertyMatchingVersion,
+    CACHED_SETTING_DEFAULTS,
     TeamFeatureFlagsConfig,
 )
 from products.feature_flags.backend.types import FlagProperty
@@ -498,6 +498,7 @@ def _local_eval_response(
     cohorts: dict[str, Any],
     minimal_flag_called_events: bool,
     property_matching_version: int,
+    null_counts_as_not_set: bool,
 ) -> dict[str, Any]:
     return {
         "flags": flags,
@@ -505,6 +506,7 @@ def _local_eval_response(
         "cohorts": cohorts,
         "minimal_flag_called_events": minimal_flag_called_events,
         "property_matching_version": property_matching_version,
+        "null_counts_as_not_set": null_counts_as_not_set,
     }
 
 
@@ -603,14 +605,12 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     project_ids = list({t.project_id for t in teams})
 
     # Local-evaluation SDKs never call /flags, so team rollout settings must travel in
-    # this blob. Missing config rows retain both legacy behaviors.
+    # this blob. Missing config rows retain every legacy behavior.
     team_config_by_team_id = {
-        team_id: (minimal_flag_called_events, property_matching_version)
-        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.db_manager(
-            DATABASE_FOR_LOCAL_EVALUATION
-        )
+        row.pop("team_id"): row
+        for row in TeamFeatureFlagsConfig.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(team_id__in=team_ids)
-        .values_list("team_id", "minimal_flag_called_events", "property_matching_version")
+        .values("team_id", *CACHED_SETTING_DEFAULTS)
     }
 
     # Bulk load survey flag IDs across all teams
@@ -760,9 +760,6 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 flag_id_to_key[str(feature_flag.id)] = feature_flag.key
 
             flags_data = drop_legacy_dependents(flags_data, excluded_by_team[tid])
-            minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
-                tid, (False, PropertyMatchingVersion.LEGACY)
-            )
             response_data = _local_eval_response(
                 flags=flags_data,
                 group_type_mapping=gtm_by_project.get(team.project_id, {}),
@@ -771,8 +768,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                     for flag in flags_data
                     for cohort_id in flag_cohort_ids[flag["key"]]
                 },
-                minimal_flag_called_events=minimal_flag_called_events,
-                property_matching_version=property_matching_version,
+                **team_config_by_team_id.get(tid, CACHED_SETTING_DEFAULTS),
             )
             results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
         except SoftTimeLimitExceeded:
@@ -784,15 +780,11 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     # Ensure every requested team has a result, even if it had no flags
     for tid in team_ids:
         if tid not in results and tid not in failed_team_ids:
-            minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
-                tid, (False, PropertyMatchingVersion.LEGACY)
-            )
             results[tid] = _local_eval_response(
                 flags=[],
                 group_type_mapping=gtm_by_project.get(team_by_id[tid].project_id, {}),
                 cohorts={},
-                minimal_flag_called_events=minimal_flag_called_events,
-                property_matching_version=property_matching_version,
+                **team_config_by_team_id.get(tid, CACHED_SETTING_DEFAULTS),
             )
 
     return results
@@ -840,8 +832,7 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 _TOP_LEVEL_FIELDS_TO_COMPARE: list[tuple[str, str, Any]] = [
     ("cohorts", "COHORTS_MISMATCH", None),
     ("group_type_mapping", "GROUP_TYPE_MAPPING_MISMATCH", None),
-    ("minimal_flag_called_events", "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH", False),
-    ("property_matching_version", "PROPERTY_MATCHING_VERSION_MISMATCH", PropertyMatchingVersion.LEGACY),
+    *((field, f"{field.upper()}_MISMATCH", default) for field, default in CACHED_SETTING_DEFAULTS.items()),
 ]
 
 

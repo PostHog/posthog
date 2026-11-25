@@ -1681,11 +1681,6 @@ def compile_hog(
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
-        elif hog_type == "tagger":
-            # Taggers classify; they must not perform side effects, so we deliberately exclude
-            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
-            # Stated explicitly so a future refactor can't silently widen the surface.
-            supported_functions = set()
         elif hog_type == "transformation_log":
             # Log transformations run synchronously per log record in the logs ingestion
             # hot path — no async functions (fetch, postHogCapture) can ever be allowed.
