@@ -58,7 +58,7 @@ Rules:
 - The button draws 16px so it fits a line of small text, even a truncated one, and an invisible layer grows its target to 24px. Don't resize it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
 - A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
-- Put it next to a `<label>`, not inside one, and never inside a button, tab, menu item or select option. Inside a label its name joins the control's accessible name, and inside another control it nests one control in another.
+- Put it next to a `<label>`, not inside one, and never inside a button, tab, menu or select option. Inside a label its name joins the control's accessible name, inside another control it nests one control in another, and a menu label hides it from screen readers.
 - Keep the content short: text, an inline link, or a short list. Anything longer, or with controls, is a `Popover`.
 - `side` and `align` place the popup (top and center by default). `className` styles the icon button and `contentClassName` the popup.
 

@@ -249,7 +249,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Infotip: an info icon that explains the value beside it, such as a metric title. Never a Tooltip around an info icon, because touch users cannot open a tooltip and a click on it does nothing
     - `label` names the value it explains ("About average position"), because a page often has several
     - Short text, an inline link, or a short list. Anything longer, or with controls, is a Popover
-    - Beside a label, never inside it, and never inside a button, tab, menu item or select option
+    - Beside a label, never inside it, and never inside a button, tab, menu or select option
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
   - PreviewCard: hover/focus preview of a link destination
   - Credenza: the default for a focused task that blocks the page. A Dialog at 768px and wider, a bottom Drawer below that, from one set of parts
