@@ -59,19 +59,40 @@ class TestShouldUseSearchPath:
             assert src._should_use_search_path(inputs) is False
 
     def test_false_when_endpoint_does_not_support_search(self) -> None:
-        # emails is an engagement object: HubSpot's CRM Objects Search API 400s on it regardless
-        # of API version, so it must stay on the GET path even though it has a cursor field and
+        # An unsearchable endpoint stays on the GET path even though it has a cursor field and
         # the initial sync is already complete (the only state that would otherwise route here).
         src = HubspotSource()
         inputs = _make_inputs(schema_name="emails")
-        assert HUBSPOT_ENDPOINTS["emails"].supports_search is False
+        unsearchable = replace(HUBSPOT_ENDPOINTS["emails"], supports_search=False)
         schema = MagicMock()
         schema.initial_sync_complete = True
-        with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
-            return_value=schema,
+        with (
+            patch.dict(HUBSPOT_ENDPOINTS, {"emails": unsearchable}),
+            patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
+                return_value=schema,
+            ),
         ):
             assert src._should_use_search_path(inputs) is False
+
+
+class TestGetSchemasAppendSupport:
+    def test_searchable_engagement_endpoints_offer_append(self) -> None:
+        # Search works for engagement objects, so append runs filter on the watermark there.
+        schemas = {s.name: s for s in HubspotSource().get_schemas(HubspotSourceOldConfig(hubspot_secret_key="k"), 1)}
+        for name in ("calls", "communications", "emails", "feedback_submissions", "meetings", "notes", "tasks"):
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is True
+
+    def test_unsearchable_endpoint_does_not_offer_append(self) -> None:
+        # Without search every run is a full GET scan that ignores the watermark: merge mode
+        # dedupes on id, but append mode would add a full copy of the table on every sync.
+        unsearchable = replace(HUBSPOT_ENDPOINTS["emails"], supports_search=False)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"emails": unsearchable}):
+            schemas = HubspotSource().get_schemas(HubspotSourceOldConfig(hubspot_secret_key="k"), 1, names=["emails"])
+        assert len(schemas) == 1
+        assert schemas[0].supports_incremental is True
+        assert schemas[0].supports_append is False
 
     def test_false_when_db_lookup_fails(self) -> None:
         src = HubspotSource()
