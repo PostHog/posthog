@@ -49,7 +49,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | File              | Holds                                                                                                          |
 | ----------------- | -------------------------------------------------------------------------------------------------------------- |
 | `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects                                     |
-| `truth.json`      | Every request the provider edge received and how it answered                                                   |
+| `truth.json`      | Every request the provider edge took or answered, and its answer; a refused ambiguous request leaves none      |
 | `writer-cpu.json` | Each read of the Aurora writer's CPU for a writer CPU bar: its window, and a point a minute or why it has none |
 | `logs/<role>.log` | Each role's log lines from this run                                                                            |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                              |
@@ -101,7 +101,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 | **Delivery**      | One message a unit should cause, keyed by unit and action: one email or one webhook call.                                                                                                                                                           |
 | **Valve**         | One named, dosed failure, such as `role.kill` or `ses.throttle`.                                                                                                                                                                                    |
 | **Provider edge** | One HTTP server that stands in for every external provider: the SES API, a forward proxy, the SNS certificate host and a webhook receiver. It records what it received as the **truth**.                                                            |
-| **Journal**       | The Judge's record of every unit: the intake's answer and the deliveries or refusal it expects.                                                                                                                                                     |
+| **Journal**       | The Judge's record of every unit: the intake's answer and the deliveries, skips or refusal it expects.                                                                                                                                              |
 | **Converged**     | No job for the card's teams is unfinished in the hogflow and email queues, retries scheduled for later included, and every expected delivery has at least one record in the truth. Whether each delivery ended the right way is for the invariants. |
 | **Invariant**     | A check that fails the run.                                                                                                                                                                                                                         |
 | **Measurement**   | A recorded number. It never fails a run.                                                                                                                                                                                                            |
@@ -197,7 +197,8 @@ Nothing in the runner runs in production.
 
 The first slice is local only, on real time.
 
-- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`, `cdp-ses-webhooks`. Every card runs against all six. `cdp-ses-webhooks` runs cdp-api's SES webhook consumer, which records SES feedback.
+- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`, `cdp-ses-webhooks`, `cdp-intake-transactional-email`, `cdp-intake-workflow-webhook`. Every card runs against all eight. `cdp-ses-webhooks` runs cdp-api's SES webhook consumer, which records SES feedback.
+- **Intake.** The roles run the production intake path: cdp-api answers every team's transactional sends once the intake topic acks them, and the transactional email intake consumer inserts them into the job queue. The workflow webhook intake consumer runs too, but no traffic kind sends an inbound webhook to a workflow yet, so it reads nothing. The environment creates the intake topics and their dead-letter topic, including any a profile names, before the roles start. A send counts as accepted on that answer, and loss and duplicates are judged at the provider edge. A card converges only once the intake consumers have read every record on their topics. A profile cannot move the intake topics, run a second intake replica, or turn on the dead-letter drain, because convergence reads only the intake groups' lag, over one partition per topic. A test fails when a CDP plugin server mode has neither a role nor a reason in `MODES_WITHOUT_A_ROLE`.
 - **Traffic.** Events into event-triggered flows with email and webhook steps, and transactional email sends. Every job lives in the hogflow and email queues of `cyclotron_jobs`: a flow's webhook step runs inside the hogflow worker and retries by rescheduling its own row. The flows read the recipient from event properties, so the slice seeds no persons.
 - **Valves.** `role.kill`, `role.freeze`, `pg.drop_connections`, `ses.reject`, `ses.throttle`, `dest.status`.
 - **SES feedback.** cdp-api verifies SES feedback and queues it, and the `cdp-ses-webhooks` consumer records it. The runner changes no setting to shorten that path.
@@ -217,18 +218,19 @@ The first slice is local only, on real time.
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                            | Traffic                                               | Valves                                                                                                                                                                         | Invariants                                                                                           | Failure class                                |
-| ------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                                                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                            | Baseline: proves the judging loop            |
-| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                                                  | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A frozen pod losing sends                    |
-| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                                                         | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A dropped Postgres connection stranding jobs |
-| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                                                       | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | Destination 429 and 503 retry storms         |
-| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | SES throttling                               |
-| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`               | Dropped SES feedback, so no suppression      |
-| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                                                | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | A Cyclotron writer failover under load       |
-| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds                                | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | Cyclotron falling behind at 10x load         |
-| `cyclotron-breaking-point`      | `event_email`, `event_webhook`, `transactional_email` | none; 80 teams, and the rates ramp through 10x, 20x, 40x, 80x, 160x, 240x and 320x for 2 minutes each and stop only at a hard failure, with the same bars as `cyclotron-scale` | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks     |
+| Card                            | Traffic                                               | Valves                                                                                                                                                                                                   | Invariants                                                                                           | Failure class                                                 |
+| ------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                            | Baseline: proves the judging loop                             |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A worker dying mid-batch                                      |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                                                                                       | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A frozen pod losing sends                                     |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A dropped Postgres connection stranding jobs                  |
+| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                                                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | Destination 429 and 503 retry storms                          |
+| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                                                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | SES throttling                                                |
+| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                                                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`               | Dropped SES feedback, so no suppression                       |
+| `ses-ambiguous-send`            | `event_email`, `event_webhook`                        | `ses.ambiguous` and `dest.ambiguous`, each accepted on at most 3 requests from 5 seconds and refused on at most 3 from 15 seconds, for 5 seconds each; a client that retries can spend all 3 on one send | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `no_loss`                          | A provider's answer lost, after or before it took the request |
+| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                                                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | A Cyclotron writer failover under load                        |
+| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds                                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | Cyclotron falling behind at 10x load                          |
+| `cyclotron-breaking-point`      | `event_email`, `event_webhook`, `transactional_email` | none; 80 teams, and the rates ramp through 10x, 20x, 40x, 80x, 160x, 240x and 320x for 2 minutes each and stop only at a hard failure, with the same bars as `cyclotron-scale`                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks                      |
 
 A `cyclotron-breaking-point` run that holds every step through 320x ends as a ceiling at 320x, which is a valid result and not a failure of the card.
 The event pipeline rate limits each workflow (`CDP_RATE_LIMITER_REFILL_RATE`, 100 runs a second by default) and drops the runs over it, so one workflow carrying a ramp's top step would measure that limit and not Cyclotron. Every seeded team runs one workflow per traffic kind, and units pick their team at random, so a kind's load splits over `setup.teams` workflows, as traffic from many customers does. The loader refuses a card whose event or capture traffic would send any workflow more than 80% of the limit at its top step, reading the limit from the profile's settings or the server default, because the card may load on a machine other than the run host. The roles drop an inherited limit from the run host's environment, so they run with the limit the loader checked. The loader names the team count that would fit. It also refuses an event kind listed twice, because each listing seeds its own workflow and every unit would run twice. Transactional sends are not rate limited by workflow.
@@ -419,7 +421,7 @@ sequenceDiagram
     else a bar failed at a ramp step
         J-->>R: breaking point: step, offered rate, value
         Note over R: failed
-    else only a valve was never observed, or a bar could not be read or its step was over the host CPU ceiling
+    else only a valve was never observed, an invariant could not be judged, or a bar could not be read or its step was over the host CPU ceiling
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -591,7 +593,7 @@ export interface Runner {
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
     An exit no valve's grace covers, while another database valve, such as `pg.failover` on `cyclotron`, was applied, still fails the run, and its reason names that valve.
   - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
-  - **A failed read after the drive.** A truth read, or a poll of the unfinished jobs, that fails in `converge` or `check` does not stop the run, and the reason names it. When the last read of `converge` failed, `unfinished_jobs` is `null` and the missing deliveries are unknown, so neither fails the run, `at_least_once` and `bounced_suppressed` stay out of `invariants_failed`, and a run that fails on nothing else is `invalid`. A read that fails later leaves both as `converge` read them. The final read in `check` reads up to the head it takes first, tries each page up to three times with a 30-second bound, and stops when the run is stopped. When it cannot finish, the reason names a harness limit at the record it reached. Within the 30 seconds between receipt queries on dev, every truth read of the judge fails again with the last query's error until a fresh query succeeds. The live log keeps showing the last records it read.
+  - **A failed read after the drive.** A truth read, or a poll of the unfinished jobs, that fails in `converge` or `check` does not stop the run, and the reason names it. When the last read of `converge` failed, `unfinished_jobs` is `null` and the missing deliveries are unknown, so neither fails the run, `at_least_once` and `bounced_suppressed` stay out of `invariants_failed`, and a run that fails on nothing else is `invalid`. A read that fails later leaves both as `converge` read them. The final read in `check` reads up to the head it takes first, tries each page up to three times with a 30-second bound, and stops when the run is stopped. It then reads again to a later head until a read adds none of this run's records, its pages show none past its head, and its last page is not a full page that ends at its head, at most three reads in all, so a resend the edge accepts during the read still counts. When the third read still adds some, `no_loss` is unjudged and names it. When it cannot finish, the reason names a harness limit at the record it reached. Within the 30 seconds between receipt queries on dev, every truth read of the judge fails again with the last query's error until a fresh query succeeds. The live log keeps showing the last records it read.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
@@ -687,13 +689,14 @@ export type TruthRecord = {
   kind: 'ses.send' | 'ses.feedback' | 'webhook'
   unitId?: string // from the recipient or the webhook path
   actionId?: string // from the signed tracking code, or the webhook path
-  status: number // what the edge answered; for ses.feedback, what cdp-api answered the edge
+  flowId?: string // the sending flow, from the signed tracking code
+  status: number // what the edge answered, or the 2xx it took before an ambiguous fault dropped the answer; for ses.feedback, what cdp-api answered the edge
   fault?: string // the fault that shaped the answer
   detail: Record<string, unknown>
 }
 ```
 
-- **Card faults.** `ses.reject` (type `bounce` or `rejected`), `ses.throttle` (`rate` per second, no dose; sends over the rate get SES's throttling error) and `dest.status` (`code`). A dose is a count or a share of matching requests; `for` bounds it in time. A throttle answers before every other fault, whatever order they were added in, and every send it lets through counts against its rate, bounced sends included. The edge stamps the time each fault first answers a request on the fault that answered, whether that is the throttle or a fault behind it. The fake-ses adapter's own faults, such as a dropped connection, stay outside this vocabulary.
+- **Card faults.** `ses.reject` (type `bounce` or `rejected`), `ses.throttle` (`rate` per second, no dose; sends over the rate get SES's throttling error), `dest.status` (`code`), `ses.ambiguous` and `dest.ambiguous` (`accepted`). An ambiguous fault closes the connection without an answer. With `accepted: true` the edge first takes the request and records its 2xx in the truth, as a provider that accepted the request before the answer was lost; with `accepted: false` it records nothing. Only an accepted ambiguous send counts against a throttle. A dose is a count or a share of matching requests; `for` bounds it in time. A throttle answers before every other fault, whatever order they were added in, and every send it lets through counts against its rate, bounced sends included. The edge stamps the time each fault first answers a request on the fault that answered, whether that is the throttle or a fault behind it. The fake-ses adapter's own faults, such as a dropped connection, stay outside this vocabulary.
 - **Correlation.** The generator puts the unit id where the delivery path carries it unchanged, so the edge parses ids and the Judge never parses payloads:
   - email: the recipient `<unit id>@www.example.com`. The domain has an address record, so the pre-send MX check lets it through. The edge reads the action id from the `X-PostHog-Tracking-Code` header with the tracking code signer and the roles' `ENCRYPTION_SALT_KEYS`;
   - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
@@ -703,6 +706,7 @@ export type TruthRecord = {
 - **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action, and returns `observed` and `release`.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
+- **Recipients.** A record's recipients are what the edge received: the addresses in an SES send's `to`, `cc` and `bcc`, kept in `detail.message`, or a webhook's host. `no_loss` counts accepted effects per unit, action and recipient from them.
 - **Proxy and certificates.** With `caDir`, the edge creates its certificate authority and leaf certificates with the `openssl` CLI. Its CONNECT proxy terminates TLS for `hooks.example.com` and `sns.<region>.amazonaws.com`, where it serves its SNS signing certificate, and tunnels every other host unchanged. cdp-api only accepts a certificate URL on that host, so the edge serves it under the real name rather than the runner changing production code.
 
 ### Valves
@@ -733,15 +737,17 @@ export interface Valves {
 }
 ```
 
-| Valve                 | Target              | Dose                                                 | Acts through              |
-| --------------------- | ------------------- | ---------------------------------------------------- | ------------------------- |
-| `role.kill`           | a role              | none                                                 | `actuate`, `kill`         |
-| `role.freeze`         | a role              | none                                                 | `actuate`, `freeze`       |
-| `pg.drop_connections` | `postgres`          | `share`                                              | `actuate`, `pg.terminate` |
-| `pg.failover`         | `cyclotron`         | none                                                 | `actuate`, `rds.failover` |
-| `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`  | `actuate`, `edge.fault`   |
-| `ses.throttle`        | `ses`               | `rate` per second                                    | `actuate`, `edge.fault`   |
-| `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default | `actuate`, `edge.fault`   |
+| Valve                 | Target              | Dose                                                  | Acts through              |
+| --------------------- | ------------------- | ----------------------------------------------------- | ------------------------- |
+| `role.kill`           | a role              | none                                                  | `actuate`, `kill`         |
+| `role.freeze`         | a role              | none                                                  | `actuate`, `freeze`       |
+| `pg.drop_connections` | `postgres`          | `share`                                               | `actuate`, `pg.terminate` |
+| `pg.failover`         | `cyclotron`         | none                                                  | `actuate`, `rds.failover` |
+| `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`   | `actuate`, `edge.fault`   |
+| `ses.throttle`        | `ses`               | `rate` per second                                     | `actuate`, `edge.fault`   |
+| `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default  | `actuate`, `edge.fault`   |
+| `ses.ambiguous`       | `ses`               | `accepted` true or false, with a `count` or a `share` | `actuate`, `edge.fault`   |
+| `dest.ambiguous`      | `hooks.example.com` | `accepted` true or false, with a `count` or a `share` | `actuate`, `edge.fault`   |
 
 - **Scheduling.** `at` fires at an offset from the drive's start. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed. A valve that strands running jobs, `role.kill` or `role.freeze`, asks again once observed, and an entry applied after its predicate stopped holding is not observed.
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
@@ -784,7 +790,11 @@ export interface Judge {
   open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(invariants: Named[], gates: Record<string, number>, run: { janitorResets: number }): Promise<InvariantResult[]>
+  check(
+    invariants: Named[],
+    gates: Record<string, number>,
+    run: { janitorResets: number; unobserved: string[] } // unobserved: why each valve was not observed
+  ): Promise<InvariantResult[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
@@ -795,11 +805,23 @@ export type InvariantResult = {
   gate?: number
   violation?: string // the first violation
   unitIds: string[] // up to 5
+  unjudged?: string // why the invariant could not judge this run
+  missing?: string[] // up to 5 unit ids with too few effects, for no_loss
+  extra?: string[] // up to 5 unit ids with too many effects, for no_loss
+}
+
+export type JournalEntry = {
+  // ...
+  expect: {
+    deliveries: string[] // action ids; an action left out expects no effect, such as a send to a suppressed recipient
+    dueAt?: number // epoch ms the unit's deliveries fall due, for work scheduled later
+  }
 }
 ```
 
 - **Open** starts reading the truth at the edge's `/_truth/head`, so records from earlier cards never enter this card's evidence.
-- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
+- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants.
+  The truth `seq` and the time at which `converge` returns are the run's recovery horizon. Each poll reads the truth, then the job count, then the truth again, and converges only when no record of this run's units arrived during the count, so another run's sends do not hold it. So a send or a retried status that lands during a zero count is inside the horizon, and its retry gets its chance. An interrupted `converge` sets none, and so does one whose last read of the truth or the job count failed: `no_loss` is then unjudged and names the failed read. A job count of 0 read beside a failed truth read is reported as unknown, so the run is `invalid`, while a backlog still fails it. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
   - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
     - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
@@ -813,6 +835,13 @@ export type InvariantResult = {
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
+  - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth. A missing effect counts only records at or before the horizon's `seq`, so a send that lands later never makes up for one. An extra effect counts every record `check` read, so a late duplicate still fails. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both.
+    - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. Each flow may send once, so the two must come from two flows: a first flow that sends twice is extra, and the missing follow-up is missing. Every recipient must get the expected effects, not only one of them. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
+    - An action the entry leaves out of `expect.deliveries`, or a delivery whose `expect.dueAt` falls after the horizon, expects none. A fault that ends a flow, such as a status the caller never retries, still leaves that flow's effect missing, so a card that injects one does not list `no_loss` yet.
+    - An effect beyond what a unit expects is extra. Unlike `duplicate_sends`, nothing is allowed for jobs the janitor reset, and the check takes no gate.
+    - The check is unjudged, and the run `invalid` when nothing else failed, when the last truth read failed, the truth skips a `seq`, `converge` was interrupted, a valve was not observed, or the edge accepted a unit of this run that the journal never recorded. When the only cause is an unobserved valve, the status reason names the valve once.
+    - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
+    - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
 
 - **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
@@ -941,13 +970,16 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
 
-| Property               | Type           | Meaning                                                                                                                        |
-| ---------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `inv_<name>_passed`    | boolean        | Whether the invariant held                                                                                                     |
-| `inv_<name>_observed`  | number         | The count it checked, such as missed deliveries                                                                                |
-| `inv_<name>_gate`      | number or null | The card's gate for it, `null` when the card sets none                                                                         |
-| `inv_<name>_violation` | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
-| `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                                                                                              |
+| Property                 | Type           | Meaning                                                                                                                                                   |
+| ------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inv_<name>_passed`      | boolean        | Whether the invariant held                                                                                                                                |
+| `inv_<name>_observed`    | number         | The count it checked, such as missed deliveries                                                                                                           |
+| `inv_<name>_gate`        | number or null | The card's gate for it, `null` when the card sets none                                                                                                    |
+| `inv_<name>_violation`   | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict, unless `_unjudged` is set |
+| `inv_<name>_ids`         | string[]       | Up to 5 unit ids that violated it                                                                                                                         |
+| `inv_<name>_unjudged`    | string         | Why the invariant could not judge the run; absent when it judged. An unjudged invariant stays out of `invariants_failed`                                  |
+| `inv_<name>_missing_ids` | string[]       | For `no_loss`, up to 5 unit ids with fewer accepted effects than expected                                                                                 |
+| `inv_<name>_extra_ids`   | string[]       | For `no_loss`, up to 5 unit ids with more accepted effects than expected                                                                                  |
 
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`, and `m_<name>_<queue>_<scale>x` per queue and ramp step, such as `m_step_claims_per_second_hogflow_10x`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.

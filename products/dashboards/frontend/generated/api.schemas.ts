@@ -438,12 +438,28 @@ export interface QueryBatchQueryApi {
     tile?: string
 }
 
+/**
+ * * `result` - Result
+ * * `frames` - Frames
+ */
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
+
+export const ResultFormatEnumApi = {
+    Result: 'result',
+    Frames: 'frames',
+} as const
+
 export interface QueryBatchRequestApi {
     /**
      * The panels' queries, at most 500.
      * @maxItems 500
      */
     queries: QueryBatchQueryApi[]
+    /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /**
      * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
      * @nullable
@@ -2762,6 +2778,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -9024,6 +9043,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'
@@ -10425,17 +10446,6 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
-/**
- * * `frames` - Frames
- * * `result` - Result
- */
-export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
-
-export const CachedTileFormatEnumApi = {
-    Frames: 'frames',
-    Result: 'result',
-} as const
-
 export interface FrameMetaApi {
     /**
      * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
@@ -10514,9 +10524,9 @@ export interface CachedTileResultApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
 }
@@ -11132,9 +11142,9 @@ export interface DashboardStreamCachedTileApi {
     insight?: CachedTileInsightResultApi
     /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
      *
-     * * `frames` - Frames
-     * * `result` - Result */
-    format?: CachedTileFormatEnumApi
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
     /** Chart-ready frames, one per series. Present when format is 'frames'. */
     frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */

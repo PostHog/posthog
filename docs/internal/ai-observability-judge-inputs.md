@@ -250,6 +250,9 @@ An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
 It is not available for a backfill that re-ran existing results.
+Runs stopped because the evaluation was disabled or deleted count as failed, so **Retry remaining** runs them again.
+Older workers recorded those runs as skips, and an error that disables the evaluation, such as an invalid provider key, still records a skip.
+Those units stay blocked for **Retry remaining**, so recover them with a new backfill that includes units that already have a result.
 A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
 Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 

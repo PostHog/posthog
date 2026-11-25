@@ -4,21 +4,21 @@ import { useMemo } from 'react'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
 import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
 import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
+import { createQueryBatchRunner } from './data/queryBatchRunner'
 import { runSampleQuery } from './fixtures/runSampleQuery'
 import { createChartWidget } from './widgets/chart/createChartWidget'
 import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
 
-// The default widgets, with charts drawn from sample data until the scene runs real queries.
-const SCENE_WIDGETS = [
-    createChartWidget({ runQuery: runSampleQuery }),
-    ...DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart'),
-]
+const NON_CHART_WIDGETS = DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart')
+const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), ...NON_CHART_WIDGETS]
 
 export const scene: SceneExport = {
     component: DashboardV2Scene,
@@ -36,17 +36,44 @@ export function DashboardV2Scene(): JSX.Element {
 function DashboardV2(): JSX.Element {
     const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
+    const runsRealQueries =
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS] &&
+        !!currentTeamId
+    // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
+    // when they leave, instead of showing them again after their access changes.
+    const widgets = useMemo(
+        () =>
+            runsRealQueries && currentTeamId
+                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
+                : SAMPLE_WIDGETS,
+        [runsRealQueries, currentTeamId]
+    )
     const controller = useMemo<DashboardV2Controller>(
         () => ({
             dashboard,
             activeTabId,
-            widgets: SCENE_WIDGETS,
+            widgets,
             disabledReasonFor,
             onEdit: applyDashboardEdit,
             onActiveTabChange: setActiveTab,
             history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
         }),
-        [dashboard, activeTabId, disabledReasonFor, applyDashboardEdit, setActiveTab, canUndo, canRedo, undo, redo]
+        [
+            dashboard,
+            activeTabId,
+            widgets,
+            disabledReasonFor,
+            applyDashboardEdit,
+            setActiveTab,
+            canUndo,
+            canRedo,
+            undo,
+            redo,
+        ]
     )
 
     return (
