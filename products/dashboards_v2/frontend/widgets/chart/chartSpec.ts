@@ -88,5 +88,6 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
                 { message: "Each of a chart's targets needs its own refId", path: ['targets'] }
             ),
         refreshes: true,
+        appearance: { backgroundColor: true },
     }
 }
