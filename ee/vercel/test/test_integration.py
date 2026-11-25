@@ -28,7 +28,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
 from posthog.tasks.email import send_email_verification_code
@@ -633,7 +633,7 @@ class TestVercelIntegration(TestCase):
     @parameterized.expand(
         [
             (f"{policy}_{mapped}", policy, mapped)
-            for policy in ("totp", "passkey", "sso", "inactive", "domain")
+            for policy in ("totp", "passkey", "sso", "inactive", "domain", "service_account")
             for mapped in (False, True)
         ]
     )
@@ -672,6 +672,9 @@ class TestVercelIntegration(TestCase):
         elif policy == "inactive":
             self.user.is_active = False
             self.user.save()
+        elif policy == "service_account":
+            self.user.type = UserType.SERVICE_ACCOUNT
+            self.user.save(update_fields=["type"])
         elif policy == "domain":
             self.organization.enforce_verified_domains = True
             self.organization.save()
