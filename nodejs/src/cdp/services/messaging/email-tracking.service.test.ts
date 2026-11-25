@@ -371,6 +371,42 @@ describe('EmailTrackingService', () => {
                     sensitiveInvocation,
                     '<a href="https://example.com/reset" ses:no-track>x</a/>',
                 ],
+                [
+                    'a sensitive template whose link holds a comment with a spaced end tag',
+                    `<a href="https://example.com/first">First<!-- </a > <a href="sample --></a><a href='https://example.com/second'><span title="Second">Second</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/first" ses:no-track>First<!-- </a > <a href="sample --></a><a href='https://example.com/second' ses:no-track><span title="Second">Second</span></a>`,
+                ],
+                [
+                    'a sensitive template whose link holds a comment with a plain end tag',
+                    `<a href="https://example.com/first">First<!-- </a> <a href="sample --></a><a href='https://example.com/second'><span title="Second">Second</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/first" ses:no-track>First<!-- </a> <a href="sample --></a><a href='https://example.com/second' ses:no-track><span title="Second">Second</span></a>`,
+                ],
+                [
+                    'a sensitive template with a commented-out link opener before a link',
+                    '<!-- <a href="https://example.com/old"> --><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<!-- <a href="https://example.com/old"> --><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template with a link inside an Outlook conditional comment',
+                    '<!--[if mso]><a href="https://example.com/reset">x</a><![endif]-->',
+                    sensitiveInvocation,
+                    '<!--[if mso]><a href="https://example.com/reset" ses:no-track>x</a><![endif]-->',
+                ],
+                [
+                    'a sensitive template whose link names ses:no-track only in a title',
+                    '<a title="ses:no-track" href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a title="ses:no-track" href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link already carries ses:no-track',
+                    '<a SES:NO-TRACK href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a SES:NO-TRACK href="https://example.com/reset">x</a>',
+                ],
             ])('translates the %s opt-out into ses:no-track', (_name, anchor, inv, translated) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.

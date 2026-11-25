@@ -32,6 +32,13 @@ describe('email link tracking benchmark', () => {
             body: `<a href="https://example.com/x"${spaces}y>x</a>`,
             tagged: `<a href="https://example.com/x"${spaces}y ses:tags="phl:0">x</a>`,
         },
+        {
+            shape: 'links after comments that never close',
+            mode: 'ses',
+            end: /^<\/body>$/,
+            body: '<!--<a href="https://example.com/x" data-ph-no-track>x</a>'.repeat(32_000),
+            tagged: '<!--<a href="https://example.com/x" data-ph-no-track ses:no-track>x</a>'.repeat(32_000),
+        },
     ] as const)('tags a body full of $shape under the ceiling', ({ mode, body, tagged, end }) => {
         const started = performance.now()
         const out = addTrackingToEmail(`<body>${body}</body>`, invocation, signer, false, mode)

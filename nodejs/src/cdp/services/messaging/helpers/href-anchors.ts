@@ -28,10 +28,30 @@ const memoizedFinder = (html: string, pattern: RegExp): IndexFinder => {
     }
 }
 
+const outsideComments = (html: string, pattern: RegExp): IndexFinder => {
+    const nextMatch = memoizedFinder(html, pattern)
+    const nextCommentStart = memoizedFinder(html, /<!--(?!\[if\b)/gi)
+    const nextCommentEnd = memoizedFinder(html, /(?<=--!?)>/g)
+    return (from) => {
+        for (let position = from; ; ) {
+            const match = nextMatch(position)
+            const commentStart = nextCommentStart(position)
+            if (match === -1 || commentStart === -1 || match < commentStart) {
+                return match
+            }
+            const commentEnd = nextCommentEnd(commentStart + '<!'.length)
+            if (commentEnd === -1) {
+                return match
+            }
+            position = commentEnd + 1
+        }
+    }
+}
+
 const valueStream = (html: string, valueEnd: RegExp): ValueStream => ({
     nextValueEnd: memoizedFinder(html, valueEnd),
     nextTagEnd: memoizedFinder(html, />/g),
-    nextAnchorClose: memoizedFinder(html, /<\/a[\t\n\f\r />]/gi),
+    nextAnchorClose: outsideComments(html, /<\/a[\t\n\f\r />]/gi),
     nextCloseEnd: memoizedFinder(html, />/g),
 })
 
@@ -84,7 +104,7 @@ const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) =>
 }
 
 export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) => string): string => {
-    const nextAnchorStart = memoizedFinder(html, /<a\b/gi)
+    const nextAnchorStart = outsideComments(html, /<a\b/gi)
     const nextOpeningTagEnd = memoizedFinder(html, />/g)
     const nextHref = memoizedFinder(html, /\bhref/gi)
     const hrefMatchAt = hrefMatcher(html)
