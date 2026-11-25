@@ -56,7 +56,7 @@ impl NewAssignment {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Assignment {
     pub id: Uuid,
     pub issue_id: Uuid,

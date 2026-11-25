@@ -22,6 +22,14 @@ pub struct NotificationsConfig {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
+    pub issue_change_log_enabled: bool,
+
+    pub database_url: Option<String>,
+
+    #[envconfig(default = "4")]
+    pub max_pg_connections: u32,
+
     /// HTTP bind port for liveness, readiness, and Prometheus metrics.
     #[envconfig(from = "METRICS_PORT", default = "9102")]
     pub metrics_port: u16,
