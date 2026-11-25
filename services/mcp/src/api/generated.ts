@@ -122356,7 +122356,9 @@ export namespace Schemas {
       expression: string;
       /**
          * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+         * @maxItems 100
          * @nullable
+         * @items.maxLength 255
          */
       scope_ids?: string[] | null;
     }

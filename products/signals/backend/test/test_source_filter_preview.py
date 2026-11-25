@@ -272,6 +272,8 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         [
             ("filter_cannot_be_saved", False, {}, "source_type"),
             ("blank_scope_id", True, {"scope_ids": [_ALLOWED_TEAM, " "]}, "scope_ids"),
+            ("too_many_scope_ids", True, {"scope_ids": [f"team-{i}" for i in range(101)]}, "scope_ids"),
+            ("scope_id_too_long", True, {"scope_ids": ["t" * 256]}, "scope_ids__0"),
         ]
     )
     def test_preview_is_refused(

@@ -43,6 +43,7 @@ from products.signals.backend.contracts import (
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
+    SCOPE_ID_MAX_LENGTH,
     SCOPE_IDS_MAX_COUNT,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
@@ -741,7 +742,9 @@ class SourceFilterPreviewRequestSerializer(serializers.Serializer):
     )
     scope_ids = serializers.ListField(
         # Blank and padded ids pass this field, so `scope_ids_problem` judges them as it judges the saved config key.
-        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        # The size caps reject oversized input before DRF validates every element.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=SCOPE_ID_MAX_LENGTH),
+        max_length=SCOPE_IDS_MAX_COUNT,
         required=False,
         allow_null=True,
         help_text=(

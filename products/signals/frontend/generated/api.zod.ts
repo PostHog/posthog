@@ -5556,6 +5556,10 @@ export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
 
 export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
 
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax = 255
+
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax = 100
+
 export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .string()
@@ -5572,7 +5576,8 @@ export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.o
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
         ),
     scope_ids: zod
-        .array(zod.string())
+        .array(zod.string().max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax))
+        .max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax)
         .nullish()
         .describe(
             "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
