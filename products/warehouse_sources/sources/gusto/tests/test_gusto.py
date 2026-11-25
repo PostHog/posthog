@@ -454,6 +454,22 @@ class TestGetRowsEvents:
         assert {request.headers["authorization"] for request in event_requests} == {"Bearer sys-tok"}
         assert {request.param("sort_order") for request in event_requests} == {"asc"}
 
+    def test_refused_system_access_grant_does_not_ask_for_a_new_refresh_token(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token" and b"system_access" in (request.body or b""):
+                return ScriptedResponse(status=401, json={"error": "invalid_client"})
+            return self._respond(request)
+
+        result = _driver().run("events", respond)
+        assert result.raised is not None
+        matched = [
+            message
+            for pattern, message in GustoSource().get_non_retryable_errors().items()
+            if pattern in str(result.raised)
+        ]
+        assert len(matched) == 1
+        assert matched[0] is not None and "system-level access" in matched[0]
+
 
 class TestGetRowsWindowed:
     def _payroll_script(self) -> list[ScriptedResponse]:

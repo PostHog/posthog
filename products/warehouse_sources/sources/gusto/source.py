@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.gusto._config import GustoSourceConfig
 from products.warehouse_sources.sources.gusto.gusto import (
     GUSTO_API_VERSION_2024_04_01,
     GUSTO_API_VERSION_2026_06_15,
+    SYSTEM_ACCESS_REFUSED,
     GustoResumeConfig,
     gusto_source,
     validate_credentials as validate_gusto_credentials,
@@ -126,6 +127,7 @@ Gusto rotates refresh tokens, so the token you paste here is exchanged on every 
             "403 Client Error: Forbidden for url: https://api.gusto": "Your Gusto app is not authorized to read this data. Reconnect with a payroll admin authorization for the company.",
             # Gusto returns 406 once a pinned API version reaches end of life; retrying can't recover it.
             "406 Client Error: Not Acceptable for url: https://api.gusto": "This Gusto API version is no longer supported. Reconnect the source to move to the current version.",
+            SYSTEM_ACCESS_REFUSED: "The events table needs system-level access for your Gusto app, and Gusto refused it. Ask Gusto to enable system access for the app, or turn off the events table.",
         }
 
     def get_schemas(

@@ -56,6 +56,15 @@ class GustoResumeConfig:
     starting_after_uuid: Optional[str] = None
 
 
+class GustoSystemAccessError(Exception):
+    pass
+
+
+# Must not contain the `<status> Client Error ... for url: https://api.gusto` text: that maps to the
+# refresh-token advice in the source's non-retryable errors, and the refresh token is fine here.
+SYSTEM_ACCESS_REFUSED = "Gusto refused a system access token for this app"
+
+
 class GustoClient:
     """Bearer-auth client that mints its own short-lived access token.
 
@@ -110,7 +119,13 @@ class GustoClient:
         return self._token
 
     def mint_system_token(self, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
-        self._system_token = self._exchange({"grant_type": "system_access"}, "client credentials", timeout)
+        try:
+            self._system_token = self._exchange({"grant_type": "system_access"}, "client credentials", timeout)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in (400, 401, 403):
+                raise GustoSystemAccessError(f"{SYSTEM_ACCESS_REFUSED} (HTTP {status})") from None
+            raise
         return self._system_token
 
     def request(
