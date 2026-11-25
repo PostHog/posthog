@@ -451,6 +451,24 @@ describe('EmailTrackingService', () => {
                     '<!--><!---><a href="https://example.com/reset" ses:no-track>x</a>',
                 ],
                 [
+                    'a sensitive template whose doctype quotes a style tag',
+                    '<!DOCTYPE html SYSTEM "<style>"><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<!DOCTYPE html SYSTEM "<style>"><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with a CDATA section holding a style tag outside SVG',
+                    '<![CDATA[<style>]]><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<![CDATA[<style>]]><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with a processing instruction holding a quote',
+                    '<?php echo "<b title="; ?><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<?php echo "<b title="; ?><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
                     'a sensitive template whose link names ses:no-track with a Kelvin sign',
                     '<a href="https://example.com/reset" ses:no-tracK>x</a>',
                     sensitiveInvocation,

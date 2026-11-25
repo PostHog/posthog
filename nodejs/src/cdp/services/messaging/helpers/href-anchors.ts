@@ -12,6 +12,7 @@ const JAVASCRIPT_SCHEME = /^javascript:/i
 const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']
 const FOREIGN_ELEMENTS = ['svg', 'math']
 const CDATA_START = /<!\[CDATA\[/y
+const DECLARATION_START = /<(?:[!?]|\/(?![A-Za-z]))/y
 
 const rawTextEndFinder = (html: string): ((name: string, from: number) => number) => {
     const unclosed = new Set<string>()
@@ -37,6 +38,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
     let commentsCanClose = true
     let quotesCanClose = true
     let cdataCanClose = true
+    let declarationsCanClose = true
     let foreignDepth = 0
     const rawTextEnd = rawTextEndFinder(html)
 
@@ -53,6 +55,13 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             const end: number = cdataCanClose ? html.indexOf(']]>', CDATA_START.lastIndex) : -1
             cdataCanClose = end !== -1
             position = cdataCanClose ? end + ']]>'.length : position + 1
+            continue
+        }
+        DECLARATION_START.lastIndex = position
+        if (DECLARATION_START.test(html)) {
+            const end: number = declarationsCanClose ? html.indexOf('>', position) : -1
+            declarationsCanClose = end !== -1
+            position = declarationsCanClose ? end + 1 : position + 1
             continue
         }
         TAG_NAME.lastIndex = position
