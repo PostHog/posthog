@@ -143,7 +143,7 @@ flowchart TB
     Valves -->|faults| Edge["Provider edge: SES v2, proxy, SNS, webhooks, truth"]
     Valves -->|running_on_queue| Probe["Cyclotron probe: unfinishedJobs, runningJobs"]
     Environment -->|start, signal| Roles
-    Environment -->|startProviderEdge| Edge
+    Environment -->|startEdgeProcess| Edge
     Roles -->|SES, HTTPS| Edge
     Judge -->|truth| Edge
     Judge -->|unfinished jobs| Probe
@@ -180,7 +180,7 @@ nodejs/tests/scenarios/
   cards/           *.yaml cards, schema.ts, load.ts, definitions.ts
   profiles/        synthetic.yaml, invented numbers only
   environment/     the local Environment: stack, roles, supervisor, processes
-  provider-edge/   startProviderEdge(), used by the runner and by Jest
+  provider-edge/   startEdgeProcess() for the runner, startProviderEdge() for Jest
   generator/       traffic kinds, seed and drive
   valves/          valve definitions and scheduling
   judge/           journal, convergence, invariants, measurements
@@ -645,7 +645,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
   - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
   - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
-  - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
+  - `edge.fault` holds a fault rule on the edge process with `EdgeProcess.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
 - **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey and PersonHog, asks the edge's `GET /_health` for a 200, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
@@ -677,13 +677,12 @@ export function startEdgeProcess(options: EdgeProcessOptions): Promise<EdgeProce
 export type EdgeProcess = {
   url: string
   caCertPath?: string
-  hold(rule: FaultRule): Promise<EdgeHold> // the rule goes to the edge process as plain data
+  hold(rule: FaultRule): Promise<FaultHold> // the rule goes to the edge process as plain data
   clearFaults(): Promise<void>
   close(): Promise<void> // resolves once the process has exited and its port is free
 }
-export type EdgeHold = {
-  firstAppliedAt(): Promise<number | undefined> // when the edge first answered with the fault, read from the edge process
-  observed(holdEnds?: AbortSignal): Promise<boolean> // waits in the runner on firstAppliedAt, within 10 seconds
+export type FaultHold = {
+  observed(holdEnds?: AbortSignal): Promise<boolean> // waits in the runner on the edge's firstAppliedAt for the fault, within 10 seconds
   release(): Promise<void> // removes the fault in the edge process, as DELETE /_faults/:id does
 }
 ```
@@ -718,7 +717,7 @@ export type TruthRecord = {
 - **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
   - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
   - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
-- **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action, and returns `observed` and `release`.
+- **Holds without HTTP.** `EdgeProcess.hold(rule)` adds a fault over IPC, for the Environment's `edge.fault` action, and returns `observed` and `release`. `ProviderEdge.hold(rule)` does the same in process, for Jest.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
 - **Recipients.** A record's recipients are what the edge received: the addresses in an SES send's `to`, `cc` and `bcc`, kept in `detail.message`, or a webhook's host. `no_loss` counts accepted effects per unit, action and recipient from them.

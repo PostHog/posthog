@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { mkdtempSync, readFileSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import http from 'http'
 import net, { AddressInfo } from 'net'
 import { tmpdir } from 'os'
@@ -44,6 +44,8 @@ const webhookAnswerOf = (edge: EdgeProcess): Promise<string> =>
         String(PROBE_TIMEOUT_MS / 1000),
         '--proxy',
         edge.url,
+        '--noproxy',
+        '',
         '--cacert',
         edge.caCertPath!,
         `https://${WEBHOOK_HOST}/u/busy-runner-unit/busy-runner-action`,
@@ -59,6 +61,7 @@ const missingDatabase = (): string => {
 }
 
 describe('dependency watch', () => {
+    const caDir = mkdtempSync(path.join(tmpdir(), 'dependency-watch-edge-'))
     let edge: EdgeProcess
     let silentPort: number
     let unavailableUrl: string
@@ -70,7 +73,7 @@ describe('dependency watch', () => {
         edge = await startEdgeProcess({
             port: 0,
             trackingKeys: 'scenario-tracking-key',
-            caDir: mkdtempSync(path.join(tmpdir(), 'dependency-watch-edge-')),
+            caDir,
         })
         silentPort = await listening(silent)
         unavailableUrl = `http://127.0.0.1:${await listening(unavailable)}`
@@ -80,6 +83,7 @@ describe('dependency watch', () => {
         sockets.forEach((socket) => socket.destroy())
         silent.close()
         unavailable.close()
+        rmSync(caDir, { recursive: true, force: true })
         await edge.close()
     })
 

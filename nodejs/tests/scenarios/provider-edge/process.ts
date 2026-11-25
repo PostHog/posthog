@@ -2,12 +2,12 @@ import { ChildProcess, fork } from 'child_process'
 import { pathToFileURL } from 'url'
 
 import { FaultRule } from './faults'
-import { EdgeHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
+import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
 
 export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
 
 export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
-    hold(rule: FaultRule): Promise<EdgeHold>
+    hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
 }
@@ -103,7 +103,9 @@ export async function startEdgeProcess(options: EdgeProcessOptions): Promise<Edg
             }
         }
     })
-    child.send({ options })
+    if (child.connected) {
+        child.send({ options })
+    }
 
     const call = <T>(request: Call): Promise<T> => {
         if (ended) {

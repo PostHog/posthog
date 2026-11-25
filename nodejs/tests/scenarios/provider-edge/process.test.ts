@@ -1,5 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
-import childProcess, { spawn } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import net from 'net'
 import path from 'path'
 import { createInterface } from 'readline'
@@ -49,23 +49,13 @@ describe('provider edge process', () => {
                 (error: Error) => error.name
             )
 
-    it('answers a send with a held fault, stamps when it first answered, and lifts it on release', async () => {
+    it('answers a send with a held fault, observes that answer, and lifts the fault on release', async () => {
         const held = await edge.hold(REJECT)
-        const before = await held.firstAppliedAt()
-        const observed = held.observed()
-        const sentAt = Date.now()
         const answer = await send()
-        const seen = await observed
-        const appliedAt = await held.firstAppliedAt()
+        const seen = await held.observed()
         await held.release()
 
-        expect({ before, answer, seen, stamped: appliedAt! >= sentAt, after: await send() }).toEqual({
-            before: undefined,
-            answer: 'MessageRejected',
-            seen: true,
-            stamped: true,
-            after: 'sent',
-        })
+        expect({ answer, seen, after: await send() }).toEqual({ answer: 'MessageRejected', seen: true, after: 'sent' })
     })
 
     it('lifts every held fault when the faults are cleared', async () => {
@@ -118,14 +108,38 @@ describe('provider edge process', () => {
         }
     }, 30_000)
 
-    it('rejects startup when the edge process cannot spawn', async () => {
-        const fork = childProcess.fork
-        jest.spyOn(childProcess, 'fork').mockImplementationOnce((modulePath, args, options) =>
-            fork(modulePath, args!, { ...options, execPath: '/nonexistent/node' })
-        )
+    it.each([
+        [
+            'its node binary is missing',
+            'process.execPath = "/nonexistent/node"',
+            /^the provider edge process failed: spawn \/nonexistent\/node ENOENT$/,
+        ],
+        [
+            'the runner has no file descriptor left',
+            'for (;;) { try { held.push(openSync("/dev/null", "r")) } catch { break } }',
+            /^the provider edge process failed: spawn \S+ EMFILE$/,
+        ],
+    ])(
+        'rejects startup when the edge process cannot spawn because %s',
+        async (_case, exhaust, failure) => {
+            const runner = `const { startEdgeProcess } = require(${EDGE_PROCESS})
+            const { openSync, closeSync } = require('fs')
+            const held = []
+            ${exhaust}
+            const starting = startEdgeProcess({ port: 0 })
+            held.forEach(closeSync)
+            starting.then(() => 'started', (error) => error.message).then((outcome) => process.stdout.write(outcome))`
+            const outcome = await new Promise<string>((resolve) =>
+                execFile(
+                    'bash',
+                    ['-c', 'ulimit -n 1024 && exec "$0" --import "$1" -e "$2"', process.execPath, TSX, runner],
+                    { cwd: NODEJS_DIR },
+                    (_error, stdout, stderr) => resolve(stdout || stderr)
+                )
+            )
 
-        await expect(startEdgeProcess({ port: 0 })).rejects.toThrow(
-            'the provider edge process failed: spawn /nonexistent/node ENOENT'
-        )
-    }, 5_000)
+            expect(outcome).toMatch(failure)
+        },
+        30_000
+    )
 })

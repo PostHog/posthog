@@ -214,8 +214,6 @@ const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
-// The runner offers every unit and stamps when it offered it, so a busy event loop offers late and skews the delivery
-// latency the judge measures from that stamp. Host CPU cannot see one saturated core.
 const MAX_LOOP_LAG_P99_MS = 250
 
 const laggedOf = ({ loopLagP99Ms, scale }: Pick<DrivenStep, 'loopLagP99Ms' | 'scale'>): string | undefined =>

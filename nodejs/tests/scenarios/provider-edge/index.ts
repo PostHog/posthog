@@ -35,13 +35,10 @@ const FAULT_POLL_MS = 100
 
 export type FaultHold = { observed(holdEnds?: AbortSignal): Promise<boolean>; release(): Promise<void> }
 
-export type EdgeHold = FaultHold & { firstAppliedAt(): Promise<number | undefined> }
-
 type HeldFault = { firstAppliedAt(): Promise<number | undefined>; remove(): Promise<void> }
 
-export function holdOf(fault: HeldFault): EdgeHold {
+export function holdOf(fault: HeldFault): FaultHold {
     return {
-        firstAppliedAt: () => fault.firstAppliedAt(),
         observed: async (holdEnds) => {
             const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
             const answeredInWindow = async (): Promise<boolean> =>
@@ -72,7 +69,7 @@ export type ProviderEdge = {
     addFault(rule: FaultRule): string
     firstAppliedAt(faultId: string): number | undefined
     removeFault(faultId: string): void
-    hold(rule: FaultRule): EdgeHold
+    hold(rule: FaultRule): FaultHold
     clearFaults(): void
     close(): Promise<void>
 }
