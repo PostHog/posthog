@@ -1,3 +1,6 @@
+from django.db import OperationalError
+
+import psycopg
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
@@ -140,6 +143,18 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
                 "row most likely holds a deeply-nested JSON value that json.loads cannot decode. "
                 "Repair that row before retrying.",
                 type="RecursionError",
+                non_retryable=True,
+            ) from None
+        except OperationalError as error:
+            if not isinstance(error.__cause__, psycopg.errors.QueryCanceled):
+                raise
+            # The cascade runs under a statement timeout so that it cannot hold its locks for long. The data is
+            # unchanged on a retry, so the same statement times out again. A lock timeout stays retryable,
+            # because the transaction it waited behind finishes.
+            raise ApplicationError(
+                f"A statement timed out deleting team records for {inputs.team_ids}. Add a batched purge for "
+                "the cascaded table that the statement deletes, then reset the workflow.",
+                type="StatementTimeout",
                 non_retryable=True,
             ) from None
 

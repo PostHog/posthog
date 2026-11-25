@@ -5,6 +5,9 @@ from collections.abc import Callable
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
+import psycopg
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -359,17 +362,44 @@ async def test_recursion_error_fails_fast_without_retry():
     assert len(attempts) == 1
 
 
-async def test_delete_team_records_activity_converts_recursion_error():
-    # The real activity turns a RecursionError from the cascade into a small, non-retryable
-    # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
-    def raise_recursion(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
-        raise RecursionError("maximum recursion depth exceeded")
+def _database_error(cause: Exception) -> OperationalError:
+    error = OperationalError(str(cause))
+    error.__cause__ = cause
+    return error
 
-    with patch("posthog.models.team.util.delete_team_records", raise_recursion):
+
+@pytest.mark.parametrize(
+    "error,error_type",
+    [
+        (RecursionError("maximum recursion depth exceeded"), "RecursionError"),
+        (
+            _database_error(psycopg.errors.QueryCanceled("canceling statement due to statement timeout")),
+            "StatementTimeout",
+        ),
+    ],
+)
+async def test_delete_team_records_activity_fails_a_futile_retry_terminally(error: Exception, error_type: str):
+    # The real activity turns an error that every retry repeats into a small, non-retryable
+    # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
+    def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
+        raise error
+
+    with patch("posthog.models.team.util.delete_team_records", raise_error):
         with pytest.raises(ApplicationError) as exc_info:
             await ActivityEnvironment().run(
                 delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
             )
 
-    assert exc_info.value.type == "RecursionError"
+    assert exc_info.value.type == error_type
     assert exc_info.value.non_retryable
+
+
+async def test_delete_team_records_activity_retries_a_lock_timeout():
+    def raise_lock_timeout(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
+        raise _database_error(psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"))
+
+    with patch("posthog.models.team.util.delete_team_records", raise_lock_timeout):
+        with pytest.raises(OperationalError):
+            await ActivityEnvironment().run(
+                delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
+            )
