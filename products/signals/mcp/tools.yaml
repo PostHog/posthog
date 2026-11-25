@@ -636,7 +636,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List inbox reports
+        title: List Self-driving inbox reports
         description: >
             List inbox reports in the current project. A report groups related findings into one issue or trend. A page
             holds 10 reports in the recommended order unless you pass `limit`, `sort`, or `ordering`. Each row is a
@@ -853,7 +853,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        title: Get inbox report
+        title: Get Self-driving inbox report
         description: >
             Get a single inbox report by ID, with its work_state, current assignee, attached pull requests and their
             latest known state, and typed impact metrics. Each metric holds a bounded live Trends query built only from
