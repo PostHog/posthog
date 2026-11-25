@@ -4,7 +4,8 @@ import { useContext, useMemo } from 'react'
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
 import { TimeRangeContext } from '../timeRangeContext'
 import { WidgetLoading } from '../WidgetLoading'
-import type { ChartConfig } from './chartSpec'
+import { type ChartConfig, chartTargets } from './chartSpec'
+import { type TargetFailure, combineTargetResults } from './targetResults'
 import { useQueryFrames } from './useQueryFrames'
 import type { ChartStates, DataFrame, RunQuery, VizDefinition } from './vizTypes'
 
@@ -18,6 +19,21 @@ function DefaultEmpty(): JSX.Element {
 
 function DefaultError({ message }: { message: string }): JSX.Element {
     return <Message>{`Couldn't run this query. ${message}`}</Message>
+}
+
+function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Element | null {
+    if (failures.length === 0) {
+        return null
+    }
+    return (
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-danger">
+            {failures.map(({ refId, message }) => (
+                <li key={refId} className="truncate" title={message}>
+                    {`Query ${refId} couldn't run. ${message}`}
+                </li>
+            ))}
+        </ul>
+    )
 }
 
 function hasNoValues(frames: DataFrame[]): boolean {
@@ -36,7 +52,17 @@ function ChartData({
     states?: ChartStates
 }): JSX.Element {
     const surroundingTime = useContext(TimeRangeContext)
-    const result = useQueryFrames({ query: widget.config.query, time: widget.config.time ?? surroundingTime }, runQuery)
+    const time = widget.config.time ?? surroundingTime
+    const targets = chartTargets(widget.config)
+    const results = useQueryFrames(
+        targets.map(({ query, legend }) => (legend ? { query, time, legend } : { query, time })),
+        runQuery
+    )
+    // Rebuilt only when a result arrives, so the chart keeps its frames, and skips a redraw, on every other render.
+    const result = useMemo(
+        () => combineTargetResults(chartTargets(widget.config), results, !!widget.config.targets),
+        [results, widget.config]
+    )
     const parsed = useMemo(
         () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
         [viz.optionsSchema, widget.config.viz.options]
@@ -66,6 +92,7 @@ function ChartData({
             // Always rendered, so the chart inside keeps its instance when a refresh starts or ends.
             aria-busy={result.refreshing || undefined}
         >
+            <TargetFailures failures={result.failures} />
             {isEmpty(result.frames) ? (
                 <Empty options={options} />
             ) : (
