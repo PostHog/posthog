@@ -1107,6 +1107,40 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
+            ("numeric_is_set", "Numeric", "properties.value IS NOT NULL", [1, 1, 1, 0, 0, 1, 1, 1]),
+            ("numeric_is_not_set", "Numeric", "properties.value IS NULL", [0, 0, 0, 1, 1, 0, 0, 0]),
+            ("numeric_function", "Numeric", "isNotNull(properties.value)", [1, 1, 1, 0, 0, 1, 1, 1]),
+            ("boolean_is_set", "Boolean", "properties.value IS NOT NULL", [1, 1, 1, 0, 0, 1, 1, 1]),
+            ("datetime_is_set", "DateTime", "properties.value IS NOT NULL", [1, 1, 1, 0, 0, 1, 1, 1]),
+        ]
+    )
+    def test_null_test_on_typed_property_reads_the_stored_value(
+        self, _name: str, property_type: str, predicate: str, expected: list[int]
+    ) -> None:
+        context = self._context(event_properties={"value": {"type": property_type}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"value":"text"}',
+                    '{"value":5}',
+                    '{"value":true}',
+                    "{}",
+                    '{"value":null}',
+                    '{"value":""}',
+                    native_stored_document('{"value":{}}'),
+                    native_stored_document('{"value":[5]}'),
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
             (name, property_name, value)
             for name, property_name, value in [
                 ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
@@ -1743,7 +1777,7 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self._events_schema_snapshot()
         assert (
-            "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
+            "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(events__group_0.properties___group_boolean)"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
 

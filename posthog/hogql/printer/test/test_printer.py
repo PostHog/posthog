@@ -3761,7 +3761,7 @@ class TestPrinter(BaseTest):
             f"SELECT "
             f"ifNull(equals(accurateCastOrNull(transform(toString({property_expr}), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0), "
             f"ifNull(equals(accurateCastOrNull(transform(toString({property_expr}), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0), "
-            f"isNull(accurateCastOrNull(transform(toString({property_expr}), %(hogql_val_6)s, %(hogql_val_7)s, NULL), %(hogql_val_8)s)) "
+            f"isNull({property_expr}) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
@@ -3771,9 +3771,6 @@ class TestPrinter(BaseTest):
             "hogql_val_3": ["true", "false"],
             "hogql_val_4": [1, 0],
             "hogql_val_5": "Bool",
-            "hogql_val_6": ["true", "false"],
-            "hogql_val_7": [1, 0],
-            "hogql_val_8": "Bool",
         }
 
     @patch("posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table")
