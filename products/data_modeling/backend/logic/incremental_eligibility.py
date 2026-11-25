@@ -45,6 +45,8 @@ from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.models import User
 
@@ -248,24 +250,31 @@ def propose_incremental_config(
     keys = _proposable_keys(node)
     if keys is None:
         return None
-    unique_key, time_key_candidates = keys
-    time_keys = [name for name in time_key_candidates if _is_time_type(column_types.get(name))]
+    time_keys = [name for name in keys.time_key_candidates if _is_time_type(column_types.get(name))]
     if len(time_keys) != 1 or not _advances_with_time((resolved_selects or [node])[0], time_keys[0]):
         return None
-    config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
+    config = IncrementalConfig(incremental_key=time_keys[0], unique_key=keys.unique_key)
     result = check_incremental_eligibility(query, config, column_types=dict(column_types), database=database)
     return config if result.eligible else None
 
 
-def _proposable_keys(select: ast.SelectQuery) -> Optional[tuple[list[str], list[str]]]:
+@frozen
+class _ProposableKeys:
+    unique_key: tuple[str, ...]
+    time_key_candidates: tuple[str, ...]
+
+
+def _proposable_keys(select: ast.SelectQuery) -> Optional[_ProposableKeys]:
     grouped_names = _grouped_output_names(select)
     if grouped_names is not None:
-        unique_key = sorted(set(grouped_names))
-        return unique_key, unique_key
+        unique_key = tuple(sorted(set(grouped_names)))
+        return _ProposableKeys(unique_key=unique_key, time_key_candidates=unique_key)
     event_id = _event_id_output(select) if _is_plain_event_projection(select) else None
     if event_id is None:
         return None
-    return [event_id], sorted(_output_names(select) - {event_id})
+    return _ProposableKeys(
+        unique_key=(event_id,), time_key_candidates=tuple(sorted(_output_names(select) - {event_id}))
+    )
 
 
 def repeated_keys_are_event_duplicates(query: str, unique_key: tuple[str, ...]) -> bool:
