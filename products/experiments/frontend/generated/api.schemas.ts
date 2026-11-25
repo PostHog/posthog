@@ -2377,6 +2377,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2409,6 +2410,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2486,6 +2488,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2516,6 +2519,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2548,6 +2552,7 @@ export interface ExperimentHealthFindingApi {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2610,6 +2615,7 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2992,6 +2998,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero

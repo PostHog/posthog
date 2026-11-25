@@ -206,7 +206,7 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     <DeletedFlagBanner />
-                    <FeatureFlagCalledMetricsBanner />
+                    {healthFindings === null && <FeatureFlagCalledMetricsBanner />}
                     {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">

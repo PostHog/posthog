@@ -36,6 +36,7 @@ export type ExperimentHealthFindingCode =
     | 'unserved_variant_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
+    | 'metric_uses_feature_flag_called'
     | 'metric_cannot_compile'
     | 'metric_calculation_failed'
     | 'metric_all_zero'
