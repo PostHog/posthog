@@ -88,6 +88,14 @@ describe('counter probe', () => {
             2,
         ],
         [
+            'a second Kafka view writes into the distributed table',
+            [
+                ['kafka_app_metrics2', 'writable_app_metrics2'],
+                ['kafka_app_metrics2_ws', 'app_metrics2'],
+            ],
+            2,
+        ],
+        [
             'a second Kafka view writes elsewhere',
             [
                 ['kafka_app_metrics2', 'writable_app_metrics2'],

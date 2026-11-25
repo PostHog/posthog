@@ -45,7 +45,7 @@ const CONSUMERS = `
           (source) -> match(create_table_query, concat(' FROM ', {database:String}, '[.]', source, '([[:space:]]|$)')),
           kafka_tables
       )
-      AND match(create_table_query, concat(' TO ', {database:String}, '[.](writable|sharded)_app_metrics2[[:space:]]'))
+      AND match(create_table_query, concat(' TO ', {database:String}, '[.](writable_|sharded_)?app_metrics2[[:space:]]'))
     FORMAT JSONEachRow`
 
 export function createCounterProbe({ url, database }: ClickHouseAddress): CounterProbe {

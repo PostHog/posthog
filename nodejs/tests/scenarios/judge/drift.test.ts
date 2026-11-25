@@ -97,13 +97,13 @@ describe('counter drift', () => {
         answered(10, 'run-7', 429),
         answered(11, 'run-8', 429),
     ]
-    const sink = { owed: 7, email_sent_sink: 3, email_failed_sink: 2 }
+    const sink = { owed: 7, email_sent_sink: 3, email_failed_sink: null }
 
     it.each<[string, Counted, Record<string, number | null>]>([
         [
             'records zero drift when every counter saw what the sink saw',
             counted({ email_sent: 3, email_failed: 2 }),
-            { email_sent: 0, email_delivered: 0, email_failed: 0, email_bounced: null },
+            { email_sent: 0, email_delivered: 0, email_failed: null, email_failed_counted: 2, email_bounced: null },
         ],
         [
             'records the sends a lost metrics flush never counted as negative drift',

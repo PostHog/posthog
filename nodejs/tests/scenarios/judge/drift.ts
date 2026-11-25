@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { EMAIL_ACTION } from '../generator/traffic'
 import { COUNTERS, Counted, CounterProbe, CounterQuery } from '../probe/counter-probe'
 import type { TruthRecord } from '../provider-edge'
-import { deliveryKey, isAccepted, isThrottled, owedOf } from './invariants'
+import { isAccepted, owedOf } from './invariants'
 import type { JournalEntry } from './judge'
 import type { MeasurementDefinition } from './measurements'
 
@@ -21,18 +21,17 @@ const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
     return truth.filter(({ unitId }) => unitId !== undefined && units.has(unitId))
 }
 
-function sinkCountsOf(evidence: Evidence): Counted {
-    const sends = ofThisRun(evidence).filter(({ kind }) => kind === 'ses.send')
-    const keyOf = ({ unitId, actionId, flowId }: TruthRecord): string =>
-        `${deliveryKey(unitId!, actionId ?? '')} ${flowId ?? ''}`
-    const accepted = new Set(sends.filter(({ status }) => isAccepted(status)).map(keyOf))
-    const refused = new Set(sends.filter((send) => !isAccepted(send.status) && !isThrottled(send)).map(keyOf))
+type SinkCounts = Pick<Counted, 'email_sent' | 'email_delivered'>
+
+function sinkCountsOf(evidence: Evidence): SinkCounts {
     return {
-        email_sent: sends.filter(({ status }) => isAccepted(status)).length,
+        email_sent: ofThisRun(evidence).filter(({ kind, status }) => kind === 'ses.send' && isAccepted(status)).length,
         email_delivered: 0,
-        email_failed: [...refused].filter((key) => !accepted.has(key)).length,
     }
 }
+
+const FAILURES_LEFT_OUT =
+    'the sink cannot tell a refused send the worker retried and sent from a refused send that another invocation of the unit sent, so it can miss a failure the counter holds'
 
 const same = (a: Counted, b: Counted): boolean => COUNTERS.every((counter) => a[counter] === b[counter])
 
@@ -126,22 +125,32 @@ export const counterDrift: MeasurementDefinition = {
                     ? unknown('the run reached no recovery horizon')
                     : { value: owedOf(journal, EMAIL_ACTION, horizonAt) }),
             },
-            ...COUNTERS.flatMap((counter) => [
-                {
-                    key: counter,
-                    ...(read === undefined
-                        ? noCount
-                        : sink === undefined
-                          ? noSink
-                          : converged === false || stillSending !== undefined
-                            ? unsettled
-                            : read.consumers !== 1
-                              ? fedTwice
-                              : { value: read.counted[counter] - sink[counter], ...incomplete }),
-                },
-                { key: `${counter}_counted`, ...(read ? { value: read.counted[counter], ...incomplete } : noCount) },
-                { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },
-            ]),
+            ...COUNTERS.flatMap((counter) => {
+                const countedSide = {
+                    key: `${counter}_counted`,
+                    ...(read ? { value: read.counted[counter], ...incomplete } : noCount),
+                }
+                if (counter === 'email_failed') {
+                    const leftOut = unknown(FAILURES_LEFT_OUT)
+                    return [{ key: counter, ...leftOut }, countedSide, { key: `${counter}_sink`, ...leftOut }]
+                }
+                return [
+                    {
+                        key: counter,
+                        ...(read === undefined
+                            ? noCount
+                            : sink === undefined
+                              ? noSink
+                              : converged === false || stillSending !== undefined
+                                ? unsettled
+                                : read.consumers !== 1
+                                  ? fedTwice
+                                  : { value: read.counted[counter] - sink[counter], ...incomplete }),
+                    },
+                    countedSide,
+                    { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },
+                ]
+            }),
             ...UNMEASURED,
         ]
     },
