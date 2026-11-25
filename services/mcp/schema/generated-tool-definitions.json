@@ -9094,6 +9094,23 @@
             "readOnlyHint": true
         }
     },
+    "inbox-digest-get": {
+        "description": "Get a short digest of the current user's inbox: the reports that need them, the reports that are new for them, what happened to their reports, and how many actionable reports in the project nobody has claimed. `needs_you` is the current state and ignores `since`, while `new_for_you` and `outcomes` count from `since`, which defaults to one day ago. Each section shows at most 3 compact reports, so read a full report with inbox-reports-retrieve, or list more with inbox-reports-list. Only the user the digest describes can read it.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your inbox digest",
+        "title": "Get your inbox digest",
+        "required_scopes": ["inbox:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/inbox_digest/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "inbox-digest-mcp",
+        "feature_flag_behavior": "enable"
+    },
     "inbox-my-settings-get": {
         "description": "Get the personal inbox overrides of the authenticated user. These overrides replace the project defaults for this user only: the minimum priority at which PostHog opens pull requests for reports that suggest the user as reviewer (`autostart_priority`), whether those pull requests open ready for review (`github_open_pull_request_ready`), whether the user becomes a GitHub assignee on them (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A null field follows the project default. `has_overrides: false` means the user saved no overrides, so the project defaults apply to every setting.",
         "category": "Signals",

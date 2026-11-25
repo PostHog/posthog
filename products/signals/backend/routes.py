@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 import products.signals.backend.views as signals
 from products.signals.backend.presentation.activity_summary import ActivitySummaryMembersViewSet, ActivitySummaryViewSet
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
+from products.signals.backend.presentation.inbox_digest import InboxDigestViewSet
 from products.signals.backend.presentation.inbox_status import InboxStatusViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
@@ -43,6 +44,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
     )
+    routers.projects.register(r"signals/inbox_digest", InboxDigestViewSet, "project_signals_inbox_digest", ["team_id"])
     routers.projects.register(
         r"signals/activity_summary", ActivitySummaryViewSet, "project_signals_activity_summary", ["team_id"]
     )

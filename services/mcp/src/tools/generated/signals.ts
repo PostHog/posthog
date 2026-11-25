@@ -154,6 +154,27 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
     },
 })
 
+const InboxDigestGetSchema = () => {
+    const SignalsInboxDigestListQueryParams = orvalSchemas.SignalsInboxDigestListQueryParams()
+    return SignalsInboxDigestListQueryParams
+}
+
+const inboxDigestGet = (): ToolBase<ReturnType<typeof InboxDigestGetSchema>, Schemas.InboxDigest> => ({
+    name: 'inbox-digest-get',
+    schema: InboxDigestGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxDigestGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.InboxDigest>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/inbox_digest/`,
+            query: {
+                since: params.since,
+            },
+        })
+        return result
+    },
+})
+
 const InboxMySettingsGetSchema = () => {
     const UsersSignalAutonomyRetrieveParams = orvalSchemas.UsersSignalAutonomyRetrieveParams()
     return UsersSignalAutonomyRetrieveParams.extend({
@@ -4201,6 +4222,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
+    'inbox-digest-get': inboxDigestGet,
     'inbox-my-settings-get': inboxMySettingsGet,
     'inbox-my-settings-update': inboxMySettingsUpdate,
     'inbox-ranking-outcomes-list': inboxRankingOutcomesList,

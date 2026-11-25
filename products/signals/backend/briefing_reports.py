@@ -127,6 +127,11 @@ def reports_needing_person(team_id: int, user: User) -> Q:
     )
 
 
+def reports_connected_to_person(team_id: int, user: User) -> Q:
+    """Reports in any status that name the person as a suggested reviewer, or that they or their agents claimed."""
+    return _names_person(team_id, user) | reports_claimed_for_user(team_id=team_id, user_id=user.id)
+
+
 def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
     """The open reports that are for this person: the set the inbox list returns for `view=for_you`."""
     return (
@@ -134,6 +139,11 @@ def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
         .annotate(briefing_relation=_relation_to_person(team_id, user))
         .filter(briefing_relation__isnull=False)
     )
+
+
+def relation_of(report: SignalReport) -> BriefingReportRelation:
+    """The relation of a report that `reports_for_person` returned."""
+    return BriefingReportRelation(report.briefing_relation)  # type: ignore[attr-defined]
 
 
 def implementation_pull_request_state(state: str, merged: bool) -> str | None:

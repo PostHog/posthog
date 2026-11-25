@@ -123,6 +123,25 @@ tools:
         exclude_params:
             - include_points
         feature_flag: anomalies-search
+    inbox-digest-get:
+        operation: signals_inbox_digest_list
+        enabled: true
+        scopes:
+            - inbox:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get your inbox digest
+        description: >
+            Get a short digest of the current user's inbox: the reports that need them, the reports that are new for
+            them, what happened to their reports, and how many actionable reports in the project nobody has claimed.
+            `needs_you` is the current state and ignores `since`, while `new_for_you` and `outcomes` count from `since`,
+            which defaults to one day ago. Each section shows at most 3 compact reports, so read a full report with
+            inbox-reports-retrieve, or list more with inbox-reports-list. Only the user the digest describes can read
+            it.
+        feature_flag: inbox-digest-mcp
+        feature_flag_behavior: enable
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
         enabled: true

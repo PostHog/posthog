@@ -30,6 +30,7 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxDigestApi,
     InboxOnboardingDraftApi,
     InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
@@ -163,6 +164,7 @@ import type {
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
+    SignalsInboxDigestListParams,
     SignalsMonthlyUsageParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
@@ -440,6 +442,37 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxDigestListUrl = (projectId: string, params?: SignalsInboxDigestListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/inbox_digest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/inbox_digest/`
+}
+
+/**
+ * What in the inbox needs you now, what is new for you, and what happened to your reports since `since`, with at most 3 compact reports per section. Only the person the digest describes can read it.
+ * @summary Get your inbox digest
+ */
+export const signalsInboxDigestList = async (
+    projectId: string,
+    params?: SignalsInboxDigestListParams,
+    options?: RequestInit
+): Promise<InboxDigestApi> => {
+    return apiMutator<InboxDigestApi>(getSignalsInboxDigestListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

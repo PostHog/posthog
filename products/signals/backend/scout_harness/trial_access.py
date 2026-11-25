@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from uuid import UUID
 
 from rest_framework import exceptions
 from rest_framework.request import Request
@@ -24,15 +25,24 @@ def trial_run_for_request(request: Request, team_id: int) -> SignalScoutRun | No
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
         return None
     token = authenticator.access_token
-    run = bound_trial_run(team_id, token.sandbox_task_id)
-    carries_scope = "scout_experiment_internal:read" in (token.scope or "").split()
+    return trial_run_for_token(
+        team_id=team_id, sandbox_task_id=token.sandbox_task_id, scope=token.scope, token_id=token.pk
+    )
+
+
+def trial_run_for_token(
+    *, team_id: int, sandbox_task_id: UUID | None, scope: str | None, token_id: UUID
+) -> SignalScoutRun | None:
+    """The private scout trial run an OAuth access token belongs to, or None for any other token."""
+    run = bound_trial_run(team_id, sandbox_task_id)
+    carries_scope = "scout_experiment_internal:read" in (scope or "").split()
     if carries_scope != (run is not None):
         raise exceptions.PermissionDenied("The scout credential does not match its run.")
     if run is not None and not is_sandbox_run_request(
         team_id=team_id,
-        task_id=str(token.sandbox_task_id),
+        task_id=str(sandbox_task_id),
         run_id=str(run.task_run_id),
-        token_id=token.pk,
+        token_id=token_id,
     ):
         raise exceptions.PermissionDenied("The scout credential does not match its run.")
     return run

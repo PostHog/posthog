@@ -27185,6 +27185,44 @@
             "validators": []
         }
     },
+    "inbox-digest-get": {
+        "name": "inbox-digest-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/signals/inbox_digest/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "since",
+                    "key": "since",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-my-settings-get": {
         "name": "inbox-my-settings-get",
         "kind": "http",

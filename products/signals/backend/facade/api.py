@@ -88,12 +88,18 @@ from products.signals.backend.hybrid_search import (
     SearchMode as SearchMode,
     SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
+from products.signals.backend.inbox_digest import (
+    InboxDigest as InboxDigest,
+    get_inbox_digest as get_inbox_digest,
+)
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
     generated_pull_requests,
 )
 from products.signals.backend.models import (
+    AutonomyPriority,
     SignalReport,
+    SignalReportAssignment,
     SignalReportPullRequest,
     SignalReportSlackThread,
     SignalScoutConfig,
@@ -113,6 +119,7 @@ from products.signals.backend.report_metrics import (
     REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
     ReportMetricSnapshot as ReportMetricSnapshot,
 )
+from products.signals.backend.report_monitoring_summary import MonitoringOutcomeKind
 from products.signals.backend.report_page_source import (
     ReportArtefactText as ReportArtefactText,
     ReportPageSource as ReportPageSource,
@@ -175,6 +182,11 @@ ActivitySummaryObjectFilter = activity_summary_search.ObjectFilter
 ActivitySummaryObjectRelation = activity_summary_search.ObjectRelation
 ActivitySummaryObjectSource = activity_summary_search.SummaryObjectRelation
 ACTIVITY_SUMMARY_SEARCH_MAX_ACTIVE_SINCE_DAYS = activity_summary_search.MAX_ACTIVE_SINCE_DAYS
+# The choices of the report list's enums, so the inbox digest's fields resolve to the same API enums.
+REPORT_STATUS_CHOICES = SignalReport.Status.choices
+REPORT_PRIORITY_CHOICES = AutonomyPriority.choices
+IMPLEMENTATION_PR_STATE_CHOICES = SignalReportAssignment.PrState.choices
+MONITORING_OUTCOME_CHOICES = MonitoringOutcomeKind.choices
 
 
 @frozen
@@ -371,6 +383,23 @@ def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID, token_id
     if launch.skill_name != run.skill_name or launch.skill_version != run.skill_version:
         return None
     return ScoutTrialSkill(name=launch.skill_name, version=launch.skill_version, body=launch.skill_body)
+
+
+def is_scout_trial_token(
+    *, team_id: int, sandbox_task_id: uuid.UUID | None, scope: str | None, token_id: uuid.UUID
+) -> bool:
+    """Whether an OAuth access token belongs to a private scout trial. A trial must not read live inbox state.
+
+    Raises PermissionDenied when the token and its trial run disagree.
+    """
+    from products.signals.backend.scout_harness.trial_access import (  # noqa: PLC0415 -- trial tools import the shared Signals facade
+        trial_run_for_token,
+    )
+
+    return (
+        trial_run_for_token(team_id=team_id, sandbox_task_id=sandbox_task_id, scope=scope, token_id=token_id)
+        is not None
+    )
 
 
 @dataclasses.dataclass(frozen=True)

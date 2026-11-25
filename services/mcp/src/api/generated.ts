@@ -66027,6 +66027,193 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Monitoring: 'monitoring',
+      Resolved: 'resolved',
+      Closed: 'closed',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
+
+    /**
+     * * `waiting_for_you` - Waiting For You
+     * * `claimed` - Claimed
+     * * `suggested_reviewer` - Suggested Reviewer
+     */
+    export type InboxDigestRelationEnum = typeof InboxDigestRelationEnum[keyof typeof InboxDigestRelationEnum];
+
+
+    export const InboxDigestRelationEnum = {
+      WaitingForYou: 'waiting_for_you',
+      Claimed: 'claimed',
+      SuggestedReviewer: 'suggested_reviewer',
+    } as const;
+
+    /**
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged
+     */
+    export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
+
+
+    export const SignalReportAssignmentPrStateEnum = {
+      Unknown: 'unknown',
+      Draft: 'draft',
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    export interface InboxDigestReport {
+      /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+      id: string;
+      /**
+         * The report title.
+         * @nullable
+         */
+      title: string | null;
+      /** The report priority, P0 to P4, or null when it has none.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum | null;
+      /** The report status: `ready`, or `pending_input` when the report waits on a person's input.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** How the report relates to you, strongest first: `waiting_for_you` (it names you and waits on input), `claimed` (you claimed it), `suggested_reviewer` (it names you as a suggested reviewer).
+       *
+       * * `waiting_for_you` - Waiting For You
+       * * `claimed` - Claimed
+       * * `suggested_reviewer` - Suggested Reviewer */
+      relation: InboxDigestRelationEnum;
+      /** The opening of the report summary as plain text, at most 200 characters. */
+      summary_lead: string;
+      /**
+         * The report's implementation pull request, or null when it has none.
+         * @nullable
+         */
+      implementation_pr_url: string | null;
+      /** The state of the implementation pull request, or null when it has none or its state is unknown.
+       *
+       * * `unknown` - Unknown
+       * * `draft` - Draft
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** The report in the PostHog inbox. */
+      url: string;
+    }
+
+    export interface InboxDigestSection {
+      /** How many reports the section holds. */
+      count: number;
+      /** At most 3 of the reports, in the inbox's priority order. */
+      reports: InboxDigestReport[];
+    }
+
+    /**
+     * * `resolved` - Resolved
+     * * `resolved_by_assessment` - Resolved by assessment
+     * * `resolved_manually` - Resolved manually
+     * * `resolved_unverified` - Resolved without verification
+     * * `closed` - Closed
+     */
+    export type MonitoringOutcomeKindEnum = typeof MonitoringOutcomeKindEnum[keyof typeof MonitoringOutcomeKindEnum];
+
+
+    export const MonitoringOutcomeKindEnum = {
+      Resolved: 'resolved',
+      ResolvedByAssessment: 'resolved_by_assessment',
+      ResolvedManually: 'resolved_manually',
+      ResolvedUnverified: 'resolved_unverified',
+      Closed: 'closed',
+    } as const;
+
+    export interface InboxDigestMonitoringOutcome {
+      /** How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: a report-level assessment established the fix worked. `resolved_manually`: a person resolved it. `resolved_unverified`: every check was cancelled. `closed`: the fix was not shown to work.
+       *
+       * * `resolved` - Resolved
+       * * `resolved_by_assessment` - Resolved by assessment
+       * * `resolved_manually` - Resolved manually
+       * * `resolved_unverified` - Resolved without verification
+       * * `closed` - Closed */
+      outcome: MonitoringOutcomeKindEnum;
+      /** How many Monitoring periods ended this way. */
+      count: number;
+    }
+
+    export interface InboxDigestOutcomes {
+      /** Pull requests linked to your reports since `since`, counted by the time PostHog first linked each one to a report, not the time GitHub opened it. */
+      pull_requests_opened: number;
+      /** Pull requests linked to your reports that GitHub merged since `since`. */
+      pull_requests_merged: number;
+      /**
+         * Monitoring periods of your reports that ended since `since`, one entry per outcome that occurred. Null when the organization does not have Monitoring.
+         * @nullable
+         */
+      monitoring_periods_ended: InboxDigestMonitoringOutcome[] | null;
+    }
+
+    export interface InboxDigestProject {
+      /** Reports in the whole project that are actionable now and that nobody claimed: the reports inbox-reports-list returns for `view=actionable` with `unclaimed=true`. */
+      actionable_unclaimed_count: number;
+    }
+
+    export interface InboxDigest {
+      /** The start of the window that `new_for_you` and `outcomes` count. */
+      since: string;
+      /** When the digest was read. */
+      generated_at: string;
+      /** Your open reports now, whatever `since` is: the reports that wait on your input, that you claimed, or that name you as a suggested reviewer. */
+      needs_you: InboxDigestSection;
+      /** The reports in `needs_you` that first reached the inbox since `since`. A report that reached the inbox earlier and became yours later, for example when you claimed it, does not count. */
+      new_for_you: InboxDigestSection;
+      /** What happened since `since` to your reports in any status: the reports that name you as a suggested reviewer, or that you or your agents claimed. */
+      outcomes: InboxDigestOutcomes;
+      /** The open work in the whole project, for when `needs_you` is empty. */
+      project: InboxDigestProject;
+    }
+
+    /**
      * * `app` - App
      * * `agent` - Agent
      */
@@ -70782,54 +70969,6 @@ export namespace Schemas {
       /** @nullable */
       last_modified_at: string | null;
     }
-
-    /**
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `closed` - Closed
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed
-     */
-    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
-
-
-    export const SignalReportStatusEnum = {
-      Potential: 'potential',
-      Candidate: 'candidate',
-      InProgress: 'in_progress',
-      PendingInput: 'pending_input',
-      Ready: 'ready',
-      Monitoring: 'monitoring',
-      Resolved: 'resolved',
-      Closed: 'closed',
-      Failed: 'failed',
-      Deleted: 'deleted',
-      Suppressed: 'suppressed',
-    } as const;
-
-    /**
-     * * `unknown` - Unknown
-     * * `draft` - Draft
-     * * `open` - Open
-     * * `closed` - Closed
-     * * `merged` - Merged
-     */
-    export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
-
-
-    export const SignalReportAssignmentPrStateEnum = {
-      Unknown: 'unknown',
-      Draft: 'draft',
-      Open: 'open',
-      Closed: 'closed',
-      Merged: 'merged',
-    } as const;
 
     export interface LinkedReportRef {
       /** The linked report's id. */
@@ -77040,24 +77179,6 @@ export namespace Schemas {
       /** Interim readings in this Monitoring period, oldest first. */
       readings: MonitoringReading[];
     }
-
-    /**
-     * * `resolved` - Resolved
-     * * `resolved_by_assessment` - Resolved by assessment
-     * * `resolved_manually` - Resolved manually
-     * * `resolved_unverified` - Resolved without verification
-     * * `closed` - Closed
-     */
-    export type MonitoringOutcomeKindEnum = typeof MonitoringOutcomeKindEnum[keyof typeof MonitoringOutcomeKindEnum];
-
-
-    export const MonitoringOutcomeKindEnum = {
-      Resolved: 'resolved',
-      ResolvedByAssessment: 'resolved_by_assessment',
-      ResolvedManually: 'resolved_manually',
-      ResolvedUnverified: 'resolved_unverified',
-      Closed: 'closed',
-    } as const;
 
     /**
      * * `not_on_track` - Not on track
@@ -151583,6 +151704,13 @@ export namespace Schemas {
       Number45: 45,
       Number90: 90,
     } as const;
+
+    export type SignalsInboxDigestListParams = {
+    /**
+     * ISO 8601 datetime. `new_for_you` and `outcomes` count from this time. Defaults to one day before the request. A time more than 30 days back counts from 30 days back.
+     */
+    since?: string;
+    };
 
     export type SignalsProcessingListParams = {
     /**

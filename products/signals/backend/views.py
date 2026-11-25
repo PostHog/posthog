@@ -150,9 +150,13 @@ from products.signals.backend.implementation_authorization import Implementation
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
-    implementation_pr_report_filter,
     primary_pull_request,
     pull_request_matches_id,
+)
+from products.signals.backend.inbox_list_filters import (
+    actionable_condition,
+    implementation_pr_condition,
+    unclaimed_condition,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -2883,9 +2887,7 @@ class SignalReportViewSet(
         return queryset.filter(id__in=report_ids_with_prefix)
 
     def _implementation_pr_report_filter(self) -> Q:
-        if self._inbox_cached_filters:
-            return Q(has_implementation_pr=True)
-        return implementation_pr_report_filter(team_id=self.team.id)
+        return implementation_pr_condition(team_id=self.team.id, cached=self._inbox_cached_filters)
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether an attached
@@ -2903,16 +2905,7 @@ class SignalReportViewSet(
         wants_unclaimed = self._bool_query_param("unclaimed")
         if wants_unclaimed is None:
             return queryset
-        has_review_pr = (
-            Q(has_active_implementation_pr=True)
-            if self._inbox_cached_filters
-            else implementation_pr_report_filter(team_id=self.team.id, active_only=True)
-        )
-        is_unclaimed = (
-            ~Q(status__in={SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
-            & ~reports_with_active_claim(team_id=self.team_id)
-            & ~has_review_pr
-        )
+        is_unclaimed = unclaimed_condition(team_id=self.team_id, cached=self._inbox_cached_filters)
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
     def _apply_signal_report_assignee_filter(self, queryset):
@@ -3120,11 +3113,7 @@ class SignalReportViewSet(
             allowed = ", ".join(sorted(self._INBOX_VIEWS))
             raise serializers.ValidationError({"view": f"Invalid value: {inbox_view!r}. Allowed: {allowed}."})
         if inbox_view == "actionable":
-            return queryset.filter(
-                status=SignalReport.Status.READY,
-                latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-                latest_already_addressed=False,
-            ).exclude(self._implementation_pr_report_filter())
+            return queryset.filter(actionable_condition(team_id=self.team_id, cached=self._inbox_cached_filters))
         if inbox_view == "for_you":
             for_person = reports_for_person(self.team_id, cast(User, self.request.user))
             return queryset.filter(id__in=for_person.values("id"))
