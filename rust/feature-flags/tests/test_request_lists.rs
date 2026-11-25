@@ -4,10 +4,10 @@ use reqwest::StatusCode;
 use rstest::rstest;
 use serde_json::{json, Value};
 
-use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::config::{FlexBool, DEFAULT_TEST_CONFIG};
 use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
 use feature_flags::flags::flag_request::FlagRequestType;
-use feature_flags::team::request_blocklist::{BlockedHosts, BlockedIps};
+use feature_flags::team::request_lists::{HostList, IpList};
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
@@ -29,8 +29,8 @@ async fn setup_server_with_blocklist() -> Result<(ServerHandle, Team)> {
     config.internal_request_token = Some(INTERNAL_TOKEN.to_string());
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    team.flags_blocked_hosts = BlockedHosts::from(vec!["example.com".to_string()]);
-    team.flags_blocked_ips = BlockedIps::from(vec![
+    team.flags_blocked_hosts = HostList::from(vec!["example.com".to_string()]);
+    team.flags_blocked_ips = IpList::from(vec![
         "203.0.113.7".to_string(),
         "198.51.100.0/24".to_string(),
         "2001:db8:abcd::/48".to_string(),
@@ -186,5 +186,53 @@ async fn only_unblocked_caller_is_billed(
             assert!(counter.is_err(), "blocked request was billed: {counter:?}");
         }
     }
+    Ok(())
+}
+
+async fn setup_server_with_allowlist(
+    trust_edge_client_ip_header: bool,
+) -> Result<(ServerHandle, Team)> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.trust_edge_client_ip_header = FlexBool(trust_edge_client_ip_header);
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.flags_allowed_hosts = HostList::from(vec!["example.com".to_string()]);
+    team.flags_allowed_ips = IpList::from(vec!["203.0.113.0/24".to_string()]);
+    update_team_in_hypercache(client.clone(), &team).await?;
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    insert_flags_for_team_in_redis(client.clone(), team.id, None)
+        .await
+        .unwrap();
+    let server = ServerHandle::for_config(config).await;
+    Ok((server, team))
+}
+
+#[rstest]
+#[case::allowed_browser(true, &[("Origin", "https://app.example.com"), ("X-PostHog-Edge-Client-IP", "203.0.113.7")], true)]
+#[case::server_sdk_without_origin(true, &[("X-PostHog-Edge-Client-IP", "203.0.113.7")], true)]
+#[case::other_host(true, &[("Origin", "https://example.org"), ("X-PostHog-Edge-Client-IP", "203.0.113.7")], false)]
+#[case::opaque_origin(true, &[("Origin", "null"), ("X-PostHog-Edge-Client-IP", "203.0.113.7")], false)]
+#[case::other_edge_ip(true, &[("X-PostHog-Edge-Client-IP", "198.51.100.1")], false)]
+#[case::allowed_ip_only_in_forwarded_for(true, &[("X-Forwarded-For", "203.0.113.7"), ("X-PostHog-Edge-Client-IP", "198.51.100.1")], false)]
+#[case::no_edge_ip(true, &[("X-Forwarded-For", "203.0.113.7")], false)]
+#[case::untrusted_edge_header(false, &[("X-PostHog-Edge-Client-IP", "203.0.113.7")], false)]
+#[tokio::test]
+async fn allowlist_admits_only_allowed_callers(
+    #[case] trust_edge_client_ip_header: bool,
+    #[case] headers: &[(&str, &str)],
+    #[case] admitted: bool,
+) -> Result<()> {
+    let (server, team) = setup_server_with_allowlist(trust_edge_client_ip_header).await?;
+
+    let res = post(&server, "/flags", &team.api_token, "2", headers).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await?;
+    assert_eq!(
+        body["flags"].get("flag1").is_some(),
+        admitted,
+        "unexpected response for {headers:?}: {body}"
+    );
     Ok(())
 }
