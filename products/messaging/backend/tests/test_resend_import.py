@@ -699,11 +699,21 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             team_id=self.team.id, identifier="happy@example.com", preferences={"$all": "OPTED_OUT"}
         )
 
+        stored_before_the_opt_out: list[bool] = []
+
+        def write(key: str, content: str) -> None:
+            carried = MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier="Happy@Example.com")
+            stored_before_the_opt_out.append(not carried.exists())
+            self.people.stored[key] = content
+
+        # Storing a list is slow, and a preference written before it stays locked until the save commits.
+        self.people.storage.write.side_effect = write
         run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
                 runs.run_step(self.team.id, run.id, step, attempt=1)
 
+        assert len(stored_before_the_opt_out) == 2 and all(stored_before_the_opt_out)
         preferences = dict(
             MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
         )

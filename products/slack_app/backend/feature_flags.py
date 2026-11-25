@@ -60,7 +60,6 @@ SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
-SLACK_APP_FRUSTRATION_RESPONSE_FLAG = "slack-app-frustration-response"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 
 
@@ -248,16 +247,6 @@ def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_
         SLACK_APP_DAILY_SUMMARY_FLAG,
         integration,
         failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Every answered message is classified, and an unhappy one gets a reaction. Each verdict is one model call."""
-    return _workspace_flag_enabled(
-        SLACK_APP_FRUSTRATION_RESPONSE_FLAG,
-        integration,
-        failure_log_key="slack_app_frustration_response_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

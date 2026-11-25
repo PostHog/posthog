@@ -30,10 +30,14 @@ from products.experiments.backend.health.skips import (
 
 
 def new_flag_no_traffic_values(ctx: HealthContext) -> CheckValues:
-    last_called_at = ctx.flag_last_called_at
-    if ctx.archived or ctx.is_launched or last_called_at is None:
+    if ctx.archived or ctx.is_launched:
         return {}
-    return {ExperimentHealthValueKey.FLAG_LAST_CALLED_AT: last_called_at.astimezone(UTC).isoformat()}
+    values: dict[ExperimentHealthValueKey, bool | str] = {}
+    if ctx.flag_called is not None:
+        values[ExperimentHealthValueKey.FLAG_CALLED] = ctx.flag_called
+    if ctx.flag_last_called_at is not None:
+        values[ExperimentHealthValueKey.FLAG_LAST_CALLED_AT] = ctx.flag_last_called_at.astimezone(UTC).isoformat()
+    return values
 
 
 def new_flag_no_traffic(ctx: HealthContext) -> CheckOutcome:
