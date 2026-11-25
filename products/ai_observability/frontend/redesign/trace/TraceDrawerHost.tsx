@@ -20,7 +20,7 @@ export interface TraceDrawerHostProps {
 
 export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {
     const logic = traceDrawerLogic({ listId })
-    const { hostId, openRef, openLabel, position, previousTrace, nextTrace, fullPageHref } = useValues(logic)
+    const { hostId, openRef, openLabel, position, canStepPrevious, nextTrace, fullPageHref } = useValues(logic)
     const { stepTo, close } = useActions(logic)
     const showNavigation = TRACE_DRAWER_LISTS[listId].showNavigation !== false
     const { mainContentRect } = useValues(panelLayoutLogic)
@@ -47,7 +47,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
         intent: 'Previous trace',
         interaction: 'function',
         callback: () => stepUnlessOverlayOpen('previous'),
-        disabled: !previousTrace,
+        disabled: !canStepPrevious,
     })
     useShortcut({
         name: 'TraceDrawerNext',
@@ -75,7 +75,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
                     showNavigation={showNavigation}
                     position={position}
                     label={openLabel}
-                    onPrevious={previousTrace ? () => stepTo('previous') : null}
+                    onPrevious={canStepPrevious ? () => stepTo('previous') : null}
                     onNext={nextTrace ? () => stepTo('next') : null}
                     fullPageHref={fullPageHref}
                     fullPageInNewTab={TRACE_DRAWER_LISTS[listId].fullPageInNewTab}
