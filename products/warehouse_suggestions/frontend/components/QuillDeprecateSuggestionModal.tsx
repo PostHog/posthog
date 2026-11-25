@@ -12,18 +12,30 @@ import {
     FieldGroup,
 } from '@posthog/quill'
 
-import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
-import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { ACTION_CHOICES, ActionChoice, REFRESH_CHOICES, RefreshChoice } from './DeprecateSuggestionModal'
+import {
+    deleteDisabledReason,
+    isDeprecatePayload,
+    noReadsLabel,
+    refreshCostLabel,
+    refreshesTheView,
+} from '../suggestionCopy'
+import { DeprecateAction, catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import {
+    DEPRECATE_ACTION_COPY,
+    REFRESH_CHOICES,
+    RefreshChoice,
+    confirmDisabledReason,
+    deprecateActionChoices,
+} from './DeprecateSuggestionModal'
 import { QuillChoiceGroup } from './QuillChoiceGroup'
 
 const ACTION_LEGEND = 'What to do'
 const MATERIALIZATION_LEGEND = 'Its materialization'
 
 export function QuillDeprecateSuggestionModal(): JSX.Element | null {
-    const { acceptConfirmSuggestion, actionsInFlight, deleteView, keepMaterialized, status } =
+    const { acceptConfirmSuggestion, actionsInFlight, deprecateAction, keepMaterialized, status } =
         useValues(warehouseSuggestionsLogic)
-    const { confirmAccept, closeAcceptConfirm, setDeleteView, setKeepMaterialized } =
+    const { confirmAccept, closeAcceptConfirm, setDeprecateAction, setKeepMaterialized } =
         useActions(warehouseSuggestionsLogic)
     const payload = acceptConfirmSuggestion?.payload
 
@@ -31,38 +43,36 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
         return null
     }
     const inFlight = !!actionsInFlight[acceptConfirmSuggestion.id]
-    const materialized = payload.materialized !== false
+    const materialized = refreshesTheView(payload)
     const windowDays = status?.window_days ?? 0
     const noReads = noReadsLabel(windowDays)
-    const blockedReasons: Record<ActionChoice, string | undefined> = {
+    const blockedReasons: Record<DeprecateAction, string | undefined> = {
         deprecate: catalogEditBlockedReason(),
+        unmarked: undefined,
         delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
     }
-    const actionChoices = ACTION_CHOICES.map((choice) => ({ ...choice, disabledReason: blockedReasons[choice.value] }))
-    const chosen: ActionChoice = deleteView ? 'delete' : 'deprecate'
+    const copy = DEPRECATE_ACTION_COPY[deprecateAction]
 
     return (
         <Dialog open onOpenChange={(open: boolean) => !open && !inFlight && closeAcceptConfirm()}>
             <DialogContent size="wide" className="max-w-xl" showCloseButton={!inFlight}>
                 <DialogHeader>
-                    <DialogTitle>
-                        {deleteView ? `Delete ${payload.subject_name}?` : `Mark ${payload.subject_name} as deprecated?`}
-                    </DialogTitle>
+                    <DialogTitle>{copy.title(payload.subject_name)}</DialogTitle>
                     <DialogDescription>
                         {materialized ? `${noReads}. ${refreshCostLabel(payload)}.` : `${noReads}.`}
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
                     <FieldGroup>
-                        <QuillChoiceGroup<ActionChoice>
+                        <QuillChoiceGroup<DeprecateAction>
                             legend={ACTION_LEGEND}
                             idPrefix="deprecate-action"
-                            value={chosen}
-                            onChange={(choice) => setDeleteView(choice === 'delete')}
-                            choices={actionChoices}
+                            value={deprecateAction}
+                            onChange={setDeprecateAction}
+                            choices={deprecateActionChoices(materialized, blockedReasons)}
                             disabled={inFlight}
                         />
-                        {materialized && !deleteView && (
+                        {materialized && deprecateAction !== 'delete' && (
                             <QuillChoiceGroup<RefreshChoice>
                                 legend={MATERIALIZATION_LEGEND}
                                 idPrefix="deprecate-refresh"
@@ -83,17 +93,13 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                         Cancel
                     </Button>
                     <Button
-                        variant={deleteView ? 'destructive-outline' : 'primary'}
+                        variant={deprecateAction === 'delete' ? 'destructive-outline' : 'primary'}
                         loading={inFlight}
-                        disabledReason={blockedReasons[chosen]}
+                        disabledReason={confirmDisabledReason(deprecateAction, keepMaterialized, blockedReasons)}
                         onClick={() => confirmAccept()}
-                        data-attr={
-                            deleteView
-                                ? 'warehouse-suggestions-delete-confirm'
-                                : 'warehouse-suggestions-deprecate-confirm'
-                        }
+                        data-attr={copy.confirmDataAttr}
                     >
-                        {deleteView ? 'Delete view' : 'Mark deprecated'}
+                        {copy.confirmLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

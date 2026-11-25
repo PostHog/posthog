@@ -6,8 +6,14 @@ import {
 } from "@posthog/agent-contracts";
 import { isRetiredModel } from "@posthog/agent-contracts/model-catalog";
 import {
+  buildPosthogDistinctIdHeaderLines,
+  buildPosthogDistinctIdHeaderRecord,
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogSessionHeaderLines,
+  buildPosthogSessionHeaderRecord,
   buildPosthogUserHeaderLines,
   buildPosthogUserHeaderRecord,
 } from "@posthog/agent-contracts/posthog-property-headers";
@@ -27,6 +33,8 @@ import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { AgentConfig, TaskExecutionOptions } from "./types";
 import { Logger } from "./utils/logger";
+
+const AI_GATEWAY_CREDENTIAL_PREFIXES = ["pha_", "phs_", "phe_"] as const;
 
 export class Agent {
   private posthogAPI?: PostHogAPIClient;
@@ -81,9 +89,20 @@ export class Agent {
       throw new Error("gatewayUrl override requires gatewayApiKey");
     }
     try {
-      const gatewayUrl = overrideUrl ?? this.posthogAPI.getLlmGatewayUrl();
-      const apiKey = overrideApiKey ?? (await this.posthogAPI.getApiKey());
-      return { gatewayUrl, apiKey };
+      if (overrideUrl && overrideApiKey) {
+        return { gatewayUrl: overrideUrl, apiKey: overrideApiKey };
+      }
+      const apiKey = await this.posthogAPI.getApiKey();
+      if (
+        !AI_GATEWAY_CREDENTIAL_PREFIXES.some((prefix) =>
+          apiKey.startsWith(prefix),
+        )
+      ) {
+        throw new Error(
+          "The AI gateway accepts only an OAuth access token (pha_), a project secret API key (phs_) or a gateway token (phe_). Pass gatewayUrl and gatewayApiKey to use another credential.",
+        );
+      }
+      return { gatewayUrl: this.posthogAPI.getAiGatewayUrl(), apiKey };
     } catch (error) {
       this.logger.error("Failed to resolve LLM gateway config", error);
       throw error;
@@ -98,12 +117,16 @@ export class Agent {
     const claudeSubscription =
       options.adapter === "claude" &&
       options.claudeModelAccess === "own-subscription";
-    const gatewayConfig = claudeSubscription
-      ? null
-      : await this._resolveGatewayConfig(
-          options.gatewayUrl,
-          options.gatewayUrl ? options.gatewayApiKey : undefined,
-        );
+    const codexSubscription =
+      options.adapter === "codex" &&
+      options.codexModelAccess === "own-subscription";
+    const gatewayConfig =
+      claudeSubscription || codexSubscription
+        ? null
+        : await this._resolveGatewayConfig(
+            options.gatewayUrl,
+            options.gatewayUrl ? options.gatewayApiKey : undefined,
+          );
     this.taskRunId = taskRunId;
 
     const needsAttribution = !claudeSubscription && gatewayConfig !== null;
@@ -138,15 +161,18 @@ export class Agent {
             task_execution_environment: "local" as const,
           };
 
-    const codexSubscription =
-      options.adapter === "codex" &&
-      options.codexModelAccess === "own-subscription";
-
     if (options.adapter === "codex" && !codexSubscription && !gatewayConfig) {
       throw new Error(
         "Codex authentication is not ready. In Settings, select PostHog credits or connect your ChatGPT subscription, then try again.",
       );
     }
+
+    const directAiGateway = gatewayConfig !== null && !options.gatewayUrl;
+    const aiGatewayProperties = {
+      ...attribution,
+      ai_product: "posthog_code",
+      team_id: this.posthogApiConfig?.projectId ?? null,
+    };
 
     const codexGatewayAuth =
       !codexSubscription && gatewayConfig
@@ -154,12 +180,19 @@ export class Agent {
             apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
             apiBaseUrlInConfig: options.codexBaseUrlInConfig,
             apiKey: gatewayConfig.apiKey,
-            httpHeaders: {
-              ...buildPosthogPropertyHeaderRecord(
-                taskId ? { ...attribution, $ai_session_id: taskId } : {},
-              ),
-              ...buildPosthogUserHeaderRecord(userNode),
-            },
+            httpHeaders: directAiGateway
+              ? {
+                  ...buildPosthogPropertiesHeaderRecord(aiGatewayProperties),
+                  ...buildPosthogSessionHeaderRecord(taskId),
+                  ...buildPosthogUserHeaderRecord(userNode),
+                  ...buildPosthogDistinctIdHeaderRecord(userNode),
+                }
+              : {
+                  ...buildPosthogPropertyHeaderRecord(
+                    taskId ? { ...attribution, $ai_session_id: taskId } : {},
+                  ),
+                  ...buildPosthogUserHeaderRecord(userNode),
+                },
           }
         : undefined;
 
@@ -232,14 +265,22 @@ export class Agent {
                 ? String(this.posthogApiConfig.projectId)
                 : undefined,
             anthropicCustomHeaders: [
-              buildPosthogPropertyHeaderLines(attribution),
+              directAiGateway
+                ? buildPosthogPropertiesHeaderLines(aiGatewayProperties)
+                : buildPosthogPropertyHeaderLines(attribution),
+              directAiGateway ? buildPosthogSessionHeaderLines(taskId) : "",
               buildPosthogUserHeaderLines(userNode),
+              directAiGateway
+                ? buildPosthogDistinctIdHeaderLines(userNode)
+                : "",
             ]
               .filter(Boolean)
               .join("\n"),
+            isAiGateway: directAiGateway,
           }
         : undefined;
 
+    const posthogAPI = this.posthogAPI;
     this.acpConnection = createAcpConnection({
       adapter: options.adapter,
       logWriter: this.sessionLogWriter,
@@ -254,9 +295,10 @@ export class Agent {
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
-      claudeModelsGatewayUrl: claudeSubscription
-        ? this.posthogAPI?.getLlmGatewayUrl()
-        : undefined,
+      claudeListModels:
+        claudeSubscription && posthogAPI
+          ? () => posthogAPI.getTaskModels()
+          : undefined,
       contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)

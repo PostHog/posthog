@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
@@ -654,6 +655,28 @@ class TestOrganization(BaseTest):
             assert gateway_redis.mget(generation_keys) == [b"1"] * len(generation_keys)
             assert gateway_redis.get(other_generation_key) == b"4"
             gateway_redis.delete(other_generation_key)
+
+    @parameterized.expand(
+        [
+            (
+                "flags_sync_fails",
+                "ee.billing.quota_limiting.sync_deactivated_org_flags_limit",
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+            ),
+            (
+                "gateway_invalidation_fails",
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+                "ee.billing.quota_limiting.sync_deactivated_org_flags_limit",
+            ),
+        ]
+    )
+    def test_is_active_change_runs_each_quota_callback_when_the_other_fails(self, _name, failing, surviving):
+        with patch(failing, side_effect=Exception("boom")), patch(surviving) as survivor:
+            with suppress(Exception), self.captureOnCommitCallbacks(execute=True):
+                self.organization.is_active = False
+                self.organization.save()
+
+        survivor.assert_called_once()
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):

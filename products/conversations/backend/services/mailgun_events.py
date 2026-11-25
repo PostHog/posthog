@@ -12,7 +12,7 @@ stream or by a temporary file, so it does not survive the response and cannot be
 
 import re
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
@@ -22,12 +22,16 @@ from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.db.models import F
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 import requests
 import structlog
+import posthoganalytics
+from free_email_domains import whitelist as free_email_domains_list
 from requests import RequestException
 
+from posthog.dataclasses import frozen
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.ingress.mailgun.provider import FILES_KEY
@@ -75,6 +79,31 @@ _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
+_FORWARDED_HEADER_RE = re.compile(
+    r"^\*?(?P<key>From|Sent|Date|To|Cc|Subject|Reply-To)\*?[ \t]*:\*?[ \t]*(?P<value>.*)$", re.IGNORECASE
+)
+# A quote, reply header or divider above the marker puts the forward inside mail someone else wrote.
+_QUOTED_MAIL_LINE_RE = re.compile(r"^(?:>|_{8,}|-{2,}[^-\n]+-{2,})|\bwrote:$", re.IGNORECASE)
+# Outlook's `-----Original Message-----` and underscore rule also head plain replies, so they are left out.
+_FORWARD_MARKER_RE = re.compile(
+    r"^(?:[ \t]*-{2,}[ \t]*Forwarded message[ \t]*-{2,}|>?[ \t]*Begin forwarded message:)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_MAILBOX_PROVIDER_DOMAINS = frozenset(free_email_domains_list) | {
+    "proton.me",
+    "pm.me",
+    "protonmail.ch",
+    "hey.com",
+    "tutanota.com",
+    "tuta.io",
+    "tuta.com",
+}
+_FORWARD_SUBJECT_PREFIX_RE = re.compile(r"^\s*(?:fwd?\s*:\s*)+", re.IGNORECASE)
+# parseaddr recurses on nested parentheses, so the cap also keeps a hostile From below the recursion limit.
+MAX_FORWARDED_FROM_LENGTH = 512
+MAX_FORWARDED_HEADER_LINES = 30
+MAX_FORWARDED_EMAIL_CONTEXT_LENGTH = 4_000
+FORWARD_ATTRIBUTION_FLAG = "product-support-forwarded-email-requester"
 MAX_EMAIL_ADDRESS_LENGTH = 254
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
@@ -701,6 +730,134 @@ def _resolve_team_member(email: str, team: Team) -> User | None:
     return membership.user if membership else None
 
 
+def _team_member_emails(team: Team, emails: Iterable[str]) -> set[str]:
+    return set(
+        OrganizationMembership.objects.filter(organization_id=team.organization_id)
+        .annotate(member_email=Lower("user__email"))
+        .filter(member_email__in=[email.lower() for email in emails])
+        .values_list("member_email", flat=True)
+    )
+
+
+@frozen
+class _ForwardedMessage:
+    sender: EmailAddress
+    subject: str
+
+
+def _has_open_angle_bracket(value: str) -> bool:
+    return "<" in value and ">" not in value.rpartition("<")[2]
+
+
+def _is_reply_header(line: str) -> bool:
+    # Reply headers name the sender's address and end in a colon in every language, as in `schrieb a@example.com:`.
+    return "@" in line and line.endswith((":", "："))
+
+
+def _first_forwarded_email(content: str) -> str:
+    """The first forwarded email in a forward, without the note above it or any later forward below it."""
+    text = content.replace("\r\n", "\n").replace("\r", "\n")
+    first = _FORWARD_MARKER_RE.search(text)
+    if first is None:
+        return ""
+    following = _FORWARD_MARKER_RE.search(text, first.end())
+    block = text[first.start() : following.start() if following else len(text)]
+    return block.strip()[:MAX_FORWARDED_EMAIL_CONTEXT_LENGTH]
+
+
+def _forwarded_message(body_plain: str) -> _ForwardedMessage | None:
+    """Read the headers of the message a team member forwarded below their own note."""
+    text = body_plain.replace("\r\n", "\n").replace("\r", "\n")
+    marker = _FORWARD_MARKER_RE.search(text)
+    if marker is None:
+        return None
+    above = (line.strip() for line in text[: marker.start()].split("\n"))
+    if any(
+        _QUOTED_MAIL_LINE_RE.search(line) or _FORWARDED_HEADER_RE.match(line) or _is_reply_header(line)
+        for line in above
+    ):
+        return None
+    headers: dict[str, str] = {}
+    key = ""
+    for raw_line in text[marker.end() :].split("\n", MAX_FORWARDED_HEADER_LINES)[1:MAX_FORWARDED_HEADER_LINES]:
+        line = raw_line.removeprefix(">").strip()
+        header = _FORWARDED_HEADER_RE.match(line)
+        if not line:
+            # Superhuman puts a blank line between headers, so a blank line only ends the current header.
+            key = ""
+        elif header is not None:
+            key = header.group("key").lower()
+            headers.setdefault(key, header.group("value").strip())
+        elif key and (key != "from" or _has_open_angle_bracket(headers[key])):
+            # Mail clients wrap long headers, so `Name <` and `address>` can sit on separate lines.
+            headers[key] = f"{headers[key]} {line}"
+        elif headers:
+            break
+        else:
+            return None
+    from_value = headers.get("from", "")
+    if len(from_value) > MAX_FORWARDED_FROM_LENGTH:
+        return None
+    name, address = parseaddr(from_value)
+    address = address.strip().lower()
+    if not _is_plausible_email(address) or _VIA_SUFFIX_RE.search(name):
+        return None
+    return _ForwardedMessage(
+        sender=EmailAddress(name=name.strip("*'\" ")[:400] or address.split("@")[0], email=address),
+        subject=headers.get("subject", "")[:500],
+    )
+
+
+def _forward_attribution_enabled(team: Team) -> bool:
+    # Targeted by project group like the other support flags. The backend SDK only sends the group
+    # properties listed here, and a flag-service failure keeps the forward on the team member.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                FORWARD_ATTRIBUTION_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning("email_inbound_forward_flag_eval_failed", team_id=team.id, error=str(e))
+        return False
+
+
+def _forwarded_original_message(email: ParsedEmail, config: EmailChannel) -> _ForwardedMessage | None:
+    """Find the message a team member forwarded, when the forward went only to the team."""
+    forwarded = _forwarded_message(email.body_plain)
+    if forwarded is None or not _forward_attribution_enabled(config.team):
+        return None
+    sender = forwarded.sender
+    recipients = {recipient.email for recipient in (*email.to_recipients, *email.cc_recipients)}
+    sender_domain = email.sender.email.rpartition("@")[2]
+    forwarder_domain = None if sender_domain in _MAILBOX_PROVIDER_DOMAINS else sender_domain
+    internal_addresses = {
+        address.lower()
+        for address in EmailChannel.objects.filter(team_id=config.team_id).values_list("from_email", flat=True)
+    }
+    internal_addresses.add(config.trusted_relay_sender.strip().lower())
+    internal_addresses |= _team_member_emails(config.team, {sender.email, *recipients})
+
+    def is_internal(address: str) -> bool:
+        return (
+            address in internal_addresses
+            or address.rpartition("@")[2] == forwarder_domain
+            or _extract_inbound_token(address) == config.inbound_token
+        )
+
+    if is_internal(sender.email) or any(not is_internal(address) for address in recipients - {sender.email}):
+        return None
+    return forwarded
+
+
 def _process_support_email(
     *,
     config: EmailChannel,
@@ -727,6 +884,13 @@ def _process_support_email(
             message_id=email.message_id,
         )
         return
+
+    posthog_user = _resolve_team_member(email.sender.email, team) if email.sender_authenticated else None
+    is_team_member = posthog_user is not None
+    forwarded = _forwarded_original_message(email, config) if is_team_member and existing_ticket is None else None
+    if forwarded is not None:
+        logger.info("email_inbound_forward_attributed", team_id=team.id, message_id=email.message_id)
+
     sender_name = email.sender.name
     sender_email = email.sender.email
     cc_list = _collect_participants(
@@ -746,9 +910,7 @@ def _process_support_email(
         else None
     )
     content = recover_links_from_html(body.text, body.html)
-
-    posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
-    is_team_member = posthog_user is not None
+    forwarded_email = _first_forwarded_email(content) if forwarded else ""
 
     try:
         with transaction.atomic():
@@ -772,23 +934,30 @@ def _process_support_email(
             content, rich_content = _build_content_with_attachments(content, attachments)
 
             if not ticket:
+                # A forward's From is unauthenticated body text, and its own To and Cc are the team's.
+                requester = forwarded.sender if forwarded else email.sender
+                subject = (
+                    (forwarded.subject or _FORWARD_SUBJECT_PREFIX_RE.sub("", email.subject))
+                    if forwarded
+                    else email.subject
+                )
                 ticket = Ticket.objects.create_with_number(
                     team=team,
                     channel_source=Channel.EMAIL,
                     email_config=config,
                     widget_session_id="",
-                    distinct_id=sender_email,
+                    distinct_id=requester.email,
                     status=Status.NEW,
                     anonymous_traits={
-                        "name": sender_name,
-                        "email": sender_email,
+                        **requester.as_dict(),
                         **({"email_relayed": True} if email.relay_sender is not None else {}),
+                        **({"email_relayed": True, "email_forwarded": True} if forwarded else {}),
                     },
-                    email_subject=email.subject,
-                    email_from=sender_email,
-                    cc_participants=cc_list,
-                    unread_team_count=0 if is_team_member else 1,
-                    identity_verified=email.sender_authenticated,
+                    email_subject=subject,
+                    email_from=requester.email,
+                    cc_participants=[] if forwarded else cc_list,
+                    unread_team_count=0 if is_team_member and not forwarded else 1,
+                    identity_verified=email.sender_authenticated and not forwarded,
                 )
             elif (
                 email.sender_authenticated
@@ -804,9 +973,18 @@ def _process_support_email(
 
             assert ticket is not None
 
+            # Outsider To and Cc headers prove nothing, so only the requester's mail and team mail to them are public.
+            requester_email = (ticket.email_from or "").lower()
+            recipients = {recipient.email for recipient in (*email.to_recipients, *email.cc_recipients)}
+            private_note = forwarded is not None or (
+                (ticket.anonymous_traits or {}).get("email_forwarded") is True
+                and sender_email != requester_email
+                and not (is_team_member and requester_email in recipients)
+            )
+
             item_context = {
                 "author_type": "support" if is_team_member else "customer",
-                "is_private": False,
+                "is_private": private_note,
                 "from_email": True,
                 "email_from": sender_email,
                 "email_sender_authenticated": email.sender_authenticated,
@@ -815,6 +993,7 @@ def _process_support_email(
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
                 "has_full_email_content": full_body_plain is not None,
+                **({"email_forwarded": True, "forwarded_email": forwarded_email} if forwarded else {}),
             }
 
             comment = Comment.objects.create(
@@ -832,7 +1011,7 @@ def _process_support_email(
                 # participant reply-alls, the requester shows up in their To/Cc and must not
                 # be folded into cc_participants or replies would deliver to them twice.
                 ticket_from = (ticket.email_from or "").lower()
-                cc_list = [addr for addr in cc_list if addr != ticket_from]
+                cc_list = [] if private_note else [addr for addr in cc_list if addr != ticket_from]
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(

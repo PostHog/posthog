@@ -41,20 +41,23 @@ API keys, webhooks, send history and stats stay with the old provider. The `cont
 
 SendGrid differs from the Resend steps above in these ways.
 
-- **Key.** SendGrid has read-only scopes, so ask for a restricted key with read access to the chosen steps. Each step's description in `provider-imports-providers` names its scopes. A key without them is refused before the run starts, with the missing scopes named. `marketing.read` is the exception: SendGrid says it also grants write access, so `single_sends` and `lists` are the steps to skip for a user who minds. Keys are created at https://app.sendgrid.com/settings/api_keys.
+- **Key.** SendGrid has read-only scopes, so ask for a restricted key with read access to the chosen steps. Each step's description in `provider-imports-providers` names its scopes. A key without them is refused before the run starts, with the missing scopes named. `marketing.read` is the exception: SendGrid says it also grants write access, so `single_sends`, `lists` and `contacts` are the steps to skip for a user who minds. A key with no marketing scope at all skips those three with a warning, because SendGrid gives none to an account without Marketing Campaigns. Keys are created at https://app.sendgrid.com/settings/api_keys.
 - **Subusers.** A key sees one account. To move subusers, run one import per subuser with its own key, one after another. PostHog finds out by itself whether a key belongs to SendGrid's EU host.
 
-| Data                                      | In PostHog                                       | What the team does                                  |
-| ----------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
-| Bounces and invalid addresses             | Suppression list, blocks all email               | Reads the summary                                   |
-| Spam reports                              | Suppression list, blocks marketing email only    | Reads the summary. SendGrid blocks all email.       |
-| Global unsubscribes                       | Opted out of all marketing email                 | Reads the summary. SendGrid blocks all email.       |
-| Unsubscribe groups and group unsubscribes | Marketing categories and opt-outs                | Passes the category when sending                    |
-| Dynamic and legacy templates              | Library templates, keyed by SendGrid template ID | Fixes what the notes mention, then sends a test     |
-| Design Library, Single Sends              | Library templates                                | Fixes the notes, cancels what's still scheduled     |
-| Lists, verified senders, domains          | A list only                                      | Rebuilds lists as cohorts, adds senders and domains |
+| Data                                       | In PostHog                                       | What the team does                              |
+| ------------------------------------------ | ------------------------------------------------ | ----------------------------------------------- |
+| Bounces and invalid addresses              | Suppression list, blocks all email               | Reads the summary                               |
+| Spam reports                               | Suppression list, blocks marketing email only    | Reads the summary. SendGrid blocks all email.   |
+| Global unsubscribes                        | Opted out of all marketing email                 | Reads the summary. SendGrid blocks all email.   |
+| Unsubscribe groups and group unsubscribes  | Marketing categories and opt-outs                | Passes the category when sending                |
+| Dynamic and legacy templates               | Library templates, keyed by SendGrid template ID | Fixes what the notes mention, then sends a test |
+| Design Library, Single Sends               | Library templates                                | Fixes the notes, cancels what's still scheduled |
+| Contacts, lists and segments, if turned on | People, and a cohort per list and segment        | Checks the people and cohorts                   |
+| Verified senders, domains                  | A list only                                      | Adds senders and domains                        |
 
-**Stays behind:** automations, because SendGrid's API only shares their stats, so they're rebuilt by hand as workflows. Blocks, because SendGrid doesn't keep suppressing those addresses either. Also inactive template versions, contacts as people, webhooks, API keys, stats and send history.
+**Stays behind:** automations, because SendGrid's API only shares their stats, so they're rebuilt by hand as workflows. Blocks, because SendGrid doesn't keep suppressing those addresses either. Also inactive template versions, segments unless `contacts` is listed, webhooks, API keys, stats and send history.
+
+**Contacts.** `contacts` and `new_people` are in `provider-imports-providers` only when they're turned on for the project. Without them, `lists` only lists the lists, and the team rebuilds them as cohorts or uploads a CSV file. `contacts` needs `suppressions`, `global_unsubscribes` and `group_unsubscribes` in the same run. SendGrid prepares an export of each list and segment, so this step can wait a long time without counts. A segment becomes a cohort of the people in it now, which only another import refreshes, so rebuild one that must stay live as a dynamic cohort. SendGrid updates a segment up to a day late. A list or segment it can't export is named in a warning and keeps its cohort as it was. Contact fields and custom fields become person properties under SendGrid's names. People who unsubscribed from everything stay out of every cohort. People who left one unsubscribe group stay in, and a send in that group's category skips them. Contacts without an email are skipped. As with Resend, each person written counts as one billable event, and a PostHog key with limited scopes needs `cohort:write` and `person:write`. One import takes up to 500 lists and segments and 250,000 contacts and list memberships. Each subuser gets its own cohort of all contacts.
 
 **Templates.** Only each template's active version comes across. Handlebars becomes Liquid and app data goes in `variables`, so `{{order.id}}` is sent the same way as before. The team has to choose a sender on each template, because SendGrid sets it per send. Say plainly how many global unsubscribes and spam reports imported, because PostHog still sends them transactional email while SendGrid doesn't.
 
@@ -128,16 +131,19 @@ Follow the same steps, with these differences.
 
 **Key.** A Marketing API key, created in Mailchimp under Profile, Extras, API keys. It ends in the account's data center, such as `-us21`, and PostHog sends the key only to that data center. Every Mailchimp key can read and change the whole account, so ask the user to delete it once the import ends. Mailchimp Transactional (Mandrill) keys don't work here.
 
+**Contacts.** Only contacts subscribed to an audience become people, so unsubscribed, pending, transactional, archived and cleaned contacts don't. `contacts` needs `audiences`, `groups`, `cleaned` and `complaints` in the same run. Each tag and saved segment becomes a cohort of its subscribed members. Importing again takes anyone who left an audience, tag or segment out of its cohort, and everyone out of the cohorts of an audience deleted in Mailchimp. That needs the key of an account owner or admin, and with any other key `contacts` stops before it changes a cohort. When Mailchimp lists no audiences at all and a second read agrees, the account's all-contacts cohort is emptied too. The run names each emptied cohort. Ask the user to import once more right before they delete an audience, because PostHog can't see who unsubscribed after that. The cohorts don't update on their own, so rebuild a segment as a dynamic cohort if it has to stay current.
+
 **Campaigns.** Drafts, paused and scheduled campaigns import by default. Pass `campaigns: "recent"` to add campaigns sent in the last 90 days, or `"all"` for every campaign. Each becomes a draft template, so ask before importing years of sent campaigns.
 
-| Mailchimp                                               | In PostHog                                                    | What the team does                               |
-| ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
-| Audiences                                               | A category each, and opt-outs for who left                    | Builds the audience from its own data            |
-| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups          | Nothing                                          |
-| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left    | Puts the matching templates in that category     |
-| Cleaned contacts                                        | Suppression list, blocks all email                            | Reads the summary                                |
-| Abuse reports                                           | Suppression list, blocks marketing email only                 | Knows these people still get transactional email |
-| Saved templates                                         | Library templates in Liquid, when Mailchimp shares their HTML | Exports the rest as HTML from Mailchimp          |
-| Campaigns                                               | Library templates in Liquid                                   | Fixes the notes and sends a test                 |
+| Mailchimp                                               | In PostHog                                                                  | What the team does                               |
+| ------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| Audiences                                               | A category each, and opt-outs for who left                                  | Nothing                                          |
+| Subscribed contacts and their merge fields              | People, matched by email, and a static cohort per audience, tag and segment | Checks the people and cohorts                    |
+| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups                        | Nothing                                          |
+| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left                  | Puts the matching templates in that category     |
+| Cleaned contacts                                        | Suppression list, blocks all email                                          | Reads the summary                                |
+| Abuse reports                                           | Suppression list, blocks marketing email only                               | Knows these people still get transactional email |
+| Saved templates                                         | Library templates in Liquid, when Mailchimp shares their HTML               | Exports the rest as HTML from Mailchimp          |
+| Campaigns                                               | Library templates in Liquid                                                 | Fixes the notes and sends a test                 |
 
-`*|FNAME|*`, `*|LNAME|*` and `*|EMAIL|*` read the person properties `first_name`, `last_name` and `email`. Other merge tags read the person property of the same name, such as `*|COMPANY|*` reading `COMPANY`, so the team sends those properties to PostHog for its people. Simple `*|IF:|*` conditions convert to Liquid. Any tag PostHog can't convert stays as written and is named in the template's notes. Hidden groups, customer journeys, classic automations, segments, tags, signup forms and reports stay behind.
+`*|FNAME|*`, `*|LNAME|*` and `*|EMAIL|*` read the person properties `first_name`, `last_name` and `email`. Other merge tags read the person property of the same name, such as `*|COMPANY|*` reading `COMPANY`, and `contacts` copies those from the merge fields to each subscribed contact's person. The team sends them to PostHog for people who join later. Simple `*|IF:|*` conditions convert to Liquid. Any tag PostHog can't convert stays as written and is named in the template's notes. Hidden groups, customer journeys, classic automations, signup forms and reports stay behind.

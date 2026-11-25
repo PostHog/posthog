@@ -8,7 +8,12 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
-from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError, ResolutionError
+from posthog.hogql.errors import (
+    BoundedResolverError,
+    ResolutionDepthExceededError,
+    ResolutionError,
+    TransientQueryError,
+)
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -24,7 +29,7 @@ DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
 DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
 
 
-class ResolutionTimeoutError(BoundedResolverError):
+class ResolutionTimeoutError(BoundedResolverError, TransientQueryError):
     """View resolution exceeded its wall-clock deadline."""
 
     status_label: ClassVar[str] = "timeout"
