@@ -1464,8 +1464,12 @@ describe('runner through seed, drive and judge', () => {
             const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
                 ({ kind, status }) => kind === 'ses.send' && status === 200
             )
+            const owed = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
+                ({ answer, expect }) => answer.accepted && expect.deliveries.includes('email')
+            )
             expect(sent).not.toHaveLength(0)
             expect(api.captured[0]?.properties).toMatchObject({
+                ...(delivering === 'all' && { m_counter_drift_owed: owed.length }),
                 m_counter_drift_email_sent: drift(sent.length),
                 m_counter_drift_email_sent_counted: 0,
                 m_counter_drift_email_sent_sink: sent.length,
