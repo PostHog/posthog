@@ -30,6 +30,7 @@ export function ShellHost({ children }: { children: React.ReactNode }): JSX.Elem
     const { push } = useActions(router)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const linkParams = shellLinkParams(searchParams)
+    const location = shellLocationForSceneKey(sceneKey)
 
     useTabShortcut(1, linkParams)
     useTabShortcut(2, linkParams)
@@ -38,9 +39,10 @@ export function ShellHost({ children }: { children: React.ReactNode }): JSX.Elem
 
     return (
         <ShellFrame
-            location={shellLocationForSceneKey(sceneKey)}
+            location={location}
             linkParams={linkParams}
             todayRailNav={todayRailNav}
+            fillHeight={location.scope === 'sessions'}
             onScopeChange={(scope) => push(shellHref(scope.path, linkParams))}
         >
             {children}

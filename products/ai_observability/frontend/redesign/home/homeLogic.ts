@@ -184,6 +184,7 @@ export const homeLogic = kea<homeLogicType>([
             (s) => [s.requestParams],
             (requestParams: AiObservabilityTracesMetricsListParams): Partial<Record<TraceMetricKeyApi, string>> => ({
                 [TraceMetricKeyApi.Traces]: combineUrl(urls.aiObservabilityTraces(), requestParams).url,
+                [TraceMetricKeyApi.Sessions]: combineUrl(urls.aiObservabilitySessions(), requestParams).url,
                 [TraceMetricKeyApi.ErrorRate]: combineUrl(urls.aiObservabilityTraces(), {
                     ...requestParams,
                     view: AiObservabilityTracesListView.Errors,
