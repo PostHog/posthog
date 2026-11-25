@@ -107,6 +107,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import dashboard_v2_enabled
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -162,7 +163,6 @@ from products.dashboards.backend.facade.api import (
     add_insight_to_dashboard,
     board_stream_cached_event,
     create_unlisted_dashboard,
-    dashboard_v2_enabled,
     read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
@@ -3183,11 +3183,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
+        request_user = getattr(self.context.get("request"), "user", None)
         with (
             task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
-            shared_tile_work(
-                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
-            ),
+            shared_tile_work(team, request_user if isinstance(request_user, User) else None),
         ):
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -4525,9 +4524,7 @@ class DashboardsViewSet(
         return tile_ids
 
     def _dashboard_v2_enabled(self, request: Request) -> bool:
-        return not request.user.is_anonymous and dashboard_v2_enabled(
-            self.team, str(cast(User, request.user).distinct_id)
-        )
+        return dashboard_v2_enabled(self.team, request.user)
 
     def _read_cached_tiles(
         self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
@@ -4570,7 +4567,7 @@ class DashboardsViewSet(
 
         results = read_cached_tiles(
             team=self.team,
-            distinct_id=str(cast(User, request.user).distinct_id),
+            user=cast(User, request.user),
             tile_ids=tile_ids,
             found_tile_ids=tiles_by_id.keys(),
             forbidden_tile_ids=restricted_levels.keys(),

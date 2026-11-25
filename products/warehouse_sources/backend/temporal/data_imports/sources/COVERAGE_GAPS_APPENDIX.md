@@ -8399,11 +8399,11 @@ Diffed against: <https://docs.onkernel.com/llms.txt>
 - [x] `audit-logs (list audit logs)` — organization-wide event history — the only cross-resource activity log the API offers (high)
 - [x] `browser-pools (list browser pools)` — lookup resolving the pool a browser session was leased from; also carries pool sizing config for utilization analysis (medium)
 - [x] `projects (list projects)` — lookup resolving the project ID carried on apps, deployments, browsers, proxies and extensions (medium)
-- [ ] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
-- [ ] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
-- [ ] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
+- [x] `browser-replays (list browser session replays)` — replay records per browser session, linking runs to recorded evidence (medium)
+- [x] `managed-auth (list auth connections)` — auth connection inventory with health state, joinable to profiles we already sync (medium)
+- [x] `managed-auth (get auth connection event timeline)` — chronological login/re-auth/health-check events per connection — state transition history (medium)
 - [x] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
-- [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low)
+- [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low) Skipped: returns only currently active browser sessions, so it is a live snapshot, not a stable join table.
 - [ ] `extensions (list browser extensions)` — extension inventory per project (low)
 - [x] `browsers/{id_or_name}/telemetry/events` — archived per-session telemetry events (console, network, page, interaction) within the 30-day retention window (medium)
 
@@ -15060,7 +15060,7 @@ Note: Docusaurus site; sitemap enumerated the full operation list and individual
 
 Re-audited 2026-11-19 against: <https://docs.tinyrelay.com/docs/tiny-email/list-templates>
 
-- [ ] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
+- [x] `Templates (GET /template)` — Saved email templates with names and update times, to resolve template use on campaigns we already sync (low)
 
 Note (2026-11-19): Diffed the sitemap at docs.tinyemail.com (now served under docs.tinyrelay.com) against our tables. Templates are the only new readable list; it is paged with zero-based page, size and sort params (name, createdAt, updatedAt). Excluded account customer (single GET by email, no list), segment single lookups, bounce code reference page, and all write routes.
 

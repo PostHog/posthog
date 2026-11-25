@@ -441,7 +441,8 @@ class Frame:
 @frozen
 class QueryBatchTarget:
     """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
-    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`."""
+    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`.
+    For `promql` and `logql`, it is the expression, run as a range query over the batch's time range."""
 
     ref_id: str
     language: QueryBatchLanguage
@@ -459,3 +460,5 @@ class QueryBatchInput:
     interval: str | None = None
     swr: bool = False
     cache_only: bool = False
+    max_data_points: int | None = None
+    tile: str | None = None

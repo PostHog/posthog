@@ -1679,6 +1679,7 @@ class CustomPropertySourceViewSet(
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
                 column_descriptions=data.column_descriptions,
+                missing_row_behavior=data.missing_row_behavior,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
@@ -1695,6 +1696,7 @@ class CustomPropertySourceViewSet(
             mapped_column_count=len(data.column_property_map or {}),
             reads_warehouse_table=data.external_data_schema is not None,
             is_enabled=data.is_enabled,
+            missing_row_behavior=data.missing_row_behavior,
         )
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 

@@ -1321,6 +1321,28 @@ REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
 }
 
 
+def user_can_access_resource(
+    team: Team,
+    user: User,
+    scope: str,
+    level: AccessControlLevel,
+    *,
+    user_access_control: Optional[UserAccessControl] = None,
+) -> bool:
+    """Whether the user has `level` on the `scope` resource type in the team, outside a DRF permission.
+
+    For a product that checks access to another product's resource type, which it cannot import the authorization
+    facade for without closing a product cycle. Pass the caller's `UserAccessControl` to reuse the rules it loaded.
+    """
+    if user_access_control is not None:
+        authorization.reuse_current_rules(user_access_control)
+    return authorization.check(
+        resource=Resource(type=ResourceType(scope), project_id=team.pk),
+        action=REQUIRED_LEVEL_ACTIONS[level],
+        subject=Subject(user_id=user.pk),
+    )
+
+
 def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool:
     """Whether neither the object nor its view has a project, as for an organization's plugins."""
     return team is None and getattr(obj, "team_id", None) is None and ResourceType(scope) not in MEMBERSHIP_RESOURCES
@@ -1580,6 +1602,32 @@ def posthog_feature_flag_enabled(
             only_evaluate_locally=only_evaluate_locally,
             caller_properties=caller_properties,
         )
+    )
+
+
+DASHBOARD_V2_FLAG = "dashboard-v2"
+DASHBOARD_V2_USERS_FLAG = "dashboard-v2-users"
+
+
+def dashboard_v2_enabled(team: Team, user: object | None) -> bool:
+    """`dashboard-v2` picks the projects and `dashboard-v2-users` picks the people in them, as the web app does.
+    Without a signed-in user, such as a shared link or a background job, the answer is no."""
+    if not isinstance(user, User):
+        return False
+    distinct_id = str(user.distinct_id or user.uuid)
+    return posthog_feature_flag_enabled(
+        DASHBOARD_V2_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    ) and posthog_feature_flag_enabled(
+        DASHBOARD_V2_USERS_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        person_properties={"email": user.email},
+        only_evaluate_locally=True,
     )
 
 
