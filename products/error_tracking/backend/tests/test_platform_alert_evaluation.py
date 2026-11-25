@@ -10,14 +10,18 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import create_configuration, slot_of
+from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     SourceKind,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssueChange
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueChange,
+    ErrorTrackingIssueFingerprintV2,
+)
 from products.error_tracking.backend.platform_alerts.evaluation import evaluate_error_tracking_alert_batch
 from products.error_tracking.backend.platform_alerts.source_config import ISSUE_GROUPING
 from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
@@ -76,7 +80,13 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
         return self._firing_keys(outcomes[0])
 
     def _outcomes(
-        self, source_config: dict[str, Any], *, cutoff: dt.datetime = _ON_TIME, firing: tuple[str, ...] = ()
+        self,
+        source_config: dict[str, Any],
+        *,
+        cutoff: dt.datetime = _ON_TIME,
+        firing: tuple[str, ...] = (),
+        due_at: dt.datetime = DUE_AT,
+        schedule_restriction: dict[str, Any] | None = None,
     ) -> tuple[PlatformAlertOutcome, ...]:
         with team_scope(self.team.id):
             configuration_id = create_configuration(
@@ -87,20 +97,20 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
                     enabled=True,
                     source_config=source_config,
                     grouping=ISSUE_GROUPING,
-                    schedule_restriction=None,
+                    schedule_restriction=schedule_restriction,
                     evaluation_periods=1,
                     datapoints_to_alarm=1,
                     cooldown_minutes=0,
                 ),
                 created_by_id=self.user.id,
             ).id
-            platform_testing.set_due_at(configuration_id, DUE_AT)
+            platform_testing.set_due_at(configuration_id, due_at)
             for key in firing:
                 announced = DUE_AT - dt.timedelta(minutes=1)
                 platform_testing.start_firing(
                     configuration_id, team_id=self.team.id, at=announced, grouping_key=key, notified_at=announced
                 )
-            return evaluate_error_tracking_alert_batch(self.team.id, slot_of(DUE_AT, cutoff), cutoff).outcomes
+            return evaluate_error_tracking_alert_batch(self.team.id, slot_of(due_at, cutoff), cutoff).outcomes
 
     def _firing_keys(self, outcome: PlatformAlertOutcome) -> set[str]:
         return {group.grouping_key for group in outcome.groups if group.kind == AlertEventKind.FIRING}
@@ -174,23 +184,71 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
 
         assert fired == {issue}
 
-    def test_a_read_that_fails_records_nothing_so_the_window_is_read_again(self) -> None:
-        self._change("created", at=DUE_AT - dt.timedelta(seconds=90), event_uuid=uuid.uuid4())
-        self.enterContext(
-            patch(
-                "products.error_tracking.backend.platform_alerts.evaluation.fetch_event_properties",
-                side_effect=ConnectionError("valkey is down"),
-            )
+    def test_a_failed_read_is_recorded_and_the_next_check_reads_its_window(self) -> None:
+        issue = self._change("created", at=DUE_AT - dt.timedelta(seconds=90), event_uuid=uuid.uuid4())
+        source_config = {
+            "condition": {"triggers": ["issue_created"]},
+            "filters": {"properties": [{"key": "$lib", "value": ["web"], "operator": "exact", "type": "event"}]},
+        }
+        fetch = "products.error_tracking.backend.platform_alerts.evaluation.fetch_event_properties"
+        with patch(fetch, side_effect=ConnectionError("valkey is down")):
+            [failed] = self._outcomes(source_config)
+        assert failed.failure is not None
+
+        with team_scope(self.team.id):
+            record_outcomes(self.team.id, [failed], DUE_AT)
+            next_due = platform_testing.configuration(failed.configuration_id).next_check_at
+        assert next_due is not None and next_due > DUE_AT
+        with patch(fetch, return_value={"$lib": "web"}), team_scope(self.team.id):
+            [retried] = evaluate_error_tracking_alert_batch(
+                self.team.id, slot_of(next_due, next_due), next_due
+            ).outcomes
+
+        assert self._firing_keys(retried) == {issue}
+
+    @parameterized.expand(
+        [
+            # The platform schedules no check in quiet hours, so the first one after them reads back to the
+            # last check before them.
+            ("after_quiet_hours", DUE_AT, DUE_AT - dt.timedelta(minutes=50), True),
+            # A check an edit put in quiet hours reads nothing, and the first one after them reads its changes.
+            ("inside_quiet_hours", DUE_AT - dt.timedelta(minutes=30), DUE_AT - dt.timedelta(minutes=50), False),
+        ]
+    )
+    def test_quiet_hours_defer_changes_to_the_first_check_after_them(
+        self, _name: str, due_at: dt.datetime, changed_at: dt.datetime, fires: bool
+    ) -> None:
+        issue = self._change("created", at=changed_at)
+
+        [outcome] = self._outcomes(
+            {"condition": {"triggers": ["issue_created"]}},
+            due_at=due_at,
+            cutoff=due_at,
+            schedule_restriction={"blocked_windows": [{"start": "08:00", "end": "09:00"}]},
         )
 
-        outcomes = self._outcomes(
-            {
-                "condition": {"triggers": ["issue_created"]},
-                "filters": {"properties": [{"key": "$lib", "value": ["web"], "operator": "exact", "type": "event"}]},
-            }
+        assert self._firing_keys(outcome) == ({issue} if fires else set())
+
+    def test_an_edit_off_the_minute_does_not_skip_changes(self) -> None:
+        # An edit moved the due time 40 seconds past the minute; the window still starts at the end of
+        # the previous check's window, not 40 seconds after it.
+        issue = self._change("created", at=DUE_AT - dt.timedelta(seconds=110))
+        due_at = DUE_AT + dt.timedelta(seconds=40)
+
+        [outcome] = self._outcomes(
+            {"condition": {"triggers": ["issue_created"]}}, due_at=due_at, cutoff=DUE_AT + dt.timedelta(minutes=1)
         )
 
-        assert outcomes == ()
+        assert self._firing_keys(outcome) == {issue}
+
+    def test_a_message_links_the_issue_by_fingerprint(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fingerprint-a")
+        self._change("created", at=DUE_AT - dt.timedelta(seconds=90), issue_id=issue.id)
+
+        [outcome] = self._outcomes({"condition": {"triggers": ["issue_created"]}})
+
+        assert [group.source_detail for group in outcome.groups] == [{"fingerprint": "fingerprint-a"}]
 
     def test_a_check_past_the_batch_budget_records_nothing(self) -> None:
         self._change("created", at=DUE_AT - dt.timedelta(seconds=90))

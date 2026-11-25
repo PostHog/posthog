@@ -2,7 +2,9 @@
 
 Each check reads the issue changes recorded since the previous check, keeps the ones its triggers
 and filters match, and reports one firing group per issue. An issue with no new change in a later
-check resolves without a message, so the next matching change on it is announced again.
+check resolves without a message, so the next matching change on it is announced again. Each
+announcement starts a firing episode, and the platform threads messages by episode, so a later
+change on the same issue posts a new message rather than a reply.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same changes and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -50,17 +52,22 @@ from products.alerts_platform.backend.facade.lifecycle import (
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
-from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import (
+    BlockedWindow,
+    is_utc_datetime_blocked,
+    parse_blocked_windows_tuples,
+)
 from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
 from products.error_tracking.backend.logic.alerts import AlertValidationError, compile_alert_filters
 from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.lifecycle_events import status_label
-from products.error_tracking.backend.models import ErrorTrackingIssueChange
+from products.error_tracking.backend.models import ErrorTrackingIssueChange, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.platform_alerts.source_config import (
     ErrorTrackingPlatformAlertConfig,
     ErrorTrackingPlatformAlertTrigger,
 )
 from products.error_tracking.backend.platform_alerts.wording import (
+    FINGERPRINT_DETAIL,
     ISSUE_ID_LABEL,
     ISSUE_NAME_LABEL,
     TRIGGER_LABEL,
@@ -120,6 +127,7 @@ _TRIGGER_ROWS: Final[dict[ErrorTrackingPlatformAlertTrigger, Q]] = {
 }
 
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
+_CHECK_FAILED: Final = "The alert could not read the issue changes. It will try again at its next check."
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
@@ -162,7 +170,9 @@ def evaluate_error_tracking_alert_batch(team_id: int, slot: str, cutoff: datetim
         return SourceBatchEvaluation(outcomes=(), deliveries=())
     deadline = time.monotonic() + BATCH_BUDGET_SECONDS
     decided: list[Decision] = []
-    for check in checks:
+    # Start each tick at a different check, so one that never fits the budget cannot hold back the rest.
+    first = int(cutoff.timestamp() // 60) % len(checks)
+    for check in (*checks[first:], *checks[:first]):
         if time.monotonic() >= deadline:
             break
         decision = _evaluate(team, check, now=cutoff, deadline=deadline)
@@ -171,22 +181,36 @@ def evaluate_error_tracking_alert_batch(team_id: int, slot: str, cutoff: datetim
     return _collect(decided, team_id=team_id, slot=slot, unrecorded=len(checks) - len(decided))
 
 
-def change_window(check: PlatformAlertCheckInput, now: datetime) -> ChangeWindow:
+def change_window(
+    check: PlatformAlertCheckInput, now: datetime, *, tz_name: str, quiet_hours: list[BlockedWindow] | None
+) -> ChangeWindow:
     """The range one check reads.
 
-    It starts where the previous check's window ended, which is one interval before this check's due
-    time. A check that runs late reads everything since then, so a missed tick loses no change.
+    It starts where the previous reading check's window ended, a settle margin before that check's due
+    time. A check that runs late reads everything since then, so a missed tick loses no change. Two
+    kinds of earlier check read nothing, so the window reaches back over them: a failed one, counted
+    by the configuration's failures, and one in quiet hours, which the platform does not schedule.
     """
-    due = check.next_check_at or now
+    # On the minute, as every scheduled due time is: an edit moves it to an arbitrary second.
+    due = (check.next_check_at or now).replace(second=0, microsecond=0)
     end = now - SETTLE
-    start = due - timedelta(minutes=check.check_interval_minutes) - SETTLE
-    return ChangeWindow(start=max(start, end - MAX_WINDOW), end=end)
+    oldest = end - MAX_WINDOW
+    interval = timedelta(minutes=check.check_interval_minutes)
+    previous = due
+    for _ in range(1 + check.consecutive_failures):
+        previous -= interval
+        while previous > oldest and quiet_hours and is_utc_datetime_blocked(previous, tz_name, quiet_hours):
+            previous -= interval
+    return ChangeWindow(start=max(previous - SETTLE, oldest), end=end)
 
 
 def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime, deadline: float) -> Decision | None:
     """The check's decision, or None when it must keep its due time so a later tick reads its window again."""
-    window = change_window(check, now)
-    muted = _in_quiet_hours(check, now, team.timezone)
+    quiet_hours = _quiet_hours(check)
+    window = change_window(check, now, tz_name=team.timezone, quiet_hours=quiet_hours)
+    # The platform schedules no check in quiet hours, so one here came from an edit. It reads nothing,
+    # and the first check after them reads its changes.
+    muted = bool(quiet_hours) and is_utc_datetime_blocked(now, team.timezone, quiet_hours)
     try:
         config = ErrorTrackingPlatformAlertConfig.model_validate(check.source_config)
         filters = _compiled_filters(team, config)
@@ -194,14 +218,15 @@ def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime, dead
         # Saved through the same checks, so this is a config an older version accepted.
         return _failed(check, _INVALID_CONFIG, transient=False, end=window.end, now=now, muted=muted)
     try:
-        observations, cut = _observe_changes(team, config, filters, window, deadline=deadline)
+        observations, cut = ([], False) if muted else _observe_changes(team, config, filters, window, deadline=deadline)
+        fingerprints = _fingerprints(team.id, observations)
     except _OutOfTime:
         return None
     except Exception:
-        # Recording a failure would move the due time past this window, and its changes would never
-        # be read. The check stays due instead, and the overdue gauge shows one that keeps failing.
+        # Recorded so the alert shows the failure and can break. `change_window` reads this window
+        # again at the next check, because the failure count widens it.
         logger.exception("Error tracking alert check failed", check_id=str(check.id))
-        return None
+        return _failed(check, _CHECK_FAILED, transient=False, end=window.end, now=now, muted=muted)
     if cut:
         logger.warning("Error tracking alert check read its row limit", check_id=str(check.id))
 
@@ -220,6 +245,7 @@ def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime, dead
         query_duration_ms=None,
         results_cut=cut,
     )
+    recorded = _with_fingerprints(recorded, fingerprints)
     sends_messages = any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts)
     return recorded, _request(check, recorded, sends_messages=sends_messages)
 
@@ -286,6 +312,33 @@ def _trigger_of(row: ErrorTrackingIssueChange) -> ErrorTrackingPlatformAlertTrig
     return None
 
 
+def _fingerprints(team_id: int, observations: Sequence[GroupObservation]) -> dict[str, str]:
+    """One fingerprint per observed issue, which a message links by so the link survives a merge."""
+    issue_ids = [observation.labels[ISSUE_ID_LABEL] for observation in observations]
+    if not issue_ids:
+        return {}
+    rows = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        # The earliest fingerprint, as the native alerts pick it, so the pick is deterministic.
+        .order_by("issue_id", "first_seen", "id")
+        .distinct("issue_id")
+        .values_list("issue_id", "fingerprint")
+    )
+    return {str(issue_id): fingerprint for issue_id, fingerprint in rows}
+
+
+def _with_fingerprints(recorded: PlatformAlertOutcome, fingerprints: dict[str, str]) -> PlatformAlertOutcome:
+    if not fingerprints:
+        return recorded
+    groups = tuple(
+        replace(group, source_detail={**group.source_detail, FINGERPRINT_DETAIL: fingerprint})
+        if (fingerprint := fingerprints.get(group.labels.get(ISSUE_ID_LABEL, "")))
+        else group
+        for group in recorded.groups
+    )
+    return replace(recorded, groups=groups)
+
+
 def _compiled_filters(team: Team, config: ErrorTrackingPlatformAlertConfig) -> dict[str, Any] | None:
     filters = {"properties": config.filters.properties}
     if not filters_are_configured(filters):
@@ -350,13 +403,13 @@ def _exception_properties(team: Team, ref: "_ExceptionRef") -> dict[str, object]
         return None
 
 
-def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
+def _quiet_hours(check: PlatformAlertCheckInput) -> list[BlockedWindow] | None:
     try:
-        return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(check.schedule_restriction))
+        return parse_blocked_windows_tuples(check.schedule_restriction)
     except Exception:
         # A restriction that cannot be read must not hold back an announcement.
         logger.exception("Unparseable schedule restriction on an error tracking alert", check_id=str(check.id))
-        return False
+        return None
 
 
 def _evaluation_key(check: PlatformAlertCheckInput, end: datetime, now: datetime) -> str:
