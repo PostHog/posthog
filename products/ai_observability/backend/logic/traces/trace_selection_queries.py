@@ -319,39 +319,53 @@ def _rows_before_query(team: Team, selection: TraceSelection, before: TracePosit
     return query
 
 
+def _keyed_traces(team: Team, selection: TraceSelection) -> ast.SelectQuery:
+    query = parse_select(
+        "SELECT trace_id, first_timestamp, {sort_key_ms} AS sort_key FROM {traces} WHERE {quick_filter}",
+        placeholders={
+            "sort_key_ms": _sort_key_ms(selection),
+            "traces": _page_source(team, selection),
+            "quick_filter": _all(_quick_filter_fact(selection)),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def _rows_around_query(team: Team, selection: TraceSelection, trace_id: str, takes: AroundTakes) -> ast.SelectQuery:
-    # The selection's rows are grouped once, and the anchor's key is found among them once.
+    # The anchor's key is read first, so each side is a top-N read and no side sorts the whole selection. A missing
+    # anchor has a null key, which leaves the before side empty.
+    anchor = ast.Constant(value=trace_id)
+    anchor_sort_key = parse_select(
+        "SELECT sort_key FROM {keyed} WHERE trace_id = {anchor}",
+        placeholders={"keyed": _keyed_traces(team, selection), "anchor": anchor},
+    )
     query = parse_select(
         """
         SELECT before_anchor, trace_id, first_timestamp, sort_key
         FROM (
-            SELECT
-                before_anchor,
-                trace_id,
-                first_timestamp,
-                sort_key,
-                row_number() OVER (PARTITION BY before_anchor ORDER BY sort_key DESC, trace_id DESC) AS nearest_before,
-                row_number() OVER (PARTITION BY before_anchor ORDER BY sort_key ASC, trace_id ASC) AS nearest_from
-            FROM (
-                SELECT
-                    trace_id,
-                    first_timestamp,
-                    {sort_key_ms} AS sort_key,
-                    countIf(trace_id = {anchor}) OVER () > 0
-                        AND tuple(sort_key, trace_id) < anyIf(tuple(sort_key, trace_id), trace_id = {anchor}) OVER ()
-                        AS before_anchor
-                FROM {traces}
-                WHERE {quick_filter}
+            SELECT * FROM (
+                SELECT true AS before_anchor, trace_id, first_timestamp, sort_key
+                FROM {keyed}
+                WHERE tuple(sort_key, trace_id) < tuple({anchor_sort_key}, {anchor})
+                ORDER BY sort_key DESC, trace_id DESC
+                LIMIT {before}
+            )
+            UNION ALL
+            SELECT * FROM (
+                SELECT false AS before_anchor, trace_id, first_timestamp, sort_key
+                FROM {keyed}
+                WHERE isNull({anchor_sort_key}) OR tuple(sort_key, trace_id) >= tuple({anchor_sort_key}, {anchor})
+                ORDER BY sort_key ASC, trace_id ASC
+                LIMIT {from_anchor}
             )
         )
-        WHERE if(before_anchor, nearest_before <= {before}, nearest_from <= {from_anchor})
         LIMIT {both_sides}
         """,
         placeholders={
-            "sort_key_ms": _sort_key_ms(selection),
-            "anchor": ast.Constant(value=trace_id),
-            "traces": _page_source(team, selection),
-            "quick_filter": _all(_quick_filter_fact(selection)),
+            "keyed": _keyed_traces(team, selection),
+            "anchor_sort_key": anchor_sort_key,
+            "anchor": anchor,
             "before": ast.Constant(value=takes.before),
             "from_anchor": ast.Constant(value=takes.from_anchor),
             "both_sides": ast.Constant(value=takes.before + takes.from_anchor),

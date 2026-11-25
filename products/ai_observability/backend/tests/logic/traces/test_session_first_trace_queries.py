@@ -10,6 +10,7 @@ from posthog.models import Organization, Team
 from products.ai_observability.backend.logic.traces import session_first_trace_queries
 from products.ai_observability.backend.logic.traces.session_first_trace_queries import (
     SESSION_TITLE_TRACES_QUERY_NAME,
+    SessionFirstTrace,
     load_session_first_traces,
 )
 
@@ -71,6 +72,30 @@ class TestSessionFirstTraceQueries(ClickhouseTestMixin, BaseTest):
         )
 
         assert self._first() == "traced"
+
+    @parameterized.expand([("feedback", "$ai_feedback"), ("metric", "$ai_metric")])
+    def test_a_trace_named_only_on_an_activity_event_is_first_from_its_trace_events(
+        self, _name: str, activity_event: str
+    ) -> None:
+        seed(
+            self.team,
+            [
+                {**event("$ai_generation", "named-on-activity", 0), "distinct_id": "customer"},
+                {**event(activity_event, "named-on-activity", 3, "session-a"), "distinct_id": "reviewer"},
+                event("$ai_generation", "tagged", 1, "session-a"),
+            ],
+        )
+
+        firsts = load_session_first_traces(
+            self.team,
+            self.user,
+            ["session-a"],
+            since=at(-60),
+            include_support_traces=False,
+            name=SESSION_TITLE_TRACES_QUERY_NAME,
+        )
+
+        assert firsts == {"session-a": SessionFirstTrace(trace_id="named-on-activity", distinct_id="customer")}
 
     def test_a_trace_before_the_cutoff_is_not_read(self) -> None:
         seed(

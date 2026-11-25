@@ -8,10 +8,11 @@ from posthog.helpers.impersonation import is_impersonated
 
 from ...facade import api, contracts
 from .session_page import SESSION_PAGE_BAD_REQUEST, SessionPageRequestSerializer
+from .trace_page import ConversationReadThrottled
 from .trace_resource import THROTTLED_RESPONSE, TraceResourceViewSet
 
 
-class SessionPreviewsViewSet(TraceResourceViewSet):
+class SessionPreviewsViewSet(ConversationReadThrottled, TraceResourceViewSet):
     scope_object_read_actions = ["create"]
 
     @validated_request(
