@@ -2081,37 +2081,20 @@ def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> 
     with nothing to load stands down too. Someone asking for a sync has usually just changed something,
     and a run that stands down creates no job, so their sync would show as Running with nothing behind it.
     """
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    requested_at = timezone.now().isoformat()
 
-    now = timezone.now()
-    schema_ids = list(schema_ids)
-    source_ids = sorted(
-        set(ExternalDataSchema.objects.filter(id__in=schema_ids, team_id=team_id).values_list("source_id", flat=True))
-    )
-    # One transaction for the whole reload. The source rows are locked first, as `mark_cdc_broken` and
-    # `clear_broken_markers` lock them before their schemas, so neither can deadlock with this.
-    with transaction.atomic():
-        list(
-            ExternalDataSource.objects.select_for_update(of=("self",))
-            .filter(id__in=source_ids, team_id=team_id)
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
-        schemas = list(
-            ExternalDataSchema.objects.select_for_update()
-            .filter(id__in=schema_ids, team_id=team_id)
-            .order_by("id")
-            .only("id", "sync_type_config")
-        )
-        for schema in schemas:
-            config = schema.sync_type_config or {}
-            config[MANUAL_RUN_REQUESTED_AT_KEY] = now.isoformat()
-            streak = config.get(FAILURE_STREAK_KEY)
-            if isinstance(streak, dict):
-                streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
-            schema.sync_type_config = config
-            schema.updated_at = now
-        ExternalDataSchema.objects.bulk_update(schemas, ["sync_type_config", "updated_at"])
+    def _mark(config: dict[str, Any]) -> None:
+        config[MANUAL_RUN_REQUESTED_AT_KEY] = requested_at
+        streak = config.get(FAILURE_STREAK_KEY)
+        if isinstance(streak, dict):
+            streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
+
+    # One short transaction per schema. Holding a single row lock at a time cannot deadlock with the
+    # writers that lock a source and then its schemas.
+    for schema_id in ExternalDataSchema.objects.filter(id__in=list(schema_ids), team_id=team_id).values_list(
+        "id", flat=True
+    ):
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
 
 
 def persist_schema_metadata(
