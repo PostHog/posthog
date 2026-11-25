@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useInView } from 'react-intersection-observer'
+import { PostHogCaptureOnViewed } from 'posthog-js/react'
 
 import { Link } from '@posthog/lemon-ui'
 import { Button, Text } from '@posthog/quill'
@@ -21,14 +20,6 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { updateProjectRetention } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const { ref } = useInView({
-        triggerOnce: true,
-        onChange: (inView) => {
-            if (inView) {
-                posthog.capture('events retention settings viewed', { level: 'project' })
-            }
-        },
-    })
 
     if (!projectRetention) {
         return null
@@ -77,7 +68,11 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
 
     if (todayRailNav) {
         return (
-            <div ref={ref} className="flex flex-col gap-2">
+            <PostHogCaptureOnViewed
+                name="events-retention-settings"
+                properties={{ level: 'project' }}
+                className="flex flex-col gap-2"
+            >
                 <Text size="xs" variant="muted" render={<p className="m-0 max-w-160" />}>
                     Choose how long this project keeps events.{' '}
                     <Button
@@ -91,12 +86,12 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 </Text>
                 <EventsRetentionPlanNote plan={projectRetention} />
                 {periodSelect}
-            </div>
+            </PostHogCaptureOnViewed>
         )
     }
 
     return (
-        <div ref={ref}>
+        <PostHogCaptureOnViewed name="events-retention-settings" properties={{ level: 'project' }}>
             <p className="max-w-160 text-sm text-secondary mb-2">
                 Choose how long this project keeps events.{' '}
                 <Link to={projectRetention.docs_url} target="_blank">
@@ -105,6 +100,6 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
             </p>
             <EventsRetentionPlanNote plan={projectRetention} />
             {periodSelect}
-        </div>
+        </PostHogCaptureOnViewed>
     )
 }

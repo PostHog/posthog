@@ -12,8 +12,7 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "lucide-react": "^0.577.0",
-        "posthog-js": "catalog:",
-        "react-intersection-observer": "^9.16.0"
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
