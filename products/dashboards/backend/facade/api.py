@@ -1353,15 +1353,19 @@ def query_batch_stream(
     dashboard_id: int | None,
     client_query_id: str,
     asynchronous: bool,
+    traceparent: str | None = None,
 ) -> Iterator[bytes] | AsyncIterator[bytes]:
     """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
     then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
-    tiles, under the dashboard query limits. Raises `QueryBatchBusy` when the batch cannot be admitted."""
+    tiles, under the dashboard query limits. `client_query_id` is the prefix of each query's id, which adds the tile,
+    the refId and a short uuid. `traceparent` is tagged on every query the batch runs. Raises `QueryBatchBusy` when the
+    batch cannot be admitted."""
     batch = v2_query_batch.QueryBatch(
         team=team,
         user=user,
         inputs=inputs,
         dashboard_id=dashboard_id,
         client_query_id=client_query_id,
+        traceparent=traceparent,
     )
     return batch.astream() if asynchronous else batch.stream()

@@ -107344,6 +107344,11 @@ export namespace Schemas {
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
       cacheOnly?: boolean;
+      /**
+         * The tile this target belongs to. Only labels the query's run in the query log.
+         * @maxLength 64
+         */
+      tile?: string;
     }
 
     export interface QueryBatchRequest {

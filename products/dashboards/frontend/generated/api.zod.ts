@@ -392,6 +392,8 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemMaxDataPointsMax = 10000
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemSwrDefault = false
 export const dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault = false
+export const dashboardV2QueryBatchCreateBodyQueriesItemTileMax = 64
+
 export const dashboardV2QueryBatchCreateBodyQueriesMax = 500
 
 export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
@@ -461,6 +463,11 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .default(dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault)
                     .describe('Answer from the cache only, stale or not. Never runs or refreshes the query.'),
+                tile: zod
+                    .string()
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemTileMax)
+                    .optional()
+                    .describe("The tile this target belongs to. Only labels the query's run in the query log."),
             })
         )
         .max(dashboardV2QueryBatchCreateBodyQueriesMax)

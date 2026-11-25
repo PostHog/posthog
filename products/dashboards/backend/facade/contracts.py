@@ -461,3 +461,4 @@ class QueryBatchInput:
     swr: bool = False
     cache_only: bool = False
     max_data_points: int | None = None
+    tile: str | None = None
