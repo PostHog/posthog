@@ -3,9 +3,13 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import jwt
 import requests as req
 import responses
+from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -15,6 +19,7 @@ from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.authentication import BillingServiceAuthentication
 from ee.api.vercel.test.base import VERCEL_TEST_ACCESS_TOKEN, fake_vercel_token_endpoint
+from ee.api.vercel.vercel_proxy import forward_to_vercel
 from ee.models import License
 from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL
 
@@ -475,3 +480,28 @@ class TestBillingServiceAuthentication(BaseTest):
             self.auth.authenticate(request)
 
         assert "license" in str(context.exception.detail).lower()
+
+
+class TestForwardToVercelEndpointLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("allowlisted_path", "/billing/invoices", "/v1/installations/{id}/billing/invoices"),
+            ("invoice", "/billing/invoices/inv_example", "/v1/installations/{id}/billing/invoices/{id}/*"),
+            ("deeper_suffix", "/billing/invoices/inv_example/a/b", "/v1/installations/{id}/billing/invoices/{id}/*"),
+        ]
+    )
+    @responses.activate
+    def test_endpoint_label_is_bounded(self, _name: str, path: str, expected_endpoint: str) -> None:
+        responses.add(responses.GET, f"https://api.vercel.com/v1/installations/icfg_example{path}", json={})
+        labels = {
+            "installation": "icfg_example",
+            "method": "GET",
+            "endpoint": expected_endpoint,
+            "status_code": "200",
+            "source": "billing_proxy",
+        }
+        before = REGISTRY.get_sample_value("vercel_api_requests_total", labels) or 0
+
+        forward_to_vercel(config_id="icfg_example", access_token="vercel_token", path=path, method="GET", body={})
+
+        assert REGISTRY.get_sample_value("vercel_api_requests_total", labels) == before + 1

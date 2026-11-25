@@ -1266,9 +1266,11 @@ class TestVercelIntegration(TestCase):
             ("sync_autocreates", False, True, 1),
         ]
     )
+    @patch("ee.vercel.integration.VercelAPIClient")
     def test_safe_vercel_sync_only_autocreates_resource_on_sync(
-        self, _name, is_delete, should_create, expected_sync_calls
+        self, _name, is_delete, should_create, expected_sync_calls, _mock_client
     ):
+        fake_vercel_token_endpoint(self)
         team = Team.objects.create(organization=self.organization, name="No Resource Team")
         sync_func = Mock()
 

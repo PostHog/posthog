@@ -62,6 +62,13 @@ class VercelProxyRequestSerializer(serializers.Serializer):
         return normalized
 
 
+def proxy_endpoint_label(path: str) -> str:
+    if path in ALLOWED_VERCEL_PATHS:
+        return f"/v1/installations/{{id}}{path}"
+    # Anything else matched an allowlisted prefix, and the billing service chooses the rest of the path.
+    return "/v1/installations/{id}/billing/invoices/{id}/*"
+
+
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
     url = f"{VERCEL_API_BASE_URL}/v1/installations/{config_id}{path}"
 
@@ -75,6 +82,7 @@ def forward_to_vercel(config_id: str, access_token: str, path: str, method: str,
         url,
         source="billing_proxy",
         installation_id=config_id,
+        endpoint=proxy_endpoint_label(path),
         headers=headers,
         data=json.dumps(body) if body else None,
         timeout=REQUEST_TIMEOUT_SECONDS,
