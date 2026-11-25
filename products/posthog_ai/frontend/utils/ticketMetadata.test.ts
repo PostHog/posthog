@@ -1,9 +1,16 @@
+import { preflightLogic } from 'lib/logic/preflightLogic'
+
+import { initKeaTests } from '~/test/init'
+import type { PreflightStatus } from '~/types'
+import { Region } from '~/types'
+
 import { appendTicketMetadata, feedbackContextUrl } from './ticketMetadata'
 
 describe('ticketMetadata', () => {
     const originalAppContext = window.POSTHOG_APP_CONTEXT
 
     beforeEach(() => {
+        initKeaTests()
         window.POSTHOG_APP_CONTEXT = { current_team: { id: 2 } } as unknown as typeof window.POSTHOG_APP_CONTEXT
     })
 
@@ -21,6 +28,32 @@ describe('ticketMetadata', () => {
             })
         ).toBe('http://localhost/project/2/ai-observability/traces/trace-1')
     })
+
+    it.each([Region.US, Region.EU])(
+        'links Cloud answer traces to the telemetry project from a %s customer project',
+        (region) => {
+            window.POSTHOG_APP_CONTEXT = { current_team: { id: 4242 } } as unknown as typeof window.POSTHOG_APP_CONTEXT
+            preflightLogic.mount()
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true, region } as PreflightStatus)
+
+            expect(
+                feedbackContextUrl({
+                    sessionId: 'task-1',
+                    sessionKind: 'task',
+                    traceId: 'trace-1',
+                    run: { taskId: 'task-1', runId: 'run-1' },
+                })
+            ).toBe('https://us.posthog.com/project/2/ai-observability/traces/trace-1')
+            expect(
+                feedbackContextUrl({
+                    sessionId: 'task-1',
+                    sessionKind: 'task',
+                    traceId: null,
+                    run: { taskId: 'task-1', runId: 'run-1' },
+                })
+            ).toBe('http://localhost/project/4242/ai?task=task-1&runId=run-1')
+        }
+    )
 
     it('falls back to the specific task run when the answer has no trace', () => {
         expect(

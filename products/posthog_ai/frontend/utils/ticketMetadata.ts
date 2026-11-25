@@ -1,8 +1,19 @@
 import { combineUrl } from 'kea-router'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { urls } from 'scenes/urls'
 
 export type FeedbackSessionKind = 'conversation' | 'task'
+
+// On Cloud, the LLM gateway captures PostHog AI generations in this project; the EU gateway mirrors them here too.
+const CLOUD_TELEMETRY_PROJECT_URL = 'https://us.posthog.com/project/2'
+
+function answerTraceUrl(traceId: string): string {
+    if (preflightLogic.findMounted()?.values.isCloud) {
+        return `${CLOUD_TELEMETRY_PROJECT_URL}${urls.aiObservabilityTrace(traceId)}`
+    }
+    return urls.absolute(urls.currentProject(urls.aiObservabilityTrace(traceId)))
+}
 
 /** Returns a direct answer trace link, or the closest available AI session link. */
 export function feedbackContextUrl({
@@ -16,11 +27,13 @@ export function feedbackContextUrl({
     traceId: string | null
     run?: { taskId?: string; runId?: string }
 }): string {
-    const path = traceId
-        ? urls.aiObservabilityTrace(traceId)
-        : run?.taskId || sessionKind === 'task'
-          ? combineUrl(urls.aiTask(run?.taskId ?? sessionId), run?.runId ? { runId: run.runId } : {}).url
-          : urls.ai(sessionId)
+    if (traceId) {
+        return answerTraceUrl(traceId)
+    }
+    const path =
+        run?.taskId || sessionKind === 'task'
+            ? combineUrl(urls.aiTask(run?.taskId ?? sessionId), run?.runId ? { runId: run.runId } : {}).url
+            : urls.ai(sessionId)
 
     return urls.absolute(urls.currentProject(path))
 }
