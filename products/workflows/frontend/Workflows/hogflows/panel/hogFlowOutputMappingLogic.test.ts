@@ -604,6 +604,9 @@ describe('hogFlowOutputMappingLogic', () => {
                 logic.actions.setAgentField(1, name)
 
                 expect(logic.values.mappings).toEqual(mappings)
+                expect(wfLogic.values.workflow.actions.find((a) => a.id === 'action-collision')?.output_variable).toBe(
+                    undefined
+                )
                 expect(wfLogic.values.workflow.variables).toEqual(variables)
             })
         })
