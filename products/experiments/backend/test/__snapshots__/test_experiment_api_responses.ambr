@@ -1,0 +1,1843 @@
+# serializer version: 1
+# name: TestExperimentApiResponses.test_list_returns_the_recorded_response
+  '''
+  {
+    "count": 4,
+    "next": null,
+    "previous": null,
+    "results": [
+      {
+        "id": "<results.id 1>",
+        "name": "In staging",
+        "description": null,
+        "start_date": null,
+        "end_date": null,
+        "feature_flag_key": "staging-flag",
+        "feature_flag": {
+          "id": "<feature_flag.id 1>",
+          "team_id": "<feature_flag.team_id 1>",
+          "name": "",
+          "key": "staging-flag",
+          "filters": {
+            "groups": []
+          },
+          "deleted": false,
+          "active": true,
+          "ensure_experience_continuity": false,
+          "version": 1,
+          "evaluation_runtime": "all",
+          "bucketing_identifier": "distinct_id",
+          "evaluation_contexts": []
+        },
+        "holdout": null,
+        "exposure_cohort": null,
+        "parameters": {
+          "feature_flag_variants": [],
+          "ensure_experience_continuity": false
+        },
+        "running_time_calculation": {},
+        "excluded_variants": null,
+        "archived": false,
+        "deleted": null,
+        "created_by": null,
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "type": "product",
+        "conclusion": null,
+        "conclusion_comment": null,
+        "status": "draft",
+        "is_legacy": false,
+        "user_access_level": "editor",
+        "tags": []
+      },
+      {
+        "id": "<results.id 2>",
+        "name": "Launched",
+        "description": null,
+        "start_date": "2026-02-27T09:30:00Z",
+        "end_date": null,
+        "feature_flag_key": "launched-flag",
+        "feature_flag": {
+          "id": "<feature_flag.id 2>",
+          "team_id": "<feature_flag.team_id 2>",
+          "name": "",
+          "key": "launched-flag",
+          "filters": {
+            "groups": []
+          },
+          "deleted": false,
+          "active": true,
+          "ensure_experience_continuity": false,
+          "version": 1,
+          "evaluation_runtime": "all",
+          "bucketing_identifier": "distinct_id",
+          "evaluation_contexts": []
+        },
+        "holdout": null,
+        "exposure_cohort": null,
+        "parameters": {
+          "feature_flag_variants": [],
+          "ensure_experience_continuity": false
+        },
+        "running_time_calculation": {},
+        "excluded_variants": null,
+        "archived": false,
+        "deleted": false,
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "type": "product",
+        "conclusion": null,
+        "conclusion_comment": null,
+        "status": "running",
+        "is_legacy": false,
+        "user_access_level": "manager",
+        "tags": []
+      },
+      {
+        "id": "<results.id 3>",
+        "name": "On a rule",
+        "description": null,
+        "start_date": null,
+        "end_date": null,
+        "feature_flag_key": "flag-with-rules",
+        "feature_flag": {
+          "id": "<feature_flag.id 3>",
+          "team_id": "<feature_flag.team_id 2>",
+          "name": "",
+          "key": "flag-with-rules",
+          "filters": {
+            "rules": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "seed": "seed-11111111-1111-4111-8111-111111111111",
+                "paused": false,
+                "variants": [
+                  {
+                    "key": "control",
+                    "value": false,
+                    "weight": 50
+                  },
+                  {
+                    "key": "test",
+                    "value": true,
+                    "weight": 50
+                  }
+                ],
+                "rule_type": "experiment",
+                "targeting": {
+                  "properties": []
+                },
+                "on_rollout_miss": "continue",
+                "rollout_percentage": 80,
+                "assignment_algorithm": "sha1_60_v1"
+              }
+            ],
+            "version": 2,
+            "return_type": "boolean",
+            "default_value": false
+          },
+          "deleted": false,
+          "active": true,
+          "ensure_experience_continuity": false,
+          "version": 1,
+          "evaluation_runtime": "all",
+          "bucketing_identifier": "distinct_id",
+          "evaluation_contexts": []
+        },
+        "holdout": null,
+        "exposure_cohort": null,
+        "parameters": {
+          "feature_flag_variants": [
+            {
+              "key": "control",
+              "rollout_percentage": 50,
+              "split_percent": 50
+            },
+            {
+              "key": "test",
+              "rollout_percentage": 50,
+              "split_percent": 50
+            }
+          ],
+          "rollout_percentage": 80,
+          "ensure_experience_continuity": false
+        },
+        "running_time_calculation": {},
+        "excluded_variants": null,
+        "archived": false,
+        "deleted": false,
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "type": "product",
+        "conclusion": null,
+        "conclusion_comment": null,
+        "status": "draft",
+        "is_legacy": false,
+        "user_access_level": "manager",
+        "tags": []
+      },
+      {
+        "id": "<results.id 4>",
+        "name": "Populated 0",
+        "description": "A red button converts better.",
+        "start_date": "2026-01-05T10:00:00Z",
+        "end_date": "2026-02-05T10:00:00Z",
+        "feature_flag_key": "populated-flag-0",
+        "feature_flag": {
+          "id": "<feature_flag.id 4>",
+          "team_id": "<feature_flag.team_id 2>",
+          "name": "",
+          "key": "populated-flag-0",
+          "filters": {
+            "groups": [
+              {
+                "properties": [],
+                "rollout_percentage": 75
+              }
+            ],
+            "payloads": {
+              "test": "{\"color\": \"red\"}"
+            },
+            "multivariate": {
+              "variants": [
+                {
+                  "key": "control",
+                  "rollout_percentage": 50
+                },
+                {
+                  "key": "test",
+                  "rollout_percentage": 50
+                }
+              ]
+            },
+            "aggregation_group_type_index": 0
+          },
+          "deleted": false,
+          "active": true,
+          "ensure_experience_continuity": false,
+          "version": 1,
+          "evaluation_runtime": "all",
+          "bucketing_identifier": "distinct_id",
+          "evaluation_contexts": [
+            "context-0"
+          ]
+        },
+        "holdout": {
+          "id": "<holdout.id 1>",
+          "name": "Holdout 0",
+          "description": null,
+          "filters": [
+            {
+              "variant": "holdout-0",
+              "properties": [],
+              "rollout_percentage": 10
+            }
+          ],
+          "created_by": {
+            "id": "<created_by.id 1>",
+            "uuid": "<created_by.uuid 1>",
+            "distinct_id": "<created_by.distinct_id 1>",
+            "first_name": "",
+            "last_name": "",
+            "email": "user1@posthog.com",
+            "is_email_verified": null,
+            "hedgehog_config": null,
+            "role_at_organization": null
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "updated_at": "2026-03-02T09:30:00Z",
+          "user_access_level": "manager"
+        },
+        "exposure_cohort": "<results.exposure_cohort 1>",
+        "parameters": {
+          "variant_notes": {
+            "test": "Red button"
+          },
+          "rollout_percentage": 75,
+          "feature_flag_variants": [
+            {
+              "key": "control",
+              "rollout_percentage": 50,
+              "split_percent": 50
+            },
+            {
+              "key": "test",
+              "rollout_percentage": 50,
+              "split_percent": 50
+            }
+          ],
+          "aggregation_group_type_index": 0,
+          "feature_flag_payloads": {
+            "test": "{\"color\": \"red\"}"
+          },
+          "ensure_experience_continuity": false
+        },
+        "running_time_calculation": {
+          "minimum_detectable_effect": 5
+        },
+        "excluded_variants": [
+          "test"
+        ],
+        "archived": false,
+        "deleted": false,
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "type": "web",
+        "conclusion": "won",
+        "conclusion_comment": "Clear win.",
+        "status": "stopped",
+        "is_legacy": true,
+        "user_access_level": "manager",
+        "tags": [
+          "growth",
+          "pricing"
+        ]
+      }
+    ]
+  }
+  '''
+# ---
+# name: TestExperimentApiResponses.test_retrieve_returns_the_recorded_response_0_fully_populated
+  '''
+  {
+    "id": "<.id 1>",
+    "name": "Populated 0",
+    "description": "A red button converts better.",
+    "start_date": "2026-01-05T10:00:00Z",
+    "end_date": "2026-02-05T10:00:00Z",
+    "feature_flag_key": "populated-flag-0",
+    "feature_flag": {
+      "id": "<feature_flag.id 1>",
+      "team_id": "<feature_flag.team_id 1>",
+      "name": "",
+      "key": "populated-flag-0",
+      "filters": {
+        "groups": [
+          {
+            "properties": [],
+            "rollout_percentage": 75
+          }
+        ],
+        "payloads": {
+          "test": "{\"color\": \"red\"}"
+        },
+        "multivariate": {
+          "variants": [
+            {
+              "key": "control",
+              "rollout_percentage": 50
+            },
+            {
+              "key": "test",
+              "rollout_percentage": 50
+            }
+          ]
+        },
+        "aggregation_group_type_index": 0
+      },
+      "deleted": false,
+      "active": true,
+      "ensure_experience_continuity": false,
+      "version": 1,
+      "evaluation_runtime": "all",
+      "bucketing_identifier": "distinct_id",
+      "evaluation_contexts": [
+        "context-0"
+      ]
+    },
+    "feature_flag_rule_id": null,
+    "holdout": {
+      "id": "<holdout.id 1>",
+      "name": "Holdout 0",
+      "description": null,
+      "filters": [
+        {
+          "variant": "holdout-0",
+          "properties": [],
+          "rollout_percentage": 10
+        }
+      ],
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "user_access_level": "manager"
+    },
+    "holdout_id": "<.holdout_id 1>",
+    "exposure_cohort": "<.exposure_cohort 1>",
+    "parameters": {
+      "variant_notes": {
+        "test": "Red button"
+      },
+      "rollout_percentage": 75,
+      "feature_flag_variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50,
+          "split_percent": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50,
+          "split_percent": 50
+        }
+      ],
+      "aggregation_group_type_index": 0,
+      "feature_flag_payloads": {
+        "test": "{\"color\": \"red\"}"
+      },
+      "ensure_experience_continuity": false
+    },
+    "running_time_calculation": {
+      "minimum_detectable_effect": 5
+    },
+    "excluded_variants": [
+      "test"
+    ],
+    "secondary_metrics": [
+      {
+        "name": "Old secondary"
+      }
+    ],
+    "saved_metrics": [
+      {
+        "id": "<saved_metrics.id 1>",
+        "experiment": "<saved_metrics.experiment 1>",
+        "saved_metric": "<saved_metrics.saved_metric 1>",
+        "metadata": {
+          "type": "primary",
+          "breakdowns": [
+            {
+              "type": "event",
+              "property": "$browser"
+            }
+          ]
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "query": {
+          "kind": "ExperimentMetric",
+          "uuid": "<query.uuid 1>",
+          "source": {
+            "id": "<source.id 1>",
+            "kind": "ActionsNode",
+            "name": "Signed up 0"
+          },
+          "metric_type": "mean",
+          "fingerprint": "<query.fingerprint 1>"
+        },
+        "name": "Saved 0",
+        "effective_query": {
+          "kind": "ExperimentMetric",
+          "uuid": "<effective_query.uuid 1>",
+          "source": {
+            "id": "<source.id 1>",
+            "kind": "ActionsNode",
+            "name": "Signed up 0"
+          },
+          "metric_type": "mean",
+          "fingerprint": "<effective_query.fingerprint 1>",
+          "breakdownFilter": {
+            "breakdowns": [
+              {
+                "type": "event",
+                "property": "$browser"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "<saved_metrics.id 2>",
+        "experiment": "<saved_metrics.experiment 1>",
+        "saved_metric": "<saved_metrics.saved_metric 2>",
+        "metadata": {
+          "type": "secondary"
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "query": {
+          "kind": "ExperimentFunnelsQuery",
+          "fingerprint": "<query.fingerprint 2>"
+        },
+        "name": "Legacy 0",
+        "effective_query": null
+      }
+    ],
+    "saved_metrics_ids": null,
+    "filters": {
+      "events": [
+        {
+          "id": "$pageview",
+          "order": 0
+        }
+      ]
+    },
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+      "id": "<created_by.id 1>",
+      "uuid": "<created_by.uuid 1>",
+      "distinct_id": "<created_by.distinct_id 1>",
+      "first_name": "",
+      "last_name": "",
+      "email": "user1@posthog.com",
+      "is_email_verified": null,
+      "hedgehog_config": null,
+      "role_at_organization": null
+    },
+    "created_at": "2026-03-02T09:30:00Z",
+    "updated_at": "2026-03-02T09:30:00Z",
+    "type": "web",
+    "exposure_criteria": {
+      "filterTestAccounts": true
+    },
+    "metrics": [
+      {
+        "kind": "ExperimentMetric",
+        "uuid": "<metrics.uuid 1>",
+        "source": {
+          "id": "<source.id 1>",
+          "kind": "ActionsNode",
+          "name": "Signed up 0"
+        },
+        "metric_type": "mean"
+      }
+    ],
+    "metrics_secondary": [
+      {
+        "kind": "ExperimentMetric",
+        "uuid": "<metrics_secondary.uuid 1>",
+        "source": {
+          "id": "<source.id 1>",
+          "kind": "ActionsNode",
+          "name": "Signed up 0"
+        },
+        "metric_type": "mean"
+      }
+    ],
+    "stats_config": {
+      "method": "bayesian"
+    },
+    "scheduling_config": {
+      "timeseries": true
+    },
+    "conclusion": "won",
+    "conclusion_comment": "Clear win.",
+    "flag_cleanup_task_id": "<.flag_cleanup_task_id 1>",
+    "repository": "posthog/posthog",
+    "primary_metrics_ordered_uuids": [
+      "action-metric-0"
+    ],
+    "secondary_metrics_ordered_uuids": null,
+    "only_count_matured_users": true,
+    "version": 3,
+    "status": "stopped",
+    "is_legacy": true,
+    "can_freeze_exposure": false,
+    "resolved_exposure_event": "$feature_flag_called",
+    "health": null,
+    "user_access_level": "manager",
+    "tags": [
+      "growth",
+      "pricing"
+    ]
+  }
+  '''
+# ---
+# name: TestExperimentApiResponses.test_retrieve_returns_the_recorded_response_1_rule_linked_draft
+  '''
+  {
+    "id": "<.id 1>",
+    "name": "On a rule",
+    "description": null,
+    "start_date": null,
+    "end_date": null,
+    "feature_flag_key": "flag-with-rules",
+    "feature_flag": {
+      "id": "<feature_flag.id 1>",
+      "team_id": "<feature_flag.team_id 1>",
+      "name": "",
+      "key": "flag-with-rules",
+      "filters": {
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "seed": "seed-11111111-1111-4111-8111-111111111111",
+            "paused": false,
+            "variants": [
+              {
+                "key": "control",
+                "value": false,
+                "weight": 50
+              },
+              {
+                "key": "test",
+                "value": true,
+                "weight": 50
+              }
+            ],
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "on_rollout_miss": "continue",
+            "rollout_percentage": 80,
+            "assignment_algorithm": "sha1_60_v1"
+          }
+        ],
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": false
+      },
+      "deleted": false,
+      "active": true,
+      "ensure_experience_continuity": false,
+      "version": 1,
+      "evaluation_runtime": "all",
+      "bucketing_identifier": "distinct_id",
+      "evaluation_contexts": []
+    },
+    "feature_flag_rule_id": "11111111-1111-4111-8111-111111111111",
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+      "feature_flag_variants": [
+        {
+          "key": "control",
+          "rollout_percentage": 50,
+          "split_percent": 50
+        },
+        {
+          "key": "test",
+          "rollout_percentage": 50,
+          "split_percent": 50
+        }
+      ],
+      "rollout_percentage": 80,
+      "ensure_experience_continuity": false
+    },
+    "running_time_calculation": {},
+    "excluded_variants": null,
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+      "id": "<created_by.id 1>",
+      "uuid": "<created_by.uuid 1>",
+      "distinct_id": "<created_by.distinct_id 1>",
+      "first_name": "",
+      "last_name": "",
+      "email": "user1@posthog.com",
+      "is_email_verified": null,
+      "hedgehog_config": null,
+      "role_at_organization": null
+    },
+    "created_at": "2026-03-02T09:30:00Z",
+    "updated_at": "2026-03-02T09:30:00Z",
+    "type": "product",
+    "exposure_criteria": {},
+    "metrics": [],
+    "metrics_secondary": [],
+    "stats_config": {},
+    "scheduling_config": {},
+    "conclusion": null,
+    "conclusion_comment": null,
+    "flag_cleanup_task_id": null,
+    "repository": null,
+    "primary_metrics_ordered_uuids": null,
+    "secondary_metrics_ordered_uuids": null,
+    "only_count_matured_users": false,
+    "version": 0,
+    "status": "draft",
+    "is_legacy": false,
+    "can_freeze_exposure": false,
+    "resolved_exposure_event": "$experiment_exposure",
+    "health": null,
+    "user_access_level": "manager",
+    "tags": []
+  }
+  '''
+# ---
+# name: TestExperimentApiResponses.test_retrieve_returns_the_recorded_response_2_launched
+  '''
+  {
+    "id": "<.id 1>",
+    "name": "Launched",
+    "description": null,
+    "start_date": "2026-02-27T09:30:00Z",
+    "end_date": null,
+    "feature_flag_key": "launched-flag",
+    "feature_flag": {
+      "id": "<feature_flag.id 1>",
+      "team_id": "<feature_flag.team_id 1>",
+      "name": "",
+      "key": "launched-flag",
+      "filters": {
+        "groups": []
+      },
+      "deleted": false,
+      "active": true,
+      "ensure_experience_continuity": false,
+      "version": 1,
+      "evaluation_runtime": "all",
+      "bucketing_identifier": "distinct_id",
+      "evaluation_contexts": []
+    },
+    "feature_flag_rule_id": null,
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+      "feature_flag_variants": [],
+      "ensure_experience_continuity": false
+    },
+    "running_time_calculation": {},
+    "excluded_variants": null,
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+      "id": "<created_by.id 1>",
+      "uuid": "<created_by.uuid 1>",
+      "distinct_id": "<created_by.distinct_id 1>",
+      "first_name": "",
+      "last_name": "",
+      "email": "user1@posthog.com",
+      "is_email_verified": null,
+      "hedgehog_config": null,
+      "role_at_organization": null
+    },
+    "created_at": "2026-03-02T09:30:00Z",
+    "updated_at": "2026-03-02T09:30:00Z",
+    "type": "product",
+    "exposure_criteria": {},
+    "metrics": [],
+    "metrics_secondary": [],
+    "stats_config": {},
+    "scheduling_config": {},
+    "conclusion": null,
+    "conclusion_comment": null,
+    "flag_cleanup_task_id": null,
+    "repository": null,
+    "primary_metrics_ordered_uuids": null,
+    "secondary_metrics_ordered_uuids": null,
+    "only_count_matured_users": false,
+    "version": 0,
+    "status": "running",
+    "is_legacy": false,
+    "can_freeze_exposure": false,
+    "resolved_exposure_event": "$feature_flag_called",
+    "health": null,
+    "user_access_level": "manager",
+    "tags": []
+  }
+  '''
+# ---
+# name: TestExperimentApiResponses.test_retrieve_returns_the_recorded_response_3_null_deleted_in_another_environment
+  '''
+  {
+    "id": "<.id 1>",
+    "name": "In staging",
+    "description": null,
+    "start_date": null,
+    "end_date": null,
+    "feature_flag_key": "staging-flag",
+    "feature_flag": {
+      "id": "<feature_flag.id 1>",
+      "team_id": "<feature_flag.team_id 1>",
+      "name": "",
+      "key": "staging-flag",
+      "filters": {
+        "groups": []
+      },
+      "deleted": false,
+      "active": true,
+      "ensure_experience_continuity": false,
+      "version": 1,
+      "evaluation_runtime": "all",
+      "bucketing_identifier": "distinct_id",
+      "evaluation_contexts": []
+    },
+    "feature_flag_rule_id": null,
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+      "feature_flag_variants": [],
+      "ensure_experience_continuity": false
+    },
+    "running_time_calculation": {},
+    "excluded_variants": null,
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": null,
+    "created_by": null,
+    "created_at": "2026-03-02T09:30:00Z",
+    "updated_at": "2026-03-02T09:30:00Z",
+    "type": "product",
+    "exposure_criteria": {},
+    "metrics": [],
+    "metrics_secondary": [],
+    "stats_config": {},
+    "scheduling_config": {},
+    "conclusion": null,
+    "conclusion_comment": null,
+    "flag_cleanup_task_id": null,
+    "repository": null,
+    "primary_metrics_ordered_uuids": null,
+    "secondary_metrics_ordered_uuids": null,
+    "only_count_matured_users": false,
+    "version": 0,
+    "status": "draft",
+    "is_legacy": false,
+    "can_freeze_exposure": false,
+    "resolved_exposure_event": "$feature_flag_called",
+    "health": null,
+    "user_access_level": "editor",
+    "tags": []
+  }
+  '''
+# ---
+# name: TestExperimentApiResponses.test_write_responses_match_the_recorded_responses
+  '''
+  {
+    "create": {
+      "id": "<create.id 1>",
+      "name": "Checkout button",
+      "description": "",
+      "start_date": null,
+      "end_date": null,
+      "feature_flag_key": "checkout-button",
+      "feature_flag": {
+        "id": "<feature_flag.id 1>",
+        "team_id": "<feature_flag.team_id 1>",
+        "name": "Feature Flag for Experiment Checkout button",
+        "key": "checkout-button",
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 100,
+              "aggregation_group_type_index": null
+            }
+          ],
+          "holdout": {
+            "id": "<holdout.id 1>",
+            "exclusion_percentage": 10
+          },
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "name": "Control Group",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "name": "Test Variant",
+                "rollout_percentage": 50
+              }
+            ]
+          },
+          "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": false,
+        "ensure_experience_continuity": false,
+        "version": 1,
+        "evaluation_runtime": "all",
+        "bucketing_identifier": "distinct_id",
+        "evaluation_contexts": []
+      },
+      "feature_flag_rule_id": null,
+      "holdout": {
+        "id": "<holdout.id 1>",
+        "name": "Holdout",
+        "description": null,
+        "filters": [
+          {
+            "properties": [],
+            "rollout_percentage": 10
+          }
+        ],
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "user_access_level": "manager"
+      },
+      "holdout_id": "<create.holdout_id 1>",
+      "exposure_cohort": null,
+      "parameters": {
+        "variant_notes": {
+          "test": "Green button"
+        },
+        "feature_flag_variants": [
+          {
+            "key": "control",
+            "name": "Control Group",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          },
+          {
+            "key": "test",
+            "name": "Test Variant",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          }
+        ],
+        "rollout_percentage": 100,
+        "ensure_experience_continuity": false
+      },
+      "running_time_calculation": {},
+      "excluded_variants": null,
+      "secondary_metrics": [],
+      "saved_metrics": [
+        {
+          "id": "<saved_metrics.id 1>",
+          "experiment": "<saved_metrics.experiment 1>",
+          "saved_metric": "<saved_metrics.saved_metric 1>",
+          "metadata": {
+            "type": "secondary"
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<query.fingerprint 1>"
+          },
+          "name": "Revenue",
+          "effective_query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<effective_query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<effective_query.fingerprint 1>",
+            "breakdownFilter": {
+              "breakdowns": []
+            }
+          }
+        }
+      ],
+      "saved_metrics_ids": null,
+      "filters": {},
+      "archived": false,
+      "deleted": false,
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "type": "product",
+      "exposure_criteria": {
+        "filterTestAccounts": true
+      },
+      "metrics": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics.uuid 1>",
+          "source": {
+            "kind": "EventsNode",
+            "event": "checkout"
+          },
+          "fingerprint": "<metrics.fingerprint 1>",
+          "metric_type": "mean"
+        }
+      ],
+      "metrics_secondary": [],
+      "stats_config": {
+        "method": "bayesian"
+      },
+      "scheduling_config": null,
+      "conclusion": null,
+      "conclusion_comment": null,
+      "flag_cleanup_task_id": null,
+      "repository": null,
+      "primary_metrics_ordered_uuids": null,
+      "secondary_metrics_ordered_uuids": null,
+      "only_count_matured_users": false,
+      "version": 0,
+      "status": "draft",
+      "is_legacy": false,
+      "can_freeze_exposure": false,
+      "resolved_exposure_event": "$feature_flag_called",
+      "health": null,
+      "user_access_level": "manager",
+      "tags": [
+        "checkout"
+      ]
+    },
+    "update": {
+      "id": "<update.id 1>",
+      "name": "Checkout button",
+      "description": "A green button converts better.",
+      "start_date": null,
+      "end_date": null,
+      "feature_flag_key": "checkout-button",
+      "feature_flag": {
+        "id": "<feature_flag.id 1>",
+        "team_id": "<feature_flag.team_id 1>",
+        "name": "Feature Flag for Experiment Checkout button",
+        "key": "checkout-button",
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 100,
+              "aggregation_group_type_index": null
+            }
+          ],
+          "holdout": {
+            "id": "<holdout.id 1>",
+            "exclusion_percentage": 10
+          },
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "name": "Control Group",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "name": "Test Variant",
+                "rollout_percentage": 50
+              }
+            ]
+          },
+          "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": false,
+        "ensure_experience_continuity": false,
+        "version": 1,
+        "evaluation_runtime": "all",
+        "bucketing_identifier": "distinct_id",
+        "evaluation_contexts": []
+      },
+      "feature_flag_rule_id": null,
+      "holdout": {
+        "id": "<holdout.id 1>",
+        "name": "Holdout",
+        "description": null,
+        "filters": [
+          {
+            "properties": [],
+            "rollout_percentage": 10
+          }
+        ],
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "user_access_level": "manager"
+      },
+      "holdout_id": "<update.holdout_id 1>",
+      "exposure_cohort": null,
+      "parameters": {
+        "variant_notes": {
+          "test": "Green button"
+        },
+        "feature_flag_variants": [
+          {
+            "key": "control",
+            "name": "Control Group",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          },
+          {
+            "key": "test",
+            "name": "Test Variant",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          }
+        ],
+        "rollout_percentage": 100,
+        "ensure_experience_continuity": false
+      },
+      "running_time_calculation": {},
+      "excluded_variants": null,
+      "secondary_metrics": [],
+      "saved_metrics": [
+        {
+          "id": "<saved_metrics.id 1>",
+          "experiment": "<saved_metrics.experiment 1>",
+          "saved_metric": "<saved_metrics.saved_metric 1>",
+          "metadata": {
+            "type": "secondary"
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<query.fingerprint 1>"
+          },
+          "name": "Revenue",
+          "effective_query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<effective_query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<effective_query.fingerprint 1>",
+            "breakdownFilter": {
+              "breakdowns": []
+            }
+          }
+        }
+      ],
+      "saved_metrics_ids": null,
+      "filters": {},
+      "archived": false,
+      "deleted": false,
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "type": "product",
+      "exposure_criteria": {
+        "filterTestAccounts": true
+      },
+      "metrics": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics.uuid 1>",
+          "source": {
+            "kind": "EventsNode",
+            "event": "checkout"
+          },
+          "fingerprint": "<metrics.fingerprint 1>",
+          "metric_type": "mean"
+        }
+      ],
+      "metrics_secondary": [],
+      "stats_config": {
+        "method": "bayesian"
+      },
+      "scheduling_config": null,
+      "conclusion": null,
+      "conclusion_comment": null,
+      "flag_cleanup_task_id": null,
+      "repository": null,
+      "primary_metrics_ordered_uuids": null,
+      "secondary_metrics_ordered_uuids": null,
+      "only_count_matured_users": false,
+      "version": 1,
+      "status": "draft",
+      "is_legacy": false,
+      "can_freeze_exposure": false,
+      "resolved_exposure_event": "$feature_flag_called",
+      "health": null,
+      "user_access_level": "manager",
+      "tags": [
+        "checkout"
+      ]
+    },
+    "launch": {
+      "id": "<launch.id 1>",
+      "name": "Checkout button",
+      "description": "A green button converts better.",
+      "start_date": "2026-03-02T09:30:00Z",
+      "end_date": null,
+      "feature_flag_key": "checkout-button",
+      "feature_flag": {
+        "id": "<feature_flag.id 1>",
+        "team_id": "<feature_flag.team_id 1>",
+        "name": "Feature Flag for Experiment Checkout button",
+        "key": "checkout-button",
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 100,
+              "aggregation_group_type_index": null
+            }
+          ],
+          "holdout": {
+            "id": "<holdout.id 1>",
+            "exclusion_percentage": 10
+          },
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "name": "Control Group",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "name": "Test Variant",
+                "rollout_percentage": 50
+              }
+            ]
+          },
+          "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false,
+        "version": 2,
+        "evaluation_runtime": "all",
+        "bucketing_identifier": "distinct_id",
+        "evaluation_contexts": []
+      },
+      "feature_flag_rule_id": null,
+      "holdout": {
+        "id": "<holdout.id 1>",
+        "name": "Holdout",
+        "description": null,
+        "filters": [
+          {
+            "properties": [],
+            "rollout_percentage": 10
+          }
+        ],
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "user_access_level": "manager"
+      },
+      "holdout_id": "<launch.holdout_id 1>",
+      "exposure_cohort": null,
+      "parameters": {
+        "variant_notes": {
+          "test": "Green button"
+        },
+        "feature_flag_variants": [
+          {
+            "key": "control",
+            "name": "Control Group",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          },
+          {
+            "key": "test",
+            "name": "Test Variant",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          }
+        ],
+        "rollout_percentage": 100,
+        "ensure_experience_continuity": false
+      },
+      "running_time_calculation": {},
+      "excluded_variants": null,
+      "secondary_metrics": [],
+      "saved_metrics": [
+        {
+          "id": "<saved_metrics.id 1>",
+          "experiment": "<saved_metrics.experiment 1>",
+          "saved_metric": "<saved_metrics.saved_metric 1>",
+          "metadata": {
+            "type": "secondary"
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<query.fingerprint 2>"
+          },
+          "name": "Revenue",
+          "effective_query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<effective_query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<effective_query.fingerprint 2>",
+            "breakdownFilter": {
+              "breakdowns": []
+            }
+          }
+        }
+      ],
+      "saved_metrics_ids": null,
+      "filters": {},
+      "archived": false,
+      "deleted": false,
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "type": "product",
+      "exposure_criteria": {
+        "filterTestAccounts": true
+      },
+      "metrics": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics.uuid 1>",
+          "source": {
+            "kind": "EventsNode",
+            "event": "checkout"
+          },
+          "fingerprint": "<metrics.fingerprint 2>",
+          "metric_type": "mean"
+        }
+      ],
+      "metrics_secondary": [],
+      "stats_config": {
+        "method": "bayesian"
+      },
+      "scheduling_config": null,
+      "conclusion": null,
+      "conclusion_comment": null,
+      "flag_cleanup_task_id": null,
+      "repository": null,
+      "primary_metrics_ordered_uuids": null,
+      "secondary_metrics_ordered_uuids": null,
+      "only_count_matured_users": false,
+      "version": 2,
+      "status": "running",
+      "is_legacy": false,
+      "can_freeze_exposure": false,
+      "resolved_exposure_event": "$feature_flag_called",
+      "health": null,
+      "user_access_level": "manager",
+      "tags": [
+        "checkout"
+      ]
+    },
+    "duplicate": {
+      "id": "<duplicate.id 1>",
+      "name": "Checkout button copy",
+      "description": "A green button converts better.",
+      "start_date": null,
+      "end_date": null,
+      "feature_flag_key": "checkout-button-copy",
+      "feature_flag": {
+        "id": "<feature_flag.id 2>",
+        "team_id": "<feature_flag.team_id 1>",
+        "name": "Feature Flag for Experiment Checkout button copy",
+        "key": "checkout-button-copy",
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 100,
+              "aggregation_group_type_index": null
+            }
+          ],
+          "holdout": null,
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "name": "Control Group",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "name": "Test Variant",
+                "rollout_percentage": 50
+              }
+            ]
+          },
+          "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": false,
+        "ensure_experience_continuity": false,
+        "version": 1,
+        "evaluation_runtime": "all",
+        "bucketing_identifier": "distinct_id",
+        "evaluation_contexts": []
+      },
+      "feature_flag_rule_id": null,
+      "holdout": null,
+      "holdout_id": null,
+      "exposure_cohort": null,
+      "parameters": {
+        "variant_notes": {
+          "test": "Green button"
+        },
+        "feature_flag_variants": [
+          {
+            "key": "control",
+            "name": "Control Group",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          },
+          {
+            "key": "test",
+            "name": "Test Variant",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          }
+        ],
+        "rollout_percentage": 100,
+        "ensure_experience_continuity": false
+      },
+      "running_time_calculation": {},
+      "excluded_variants": null,
+      "secondary_metrics": [],
+      "saved_metrics": [
+        {
+          "id": "<saved_metrics.id 2>",
+          "experiment": "<saved_metrics.experiment 2>",
+          "saved_metric": "<saved_metrics.saved_metric 1>",
+          "metadata": {
+            "type": "secondary"
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<query.fingerprint 1>"
+          },
+          "name": "Revenue",
+          "effective_query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<effective_query.uuid 1>",
+            "source": {
+              "kind": "EventsNode",
+              "event": "purchase"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<effective_query.fingerprint 1>",
+            "breakdownFilter": {
+              "breakdowns": []
+            }
+          }
+        }
+      ],
+      "saved_metrics_ids": null,
+      "filters": {},
+      "archived": false,
+      "deleted": false,
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "type": "product",
+      "exposure_criteria": {
+        "filterTestAccounts": true
+      },
+      "metrics": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics.uuid 2>",
+          "source": {
+            "kind": "EventsNode",
+            "event": "checkout"
+          },
+          "fingerprint": "<metrics.fingerprint 1>",
+          "metric_type": "mean"
+        }
+      ],
+      "metrics_secondary": [],
+      "stats_config": {
+        "method": "bayesian"
+      },
+      "scheduling_config": null,
+      "conclusion": null,
+      "conclusion_comment": null,
+      "flag_cleanup_task_id": null,
+      "repository": null,
+      "primary_metrics_ordered_uuids": null,
+      "secondary_metrics_ordered_uuids": null,
+      "only_count_matured_users": false,
+      "version": 0,
+      "status": "draft",
+      "is_legacy": false,
+      "can_freeze_exposure": false,
+      "resolved_exposure_event": "$feature_flag_called",
+      "health": null,
+      "user_access_level": "manager",
+      "tags": []
+    },
+    "archive": {
+      "id": "<archive.id 1>",
+      "name": "Populated 0",
+      "description": "A red button converts better.",
+      "start_date": "2026-01-05T10:00:00Z",
+      "end_date": "2026-02-05T10:00:00Z",
+      "feature_flag_key": "populated-flag-0",
+      "feature_flag": {
+        "id": "<feature_flag.id 3>",
+        "team_id": "<feature_flag.team_id 1>",
+        "name": "",
+        "key": "populated-flag-0",
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 75
+            }
+          ],
+          "payloads": {
+            "test": "{\"color\": \"red\"}"
+          },
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "rollout_percentage": 50
+              }
+            ]
+          },
+          "aggregation_group_type_index": 0
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false,
+        "version": 1,
+        "evaluation_runtime": "all",
+        "bucketing_identifier": "distinct_id",
+        "evaluation_contexts": [
+          "context-0"
+        ]
+      },
+      "feature_flag_rule_id": null,
+      "holdout": {
+        "id": "<holdout.id 2>",
+        "name": "Holdout 0",
+        "description": null,
+        "filters": [
+          {
+            "variant": "holdout-0",
+            "properties": [],
+            "rollout_percentage": 10
+          }
+        ],
+        "created_by": {
+          "id": "<created_by.id 1>",
+          "uuid": "<created_by.uuid 1>",
+          "distinct_id": "<created_by.distinct_id 1>",
+          "first_name": "",
+          "last_name": "",
+          "email": "user1@posthog.com",
+          "is_email_verified": null,
+          "hedgehog_config": null,
+          "role_at_organization": null
+        },
+        "created_at": "2026-03-02T09:30:00Z",
+        "updated_at": "2026-03-02T09:30:00Z",
+        "user_access_level": "manager"
+      },
+      "holdout_id": "<archive.holdout_id 1>",
+      "exposure_cohort": "<archive.exposure_cohort 1>",
+      "parameters": {
+        "variant_notes": {
+          "test": "Red button"
+        },
+        "rollout_percentage": 75,
+        "feature_flag_variants": [
+          {
+            "key": "control",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          },
+          {
+            "key": "test",
+            "rollout_percentage": 50,
+            "split_percent": 50
+          }
+        ],
+        "aggregation_group_type_index": 0,
+        "feature_flag_payloads": {
+          "test": "{\"color\": \"red\"}"
+        },
+        "ensure_experience_continuity": false
+      },
+      "running_time_calculation": {
+        "minimum_detectable_effect": 5
+      },
+      "excluded_variants": [
+        "test"
+      ],
+      "secondary_metrics": [
+        {
+          "name": "Old secondary"
+        }
+      ],
+      "saved_metrics": [
+        {
+          "id": "<saved_metrics.id 3>",
+          "experiment": "<saved_metrics.experiment 3>",
+          "saved_metric": "<saved_metrics.saved_metric 2>",
+          "metadata": {
+            "type": "primary",
+            "breakdowns": [
+              {
+                "type": "event",
+                "property": "$browser"
+              }
+            ]
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<query.uuid 2>",
+            "source": {
+              "id": "<source.id 1>",
+              "kind": "ActionsNode",
+              "name": "Signed up 0"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<query.fingerprint 3>"
+          },
+          "name": "Saved 0",
+          "effective_query": {
+            "kind": "ExperimentMetric",
+            "uuid": "<effective_query.uuid 2>",
+            "source": {
+              "id": "<source.id 1>",
+              "kind": "ActionsNode",
+              "name": "Signed up 0"
+            },
+            "metric_type": "mean",
+            "fingerprint": "<effective_query.fingerprint 3>",
+            "breakdownFilter": {
+              "breakdowns": [
+                {
+                  "type": "event",
+                  "property": "$browser"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "<saved_metrics.id 4>",
+          "experiment": "<saved_metrics.experiment 3>",
+          "saved_metric": "<saved_metrics.saved_metric 3>",
+          "metadata": {
+            "type": "secondary"
+          },
+          "created_at": "2026-03-02T09:30:00Z",
+          "query": {
+            "kind": "ExperimentFunnelsQuery",
+            "fingerprint": "<query.fingerprint 4>"
+          },
+          "name": "Legacy 0",
+          "effective_query": null
+        }
+      ],
+      "saved_metrics_ids": null,
+      "filters": {
+        "events": [
+          {
+            "id": "$pageview",
+            "order": 0
+          }
+        ]
+      },
+      "archived": true,
+      "deleted": false,
+      "created_by": {
+        "id": "<created_by.id 1>",
+        "uuid": "<created_by.uuid 1>",
+        "distinct_id": "<created_by.distinct_id 1>",
+        "first_name": "",
+        "last_name": "",
+        "email": "user1@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+      },
+      "created_at": "2026-03-02T09:30:00Z",
+      "updated_at": "2026-03-02T09:30:00Z",
+      "type": "web",
+      "exposure_criteria": {
+        "filterTestAccounts": true
+      },
+      "metrics": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics.uuid 3>",
+          "source": {
+            "id": "<source.id 1>",
+            "kind": "ActionsNode",
+            "name": "Signed up 0"
+          },
+          "metric_type": "mean"
+        }
+      ],
+      "metrics_secondary": [
+        {
+          "kind": "ExperimentMetric",
+          "uuid": "<metrics_secondary.uuid 1>",
+          "source": {
+            "id": "<source.id 1>",
+            "kind": "ActionsNode",
+            "name": "Signed up 0"
+          },
+          "metric_type": "mean"
+        }
+      ],
+      "stats_config": {
+        "method": "bayesian"
+      },
+      "scheduling_config": {
+        "timeseries": true
+      },
+      "conclusion": "won",
+      "conclusion_comment": "Clear win.",
+      "flag_cleanup_task_id": "<archive.flag_cleanup_task_id 1>",
+      "repository": "posthog/posthog",
+      "primary_metrics_ordered_uuids": [
+        "action-metric-0"
+      ],
+      "secondary_metrics_ordered_uuids": null,
+      "only_count_matured_users": true,
+      "version": 4,
+      "status": "stopped",
+      "is_legacy": true,
+      "can_freeze_exposure": false,
+      "resolved_exposure_event": "$feature_flag_called",
+      "health": null,
+      "user_access_level": "manager",
+      "tags": [
+        "growth",
+        "pricing"
+      ]
+    }
+  }
+  '''
+# ---

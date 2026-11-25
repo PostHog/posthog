@@ -5016,6 +5016,22 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     )
 
 
+class SignalReportArtefactListQuerySerializer(serializers.Serializer):
+    # Plain CharField: the view checks each value against the types this caller may read, so a hidden type
+    # gets the same 400 as an unknown one.
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every "
+            "type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the "
+            "`## Verification plan`, and `task_run` records research and implementation runs. Values match the "
+            "`type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown "
+            "type returns 400 with the accepted values."
+        ),
+    )
+
+
 class CommitDiffResponseSerializer(serializers.Serializer):
     """Response for the `commit` artefact diff endpoint."""
 

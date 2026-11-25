@@ -335,12 +335,14 @@ tools:
             work-log entries (code references, commits, task runs, notes), and follow-up check entries (`check_result`
             verdicts, and `check_observation` interim readings during Monitoring). Read this before re-judging a status
             or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
-            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.
+            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full. To read
+            less, pass `type` with comma-separated types, such as `signal_finding` for the evidence or `note` for notes
+            and the `## Verification plan`.
         agent_note: >
-            Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
-            state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
-            show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan
-            applies, verify the issue from the report's evidence.
+            Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not
+            evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or
+            inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and
+            reassess the report. If no plan applies, verify the issue from the report's evidence.
     inbox-report-artefacts-retrieve:
         operation: signals_report_artefacts_retrieve
         enabled: true
