@@ -29,6 +29,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION
 from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -809,3 +810,66 @@ def test_router_registry_add_rejects_products_caller():
     source = "def _caller():\n    registry.add('things', item)\n_caller()"
     with pytest.raises(RuntimeError, match="core-owned"):
         exec(compile(source, "products/fake/backend/routes.py", "exec"), namespace)
+
+
+class TestCurrentAliasDeprecationHeaders(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("project_route", "/api/projects/@current/feature_flags/", "/api/projects/{project_id}/feature_flags/"),
+            (
+                "query_string_kept",
+                "/api/projects/@current/feature_flags/?limit=1",
+                "/api/projects/{project_id}/feature_flags/?limit=1",
+            ),
+            (
+                "environment_route",
+                "/api/environments/@current/feature_flags/",
+                "/api/projects/{team_id}/feature_flags/",
+            ),
+            (
+                "organization_route",
+                "/api/organizations/@current/members/",
+                "/api/organizations/{organization_id}/members/",
+            ),
+            ("detail_route_has_no_parent_to_resolve", "/api/projects/@current/", None),
+        ]
+    )
+    def test_current_alias_response_is_deprecated_with_resolved_successor(
+        self, _name: str, url: str, successor: str | None
+    ) -> None:
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
+        if successor is None:
+            self.assertNotIn("Link", response)
+        else:
+            expected = successor.format(
+                project_id=self.team.project_id, team_id=self.team.id, organization_id=self.organization.id
+            )
+            self.assertEqual(response["Link"], f'<{expected}>; rel="successor-version"')
+
+    def test_refused_current_alias_request_gets_no_successor(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Other team key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["*"],
+            scoped_teams=[other_team.id],
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/feature_flags/", headers={"Authorization": f"Bearer {key_value}"}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
+        self.assertNotIn("Link", response)
+
+    def test_request_naming_its_project_is_not_deprecated(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.project_id}/feature_flags/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Deprecation", response)

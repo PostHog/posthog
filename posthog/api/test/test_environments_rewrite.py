@@ -5,6 +5,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from rest_framework import status
 
+from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION
 from posthog.middleware import EnvironmentsRewriteMiddleware
 from posthog.models.organization import OrganizationMembership
 
@@ -62,7 +63,7 @@ class TestEnvironmentsRewriteIntegration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # No redirect — the client gets the response on the original URL.
         self.assertNotIn("Location", response)
-        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
         self.assertEqual(response["Link"], '</api/projects/@current/>; rel="successor-version"')
 
     def test_write_round_trips_method_and_body(self):

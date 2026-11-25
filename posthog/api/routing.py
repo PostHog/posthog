@@ -15,6 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.current_alias_deprecation import add_current_alias_deprecation_headers
 from posthog.api.scope_resolution import (
     CURRENT_ALIAS,
     is_flat_route,
@@ -350,6 +351,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if token is not None:
                 reset_current_team_id(token)
                 self._team_scope_token = None
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        add_current_alias_deprecation_headers(
+            request,
+            response,
+            parent_kwargs=lambda: self.parent_query_kwargs,
+            resolved_parents=lambda: self.parents_query_dict,
+        )
+        return response
 
     def initial(self, request, *args, **kwargs):
         """

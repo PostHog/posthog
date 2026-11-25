@@ -923,8 +923,9 @@ class EnvironmentsRewriteMiddleware:
 
         response = self.get_response(request)
 
-        response["Deprecation"] = "true"
-        response["Link"] = f'<{successor}>; rel="successor-version"'
+        # A view that names a more specific deprecation or successor, such as @current resolved to an id, keeps it.
+        response.setdefault("Deprecation", "true")
+        response.setdefault("Link", f'<{successor}>; rel="successor-version"')
         sunset = self._sunset_http_date()
         if sunset:
             response["Sunset"] = sunset
