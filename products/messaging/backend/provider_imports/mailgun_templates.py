@@ -352,7 +352,7 @@ _PLACES = {
 
 def _escaped(path: str) -> str:
     # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
-    return f'{{{{ {path} | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}}}'
+    return f'{{{{ {path} | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}}}'
 
 
 def _append(out: list[str], chunk: str) -> None:

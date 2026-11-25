@@ -339,16 +339,10 @@ def build_async_anthropic_client(
     """
     gateway = _require_ai_gateway_config()
     labels = dict(properties or {})
-    labels.update(
-        {
-            key: value
-            for key, value in {
-                "ai_stage": ai_stage,
-                "team_id": str(team_id) if team_id is not None else None,
-            }.items()
-            if value
-        }
-    )
+    if ai_stage:
+        labels["ai_stage"] = ai_stage
+    if team_id is not None:
+        labels["team_id"] = str(team_id)
     return AsyncAnthropic(
         api_key=gateway.api_key,
         base_url=anthropic_gateway_base_url(gateway.url),
@@ -387,7 +381,7 @@ def _ai_gateway_anthropic_client(
     )
 
 
-def build_ai_gateway_anthropic_client(
+def build_anthropic_client(
     ai_product: str | None = None,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
@@ -395,30 +389,14 @@ def build_ai_gateway_anthropic_client(
     team_id: int | None = None,
     privacy_mode: bool = False,
 ) -> Anthropic:
-    """Native Anthropic client on the Go ai-gateway, with an optional ``privacy_mode``.
+    """Build a native Anthropic client on the Go ai-gateway for synchronous Django worker code.
 
     Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
-    the request and response out of the generation the gateway captures.
+    the request and response out of the generation the gateway captures. The Anthropic SDK appends
+    ``/v1/messages``, so the client removes the OpenAI ``/v1`` suffix.
     """
     gateway = _require_ai_gateway_config()
     return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
-
-
-def build_anthropic_client(
-    ai_product: str | None = None,
-    trace_id: str | None = None,
-    properties: Mapping[str, str] | None = None,
-    distinct_id: str | None = None,
-    team_id: int | None = None,
-) -> Anthropic:
-    """Build a native Anthropic client on the Go ai-gateway for synchronous Django worker code.
-
-    The Anthropic SDK appends ``/v1/messages``, so the client removes the OpenAI ``/v1`` suffix.
-    Raises GatewayNotConfiguredError when the gateway is not configured.
-    """
-    return _ai_gateway_anthropic_client(
-        _require_ai_gateway_config(), ai_product, trace_id, properties, distinct_id, team_id
-    )
 
 
 class AIGatewayHostError(RuntimeError):

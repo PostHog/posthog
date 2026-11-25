@@ -840,7 +840,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     className="flex-1 flex gap-1 justify-center"
                     info={
                         canSkipSubmitButton
-                            ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                            ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least posthog-js 1.244.0, posthog-react-native 4.26.0, posthog-ios 3.77.0, posthog-android-surveys-compose 0.3.0, or posthog_flutter 5.45.0."
                             : undefined
                     }
                 >

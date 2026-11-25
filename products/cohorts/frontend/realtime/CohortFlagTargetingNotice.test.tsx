@@ -100,6 +100,29 @@ describe('CohortFlagTargetingNotice', () => {
     })
 
     it.each([
+        {
+            name: 'a reason this bundle words',
+            reason: 'action_criteria',
+            shows: /realtime cohorts can't match on/,
+            generic: false,
+        },
+        {
+            name: 'a reason this bundle predates',
+            reason: 'added_after_this_bundle',
+            shows: /once-a-day calculation/,
+            generic: true,
+        },
+    ])('explains a cohort kept off realtime by $name', async ({ reason, shows, generic }) => {
+        await renderNotice(readiness('daily', { reason: reason as CohortRealtimeReadinessApi['reason'] }))
+
+        await waitFor(() => {
+            expect(screen.getByText('Viewed pricing this week')).toBeInTheDocument()
+        })
+        expect(screen.getByText(shows)).toBeInTheDocument()
+        expect(!!screen.queryByText(/once-a-day calculation/)).toBe(generic)
+    })
+
+    it.each([
         { name: 'ready', realtime: readiness('ready') },
         { name: 'matched on person properties', realtime: readiness('person_properties') },
         { name: 'static', realtime: readiness('static') },

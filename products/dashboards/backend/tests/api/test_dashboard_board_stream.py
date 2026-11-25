@@ -51,7 +51,7 @@ class TestDashboardBoardStream(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self.dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash", "filters": {"date_from": "-14d"}})
 
     def _flag_enabled(self, flag: str, distinct_id: str, **kwargs: Any) -> bool:
-        return flag == "dashboard-v2" and self.dashboard_v2
+        return flag in ("dashboard-v2", "dashboard-v2-users") and self.dashboard_v2
 
     def _add_insight_tile(self, event: str) -> tuple[int, int]:
         insight_id, _ = self.dashboard_api.create_insight(

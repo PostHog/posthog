@@ -4,7 +4,6 @@ import {
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import {
-  getAiGatewayUrl,
   isCustomCloudHost,
   type McpServerConnection,
   type McpToolPolicy,
@@ -238,14 +237,12 @@ export class AgentAuthAdapter {
   }
 
   async ensureGatewayProxy(
-    apiHost: string,
     projectId: number | null,
     options: { awaitRecheck?: boolean } = {},
   ): Promise<ResolvedGatewayProxy> {
     return resolveGatewayProxy({
       authProxy: this.authProxy,
       source: this.gatewaySource,
-      aiGatewayUrl: getAiGatewayUrl(apiHost),
       projectId,
       awaitRecheck: options.awaitRecheck,
     });

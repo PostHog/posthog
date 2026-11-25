@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
@@ -623,6 +624,18 @@ class TestOrganization(BaseTest):
             self.assertFalse(data["is_limited_in_redis"])
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
+
+    def test_is_active_change_projects_gateway_quota_when_flags_sync_fails(self):
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL="redis://ai-gateway-org-active-test/"),
+            patch("ee.billing.quota_limiting.sync_deactivated_org_flags_limit", side_effect=Exception("boom")),
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as project,
+        ):
+            with suppress(Exception), self.captureOnCommitCallbacks(execute=True):
+                self.organization.is_active = False
+                self.organization.save()
+
+        project.assert_called_once_with(str(self.organization.pk))
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):

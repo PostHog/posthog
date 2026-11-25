@@ -4,10 +4,6 @@ import { useActions, useValues } from 'kea'
 import {
     Badge,
     Button,
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleHeader,
-    CollapsibleTrigger,
     Empty,
     EmptyDescription,
     EmptyHeader,
@@ -22,12 +18,13 @@ import {
 } from '@posthog/quill'
 
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
 import { oauthAppsLogic } from './oauthAppsLogic'
 import { QuillCopyableCode } from './QuillCopyableCode'
-import { QuillOAuthAppDetails } from './QuillOAuthAppDetails'
 import { QuillProvisioningStatusBadge } from './QuillProvisioningStatusBadge'
 
 export function QuillOAuthApps(): JSX.Element {
@@ -82,31 +79,33 @@ export function QuillOAuthApps(): JSX.Element {
                 const name = decode(app.name ?? '')
 
                 return (
-                    <Collapsible key={app.id} className="rounded-md border border-border p-2">
-                        <CollapsibleHeader className="flex-wrap">
-                            <CollapsibleTrigger iconOnly>{`Show details for ${name}`}</CollapsibleTrigger>
-                            <Text size="xs" weight="semibold" render={<span className="min-w-0 truncate" />}>
+                    <Item key={app.id} variant="outline" size="sm">
+                        <ItemContent className="flex-row flex-wrap items-center gap-2">
+                            <Button
+                                variant="link-foreground"
+                                size="sm"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={urls.oauthApplication(app.id)} />}
+                                data-attr="oauth-app-open"
+                            >
                                 {name}
-                            </Text>
+                            </Button>
                             {app.is_verified && <Badge variant="success">Verified</Badge>}
                             {app.provisioning_status !== 'not_a_partner' && (
                                 <QuillProvisioningStatusBadge status={app.provisioning_status} />
                             )}
-                            <span className="ms-auto flex flex-wrap items-center gap-3">
-                                <QuillCopyableCode
-                                    value={app.client_id ?? ''}
-                                    label="Copy client ID"
-                                    onCopy={() => void copyToClipboard(app.client_id ?? '', 'client ID')}
-                                />
-                                <Text size="xs" variant="muted" render={<span />}>
-                                    {`Connected ${humanFriendlyDetailedTime(app.created)}`}
-                                </Text>
-                            </span>
-                        </CollapsibleHeader>
-                        <CollapsibleContent className="pt-2">
-                            <QuillOAuthAppDetails app={app} />
-                        </CollapsibleContent>
-                    </Collapsible>
+                        </ItemContent>
+                        <ItemActions className="flex-wrap">
+                            <QuillCopyableCode
+                                value={app.client_id ?? ''}
+                                label="Copy client ID"
+                                onCopy={() => void copyToClipboard(app.client_id ?? '', 'client ID')}
+                            />
+                            <Text size="xs" variant="muted" render={<span />}>
+                                {`Connected ${humanFriendlyDetailedTime(app.created)}`}
+                            </Text>
+                        </ItemActions>
+                    </Item>
                 )
             })}
         </div>

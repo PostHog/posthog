@@ -1,4 +1,4 @@
-import { getAiGatewayUrl } from "@posthog/agent-contracts";
+import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 
 export const GATEWAY_PRODUCTS = [
   "posthog_code",
@@ -18,6 +18,10 @@ export type GatewayProduct = (typeof GATEWAY_PRODUCTS)[number];
 
 export function fallbackGatewayProduct(isInternal = false): GatewayProduct {
   return isInternal ? "background_agents" : "posthog_code";
+}
+
+export function getAiGatewayUrl(posthogHost: string): string {
+  return getCloudTaskGatewayUrl(posthogHost);
 }
 
 /**

@@ -21,10 +21,25 @@ function breakdownLabel(value: IndexedTrendResult['breakdown_value']): string | 
 }
 
 /**
- * The flagged buckets of an insight as chart anomaly points.
+ * The chart series of a scored series, in the current period.
  *
  * The scorer identifies a series by a key the chart does not have, so a scored series is matched to a chart
- * series by label and breakdown value. A flagged bucket outside the days of the chart is left out.
+ * series by label and breakdown value.
+ */
+export function findChartSeries(
+    scored: Pick<AnomalyInsightSeriesApi, 'series_label' | 'breakdown_value'>,
+    indexedResults: IndexedTrendResult[]
+): IndexedTrendResult | undefined {
+    return indexedResults.find(
+        (candidate) =>
+            candidate.compare_label !== CompareLabelType.Previous &&
+            (candidate.label ?? '') === (scored.series_label ?? '') &&
+            breakdownLabel(candidate.breakdown_value) === scored.breakdown_value
+    )
+}
+
+/**
+ * The flagged buckets of an insight as chart anomaly points. A flagged bucket outside the days of the chart is left out.
  */
 export function buildAnomalyScorePoints(
     scoredSeries: AnomalyInsightSeriesApi[],
@@ -32,12 +47,7 @@ export function buildAnomalyScorePoints(
 ): AnomalyPoint[] {
     const points: AnomalyPoint[] = []
     for (const scored of scoredSeries) {
-        const result = indexedResults.find(
-            (candidate) =>
-                candidate.compare_label !== CompareLabelType.Previous &&
-                (candidate.label ?? '') === (scored.series_label ?? '') &&
-                breakdownLabel(candidate.breakdown_value) === scored.breakdown_value
-        )
+        const result = findChartSeries(scored, indexedResults)
         if (!result) {
             continue
         }
@@ -54,6 +64,30 @@ export function buildAnomalyScorePoints(
         }
     }
     return points
+}
+
+/**
+ * The chart series to show alone for the series of an Anomalies tab link. Null when the chart has no match, has one
+ * series only, or already shows only that series, because a toggle in that state shows the others again.
+ */
+export function seriesToIsolate(
+    scoredSeries: AnomalyInsightSeriesApi[],
+    seriesKey: string,
+    indexedResults: IndexedTrendResult[],
+    isHidden: (result: IndexedTrendResult) => boolean
+): IndexedTrendResult | null {
+    const scored = scoredSeries.find((candidate) => candidate.series_key === seriesKey)
+    const result = scored && findChartSeries(scored, indexedResults)
+    if (!result) {
+        return null
+    }
+    const others = indexedResults.filter(
+        (candidate) => candidate.compare_label !== CompareLabelType.Previous && candidate !== result
+    )
+    if (others.length === 0 || (!isHidden(result) && others.every(isHidden))) {
+        return null
+    }
+    return result
 }
 
 /** Groups indices into inclusive `[start, end]` runs of neighbours, so adjacent buckets shade as one band. */

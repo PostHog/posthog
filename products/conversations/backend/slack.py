@@ -993,9 +993,8 @@ def _nudge_classifier_verdict(
     heuristics-only (the classifier refines the nudge, it must not be able to kill it); a
     completed call nudges only on an affirmative answer.
     """
-    # A developer's environment may set AI_GATEWAY_URL, so "gateway configured" is only a
-    # real signal outside tests, and unit tests must never depend on whether something is
-    # listening there. Classifier tests opt back in with override_settings(TEST=False).
+    # Unit tests must never depend on whether a gateway is listening. Classifier tests opt
+    # back in with override_settings(TEST=False).
     if settings.TEST:
         return "skipped"
     if not team.organization.is_ai_data_processing_approved:

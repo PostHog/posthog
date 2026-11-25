@@ -1,15 +1,18 @@
 """Which models a task run may use, and how to name them.
 
-The catalogue is the static task model catalog (`products.tasks.backend.model_catalog`),
-narrowed to the models a gateway product's pin admits. Every surface that offers a model
-picker derives from here: the task composer in the web app (`posthog_code`), the Slack App
-Home picker and the model-override classifier (`slack_app`). None of them may hardcode a
-model list, and none of them owns the display labels.
+The catalogue is the static model catalog, narrowed to the models a gateway product's
+token pin admits. It is read without a network call, so a picker render never waits on
+the LLM gateway and a gateway outage never empties a picker.
+
+Every surface that offers a model picker derives from here: the task composer in the
+web app and PostHog Code (`posthog_code`), the Slack App Home picker and the
+model-override classifier (`slack_app`). None of them may hardcode a model list, and
+none of them owns the display labels.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -52,6 +55,8 @@ class ModelChoice:
     label: str
     supported_efforts: tuple[str, ...]
     cost_multiplier: str | None = None
+    context_window: int = 0
+    allowed: bool = True
 
 
 @dataclass(frozen=True)
@@ -96,12 +101,21 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
 
 
 def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
-    """Every model a run on the given gateway product may use: the catalog, narrowed by the product's pin.
+    """Every model a picker may offer a run on the given gateway product."""
+    return tuple(choice for choice in offered_model_choices() if model_allowed_by_product_pin(product, choice.model))
 
-    Wider than what a picker offers: a retired model still runs, so a request that names one
-    still resolves to it.
-    """
+
+def runnable_model_choices(product: Product) -> tuple[ModelChoice, ...]:
+    """Every model a run on the given gateway product may call, retired ones included."""
     return tuple(choice for choice in catalog_model_choices() if model_allowed_by_product_pin(product, choice.model))
+
+
+def plan_model_choices(product: Product, plan_pin: str) -> tuple[ModelChoice, ...]:
+    """The product's choices, each marked with whether the caller's plan pin admits it."""
+    return tuple(
+        replace(choice, allowed=model_allowed_by_product_pin(plan_pin, choice.model))
+        for choice in available_model_choices(product)
+    )
 
 
 @lru_cache(maxsize=1)
@@ -120,6 +134,7 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
             label=model_catalog.display_name_for_model(entry.id),
             supported_efforts=entry.reasoning_efforts,
             cost_multiplier=model_catalog.cost_multiplier_label(entry.id),
+            context_window=entry.context_window,
         )
         for entry in model_catalog.MODELS
     )
@@ -143,7 +158,11 @@ def runtime_adapter_for(model: str | None) -> str | None:
     deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
     `None` for a model this product has no runtime for.
     """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
+    # Deferred because `temporal.process_task.utils` pulls the tasks ORM, mcp_store, and
+    # sandbox config at import time; keeping that off the import path of every catalogue
+    # consumer is the reason, and the App Home tests' `sys.modules` swap depends on it
+    # staying that way.
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see above
         get_runtime_adapter_for_model,
     )
 
@@ -181,6 +200,8 @@ __all__ = [
     "available_model_choices",
     "catalog_model_choices",
     "offered_model_choices",
+    "plan_model_choices",
+    "runnable_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "find_model_choice",

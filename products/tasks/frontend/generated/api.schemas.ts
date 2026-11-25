@@ -4853,10 +4853,14 @@ export interface ModelChoiceApi {
      * @nullable
      */
     cost_multiplier?: string | null
+    /** Largest context window the model accepts, in tokens. */
+    context_window?: number
+    /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
+    allowed?: boolean
 }
 
 export interface ModelCatalogueResponseApi {
-    /** Every model a run may use, from the task model catalog. */
+    /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
     models: ModelChoiceApi[]
 }
 

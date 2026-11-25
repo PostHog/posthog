@@ -1,13 +1,21 @@
 """SQL for the events batch export model."""
 
 import typing
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from string import Template
 
 from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    json_document_sql,
+    json_member_pairs_sql,
     person_document_sql,
+)
+
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS, EVENTS_JSON_RECENT_TABLE
+
+from products.batch_exports.backend.temporal.sql.typed_events_json_recent import (
+    STORED_DOCUMENT_FIELD_EXPRESSIONS,
+    STORED_TEMPORARY_PROPERTIES_COLUMN,
+    build_typed_events_json_recent_source,
 )
 
 if typing.TYPE_CHECKING:
@@ -101,6 +109,8 @@ SETTINGS
 )
 
 
+# Workflows exports send no `ip` field, so the two workflows templates select no `ip` column, unlike the other legacy
+# templates.
 SELECT_FROM_EVENTS_WORKFLOWS = Template(
     """
 SELECT
@@ -486,55 +496,89 @@ SETTINGS
 )
 
 
-# Every `JSONExtractString` call parses the whole `properties` document, so the legacy events templates that dedup
-# extract `$set`, `$set_once` and `$ip` with one `JSONExtract` call. A field with this expression reads the extracted
-# `ip` column, because the expression itself parses the document one more time.
-EXTRACTED_FIELD_EXPRESSIONS = {"nullIf(JSONExtractString(properties, '$ip'), '')": "ip"}
-
-
-EVENT_COUNT_BY_INTERVAL = """
+def build_event_count_by_interval_query(table: str, *, includes_feature_flag_called: bool) -> str:
+    """Count the events a 5-minute export of `table` reads, per interval, for monitoring."""
+    feature_flag_called_filter = "" if includes_feature_flag_called else "AND event != '$feature_flag_called'"
+    return """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL %(interval)s) AS interval_start,
     interval_start + INTERVAL %(interval)s AS interval_end,
     COUNT(*) as total_count
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
+    SELECT DISTINCT ON (team_id, event, cityHash64({table}.distinct_id), cityHash64({table}.uuid))
         inserted_at AS _inserted_at
     FROM
-        events_recent
+        {table}
     PREWHERE
-        events_recent.inserted_at >= %(overall_interval_start)s::DateTime64
-        AND events_recent.inserted_at < %(overall_interval_end)s::DateTime64
+        {table}.inserted_at >= %(overall_interval_start)s::DateTime64
+        AND {table}.inserted_at < %(overall_interval_end)s::DateTime64
     WHERE
         team_id = %(team_id)s::Int64
         AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
         AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        {feature_flag_called_filter}
 )
 GROUP BY interval_start
 ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
-"""
+""".format(table=table, feature_flag_called_filter=feature_flag_called_filter)
+
+
+EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query("events_recent", includes_feature_flag_called=True)
+
+
+def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str, str]:
+    """The legacy `set`, `set_once`, `unset` and `group_set` fields, from the temporary properties as JSON text.
+
+    `set` and `set_once` use the expression the legacy queries apply to `properties`. ClickHouse's `JSONExtractString`
+    returns an object member as its JSON text, so the fields carry the same text as before.
+    """
+    return {
+        "set": f"nullIf(JSONExtractString({temporary_properties_text}, '$set'), '')",
+        "set_once": f"nullIf(JSONExtractString({temporary_properties_text}, '$set_once'), '')",
+        **dict.fromkeys(("unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
+    }
+
+
+# The events tables store no `ip` column, so these replacements build it from `$ip`. On typed `properties`, the
+# `String` variant is NULL when `$ip` is not a string, which matches `JSONExtractString` on the stored text.
+# On `events_json_recent` this parses `properties` once per row only for `ip`, so a future change could drop the `ip`
+# column from the destinations that export it to save that work.
+_TYPED_IP_FIELD_EXPRESSIONS = {"ip": "nullIf(events.properties.`$ip`.:String, '')"}
+_STORED_IP_FIELD_EXPRESSIONS = {"ip": "nullIf(JSONExtractString(events.properties, '$ip'), '')"}
+
+
+def _build_properties_document_sql(properties: str, temporary_properties: str) -> str:
+    """The `properties` column as document text in its stored shape, with the temporary properties after the others."""
+    pairs = (
+        json_member_pairs_sql(
+            properties,
+            exclude_empty_key="$feature_flags",
+            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+        ),
+        json_member_pairs_sql(temporary_properties),
+    )
+    return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
 
 
 # The native table exports `properties` and `person_properties` in their stored shape, built member by member the
 # way a HogQL read of the whole document builds them. Unlike the legacy tables:
 # - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
-# - temporary properties are not exported, so the legacy `set`, `set_once`, `unset` and `group_set`
-#   fields are always empty.
+# - temporary properties, such as `$set`, follow the other members of `properties`, as `events_json_recent` stores
+#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted.
+# - the legacy `set` and `set_once` fields are read from the temporary properties, which hold `$set` and `$set_once`.
+#   `unset` and `group_set` are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
 # `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
 # here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
-    "properties": json_document_sql(
-        "events.properties",
-        exclude_empty_key="$feature_flags",
-        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    ),
+    "properties": _build_properties_document_sql("events.properties", "events.temporary_properties"),
     "person_properties": person_document_sql("events.person_properties"),
-    **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
+    **_build_temporary_property_fields("toJSONString(events.temporary_properties)"),
+    **_TYPED_IP_FIELD_EXPRESSIONS,
 }
 
 
@@ -551,10 +595,7 @@ def native_events_export_query(
     `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
     own `properties` and `person_properties` fields.
     """
-    select = ", ".join(
-        f"{_NATIVE_EVENTS_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
-        for field in fields
-    )
+    select = build_select_list(fields, _NATIVE_EVENTS_FIELD_EXPRESSIONS)
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
 SELECT {select}
@@ -577,6 +618,67 @@ SETTINGS
     fallback_to_stale_replicas_for_distributed_queries=0,
     optimize_aggregation_in_order=1,
     json_type_escape_dots_in_keys=1,
+    output_format_json_escape_forward_slashes=0
+{", log_comment=%(log_comment)s" if s3_function else ""}
+"""
+
+
+def build_select_list(fields: Sequence["BatchExportField"], replacements: Mapping[str, str] | None = None) -> str:
+    """Each field's expression, or its replacement in `replacements`, aliased to the field's alias."""
+    replacements = replacements or {}
+    return ", ".join(
+        f"{replacements.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
+    )
+
+
+def native_recent_events_export_query(
+    fields: Sequence["BatchExportField"],
+    filters: str = "",
+    *,
+    includes_feature_flag_called: bool,
+    reads_typed_columns: bool,
+    order: str = "",
+    s3_function: str | None = None,
+) -> str:
+    """The export query for `events_json_recent`, which runs on the new events schema read for the ranges it holds.
+
+    The query sends the stored `properties` and `person_properties` text as it is. `filters` and any custom field
+    expressions must be printed for the new events schema, as for `native_events_export_query`, and they read typed
+    JSON columns. The caller sets `reads_typed_columns` when they do, and the query then reads the table through
+    `typed_events_json_recent`, which re-parses every row. The stored text has no typed subcolumns, so typed syntax
+    on the plain read fails.
+    """
+    if reads_typed_columns:
+        source = build_typed_events_json_recent_source()
+        replacements = (
+            STORED_DOCUMENT_FIELD_EXPRESSIONS
+            | _build_temporary_property_fields(f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}")
+            | _TYPED_IP_FIELD_EXPRESSIONS
+        )
+    else:
+        source = EVENTS_JSON_RECENT_TABLE
+        replacements = _build_temporary_property_fields("events.temporary_properties") | _STORED_IP_FIELD_EXPRESSIONS
+    return f"""
+{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
+SELECT {build_select_list(fields, replacements)}
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+        * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), inserted_at AS _inserted_at
+    FROM {source} AS events
+    WHERE team_id = %(team_id)s::Int64
+        AND inserted_at >= %(interval_start)s::DateTime64
+        AND inserted_at < %(interval_end)s::DateTime64
+        AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+        AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        {"" if includes_feature_flag_called else "AND event != '$feature_flag_called'"}
+        {"AND " + filters if filters else ""}
+    {order}
+) AS events
+{"" if s3_function else "FORMAT ArrowStream"}
+SETTINGS
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1,
+    {EVENTS_JSON_INSERT_SETTINGS},
     output_format_json_escape_forward_slashes=0
 {", log_comment=%(log_comment)s" if s3_function else ""}
 """

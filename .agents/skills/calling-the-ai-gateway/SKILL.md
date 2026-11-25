@@ -23,7 +23,7 @@ Find the call site, client construction, settings, deployment wiring, and tests.
 
 1. For Django and worker code, use a builder from `posthog/llm/gateway_client.py`.
    `build_openai_client`, `build_async_openai_client`, `build_anthropic_client` and `build_async_anthropic_client` authenticate with the `AI_GATEWAY_API_KEY` project secret.
-   `build_ai_gateway_openai_client` sends the caller's own `pha_` or `phe_` bearer; `build_ai_gateway_anthropic_client` uses `AI_GATEWAY_API_KEY` and adds `privacy_mode`.
+   `build_ai_gateway_openai_client` sends the caller's own `pha_` or `phe_` bearer; `build_anthropic_client` also takes `privacy_mode`.
    Each raises `GatewayNotConfiguredError` when the gateway is not configured; handle it where the caller can degrade.
 2. Use the slugless base URL from `AI_GATEWAY_URL` (it ends in `/v1`). The Anthropic builders strip `/v1` because the SDK appends `/v1/messages`.
 3. Authenticate with a `phs_` or `pha_` credential that carries `llm_gateway:read`. Do not expose a shared secret to an untrusted runtime.

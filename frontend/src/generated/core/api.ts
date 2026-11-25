@@ -65,7 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
-    OrganizationOAuthApplicationApi,
+    OrganizationOAuthApplicationDetailApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -86,6 +86,7 @@ import type {
     PaginatedUserListApi,
     PaginatedWorkloadTrustPolicyListApi,
     PaginatedWorkloadTrustPolicyRequestListApi,
+    PartnerReviewNoteApi,
     PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -930,11 +931,36 @@ export const oauthApplicationsRetrieve = async (
     organizationId: string,
     id: string,
     options?: RequestInit
-): Promise<OrganizationOAuthApplicationApi> => {
-    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getOauthApplicationsReviewNoteCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/review_note/`
+}
+
+/**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreate = async (
+    organizationId: string,
+    id: string,
+    partnerReviewNoteApi: PartnerReviewNoteApi,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(
+        getOauthApplicationsReviewNoteCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(partnerReviewNoteApi),
+        }
+    )
 }
 
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {

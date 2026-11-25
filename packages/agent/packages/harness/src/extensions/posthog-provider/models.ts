@@ -121,7 +121,7 @@ function supportsVision(
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
  * a given region. OpenAI-compatible models are served off the gateway's `/v1`
- * surface; Anthropic Messages is served off the root.
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
@@ -344,6 +344,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   },
   {
     id: "deepseek-ai/deepseek-v4-flash-0731",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017",
     owned_by: "baseten",
     context_window: 1048000,
     supports_vision: false,

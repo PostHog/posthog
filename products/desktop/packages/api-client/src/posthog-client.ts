@@ -14,13 +14,19 @@ import type {
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
+  buildCloudTaskConfigOptions,
+  type CloudTaskConfigOption,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  type GatewayModel,
+  gatewayModelRowsFromTaskModels,
   isSupportedReasoningEffort,
+  normalizeGatewayModelsResponse,
   RESOLVE_REASON_OPTIONS,
   type ReportStateReason,
   type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
+  taskModelsUrl,
 } from "@posthog/shared";
 import type {
   ActionabilityJudgmentArtefact,
@@ -2124,6 +2130,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private _organizationId: string | null = null;
   private githubConnectFrom: string;
+  private readonly apiHost: string;
   private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
@@ -2134,6 +2141,7 @@ export class PostHogAPIClient {
     options: PostHogAPIClientOptions = {},
   ) {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
+    this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
     this.taskClientProvenance =
       options.taskClientProvenance ?? taskClientProvenance;
@@ -2200,6 +2208,28 @@ export class PostHogAPIClient {
       path: { uuid: "@me" },
     });
     return data;
+  }
+
+  async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
+    const teamId = await this.getTeamId();
+    const url = new URL(taskModelsUrl(this.apiHost, teamId));
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: url.pathname,
+    });
+    return normalizeGatewayModelsResponse(
+      gatewayModelRowsFromTaskModels(await response.json()),
+    );
+  }
+
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
+    return buildCloudTaskConfigOptions(
+      await this.getCloudTaskGatewayModels(),
+      adapter,
+    );
   }
 
   // The task currently generating this folder's CONTEXT.md, shared across the

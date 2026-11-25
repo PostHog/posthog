@@ -206,7 +206,9 @@ class TestFormatModelId:
 
 
 class TestAvailableModelChoices:
-    def test_reads_the_slack_pinned_catalog(self):
+    def test_reads_the_catalog_rather_than_the_gateway(self):
+        """Slack asks only what the catalog answers, so a gateway outage must not leave a
+        mention with nothing to match its model against."""
         choices = available_model_choices()
 
         models = {c.model for c in choices}

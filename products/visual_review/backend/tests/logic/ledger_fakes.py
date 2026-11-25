@@ -1,4 +1,5 @@
 import io
+from datetime import datetime
 
 from unittest.mock import MagicMock
 
@@ -209,6 +210,32 @@ class FakeGit:
             ),
             complete=self.compare_complete,
         )
+
+
+class FakeActions:
+    def __init__(self, mocker) -> None:
+        self.check_runs: dict[tuple[str, str], list[github_api.CheckRun]] = {}
+        self.base_changes: dict[int, list[datetime]] = {}
+        mocker.patch.object(github_api, "actions_check_runs", side_effect=self._latest_check_runs)
+        mocker.patch.object(
+            github_api,
+            "pull_request_base_changes",
+            side_effect=lambda repo, number, priority=CRITICAL: list(self.base_changes.get(number, [])),
+        )
+
+    # GitHub lists only the newest attempt of a job unless it is asked for all of them.
+    def _latest_check_runs(
+        self, repo, sha: str, check_name: str, priority: Priority = CRITICAL
+    ) -> list[github_api.CheckRun]:
+        return self.check_runs.get((sha, check_name), [])[-1:]
+
+    def finish(self, sha: str, check_name: str, conclusion: str, at: datetime) -> None:
+        self.check_runs.setdefault((sha, check_name), []).append(
+            github_api.CheckRun(conclusion=conclusion, completed_at=at)
+        )
+
+    def retarget(self, number: int, at: datetime) -> None:
+        self.base_changes.setdefault(number, []).append(at)
 
 
 def solid_png(color: tuple[int, int, int, int]) -> bytes:
