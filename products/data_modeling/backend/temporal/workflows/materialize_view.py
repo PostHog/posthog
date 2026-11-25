@@ -718,6 +718,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     schema_name=materialize_result.node_name,
                     last_synced_at=None,
                     saved_query_id=uuid.UUID(materialize_result.saved_query_id),
+                    complete_table_read=materialize_result.person_property_complete_table_read,
                 ),
                 id=f"sync-warehouse-person-properties-{job_id}",
                 id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,

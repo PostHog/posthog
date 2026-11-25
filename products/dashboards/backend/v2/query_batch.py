@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
-from datetime import datetime
+from datetime import UTC, datetime, tzinfo
 from functools import partial
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Condition, Event, Lock, Semaphore, Thread, Timer
@@ -41,6 +41,7 @@ from posthog.api.services.query import (
     run_planned_query,
 )
 from posthog.api.utils import is_async_query, is_insight_actors_options_query, is_insight_actors_query
+from posthog.api_queries_budget import BudgetSpec
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -55,6 +56,13 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
+from products.dashboards.backend.v2.telemetry import (
+    TelemetryTargetError,
+    assert_can_read_logs,
+    logql_budget,
+    promql_interval,
+    run_logql,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +93,9 @@ STALLED_RESPONSE_GRACE_SECONDS = 2 * HEARTBEAT_SECONDS
 # A reader pulls at least a keep-alive line every heartbeat, so a response that has pulled nothing for several
 # heartbeats has a client that stopped reading. It ends then rather than at the stream deadline.
 MAX_IDLE_SECONDS = 6 * HEARTBEAT_SECONDS
+# A result line can be tens of MiB, and a slow client can take longer than the idle deadline to receive one. Lines
+# are handed to the server in slices, so a client that is still reading marks progress on each slice.
+PULL_SLICE_BYTES = 64 * 1024
 _open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
 _org_open: dict[Any, int] = {}
 _org_batches: dict[Any, int] = {}
@@ -233,7 +244,13 @@ _EXPERIMENT_KINDS = frozenset(
 )
 _UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
-_EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
+_EXPOSED_ERRORS = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    ResolutionError,
+    UserAccessControlError,
+    TelemetryTargetError,
+)
 
 
 class InvalidTarget(ValueError):
@@ -268,9 +285,33 @@ def to_posthog_date(expression: str) -> Optional[str]:
     return expression
 
 
-def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
+def resolve_query(item: QueryBatchInput, *, tz: tzinfo = UTC) -> ResolvedQuery:
     date_from, date_to = to_posthog_date(item.date_from), to_posthog_date(item.date_to)
     target = item.target
+    if target.language == QueryBatchLanguage.PROMQL:
+        try:
+            interval = promql_interval(
+                item.date_from,
+                item.date_to,
+                max_data_points=item.max_data_points,
+                min_interval=item.interval,
+                tz=tz,
+            )
+        except TelemetryTargetError as e:
+            raise InvalidTarget(str(e))
+        # The range stays relative and the step depends only on its span, so a refresh reuses the cache entry.
+        return ResolvedQuery(
+            query={
+                "kind": "MetricsQuery",
+                "language": "promql",
+                "promql": target.query,
+                "clauses": [],
+                "dateRange": {"date_from": date_from, "date_to": date_to},
+                "interval": interval,
+            },
+            filters=None,
+            variables=None,
+        )
     if target.language == QueryBatchLanguage.HOGQL:
         return ResolvedQuery(
             query={
@@ -463,6 +504,14 @@ class _Watchdog:
             self.arm(delay)
 
 
+def _slices(chunk: bytes) -> Iterator[bytes]:
+    if len(chunk) <= PULL_SLICE_BYTES:
+        yield chunk
+        return
+    for start in range(0, len(chunk), PULL_SLICE_BYTES):
+        yield chunk[start : start + PULL_SLICE_BYTES]
+
+
 def _render_body(line: dict[str, Any]) -> bytes:
     return SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
 
@@ -491,7 +540,8 @@ class QueryBatch:
         # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
         self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
-        self._jobs: list[tuple[int, str, ResolvedQuery]] = []
+        self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
+        self._logql_budget: Optional[BudgetSpec] = None
         self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._response: tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]] | None = None
@@ -501,6 +551,7 @@ class QueryBatch:
         self._futures: list[Future[None]] = []
         self._active: set[str] = set()
         self._cancelled = False
+        self._logql_cancelled = Event()
         self._admitted = False
         self._to_refresh: list[ResolvedQuery] = []
         self._lock = Lock()
@@ -531,12 +582,22 @@ class QueryBatch:
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
+        logql = self._logql_to_run(inputs)
         for index, item in enumerate(inputs):
+            if item.target.language == QueryBatchLanguage.LOGQL:
+                continue
             try:
-                resolved[index] = resolve_query(item)
+                resolved[index] = resolve_query(item, tz=self._team.timezone_info)
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
         user_access_control = UserAccessControl(user=self._user, team=self._team)
+        if logql:
+            try:
+                assert_can_read_logs(self._team, self._user, user_access_control)
+            except Exception as e:
+                for index in logql:
+                    self._add_ready(_error_line(index, e, team=self._team))
+                logql = []
 
         def plan(index: int) -> PlannedQuery | None:
             query = resolved[index]
@@ -572,6 +633,21 @@ class QueryBatch:
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, resolved[index]))
+        self._logql_budget = logql_budget(self._team) if logql else None
+        for index in logql:
+            self._jobs.append((index, f"{self._client_query_id}-{index}", inputs[index]))
+
+    def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
+        """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
+        to_run: list[int] = []
+        for index, item in enumerate(inputs):
+            if item.target.language != QueryBatchLanguage.LOGQL:
+                continue
+            if item.cache_only:
+                self._add_ready(_miss_line(index, None))
+            else:
+                to_run.append(index)
+        return to_run
 
     def _read_chunk(
         self,
@@ -812,6 +888,24 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
 
+    def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
+        if self._cancelled:
+            return {"i": index, "error": _FAILED}
+        try:
+            response = run_logql(
+                team=self._team,
+                logql=item.target.query,
+                date_from=item.date_from,
+                date_to=item.date_to,
+                min_interval=item.interval,
+                max_data_points=item.max_data_points,
+                budget=budget,
+                cancelled=self._logql_cancelled,
+            )
+        except Exception as e:
+            return _error_line(index, e, team=self._team)
+        return _result_line(index, response, hit=False, stale=False)
+
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():
             return
@@ -833,14 +927,17 @@ class QueryBatch:
         with self._lock:
             return self._cancelled
 
-    def _work(self, index: int, query: ResolvedQuery, query_id: str) -> None:
+    def _work(self, index: int, query: ResolvedQuery | QueryBatchInput, query_id: str) -> None:
         try:
             with self._lock:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
             with tags_context(team_id=self._team.pk, client_query_id=query_id):
-                line = self._run(index, query, query_id)
+                if isinstance(query, QueryBatchInput):
+                    line = self._run_logql(index, query, self._logql_budget)
+                else:
+                    line = self._run(index, query, query_id)
             index, data = line["i"], self._encode(line)
             del line
             if len(data) > MAX_UNREAD_BYTES:
@@ -905,6 +1002,7 @@ class QueryBatch:
                 return
             self._closed = True
             self._cancelled = True
+            self._logql_cancelled.set()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
@@ -970,8 +1068,9 @@ class QueryBatch:
     def stream(self) -> Iterator[bytes]:
         try:
             for chunk in self._stream():
-                yield chunk
-                self._pulled()
+                for piece in _slices(chunk):
+                    yield piece
+                    self._pulled()
         finally:
             self._watchdog.cancel()
             self.ready = []
@@ -989,8 +1088,9 @@ class QueryBatch:
         body = self._astream()
         try:
             async for chunk in body:
-                yield chunk
-                self._pulled()
+                for piece in _slices(chunk):
+                    yield piece
+                    self._pulled()
         finally:
             # Cleared first, so a cancel scheduled by the watchdog cannot reach the request task after the stream ends.
             with self._lock:
