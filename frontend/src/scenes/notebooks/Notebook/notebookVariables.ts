@@ -91,13 +91,17 @@ export function parseNotebookVariables(value: unknown): NotebookVariable[] {
     })
 }
 
+function coerceListValue(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.every((item): item is string => typeof item === 'string') ? value : []
+    }
+    return typeof value === 'string' && value !== '' ? [value] : []
+}
+
 /** Fit a value to its declared type, so a type switch in the editor never leaves a stale shape behind. */
 export function coerceNotebookVariableValue(type: NotebookVariableType, value: unknown): NotebookVariableValue {
     if (type === 'list') {
-        if (Array.isArray(value)) {
-            return value.every((item): item is string => typeof item === 'string') ? value : []
-        }
-        return typeof value === 'string' && value !== '' ? [value] : []
+        return coerceListValue(value)
     }
     if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
         return null
@@ -107,9 +111,9 @@ export function coerceNotebookVariableValue(type: NotebookVariableType, value: u
         return Number.isFinite(numeric) ? numeric : null
     }
     if (type === 'boolean') {
-        return typeof value === 'boolean' ? value : String(value).trim().toLowerCase() === 'true'
+        return String(value).trim().toLowerCase() === 'true'
     }
-    return typeof value === 'string' ? value : String(value)
+    return String(value)
 }
 
 /** Names a variable must not take: every cell's output dataframe, which shares the kernel namespace. */

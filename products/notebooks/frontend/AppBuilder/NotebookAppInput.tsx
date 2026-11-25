@@ -26,6 +26,9 @@ export function NotebookAppInput({
         return <LemonBanner type="warning">Choose an existing notebook variable in component settings.</LemonBanner>
     }
     const label = block.title || variable.name
+    const textValue = String(variable.value ?? '')
+    const options = block.input_kind === 'select' ? (block.options ?? []) : undefined
+    const sliderValue = variable.value ?? 0
     return (
         <div className="flex flex-col gap-2">
             <label htmlFor={id} className="font-semibold">
@@ -35,17 +38,17 @@ export function NotebookAppInput({
                 <NotebookVariableListInput
                     id={id}
                     value={variable.value}
-                    options={block.input_kind === 'select' ? (block.options ?? []) : undefined}
+                    options={options}
                     disabled={disabled}
                     onChange={onChange}
                 />
-            ) : block.input_kind === 'select' ? (
+            ) : options ? (
                 <LemonSelect
                     id={id}
                     fullWidth
-                    value={String(variable.value ?? '')}
+                    value={textValue}
                     disabled={disabled}
-                    options={(block.options ?? []).map((value) => ({ value, label: value }))}
+                    options={options.map((value) => ({ value, label: value }))}
                     onChange={(value) => onChange(coerceNotebookVariableValue(variable.type, value))}
                 />
             ) : block.input_kind === 'slider' && variable.type === 'number' ? (
@@ -59,10 +62,10 @@ export function NotebookAppInput({
                         min={block.min ?? 0}
                         max={block.max ?? 100}
                         step={block.step ?? 1}
-                        value={Number(variable.value ?? 0)}
+                        value={Number(sliderValue)}
                         onChange={(event) => onChange(Number(event.target.value))}
                     />
-                    <output htmlFor={id}>{String(variable.value ?? 0)}</output>
+                    <output htmlFor={id}>{String(sliderValue)}</output>
                 </div>
             ) : variable.type === 'boolean' ? (
                 <LemonCheckbox
@@ -82,18 +85,12 @@ export function NotebookAppInput({
                 />
             ) : variable.type === 'date' ? (
                 <LemonCalendarSelectInput
-                    value={variable.value ? dayjs(String(variable.value)) : null}
+                    value={variable.value ? dayjs(textValue) : null}
                     onChange={(date) => onChange(date?.format('YYYY-MM-DD') ?? '')}
                     buttonProps={{ id, disabledReason: disabled ? 'This notebook is read-only' : undefined }}
                 />
             ) : (
-                <LemonInput
-                    id={id}
-                    value={String(variable.value ?? '')}
-                    maxLength={1000}
-                    disabled={disabled}
-                    onChange={onChange}
-                />
+                <LemonInput id={id} value={textValue} maxLength={1000} disabled={disabled} onChange={onChange} />
             )}
             <span className="text-xs text-secondary">{`Notebook variable: ${variable.name}`}</span>
         </div>

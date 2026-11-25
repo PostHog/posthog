@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
@@ -6,6 +8,12 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { appCellTitle } from './notebookAppLayout'
+
+const SLIDER_FIELDS = [
+    { key: 'min', label: 'Minimum', defaultValue: 0 },
+    { key: 'max', label: 'Maximum', defaultValue: 100 },
+    { key: 'step', label: 'Step', defaultValue: 1 },
+] as const
 
 export function NotebookAppInspector({
     layout,
@@ -183,29 +191,18 @@ export function NotebookAppInspector({
                                     )}
                                 </>
                             )}
-                            {block.input_kind === 'slider' && (
-                                <>
-                                    <LemonLabel>Minimum</LemonLabel>
-                                    <LemonInput
-                                        type="number"
-                                        value={block.min ?? 0}
-                                        onChange={(min) => onBlock(block.id, { min: min ?? 0 })}
-                                    />
-                                    <LemonLabel>Maximum</LemonLabel>
-                                    <LemonInput
-                                        type="number"
-                                        value={block.max ?? 100}
-                                        onChange={(max) => onBlock(block.id, { max: max ?? 100 })}
-                                    />
-                                    <LemonLabel>Step</LemonLabel>
-                                    <LemonInput
-                                        type="number"
-                                        value={block.step ?? 1}
-                                        min={0.000001}
-                                        onChange={(step) => onBlock(block.id, { step: step ?? 1 })}
-                                    />
-                                </>
-                            )}
+                            {block.input_kind === 'slider' &&
+                                SLIDER_FIELDS.map(({ key, label, defaultValue }) => (
+                                    <Fragment key={key}>
+                                        <LemonLabel>{label}</LemonLabel>
+                                        <LemonInput
+                                            type="number"
+                                            value={block[key] ?? defaultValue}
+                                            min={key === 'step' ? 0.000001 : undefined}
+                                            onChange={(value) => onBlock(block.id, { [key]: value ?? defaultValue })}
+                                        />
+                                    </Fragment>
+                                ))}
                             <p className="text-xs text-secondary">
                                 Changing this input updates the notebook variable. Run the notebook to refresh dependent
                                 results.

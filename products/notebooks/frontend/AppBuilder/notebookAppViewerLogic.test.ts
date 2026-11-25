@@ -5,6 +5,7 @@ import { waitFor } from '@testing-library/react'
 import api from 'lib/api'
 import { promiseResolveReject } from 'lib/utils/async'
 
+import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -35,7 +36,15 @@ describe('published viewer refreshes', () => {
             results_as_of: null,
             published_at: null,
         })
-        const plans = jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue([])
+        const requests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/1/notebooks/report/app_queries/': async ({ request }) => {
+                    requests.push(await request.json())
+                    return [200, []]
+                },
+            },
+        })
         const viewer = notebookAppViewerLogic({ project: '1', shortId: 'report', sessionId: 'viewer' })
         viewer.mount()
         try {
@@ -49,7 +58,7 @@ describe('published viewer refreshes', () => {
             viewer.actions.changeInput('regions', [])
             viewer.actions.refresh()
             await waitFor(() => expect(viewer.values.results?.variables).toEqual([{ ...regions, value: [] }]))
-            expect(plans.mock.calls[0][2].variables).toEqual([{ ...regions, value: [] }])
+            expect(requests).toEqual([{ revision: 2, variables: [{ ...regions, value: [] }] }])
         } finally {
             viewer.unmount()
         }
