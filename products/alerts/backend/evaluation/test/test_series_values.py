@@ -222,6 +222,23 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert shadowed == live
         assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
 
+    def test_a_failed_verification_is_recorded_and_never_changes_the_check(self) -> None:
+        alert = self._alert(detector={"type": "zscore", "window": 7}, interval="day")
+        with time_machine.travel(_NOW, tick=False):
+            live = check_alert_for_insight(alert)
+            with patch(
+                "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.execute_hogql_query",
+                side_effect=Exception("count query timed out"),
+            ):
+                shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["verified"], properties["verify_error"]) == (
+            "match",
+            False,
+            "Exception",
+        )
+
     @parameterized.expand(
         [
             ("killed_query", CHQueryErrorQueryWasCancelled("killed", code=394)),

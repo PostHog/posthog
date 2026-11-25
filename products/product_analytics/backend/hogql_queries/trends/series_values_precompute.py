@@ -466,6 +466,7 @@ def closed_series_values(
     freshly_built = result.freshly_built
 
     verification = None
+    verify_error: str | None = None
     remaining = _remaining_seconds(started, wait_timeout_seconds)
     verify_end = _verify_range_end(runner, start=range_start, end=range_end)
     if verify and verify_end > range_start and (remaining is None or remaining > 0) and _verification_due(runner):
@@ -480,10 +481,11 @@ def closed_series_values(
             )
         except _CANCELLATION:
             raise
-        except Exception:
+        except Exception as exc:
             logger.warning("series_values_verify_failed", team_id=runner.team.pk, exc_info=True)
             _retry_verification_soon(runner)
             stale_days = None
+            verify_error = type(exc).__name__
         if stale_days is not None:
             verification = SeriesValuesVerification(
                 stale_days=len(stale_days), duration_ms=round((time.monotonic() - verify_started) * 1000)
@@ -510,6 +512,7 @@ def closed_series_values(
         live_from=live_from,
         freshly_built=freshly_built,
         verification=verification,
+        verify_error=verify_error,
     )
 
 

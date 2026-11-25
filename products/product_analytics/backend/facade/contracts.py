@@ -83,12 +83,14 @@ class ClosedSeriesValues:
 
     ``live_from`` is the first bucket that still needs a live read, or None when the whole range is closed.
     ``verification`` is None when the stored days were not checked against their source events.
+    ``verify_error`` is the exception class of a check that raised, which leaves the stored days unchecked.
     """
 
     values: dict[datetime, int]
     live_from: datetime | None
     freshly_built: bool = False
     verification: SeriesValuesVerification | None = None
+    verify_error: str | None = None
 
 
 @dataclass(frozen=True)

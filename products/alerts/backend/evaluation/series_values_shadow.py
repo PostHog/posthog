@@ -47,6 +47,7 @@ class ShadowComparison:
     max_abs_difference: float = 0.0
     freshly_built: bool = False
     verification: SeriesValuesVerification | None = None
+    verify_error: str | None = None
 
 
 def is_series_values_precompute_enabled(team: Team) -> bool:
@@ -104,6 +105,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
             buckets_missing=missing,
             freshly_built=closed.freshly_built,
             verification=closed.verification,
+            verify_error=closed.verify_error,
         )
     largest = max(differences)
     outcome: ShadowOutcome
@@ -120,6 +122,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         max_abs_difference=largest,
         freshly_built=closed.freshly_built,
         verification=closed.verification,
+        verify_error=closed.verify_error,
     )
 
 
@@ -211,6 +214,7 @@ def _record(
                 "verified": verification is not None,
                 "stale_days": 0 if verification is None else verification.stale_days,
                 "verify_duration_ms": None if verification is None else verification.duration_ms,
+                "verify_error": comparison.verify_error,
             },
             groups=groups(team.organization, team),
         )

@@ -293,9 +293,9 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         with time_machine.travel("2024-01-15T12:20:00Z", tick=False):
             retried = self._closed(verify=True)
 
-        assert failed.verification is None
+        assert (failed.verification, failed.verify_error) == (None, "Exception")
         assert failed.values[datetime(2024, 1, 9)] == 1
-        assert backing_off.verification is None
+        assert (backing_off.verification, backing_off.verify_error) == (None, None)
         assert retried.verification is not None
 
     @time_machine.travel(_NOW, tick=False)
