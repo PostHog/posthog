@@ -200,18 +200,36 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
     step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
     if step_type is None or "actions" not in validated_data:
         return validated_data
-    sensitive = any(
-        isinstance(action, dict)
-        and action.get("type") == step_type
-        and (action.get("config") or {}).get("sensitive") is True
+    live_configs = [
+        action.get("config") or {}
         for action in before.actions or []
-    )
-    actions = [
-        {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
         if isinstance(action, dict) and action.get("type") == step_type
-        else action
-        for action in validated_data["actions"] or []
     ]
+    sensitive = any(config.get("sensitive") is True for config in live_configs)
+    click_tracking = (
+        next(
+            (
+                config["click_tracking_enabled"]
+                for config in live_configs
+                if isinstance(config.get("click_tracking_enabled"), bool)
+            ),
+            None,
+        )
+        if step_type == "function_email"
+        else None
+    )
+    actions = []
+    for action in validated_data["actions"] or []:
+        if isinstance(action, dict) and action.get("type") == step_type:
+            config = {**(action.get("config") or {}), "sensitive": sensitive}
+            if step_type == "function_email":
+                if click_tracking is None:
+                    config.pop("click_tracking_enabled", None)
+                else:
+                    config["click_tracking_enabled"] = click_tracking
+            actions.append({**action, "config": config})
+        else:
+            actions.append(action)
     return {**validated_data, "actions": actions}
 
 

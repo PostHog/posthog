@@ -158,6 +158,57 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = self.client.patch(url, {"tags": []}, format="json")
         assert response.json()["tags"] == []
 
+    def test_click_tracking_enabled_round_trips_and_resets_when_sensitivity_changes(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Password reset",
+                "content": {"email": {"subject": "Reset", "text": "Body"}},
+                "type": "email",
+                "sensitive": True,
+                "click_tracking_enabled": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        template_id = response.json()["id"]
+        assert response.json()["click_tracking_enabled"] is True
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        MessageTemplate.objects.filter(id=template_id).update(draft_content={"email": {"subject": "Draft"}})
+        renamed = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["click_tracking_enabled"] is True
+
+        same_sensitivity = self.client.patch(url, {"sensitive": True}, format="json")
+        assert same_sensitivity.status_code == status.HTTP_200_OK, same_sensitivity.json()
+        assert same_sensitivity.json()["click_tracking_enabled"] is True
+        assert same_sensitivity.json()["has_draft"] is True
+
+        unprotected = self.client.patch(url, {"sensitive": False}, format="json")
+        assert unprotected.status_code == status.HTTP_200_OK, unprotected.json()
+        assert unprotected.json()["click_tracking_enabled"] is None
+
+        combined = self.client.patch(url, {"sensitive": True, "click_tracking_enabled": True}, format="json")
+        assert combined.status_code == status.HTTP_200_OK, combined.json()
+        assert combined.json()["click_tracking_enabled"] is True
+
+        disabled = self.client.patch(url, {"click_tracking_enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        assert disabled.json()["click_tracking_enabled"] is False
+
+        basic_rows = {
+            row["id"]: row
+            for row in self.client.get(f"/api/projects/{self.team.id}/messaging_templates/?basic=true").json()[
+                "results"
+            ]
+        }
+        assert basic_rows[template_id]["click_tracking_enabled"] is False
+
+        cleared = self.client.patch(url, {"click_tracking_enabled": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["click_tracking_enabled"] is None
+
     def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
         # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.
         response = self.client.patch(

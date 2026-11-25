@@ -425,6 +425,7 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
         sensitive=template.sensitive,
+        click_tracking_enabled=template.click_tracking_enabled,
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",

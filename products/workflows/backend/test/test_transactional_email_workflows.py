@@ -35,6 +35,7 @@ def _content(
     html: str = "<a href='{{ variables.link }}'>Reset</a>",
     text: str = "Reset: {{ variables.link }}",
     sensitive: bool = False,
+    click_tracking_enabled: bool | None = None,
 ) -> TransactionalEmailContent:
     return TransactionalEmailContent(
         message_template_id=uuid4(),
@@ -46,6 +47,7 @@ def _content(
         from_integration_id=from_integration_id,
         message_category_id=None,
         sensitive=sensitive,
+        click_tracking_enabled=click_tracking_enabled,
     )
 
 
@@ -89,10 +91,27 @@ class TestTransactionalEmailWorkflows(BaseTest):
         )
         assert list(versions) == [1, 2]
 
-    def test_publishing_an_older_version_keeps_the_protection_set_on_the_template(self):
-        flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+    @parameterized.expand(
+        [
+            ("sensitive_with_default_clicks", False, None, True, None),
+            ("sensitive_with_clicks_opted_in", False, None, True, True),
+            ("sensitive_restoring_version_that_had_clicks_on", True, True, True, None),
+            ("non_sensitive_with_clicks_off", False, None, False, False),
+        ]
+    )
+    def test_publishing_an_older_version_keeps_the_protection_set_on_the_template(
+        self, _name, v1_sensitive, v1_clicks, live_sensitive, live_clicks
+    ):
+        flow_id = create_transactional_email_workflow(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            content=_content(sensitive=v1_sensitive, click_tracking_enabled=v1_clicks),
+        )
         update_transactional_email_workflow(
-            team_id=self.team.id, user_id=self.user.id, hog_flow_id=flow_id, content=_content(sensitive=True)
+            team_id=self.team.id,
+            user_id=self.user.id,
+            hog_flow_id=flow_id,
+            content=_content(subject="New subject", sensitive=live_sensitive, click_tracking_enabled=live_clicks),
         )
 
         with team_scope(self.team.id):
@@ -106,11 +125,20 @@ class TestTransactionalEmailWorkflows(BaseTest):
                 validate=lambda _state, content: content,
             )
 
-        assert HogFlow.objects.get(id=flow_id).actions[1]["config"]["sensitive"] is True
+        config = HogFlow.objects.get(id=flow_id).actions[1]["config"]
+        assert config["sensitive"] is live_sensitive
+        if live_clicks is None:
+            assert "click_tracking_enabled" not in config
+        else:
+            assert config["click_tracking_enabled"] is live_clicks
 
     def test_the_stored_workflow_passes_the_workflows_api_validation(self):
         flow = HogFlow.objects.get(
-            id=create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
+            id=create_transactional_email_workflow(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                content=_content(sensitive=True, click_tracking_enabled=True),
+            )
         )
 
         serializer = HogFlowSerializer(
@@ -121,6 +149,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
         assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
+        assert flow.actions[1]["config"]["click_tracking_enabled"] is True
 
     @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
     def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):

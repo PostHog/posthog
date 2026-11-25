@@ -56967,6 +56967,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},
@@ -59086,6 +59090,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},

@@ -883,6 +883,7 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    click_tracking_enabled: bool | None = None
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""

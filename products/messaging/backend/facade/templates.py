@@ -38,6 +38,7 @@ class MessageTemplateRow:
     transactional_hog_flow_id: UUID | None
     draft_content: dict[str, Any] | None
     sensitive: bool
+    click_tracking_enabled: bool | None = None
     # Tag names, sorted. Keeps its default last, so every field without one stays above it.
     tags: tuple[str, ...] = ()
 
@@ -63,6 +64,7 @@ class MessageTemplateBasicRow:
     sensitive: bool
     has_draft: bool
     tags: tuple[str, ...]
+    click_tracking_enabled: bool | None = None
 
 
 def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemplateRow:
@@ -80,6 +82,7 @@ def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemp
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         draft_content=row.draft_content,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
@@ -97,6 +100,7 @@ def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         has_draft=row.has_draft,  # type: ignore[attr-defined]
         tags=tuple(sorted(current_tag_names(row))),
     )
