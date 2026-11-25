@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamPublicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
@@ -19,6 +20,7 @@ import {
     firstRunCheckProblem,
     needsFirstRunCheck,
     runFirstRunCheck,
+    trainingStartRefusal,
 } from './firstRunCheck'
 import {
     autoresearchDestroy,
@@ -59,10 +61,10 @@ export interface autoresearchLogicActions {
         status: ProductSetupStatus
     } // productSetupStatusLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     deletePipeline: (
@@ -384,12 +386,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 lemonToast.success(`Started training "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
+                const refusal = trainingStartRefusal(error)
                 posthog.capture('autoresearch model action failed', {
                     action: 'train',
                     pipeline_id: pipeline.id,
                     status: error?.status,
+                    ...(refusal.code ? { error_code: refusal.code } : {}),
                 })
-                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to start training')
+                lemonToast.error(refusal.reason ?? 'Failed to start training')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
             }

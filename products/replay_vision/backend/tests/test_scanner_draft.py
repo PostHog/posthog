@@ -24,7 +24,6 @@ from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
@@ -59,6 +58,7 @@ from products.replay_vision.backend.scanner_draft import (
     _start_in_background,
     draft_scanner_from_goal,
 )
+from products.replay_vision.backend.tests.helpers import TEST_FREE_CREDITS
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.surveys.backend.models import Survey
 
@@ -743,8 +743,8 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("free_credits_left", FREE_TIER_MONTHLY_CREDITS - 1, 200),
-            ("free_credits_used", FREE_TIER_MONTHLY_CREDITS, 400),
+            ("free_credits_left", TEST_FREE_CREDITS - 1, 200),
+            ("free_credits_used", TEST_FREE_CREDITS, 400),
         ]
     )
     @patch(_GENERATE_PATH)

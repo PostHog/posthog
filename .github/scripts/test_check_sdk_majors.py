@@ -182,3 +182,147 @@ def test_check_rust_applies_the_expected_major_to_the_cli(tmp_path: Path) -> Non
     assert guard.check_rust(tmp_path) == [
         "cli/Cargo.toml: posthog-rs = '=0.30.0', expected major 1. " + guard.MIGRATION_HINT,
     ]
+
+
+@pytest.mark.parametrize(
+    "module,version,problems",
+    [
+        ("github.com/posthog/posthog-go/v2", "v2.1.1", []),
+        (
+            "github.com/posthog/posthog-go",
+            "v1.44.1",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go v1, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+        (
+            "github.com/posthog/posthog-go/v3",
+            "v3.0.0",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go/v3 v3, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+    ],
+)
+def test_check_go_holds_the_module_path_and_version_to_the_expected_major(
+    tmp_path: Path, module: str, version: str, problems: list[str]
+) -> None:
+    installer = tmp_path / "bin" / "hobby-installer"
+    installer.mkdir(parents=True)
+    (installer / "go.mod").write_text(f"module example\n\nrequire (\n\t{module} {version}\n)\n")
+    (installer / "go.sum").write_text(f"{module} {version} h1:x=\n{module} {version}/go.mod h1:y=\n")
+
+    found = guard.check_go(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)
+
+
+def _write_node_root(root: Path, root_version: str, desktop_version: str) -> None:
+    def lock(version: str, wrappers: str = "") -> str:
+        return f"packages:\n\n{wrappers}  posthog-node@{version}:\n    resolution: {{integrity: x}}\n\n"
+
+    wrappers = (
+        "  '@posthog/mcp@1.3.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-node: ^5.0.0 || ^6.0.0\n\n"
+        "  '@posthog/react@1.9.0':\n    resolution: {integrity: x}\n    peerDependencies:\n      posthog-js: '>=1.257.2'\n\n"
+    )
+    for workspace, manifest_dir, version in (
+        (root, root / "nodejs", root_version),
+        (root / "products" / "desktop", root / "products" / "desktop" / "apps" / "code", desktop_version),
+    ):
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "package.json").write_text(json.dumps({"dependencies": {"posthog-node": version}}))
+        (workspace / "pnpm-workspace.yaml").write_text("packages: []\n")
+        (workspace / "pnpm-lock.yaml").write_text(lock(version, wrappers if workspace == root else ""))
+
+
+@pytest.mark.parametrize(
+    "root_version,desktop_version,problems",
+    [
+        ("6.0.4", "6.0.4", []),
+        (
+            "5.74.0",
+            "6.0.4",
+            [
+                "nodejs/package.json [dependencies]: posthog-node declares '5.74.0', which is not pinned to major 6",
+                "pnpm-lock.yaml resolves posthog-node to majors [5], expected {6}",
+            ],
+        ),
+        (
+            "6.0.4",
+            "5.74.0",
+            [
+                "products/desktop/apps/code/package.json [dependencies]: posthog-node declares '5.74.0', which is not pinned to major 6",
+                "products/desktop/pnpm-lock.yaml resolves posthog-node to majors [5], expected {6}",
+            ],
+        ),
+    ],
+)
+def test_check_node_holds_every_pnpm_workspace_to_the_expected_major(
+    tmp_path: Path, root_version: str, desktop_version: str, problems: list[str]
+) -> None:
+    _write_node_root(tmp_path, root_version, desktop_version)
+
+    found = guard.check_node(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)
+
+
+def _write_python_root(root: Path, django_major: int, gateway_major: int) -> None:
+    def uv_project(path: Path, major: int) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "pyproject.toml").write_text(
+            f'[project]\ndependencies = ["posthoganalytics=={major}.0.1"]\n\n'
+            f'[tool.uv]\nconstraint-dependencies = ["posthoganalytics<{major + 1}"]\n'
+        )
+        (path / "uv.lock").write_text(f'[[package]]\nname = "posthoganalytics"\nversion = "{major}.0.1"\n')
+
+    uv_project(root, django_major)
+    uv_project(root / "services" / "llm-gateway", gateway_major)
+    acceptance_tests = root / "common" / "ingestion" / "acceptance_tests"
+    acceptance_tests.mkdir(parents=True)
+    (acceptance_tests / "requirements.txt").write_text(f"posthoganalytics=={django_major}.0.1\n")
+    clitools = root / "tools" / "infra-scripts" / "clitools"
+    clitools.mkdir(parents=True)
+    (clitools / "requirements.txt").write_text("-c constraints.txt\nposthog>=8.0.1\n")
+    (clitools / "constraints.txt").write_text("posthog<9\n")
+
+
+@pytest.mark.parametrize(
+    "django_major,gateway_major,problems",
+    [
+        (8, 8, []),
+        (
+            8,
+            7,
+            [
+                "services/llm-gateway/pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
+                "services/llm-gateway/uv.lock resolves posthoganalytics outside major 8",
+            ],
+        ),
+        (
+            7,
+            8,
+            [
+                "pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
+                "uv.lock resolves posthoganalytics outside major 8",
+                "common/ingestion/acceptance_tests/requirements.txt: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
+            ],
+        ),
+    ],
+)
+def test_check_python_holds_every_project_to_the_expected_major(
+    tmp_path: Path, django_major: int, gateway_major: int, problems: list[str]
+) -> None:
+    _write_python_root(tmp_path, django_major, gateway_major)
+
+    found = guard.check_python(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)

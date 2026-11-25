@@ -48,6 +48,12 @@ class TestUrlHelpers:
             ("https://flagsmith.example.com/", "https://flagsmith.example.com"),
             ("flagsmith.example.com", "https://flagsmith.example.com"),
             ("http://flagsmith.internal:8000", "http://flagsmith.internal:8000"),
+            ("https://flagsmith.example.com/api/v1", "https://flagsmith.example.com"),
+            ("https://flagsmith.example.com/api/v1/", "https://flagsmith.example.com"),
+            ("https://flagsmith.example.com/API/V1", "https://flagsmith.example.com"),
+            ("https://example.com/flagsmith/api/v1", "https://example.com/flagsmith"),
+            ("https://example.com/flagsmith", "https://example.com/flagsmith"),
+            ("https://example.com/api/v12", "https://example.com/api/v12"),
         ],
     )
     def test_normalize_base_url_valid(self, base_url, expected):
@@ -102,9 +108,18 @@ class TestGetRowsTopLevel:
 
 
 class TestGetRowsFanout:
-    def test_feature_states_enumerate_environments_via_projects(self):
+    @pytest.mark.parametrize(
+        "endpoint, child_path",
+        [
+            ("feature_states", "featurestates/"),
+            # Without anyIdentity the listing returns the environment defaults, not the overrides.
+            ("identity_feature_states", "featurestates/?anyIdentity=1"),
+            ("change_requests", "list-change-requests/?page_size=100"),
+        ],
+    )
+    def test_environment_fan_out_enumerates_environments_via_projects(self, endpoint, child_path):
         result = _driver().run(
-            "feature_states",
+            endpoint,
             [
                 ScriptedResponse(json=[{"id": 1}]),  # projects
                 ScriptedResponse(json=_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}])),
@@ -119,9 +134,41 @@ class TestGetRowsFanout:
             {"id": 2000, "enabled": False, "_environment_api_key": "env-b"},
         ]
         assert result.urls[2:] == [
-            f"{API_BASE}/environments/env-a/featurestates/",
-            f"{API_BASE}/environments/env-b/featurestates/",
+            f"{API_BASE}/environments/env-a/{child_path}",
+            f"{API_BASE}/environments/env-b/{child_path}",
         ]
+
+    def test_usage_data_lifts_labels_into_key_columns(self):
+        # Usage rows repeat per day for each label combination; without the lifted columns two rows
+        # of one day share a primary key and merge would collapse them.
+        result = _driver().run(
+            "usage_data",
+            [
+                ScriptedResponse(json=_page([{"id": 5}])),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "day": "2026-09-01",
+                            "flags": 10,
+                            "labels": {
+                                "client_application_name": "web-app",
+                                "client_application_version": "2.1.0",
+                                "user_agent": None,
+                            },
+                        },
+                        {"day": "2026-09-01", "flags": 3, "labels": None},
+                    ]
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        keys = FLAGSMITH_ENDPOINTS["usage_data"].primary_keys
+        assert [[row[key] for key in keys] for row in result.rows] == [
+            ["5", "2026-09-01", "web-app", "2.1.0", ""],
+            ["5", "2026-09-01", "", "", ""],
+        ]
+        assert result.urls[1] == f"{API_BASE}/organisations/5/usage-data/?period=90_day_period"
 
     def test_users_fan_out_injects_organisation_id(self):
         result = _driver().run(
@@ -209,6 +256,34 @@ class TestGetRowsTwoLevelFanout:
         assert [url for url in result.urls if url.endswith("/traits/")] == [
             f"{API_BASE}/environments/env-a/identities/500/traits/",
             f"{API_BASE}/environments/env-a/identities/501/traits/",
+        ]
+
+    def test_multivariate_options_skip_features_without_options(self):
+        # Feature rows embed their options, so a feature with an empty list must not cost a request.
+        # A row without the field comes from an older server and is still queried.
+        result = _driver().run(
+            "multivariate_options",
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(
+                    json=_page(
+                        [
+                            {"id": 100, "multivariate_options": [{"id": 7}]},
+                            {"id": 101, "multivariate_options": []},
+                            {"id": 102},
+                        ]
+                    )
+                ),
+                ScriptedResponse(json=_page([{"id": 7, "string_value": "blue"}])),
+                ScriptedResponse(json=_page([])),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "string_value": "blue", "_project_id": "1", "_feature_id": "100"}]
+        assert [url for url in result.urls if "/mv-options/" in url] == [
+            f"{API_BASE}/projects/1/features/100/mv-options/",
+            f"{API_BASE}/projects/1/features/102/mv-options/",
         ]
 
     def test_feature_segments_pair_environments_with_features(self):

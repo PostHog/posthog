@@ -1,10 +1,13 @@
 import React, { useState } from 'react'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillEventSelect } from './QuillEventSelect'
 
 interface EventSelectProps {
     onItemChange?: (values: any[]) => void
@@ -27,6 +30,7 @@ export const EventSelect = ({
     allowNonCapturedEvents = false,
 }: EventSelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
+    const quillSurface = useQuillSurface()
     const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
 
     const handleChange = (name: string): void => {
@@ -55,6 +59,28 @@ export const EventSelect = ({
         return selectedItems?.some((item) => item.name === eventName && item.isNonCaptured) || false
     }
 
+    const handleSelect = (value: TaxonomicFilterValue, item: any): void => {
+        handleItemChange(item)
+        handleChange(value as string)
+        setOpen(false)
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillEventSelect
+                selectedEvents={selectedEvents}
+                addElement={addElement}
+                open={open}
+                onOpenChange={setOpen}
+                onSelect={handleSelect}
+                onRemove={handleRemove}
+                isNonCapturedEvent={isNonCapturedEvent}
+                filterGroupTypes={eventSelectFilterGroupTypes}
+                allowNonCapturedEvents={allowNonCapturedEvents}
+            />
+        )
+    }
+
     // Add in the toggle popover logic for the passed in element
     const addElementWithToggle = React.cloneElement(addElement, { onClick: () => setOpen(!open) })
 
@@ -78,11 +104,7 @@ export const EventSelect = ({
                 onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
-                        onChange={(_, value, item) => {
-                            handleItemChange(item)
-                            handleChange(value as string)
-                            setOpen(false)
-                        }}
+                        onChange={(_, value, item) => handleSelect(value, item)}
                         taxonomicGroupTypes={eventSelectFilterGroupTypes}
                         allowNonCapturedEvents={allowNonCapturedEvents}
                     />

@@ -311,7 +311,12 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         self.last_dispatch = dispatch
         return summary
 
-    def test_dispatches_one_run_that_carries_every_queued_fire(self) -> None:
+    @parameterized.expand([("idle", False), ("inside_the_workflow_cooldown", True)])
+    def test_dispatches_one_run_that_carries_every_queued_fire(self, _name: str, recent_workflow_run: bool) -> None:
+        # A queued fire has already waited for the tick, so the cooldown a live fire obeys must not
+        # hold it back for another one.
+        if recent_workflow_run:
+            self._seed_run(triggered_by=TRIGGERED_BY_WORKFLOW, age=timedelta(minutes=5))
         self._queue("Issue #1")
         self._queue("Issue #2")
 
@@ -322,13 +327,11 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         assert self.last_dispatch.call_args.kwargs["pending_trigger_ids"] == self._pending_ids()
         assert len(self._pending()) == 2
 
-    @parameterized.expand(["cooldown", "in_flight", "paused", "daily_report_limit", "collision", "dispatch_error"])
+    @parameterized.expand(["in_flight", "paused", "daily_report_limit", "collision", "dispatch_error"])
     def test_a_lane_that_cannot_run_keeps_its_fires_for_a_later_tick(self, blocker: str) -> None:
         self._queue("Issue #1")
         dispatch_error: BaseException | None = None
-        if blocker == "cooldown":
-            self._seed_run(triggered_by=TRIGGERED_BY_WORKFLOW, age=timedelta(minutes=5))
-        elif blocker == "in_flight":
+        if blocker == "in_flight":
             self._seed_run(triggered_by=None, status=TaskRun.Status.IN_PROGRESS)
         elif blocker == "paused":
             self.config.status = SignalScoutConfig.Status.PAUSED_BY_USER

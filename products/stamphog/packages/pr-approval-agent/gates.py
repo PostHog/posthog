@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import DenyException, OwnershipSource, load_effective_policy
+from policy import DenyException, OwnershipSource, compile_deny_pattern, load_effective_policy
 
 if TYPE_CHECKING:
     from owners_yaml.resolver import OwnersResolver
@@ -368,27 +368,6 @@ POLICY = load_effective_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_for
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
 
-def _compile_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
-    r"""Compile a single deny pattern into a case-insensitive regex.
-
-    Patterns containing path separators (/) or starting with a dot are
-    treated as literal path fragments — no boundaries added.
-
-    For other patterns, boundary matching depends on context:
-    - Title matching uses \b (standard word boundaries — underscore is
-      a word char, which is correct for natural-language titles).
-    - Path matching uses a looser boundary that also breaks on _ and -,
-      since file paths use those as separators. This ensures "secret"
-      matches "secret_key_store.py" but not "nosecrets.py".
-    """
-    if "/" in p or p.startswith(r"\."):
-        return re.compile(rf"(?i){p}")
-    if for_paths:
-        # Break on non-alphanumeric (including _ and -) or string edges
-        return re.compile(rf"(?i)(?<![a-zA-Z0-9]){p}(?![a-zA-Z0-9])")
-    return re.compile(rf"(?i)\b{p}\b")
-
-
 def _compile_patterns(
     defs: dict[str, dict[str, list[str]]],
 ) -> dict[str, dict[str, list[re.Pattern[str]]]]:
@@ -404,13 +383,14 @@ def _compile_patterns(
         compiled[category] = {}
         for scope, patterns in groups.items():
             if scope in ("paths", "edit_paths"):
-                compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
+                compiled[category][scope] = [compile_deny_pattern(p, for_paths=True) for p in patterns]
             elif scope == "titles":
-                compiled[category][scope] = [_compile_pattern(p, for_paths=False) for p in patterns]
+                compiled[category][scope] = [compile_deny_pattern(p, for_paths=False) for p in patterns]
             else:
                 # "any" — store (path_regex, title_regex) pairs
                 compiled[category][scope] = [
-                    (_compile_pattern(p, for_paths=True), _compile_pattern(p, for_paths=False)) for p in patterns
+                    (compile_deny_pattern(p, for_paths=True), compile_deny_pattern(p, for_paths=False))
+                    for p in patterns
                 ]
     return compiled
 
@@ -431,7 +411,7 @@ def _compile_deny_exceptions(
                 rule for rule in rules if rule.keyword is None or rule.keyword.lower() == pattern.lower()
             )
             if matching_rules:
-                pattern_rules[_compile_pattern(pattern, for_paths=True)] = matching_rules
+                pattern_rules[compile_deny_pattern(pattern, for_paths=True)] = matching_rules
         compiled[category] = pattern_rules
     return compiled
 

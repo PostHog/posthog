@@ -21,6 +21,7 @@ from posthog.hogql.transforms.trino.manifest import (
     transpile_hogql_to_trino,
 )
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
 
 pytestmark = pytest.mark.django_db
@@ -49,6 +50,7 @@ def test_transpiles_core_table_with_values_without_django_queries(
     query: str,
     snapshot: SnapshotAssertion,
 ) -> None:
+    get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
     with django_assert_num_queries(0):
         result = transpile_hogql_to_trino(
             query,
@@ -140,19 +142,19 @@ def test_prepared_catalog_reuses_metadata_and_isolates_query_state(django_assert
         ) as build_database,
     ):
         catalog = prepare_trino_catalog(manifest)
-        first = catalog.transpile("SELECT {value}", values={"value": "first"}, limit_top_select=False)
-        second = catalog.transpile("SELECT {value}", values={"value": "second"})
+        first = catalog.transpile("SELECT {value}", values={"value": "fir\0st"}, limit_top_select=False)
+        second = catalog.transpile("SELECT {value}", values={"value": "sec\0ond"})
         unnested = catalog.transpile("SELECT arrayJoin([1, 2])")
 
     build_database.assert_called_once_with(manifest)
-    assert first.values == {"hogql_val_0": "first"}
-    assert second.values == {"hogql_val_0": "second"}
+    assert first.values == {"hogql_val_0": "fir\0st"}
+    assert second.values == {"hogql_val_0": "sec\0ond"}
     assert "LIMIT" not in first.sql
     assert second.sql.endswith("LIMIT 50000")
     assert "UNNEST" in unnested.sql
 
     first.values["hogql_val_0"] = "changed"
-    assert second.values == {"hogql_val_0": "second"}
+    assert second.values == {"hogql_val_0": "sec\0ond"}
 
 
 def test_manifest_relation_can_share_the_internal_unnest_function_name() -> None:

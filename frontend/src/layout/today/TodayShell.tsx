@@ -41,11 +41,14 @@ const TodayAnalyticsSidebar = lazyWithRetry(() =>
         default: m.TodayAnalyticsSidebar,
     }))
 )
-const TodayMonitorSidebar = lazyWithRetry(() =>
-    import('products/today/frontend/monitor/TodayMonitorSidebar').then((m) => ({
-        default: m.TodayMonitorSidebar,
+const TodayProductPaneSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/pane/TodayProductPaneSidebar').then((m) => ({
+        default: m.TodayProductPaneSidebar,
     }))
 )
+const TodayMonitorSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="monitor" />
+const TodayAutomateSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="automate" />
+const TodayDataSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="data" />
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -63,13 +66,15 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
     people: { Sidebar: TodayPeopleSidebar, previews: true },
-    release: { Sidebar: ReleaseSidebar },
+    release: { Sidebar: ReleaseSidebar, previews: true },
+    automate: { Sidebar: TodayAutomateSidebar, previews: true },
+    data: { Sidebar: TodayDataSidebar, previews: true },
     settings: { Sidebar: TodaySettingsSidebar },
     products: { Sidebar: TodayProductsPane },
 }
 
 const NewSpaceDialog = lazyWithRetry(() =>
-    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+    import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */

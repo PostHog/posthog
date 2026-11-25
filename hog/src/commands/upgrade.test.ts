@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { deflateRawSync } from 'node:zlib'
 
 import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { replaceExecutables } from '@/core/runtime'
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
-import { extractFile } from '@/updates/archive'
+import { extractAll } from '@/updates/archive'
 import type { Manifest } from '@/updates/manifest'
 
 const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
@@ -16,14 +18,62 @@ const BUILT = '2025-12-20T00:00:00.000Z'
 const RUNNING = { version: '0.1.0-alpha.5', date: BUILT }
 
 const BINARY = new TextEncoder().encode('#!/bin/sh\necho new hog\n')
-const ARCHIVE = (() => {
+const WORKER = new TextEncoder().encode('#!/bin/sh\necho new worker\n')
+
+function archiveOf(files: Record<string, Uint8Array>): Uint8Array {
     const folder = mkdtempSync(join(tmpdir(), 'hog-upgrade-'))
-    writeFileSync(join(folder, 'hog'), BINARY, { mode: 0o755 })
-    const tar = Bun.spawnSync(['tar', '-czf', 'hog.tar.gz', 'hog'], { cwd: folder })
+    for (const [name, contents] of Object.entries(files)) {
+        writeFileSync(join(folder, name), contents, { mode: 0o755 })
+    }
+    const tar = Bun.spawnSync(['tar', '-czf', 'hog.tar.gz', ...Object.keys(files)], { cwd: folder })
     expect(tar.exitCode).toBe(0)
     return new Uint8Array(readFileSync(join(folder, 'hog.tar.gz')))
-})()
+}
+
+// A zip of deflated entries, the way release/package.ts packs the Windows archives.
+function zipOf(files: Record<string, Uint8Array>): Uint8Array {
+    const locals: Uint8Array[] = []
+    const centrals: Uint8Array[] = []
+    let offset = 0
+    for (const [name, contents] of Object.entries(files)) {
+        const nameBytes = new TextEncoder().encode(name)
+        const data = deflateRawSync(contents)
+        const crc = Bun.hash.crc32(contents)
+        const local = Buffer.alloc(30 + nameBytes.length)
+        local.writeUInt32LE(0x04034b50, 0)
+        local.writeUInt16LE(8, 8)
+        local.writeUInt32LE(crc, 14)
+        local.writeUInt32LE(data.length, 18)
+        local.writeUInt32LE(contents.length, 22)
+        local.writeUInt16LE(nameBytes.length, 26)
+        local.set(nameBytes, 30)
+        const central = Buffer.alloc(46 + nameBytes.length)
+        central.writeUInt32LE(0x02014b50, 0)
+        central.writeUInt16LE(8, 10)
+        central.writeUInt32LE(crc, 16)
+        central.writeUInt32LE(data.length, 20)
+        central.writeUInt32LE(contents.length, 24)
+        central.writeUInt16LE(nameBytes.length, 28)
+        central.writeUInt32LE(offset, 42)
+        central.set(nameBytes, 46)
+        locals.push(local, data)
+        centrals.push(central)
+        offset += local.length + data.length
+    }
+    const directory = Buffer.concat(centrals)
+    const end = Buffer.alloc(22)
+    end.writeUInt32LE(0x06054b50, 0)
+    end.writeUInt16LE(centrals.length, 8)
+    end.writeUInt16LE(centrals.length, 10)
+    end.writeUInt32LE(directory.length, 12)
+    end.writeUInt32LE(offset, 16)
+    return new Uint8Array(Buffer.concat([...locals, directory, end]))
+}
+
+const ARCHIVE = archiveOf({ hog: BINARY, 'hog-worker': WORKER })
 const ARCHIVE_SHA = createHash('sha256').update(ARCHIVE).digest('hex')
+const HOG = '/usr/local/bin/hog'
+const HOG_WORKER = '/usr/local/bin/hog-worker'
 
 function manifest(version: string, publishedAt: string, extra: Partial<Manifest> = {}): Manifest {
     return {
@@ -335,13 +385,92 @@ describe('hog upgrade', () => {
         expect(result.json()).toMatchObject({ method: 'script', command: 'hog upgrade' })
     })
 
-    test('replaces its own binary with the verified build', async () => {
+    test('replaces its own binary and hog-worker with the verified build', async () => {
         const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(NEWER) })
 
         expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ action: 'upgraded', current: '0.1.0-alpha.5', latest: '0.1.0-alpha.8' })
-        expect(result.executables['/usr/local/bin/hog']).toEqual(BINARY)
+        expect(result.executables).toEqual({ [HOG_WORKER]: WORKER, [HOG]: BINARY })
     })
+
+    test('replaces only hog when the release has no hog-worker', async () => {
+        const archive = archiveOf({ hog: BINARY })
+        const artifact = {
+            file: 'hog-linux-x64.tar.gz',
+            sha256: createHash('sha256').update(archive).digest('hex'),
+            size: archive.length,
+        }
+        const older = manifest(NEWER.version, NEWER.publishedAt, { artifacts: { 'linux-x64': artifact } })
+
+        const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(older, archive) })
+
+        expect(result.json()).toMatchObject({ action: 'upgraded' })
+        expect(result.executables).toEqual({ [HOG]: BINARY })
+    })
+
+    function installed(version: string | undefined): string {
+        const folder = mkdtempSync(join(tmpdir(), 'hog-installed-'))
+        if (version !== undefined) {
+            const hello = JSON.stringify({ type: 'hello', protocol: 1, version })
+            writeFileSync(join(folder, 'hog-worker'), `#!/bin/sh\necho '${hello}'\ncat > /dev/null\n`)
+            chmodSync(join(folder, 'hog-worker'), 0o755)
+        }
+        return join(folder, 'hog')
+    }
+
+    test.skipIf(process.platform === 'win32').each([
+        ['installs hog again when it has no hog-worker', undefined, 'repaired'],
+        ['installs hog again when its hog-worker is from another release', '0.1.0-alpha.4', 'repaired'],
+        ['changes nothing when its hog-worker is from this release', RUNNING.version, 'up_to_date'],
+    ])('%s', async (_name, worker, action) => {
+        const execPath = installed(worker)
+
+        const result = await runHog(['upgrade'], {
+            env: AGENT,
+            build: RUNNING,
+            execPath,
+            respond: release(manifest(RUNNING.version, BUILT)),
+        })
+
+        expect(result.json()).toMatchObject({ action })
+        expect(result.executables).toEqual(
+            action === 'repaired' ? { [join(execPath, '..', 'hog-worker')]: WORKER, [execPath]: BINARY } : {}
+        )
+    })
+
+    test.skipIf(process.platform === 'win32').each([
+        ['fails without a hog-worker', undefined, EXIT_FAILURE],
+        ['fails with the hog-worker of another release', '0.1.0-alpha.4', EXIT_FAILURE],
+        ['passes with its own hog-worker', RUNNING.version, EXIT_SUCCESS],
+    ])('the install check of `hog --version` %s', async (_name, worker, exitCode) => {
+        const result = await runHog(['--version'], {
+            env: { HOG_CHECK_INSTALL: '1' },
+            build: RUNNING,
+            execPath: installed(worker),
+        })
+
+        expect(result.exitCode).toBe(exitCode)
+        expect(result.stdout !== '').toBe(exitCode === EXIT_SUCCESS)
+    })
+
+    test.skipIf(process.platform === 'win32')(
+        'keeps the old hog-worker when hog itself cannot be replaced',
+        async () => {
+            const folder = mkdtempSync(join(tmpdir(), 'hog-replace-'))
+            writeFileSync(join(folder, 'hog-worker'), 'old worker')
+            // A folder where hog should be: nothing can take its place.
+            mkdirSync(join(folder, 'hog', 'inside'), { recursive: true })
+
+            const failure = await replaceExecutables([
+                { path: join(folder, 'hog-worker'), contents: WORKER },
+                { path: join(folder, 'hog'), contents: BINARY },
+            ]).catch((error: unknown) => error)
+
+            expect(failure).toBeInstanceOf(Error)
+            expect(readFileSync(join(folder, 'hog-worker'), 'utf8')).toBe('old worker')
+            expect(readdirSync(folder).sort()).toEqual(['hog', 'hog-worker'])
+        }
+    )
 
     const TAMPERED = new Uint8Array(ARCHIVE)
     TAMPERED.set([TAMPERED.at(-1)! ^ 0xff], TAMPERED.length - 1)
@@ -390,8 +519,13 @@ describe('hog upgrade', () => {
     })
 
     test.each([
-        ['trusts an https release folder', 'https://hog-mirror.example.com/releases', { action: 'upgraded' }, 1],
-        ['refuses a plain http one', 'http://hog-mirror.example.com/releases', { code: 'untrusted_release_url' }, 0],
+        ['trusts an https release folder', 'https://hog-mirror.example.com/releases', { action: 'upgraded' }, true],
+        [
+            'refuses a plain http one',
+            'http://hog-mirror.example.com/releases',
+            { code: 'untrusted_release_url' },
+            false,
+        ],
     ])('HOG_RELEASES_URL: %s', async (_name, mirror, expected, replaced) => {
         const latest = manifest('0.1.0-alpha.8', '2025-12-30T00:00:00Z', elsewhere(`${mirror}/v0.1.0-alpha.8/`))
 
@@ -407,13 +541,19 @@ describe('hog upgrade', () => {
         })
 
         expect(result.exitCode === 0 ? result.json() : result.error()).toMatchObject(expected)
-        expect(Object.keys(result.executables)).toHaveLength(replaced)
+        expect(HOG in result.executables).toBe(replaced)
     })
 
-    test('refuses an archive that unpacks to more than the limit', () => {
-        expect(() => extractFile(ARCHIVE, 'hog-linux-x64.tar.gz', 'hog', 512)).toThrow(
-            'it unpacks to more than 512 bytes'
-        )
+    const HALF_OF_LIMIT = new Uint8Array(300).fill(65)
+    test.each([
+        ['a tar.gz that unpacks to more than the limit', ARCHIVE, 'hog-linux-x64.tar.gz'],
+        [
+            'a zip whose entries add up to more than the limit',
+            zipOf({ 'hog.exe': HALF_OF_LIMIT, 'hog-worker.exe': HALF_OF_LIMIT }),
+            'hog-windows-x64.zip',
+        ],
+    ])('refuses %s', (_name, archive, name) => {
+        expect(() => extractAll(archive, name, 512)).toThrow('it unpacks to more than 512 bytes')
     })
 
     test('installs the version --version names', async () => {
@@ -483,8 +623,12 @@ describe('hog upgrade', () => {
         expect(result.executables).toEqual({})
     })
 
-    test('says so when hog is the latest version', async () => {
-        const result = await runHog(['upgrade'], { ...PERSON, respond: release(manifest('0.1.0-alpha.5', BUILT)) })
+    test.skipIf(process.platform === 'win32')('says so when hog is the latest version', async () => {
+        const result = await runHog(['upgrade'], {
+            ...PERSON,
+            execPath: installed(RUNNING.version),
+            respond: release(manifest('0.1.0-alpha.5', BUILT)),
+        })
 
         expect(result.stdout).toContain('hog 0.1.0-alpha.5 is the latest version')
         expect(result.executables).toEqual({})

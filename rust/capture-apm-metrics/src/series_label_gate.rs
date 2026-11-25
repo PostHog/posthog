@@ -142,6 +142,13 @@ struct Entry {
 #[must_use = "pass to SeriesLabelGate::commit once the rows are written"]
 pub struct LabelledSeries {
     keys: Vec<u64>,
+    rows: Vec<usize>,
+}
+
+impl LabelledSeries {
+    pub fn new_series_rows(&self) -> &[usize] {
+        &self.rows
+    }
 }
 
 pub struct SeriesLabelGate {
@@ -207,26 +214,60 @@ impl SeriesLabelGate {
     /// rows are written; a failed write drops it, so a retry of the same batch
     /// keeps its labels.
     pub fn decide(&self, token: &str, rows: &mut [KafkaMetricRow]) -> LabelledSeries {
+        let labelled = self.classify(token, rows);
+        self.strip_repeats(rows, &labelled);
+        labelled
+    }
+
+    /// The decision of [`Self::decide`] without the stripping, for a caller
+    /// that reads the labels of every row first. Pass the result to
+    /// [`Self::strip_repeats`].
+    pub fn classify(&self, token: &str, rows: &[KafkaMetricRow]) -> LabelledSeries {
         let now = (self.clock)();
         let mut keys = Vec::new();
+        let mut labelled_rows = Vec::new();
         let mut in_batch = HashSet::new();
         let mut skipped = 0u64;
 
-        for row in rows.iter_mut() {
+        for (index, row) in rows.iter().enumerate() {
             let key = gate_key(token, row.series_fingerprint);
             if self.seen_within_window(key, now) || !in_batch.insert(key) {
                 skipped += 1;
-                if self.enabled {
-                    strip_labels(row);
-                }
                 continue;
             }
             keys.push(key);
+            labelled_rows.push(index);
         }
 
         counter!("capture_metrics_series_labels_sent").increment(keys.len() as u64);
         counter!("capture_metrics_series_labels_skipped").increment(skipped);
-        LabelledSeries { keys }
+        LabelledSeries {
+            keys,
+            rows: labelled_rows,
+        }
+    }
+
+    /// A full cache reports the token's uncached series as new on every row.
+    pub fn cache_full(&self, token: &str) -> bool {
+        self.len.load(Ordering::Acquire) >= self.limits.max_entries
+            || self
+                .per_token
+                .get(&token_key(token))
+                .is_some_and(|count| *count >= self.limits.max_entries_per_token)
+    }
+
+    pub fn strip_repeats(&self, rows: &mut [KafkaMetricRow], labelled: &LabelledSeries) {
+        if !self.enabled {
+            return;
+        }
+        let mut kept = labelled.rows.iter().peekable();
+        for (index, row) in rows.iter_mut().enumerate() {
+            if kept.peek() == Some(&&index) {
+                kept.next();
+            } else {
+                strip_labels(row);
+            }
+        }
     }
 
     /// Run [`Self::decide`] and return the billable bytes of `rows` measured before any
@@ -1038,6 +1079,8 @@ mod tests {
         let mut rows = vec![row(2)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+        assert!(gate.cache_full("token-a"));
+        assert!(!gate.cache_full("token-b"));
 
         let mut rows = vec![row(1), row(1)];
         gate.apply("token-b", &mut rows);

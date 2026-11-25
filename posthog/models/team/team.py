@@ -7,12 +7,13 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import HashIndex
+from django.contrib.postgres.indexes import GinIndex, HashIndex, OpClass
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Upper
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -25,16 +26,11 @@ from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIS
 from posthog.migration_helpers import deprecate_field
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project_secret_api_key import (
-    create_project_secret_api_key_for_token,
-    delete_project_secret_api_keys_for_token,
-)
-from posthog.models.signals import mutable_receiver, secret_api_token_backup_deleted, secret_api_token_rotated
+from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_heatmap_screenshot,
     generate_random_token_project,
-    generate_random_token_secret,
     mask_key_value,
     sane_repr,
     validate_rate_limit,
@@ -60,8 +56,6 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
-
-    from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -219,21 +213,6 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
-    def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
-        if not secret_api_token:
-            return None
-        try:
-            team = get_team_in_cache(secret_api_token)
-            if team:
-                return team
-
-            team = Team.objects.get(secret_api_token=secret_api_token)
-            set_team_in_cache(secret_api_token, team)
-            return team
-
-        except Team.DoesNotExist:
-            return None
-
     def increment_id_sequence(self) -> int:
         """Increment the `Team.id` field's sequence and return the latest value.
 
@@ -284,6 +263,10 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            # The admin console looks teams up by any part of their name. Django compiles icontains to
+            # UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_team_name_trgm"),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -633,25 +616,6 @@ class Team(UUIDTClassicModel):
         blank=True,
     )  # Dashboard shown on project homepage
 
-    # Exposed as a field on TeamSerializer/ProjectSerializer, so this descriptor is required per
-    # posthog/models/team/README.md ("An extension exposed as a nested field on the team or
-    # project serializer is the exception, and does need the descriptor.").
-    @property
-    def home_tab_dashboard(self) -> "Dashboard | None":
-        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
-
-        config = TeamHomeTabDashboardConfig.objects.for_team(self.pk).select_related("dashboard").first()
-        dashboard = config.dashboard if config else None
-        return dashboard if dashboard and not dashboard.deleted and dashboard.team_id == self.pk else None
-
-    @home_tab_dashboard.setter
-    def home_tab_dashboard(self, dashboard: "Dashboard | None") -> None:
-        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
-
-        config, _ = TeamHomeTabDashboardConfig.objects.for_team(self.pk).get_or_create(team_id=self.pk)
-        config.dashboard = dashboard
-        config.save(update_fields=["dashboard"])
-
     default_data_theme = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
 
     # Generic field for storing any team-specific context
@@ -987,83 +951,6 @@ class Team(UUIDTClassicModel):
 
         self._notify_vercel_of_token_rotation()
 
-    def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
-        new_token = generate_random_token_secret()
-        # One transaction with the signal receivers: the conversations signing secret must
-        # never diverge from the column, so a failed copy rolls the rotation back whole.
-        try:
-            with transaction.atomic():
-                # A rotation racing this one would overwrite the token this save writes while
-                # its mirror row lives on as a working credential, so read under lock.
-                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
-                old_primary_token = locked.secret_api_token
-                expired_token = locked.secret_api_token_backup
-                self.secret_api_token = new_token
-                self.secret_api_token_backup = old_primary_token
-                self.save()
-                if expired_token:
-                    # Retire the expiring token's mirror row with it, or it keeps authenticating.
-                    delete_project_secret_api_keys_for_token(self.id, expired_token)
-                # With the legacy verifiers off, only the mirror row authenticates the new token.
-                create_project_secret_api_key_for_token(self.id, new_token)
-                # expired_token lets receivers drop their own copies of the credential
-                # this rotation retires for good (it leaves the backup column too).
-                secret_api_token_rotated.send(sender=self.__class__, team=self, expired_token=expired_token)
-        except Exception:
-            # save() already cached this team (post_save) with the new tokens, which the
-            # rollback discarded. Rewrite that entry from the committed row.
-            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
-            set_team_in_cache(self.api_token, self)
-            raise
-
-        set_team_in_cache(new_token, self)
-        # Old token needs to continue to work until it's deleted.
-        if old_primary_token:
-            set_team_in_cache(old_primary_token, self)
-        if expired_token:
-            # Clear the previous backup token from cache since it's being replaced
-            set_team_in_cache(expired_token, None)
-
-        # Build up the changes.
-
-        masked_old_primary_token = mask_key_value(old_primary_token) if old_primary_token else None
-
-        before = {
-            "secret_api_token": masked_old_primary_token,
-        }
-        after = {
-            "secret_api_token": mask_key_value(new_token),
-        }
-
-        if masked_old_primary_token:
-            # We rotated keys rather than generated a new one.
-            before["secret_api_token_backup"] = mask_key_value(expired_token) if expired_token else None
-            after["secret_api_token_backup"] = masked_old_primary_token
-
-        log_activity(
-            organization_id=self.organization_id,
-            team_id=self.pk,
-            user=cast("User", user),
-            was_impersonated=is_impersonated_session,
-            scope="Team",
-            item_id=self.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(self.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="created" if old_primary_token is None else "changed",
-                        field="secret_api_token",
-                        before=before,
-                        after=after,
-                    )
-                ],
-            ),
-        )
-
     def generate_conversations_public_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         """Generate or regenerate the conversations public token for widget authentication."""
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -1138,54 +1025,6 @@ class Team(UUIDTClassicModel):
                 ),
             )
 
-    def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
-        try:
-            with transaction.atomic():
-                # A rotation racing this delete rewrites the backup column, so read under lock.
-                # No in-memory precheck: this instance may predate a rotation that set the backup.
-                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
-                old_backup_token = locked.secret_api_token_backup
-                if not old_backup_token:
-                    return
-                # save() writes every field, so a stale primary here would clobber a
-                # concurrently rotated token while its mirror row keeps authenticating.
-                self.secret_api_token = locked.secret_api_token
-                self.secret_api_token_backup = None
-                self.save()
-                delete_project_secret_api_keys_for_token(self.id, old_backup_token)
-                secret_api_token_backup_deleted.send(sender=self.__class__, team=self, deleted_token=old_backup_token)
-        except Exception:
-            # save() already cached this team (post_save) with the cleared backup, which
-            # the rollback discarded. Rewrite that entry from the committed row.
-            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
-            set_team_in_cache(self.api_token, self)
-            raise
-        set_team_in_cache(old_backup_token, None)
-
-        log_activity(
-            organization_id=self.organization_id,
-            team_id=self.pk,
-            user=cast("User", user),
-            was_impersonated=is_impersonated_session,
-            scope="Team",
-            item_id=self.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(self.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="deleted",
-                        field="secret_api_token_backup",
-                        before=mask_key_value(old_backup_token),
-                        after=None,
-                    )
-                ],
-            ),
-        )
-
     def get_is_generating_demo_data(self) -> bool:
         cache_key = f"is_generating_demo_data_{self.id}"
         return cache.get(cache_key) == "True"
@@ -1241,8 +1080,10 @@ class Team(UUIDTClassicModel):
             else:
                 # Default "none" denies every member; only org admins and owners pass the
                 # subject's admin bypass.
-                member_user_ids = member_queryset.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
-                    "user_id", flat=True
+                member_user_ids = (
+                    member_queryset.with_effective_level()
+                    .filter(resolved_level__gte=OrganizationMembership.Level.ADMIN)
+                    .values_list("user_id", flat=True)
                 )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 

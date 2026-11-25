@@ -2086,9 +2086,8 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
     let other_person_id: i64 = rand::thread_rng().gen_range(1_000_000..100_000_000);
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id)
-        VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false, NULL)
+        (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}', NOW(), 0, false, NULL)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(other_person_id)
@@ -2481,9 +2480,8 @@ async fn test_delete_persons_cross_team_isolation() {
     let other_uuid = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO posthog_person \
-         (id, uuid, team_id, properties, properties_last_updated_at, \
-          properties_last_operation, created_at, version, is_identified, is_user_id) \
-         VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false, NULL) \
+         (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id) \
+         VALUES ($1, $2, $3, '{}', NOW(), 0, false, NULL) \
          ON CONFLICT DO NOTHING",
     )
     .bind(other_person_id)
@@ -2790,8 +2788,6 @@ async fn test_get_persons_by_ids_without_properties() {
     assert_eq!(without_props.len(), 1);
     assert_eq!(without_props[0].id, person.id);
     assert!(without_props[0].properties.is_none());
-    assert!(without_props[0].properties_last_updated_at.is_none());
-    assert!(without_props[0].properties_last_operation.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -2813,8 +2809,6 @@ async fn test_get_persons_by_uuids_without_properties() {
     assert_eq!(without_props.len(), 1);
     assert_eq!(without_props[0].id, person.id);
     assert!(without_props[0].properties.is_none());
-    assert!(without_props[0].properties_last_updated_at.is_none());
-    assert!(without_props[0].properties_last_operation.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -2835,8 +2829,6 @@ async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
     assert_eq!(results.len(), 1);
     let person = results[0].1.as_ref().expect("Person should be found");
     assert!(person.properties.is_none());
-    assert!(person.properties_last_updated_at.is_none());
-    assert!(person.properties_last_operation.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -2860,8 +2852,6 @@ async fn test_get_persons_by_distinct_ids_cross_team_without_properties() {
     assert_eq!(results.len(), 1);
     let person = results[0].1.as_ref().expect("Person should be found");
     assert!(person.properties.is_none());
-    assert!(person.properties_last_updated_at.is_none());
-    assert!(person.properties_last_operation.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -3078,9 +3068,8 @@ async fn test_split_person_version_arithmetic() {
 
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), $4, false, NULL)"#,
+        (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, NOW(), $4, false, NULL)"#,
     )
     .bind(person_id)
     .bind(person_uuid)
@@ -3236,9 +3225,8 @@ async fn test_split_person_revives_a_tombstoned_generated_person() {
     let loser_version: i64 = 500;
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), $4, false, NULL, true)"#,
+        (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, NOW(), $4, false, NULL, true)"#,
     )
     .bind(loser_id)
     .bind(loser_uuid)
@@ -3337,9 +3325,8 @@ async fn test_split_person_revive_keeps_the_tombstone_created_at() {
     let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL, true)"#,
+        (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, $4, 3, false, NULL, true)"#,
     )
     .bind(existing_id)
     .bind(split_uuid)
@@ -3487,9 +3474,8 @@ async fn test_split_person_mixed_targets_keep_request_order() {
         .with_timezone(&chrono::Utc);
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
-        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 500, false, NULL, true)"#,
+        (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, $4, 500, false, NULL, true)"#,
     )
     .bind(tombstone_id)
     .bind(revived_uuid)
@@ -4678,10 +4664,9 @@ async fn revive_with_ingestion_upsert(ctx: &TestContext, uuid: Uuid, distinct_id
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
-                created_at, properties, properties_last_updated_at, properties_last_operation,
-                team_id, is_user_id, is_identified, uuid, version
+                created_at, properties, team_id, is_user_id, is_identified, uuid, version
             )
-            VALUES (NOW(), '{"revived": true}', '{}', '{}', $1, NULL, false, $2, 0)
+            VALUES (NOW(), '{"revived": true}', $1, NULL, false, $2, 0)
             ON CONFLICT (team_id, uuid) DO UPDATE SET
                 is_deleted = false,
                 version = COALESCE(posthog_person.version, 0) + 1,
@@ -4847,9 +4832,8 @@ async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
         .unwrap();
     sqlx::query(
         r#"INSERT INTO posthog_person
-        (id, uuid, team_id, properties, properties_last_updated_at,
-         properties_last_operation, created_at, version, is_identified)
-        VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false)"#,
+        (id, uuid, team_id, properties, created_at, version, is_identified)
+        VALUES ($1, $2, $3, '{}', NOW(), 0, false)"#,
     )
     .bind(rand::thread_rng().gen_range(1_000_000i64..100_000_000))
     .bind(uuid)

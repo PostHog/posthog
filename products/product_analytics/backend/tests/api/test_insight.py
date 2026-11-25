@@ -60,6 +60,13 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.helpers.feature_flag_usage_insights import (
+    FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+    FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+    FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
+    FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+    FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+)
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -456,14 +463,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
     def test_hide_feature_flag_insights_filter(self) -> None:
-        from posthog.helpers.dashboard_templates import (
-            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
-            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
-            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
-            FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-        )
-
         generated = [
             (
                 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,

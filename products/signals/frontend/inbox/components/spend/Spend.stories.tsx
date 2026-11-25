@@ -15,7 +15,7 @@ const meta: Meta = {
     parameters: {
         mockDate: '2026-06-11',
         featureFlags: [FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY],
-        testOptions: { waitForSelector: '[data-attr="report-spend"]' },
+        testOptions: { waitForSelector: '[data-attr="report-spend-total"]' },
     },
     decorators: [
         mswDecorator({
@@ -56,6 +56,7 @@ const meta: Meta = {
                     generation: { total_spend: 162.75, incomplete: false },
                     implementation: { total_spend: 490, incomplete: true },
                     shared_scout_runs: { total_spend: 46.25, incomplete: false },
+                    scout_authored: true,
                 },
             },
         }),

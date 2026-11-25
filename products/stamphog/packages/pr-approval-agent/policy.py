@@ -27,7 +27,7 @@ import os
 import re
 import functools
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -188,21 +188,57 @@ class OwnershipSource:
 class Attestation:
     """A CI check that may lift deny categories for the files it vouches for.
 
-    `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
-    check run under any name as github-actions. `lifts` names the deny categories the check may
-    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
-    lifted with a file beside them. `publisher_files` are the default-branch paths the publisher runs
-    from. When set, a result counts only when it pins each of them to a blob, and only while the
-    default branch still holds every blob the result pins.
+    `check` names the check run, and exactly one of two keys says who may publish its result.
+    `app_id` pins the check run to its publisher App, because any workflow can post a check run under
+    any name as github-actions. `workflow` instead names a default-branch workflow file, with the
+    `job` that publishes and the `events` it may run on. That job signs its check run with a GitHub
+    Actions OIDC token, and the server passes a result whose token, job and code it verified to the
+    engine (`WORKFLOW_PROOF_KEY`, see the backend's `workflow_proofs.py`). `lifts` names the deny
+    categories the check may lift, `paths` the files it may lift them for, and `sibling_files` the
+    companion filenames that are lifted with a file beside them. `title`, when set, is a pattern for the PR titles the publisher
+    posts a result for. A PR whose title does not match never waits for the check, because none is
+    coming.
+
+    `publisher_files` and `issuer` both name the default-branch paths the publisher runs from, and an
+    entry declares at most one of them. `publisher_files` lists the paths in the policy. `issuer`
+    names the publisher's own manifest (see `parse_issuer_manifest`), and the loader reads its
+    `paths` from the default-branch copy into `issuer_paths`, empty when the manifest is missing or
+    invalid. A result of such an entry counts only when it pins every one of those paths, and only
+    while the default branch still holds every object the result pins.
     """
 
     name: str
     check: str
-    app_id: int
     lifts: tuple[str, ...]
     paths: tuple[str, ...]
     sibling_files: tuple[str, ...] = ()
     publisher_files: tuple[str, ...] = ()
+    issuer: str = ""
+    issuer_paths: tuple[str, ...] = ()
+    title: str = ""
+    app_id: int | None = None
+    workflow: str = ""
+    job: str = ""
+    events: tuple[str, ...] = ()
+
+    @property
+    def pins_publisher(self) -> bool:
+        """True when a result must pin the default-branch paths its publisher runs from.
+
+        Only such a result names the PR and head it proved, and comes from a publisher the default
+        branch pins, so only such an entry counts for an admitted bot.
+        """
+        return bool(self.publisher_files or self.issuer)
+
+    @property
+    def required_pins(self) -> tuple[str, ...]:
+        """The keys a result's `blobs` must hold, empty for an issuer entry whose manifest is unusable."""
+        return self.publisher_files or self.issuer_paths
+
+    @property
+    def usable(self) -> bool:
+        """False for an issuer entry whose manifest is missing or invalid. Such an entry lifts nothing."""
+        return not self.pins_publisher or bool(self.required_pins)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -324,8 +360,29 @@ _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
 # GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
 # proves nothing about who produced it.
 _GITHUB_ACTIONS_APP_ID = 15368
-_ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
-_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
+_ATTESTATION_REQUIRED_KEYS = {"name", "check", "lifts", "paths"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {
+    "app_id",
+    "workflow",
+    "job",
+    "events",
+    "sibling_files",
+    "publisher_files",
+    "issuer",
+    "title",
+}
+# A workflow publisher counts only on events whose workflow file GitHub always reads from the default
+# branch, which includes a `pull_request_target` run for a PR into any other branch. A `pull_request`
+# run uses the workflow the PR's merge holds, and `push` and `workflow_dispatch` run whatever any
+# writer pushed or chose, so none of them proves which code ran.
+WORKFLOW_PUBLISHER_EVENTS = ("workflow_run", "pull_request_target")
+_WORKFLOW_PATH_RE = re.compile(r"\.github/workflows/[A-Za-z0-9._-]+\.ya?ml")
+# Limits for an issuer manifest, the same ones the publisher's own parser holds it to.
+ISSUER_MANIFEST_MAX_BYTES = 16 * 1024
+ISSUER_MANIFEST_MAX_PATHS = 32
+# An issuer path holds letters, digits, `.`, `_`, `-` and `/` only, so no `%` escape can decode to `..`.
+_ISSUER_PATH_RE = re.compile(r"[A-Za-z0-9._/-]+")
+_GLOB_CHARACTERS_RE = re.compile(r"[*?\[\]{}\\]")
 _BOT_AUTHOR_KEYS = {"name", "login", "id"}
 _DENY_SCOPES = {"any", "titles", "paths", "edit_paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
@@ -423,6 +480,52 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
     return deny
 
 
+def _require_workflow_publisher(entry: Mapping[str, Any], context: str) -> None:
+    workflow = entry["workflow"]
+    _require(
+        isinstance(workflow, str) and _WORKFLOW_PATH_RE.fullmatch(workflow) is not None,
+        f"{context}.workflow: must be a file directly under .github/workflows/",
+    )
+    job = entry.get("job")
+    _require(isinstance(job, str) and bool(job), f"{context}.job: must name the publishing job")
+    for event in _parse_string_list(entry.get("events"), f"{context}.events", non_empty=True):
+        _require(
+            event in WORKFLOW_PUBLISHER_EVENTS,
+            f"{context}.events: {event!r} does not run the default branch's workflow; use {list(WORKFLOW_PUBLISHER_EVENTS)}",
+        )
+
+
+def compile_deny_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
+    r"""Compile a single deny pattern into a case-insensitive regex.
+
+    Patterns containing path separators (/) or starting with a dot are
+    treated as literal path fragments — no boundaries added.
+
+    For other patterns, boundary matching depends on context:
+    - Title matching uses \b (standard word boundaries — underscore is
+      a word char, which is correct for natural-language titles).
+    - Path matching uses a looser boundary that also breaks on _ and -,
+      since file paths use those as separators. This ensures "secret"
+      matches "secret_key_store.py" but not "nosecrets.py".
+    """
+    if "/" in p or p.startswith(r"\."):
+        return re.compile(rf"(?i){p}")
+    if for_paths:
+        # Break on non-alphanumeric (including _ and -) or string edges
+        return re.compile(rf"(?i)(?<![a-zA-Z0-9]){p}(?![a-zA-Z0-9])")
+    return re.compile(rf"(?i)\b{p}\b")
+
+
+def _self_governed(path: str, deny: Mapping[str, DenyCategory]) -> bool:
+    """True when a `stamphog_policy` path pattern denies every edit to `path`, the way the gate matches it.
+
+    `edit_paths` patterns do not count, because an edit that only adds lines passes them.
+    """
+    scopes = deny["stamphog_policy"].match
+    patterns = scopes.get("paths", ()) + scopes.get("any", ())
+    return any(compile_deny_pattern(pattern, for_paths=True).search(path.lower()) for pattern in patterns)
+
+
 def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Attestation, ...]:
     _require(isinstance(raw, list), "attestations: must be a list")
     attestations: list[Attestation] = []
@@ -439,10 +542,21 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
         _require(
             isinstance(entry["check"], str) and bool(entry["check"]), f"{context}.check: must be a non-empty string"
         )
-        app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
         _require(
-            app_id != _GITHUB_ACTIONS_APP_ID, f"{context}.app_id: github-actions cannot attest, pin the publisher App"
+            ("app_id" in entry) != ("workflow" in entry), f"{context}: declares exactly one of app_id and workflow"
         )
+        app_id = None
+        workflow, job, events = "", "", ()
+        if "app_id" in entry:
+            _require(not ("job" in entry or "events" in entry), f"{context}: job and events go with workflow")
+            app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
+            _require(
+                app_id != _GITHUB_ACTIONS_APP_ID,
+                f"{context}.app_id: github-actions cannot attest, pin the publisher App",
+            )
+        else:
+            _require_workflow_publisher(entry, context)
+            workflow, job, events = entry["workflow"], entry["job"], tuple(entry["events"])
         lifts = _parse_string_list(entry["lifts"], f"{context}.lifts", non_empty=True)
         for category in lifts:
             _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
@@ -456,18 +570,115 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
         publisher_files = _parse_string_list(entry.get("publisher_files", []), f"{context}.publisher_files")
         for path in publisher_files:
             _require_repo_relative(path, f"{context}.publisher_files")
+        # Each key names where the pinned paths come from, so an entry with both has no single answer.
+        _require(
+            not ("issuer" in entry and "publisher_files" in entry),
+            f"{context}: declares both issuer and publisher_files",
+        )
+        issuer = entry.get("issuer", "")
+        if "issuer" in entry:
+            _require(
+                isinstance(issuer, str) and is_issuer_path(issuer),
+                f"{context}.issuer: must be a plain .yml or .yaml path outside the engine directories",
+            )
+            # The manifest decides what a proof must pin, as a `publisher_files` list in the policy
+            # does, so an edit to it needs the same human review as an edit to the policy.
+            _require(
+                _self_governed(issuer, deny),
+                f"{context}.issuer: {issuer!r} must match a deny.stamphog_policy path pattern",
+            )
+        title = entry.get("title", "")
+        if "title" in entry:
+            _require(isinstance(title, str) and bool(title), f"{context}.title: must be a non-empty string")
+            _compile_or_raise(title, f"{context}.title")
         attestations.append(
             Attestation(
                 name=name,
                 check=entry["check"],
                 app_id=app_id,
+                workflow=workflow,
+                job=job,
+                events=events,
                 lifts=lifts,
                 paths=paths,
                 sibling_files=siblings,
                 publisher_files=publisher_files,
+                issuer=issuer,
+                title=title,
             )
         )
     return tuple(attestations)
+
+
+def is_plain_repo_path(path: str) -> bool:
+    """A repo-relative path with no glob, no `.` or `..` segment, and no empty segment.
+
+    A trailing `/` marks a directory.
+    """
+    if not path or _GLOB_CHARACTERS_RE.search(path):
+        return False
+    return all(segment not in ("", ".", "..") for segment in path.removesuffix("/").split("/"))
+
+
+def is_issuer_path(path: str) -> bool:
+    """A plain repo-relative YAML file outside the directories the engine and its owners package run from.
+
+    The server writes the manifest into the tree the engine runs from, at this path. A `.py` file
+    there, or any file beside those modules, would run as code when the engine imports its modules.
+    The server's `issuer_manifests.py` holds the path to the same rule.
+    """
+    if not _ISSUER_PATH_RE.fullmatch(path) or not is_plain_repo_path(path) or not path.endswith((".yml", ".yaml")):
+        return False
+    return not path.startswith(("tools/pr-approval-agent/", "tools/owners/"))
+
+
+def parse_issuer_manifest(text: str, own_path: str) -> tuple[str, ...]:
+    """The `paths` of an issuer manifest, the default-branch paths its publisher runs from.
+
+    The publisher owns this file and the policy only names it, so the list lives in one place. A
+    path that ends in `/` is a directory, which a result pins by its git tree id, and any other
+    path is a file pinned by its blob id. The manifest must cover itself, because it decides what
+    is pinned, so an edit to it must change a pin as well. Raises PolicyError on anything else.
+    """
+    _require(
+        len(text.encode()) <= ISSUER_MANIFEST_MAX_BYTES,
+        f"{own_path}: larger than {ISSUER_MANIFEST_MAX_BYTES} bytes",
+    )
+    try:
+        loaded = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise PolicyError(f"{own_path}: does not parse: {exc}") from exc
+    _require(isinstance(loaded, dict) and set(loaded) == {"paths"}, f"{own_path}: must hold the single key `paths`")
+    raw = loaded["paths"]
+    _require(isinstance(raw, list) and bool(raw), f"{own_path}: `paths` must be a non-empty list")
+    _require(len(raw) <= ISSUER_MANIFEST_MAX_PATHS, f"{own_path}: lists more than {ISSUER_MANIFEST_MAX_PATHS} paths")
+    for path in raw:
+        _require(isinstance(path, str) and is_plain_repo_path(path), f"{own_path}: {path!r} is not a plain path")
+    _require(len(set(raw)) == len(raw), f"{own_path}: lists a path twice")
+    _require(
+        any(entry == own_path or (entry.endswith("/") and own_path.startswith(entry)) for entry in raw),
+        f"{own_path}: does not cover itself",
+    )
+    return tuple(raw)
+
+
+def _read_issuer_paths(root: Path, issuer: str) -> tuple[str, ...]:
+    """The manifest's paths, or empty when it is missing or invalid, which makes the entry unusable."""
+    try:
+        return parse_issuer_manifest((root / issuer).read_text(), issuer)
+    except (OSError, UnicodeDecodeError, PolicyError):
+        return ()
+
+
+def with_issuer_paths(policy: Policy, root: Path) -> Policy:
+    """The policy with each issuer entry's paths read from its manifest under `root`."""
+    attestations = tuple(
+        replace(attestation, issuer_paths=_read_issuer_paths(root, attestation.issuer))
+        if attestation.issuer
+        else attestation
+        for attestation in policy.attestations
+    )
+    return replace(policy, attestations=attestations)
 
 
 def _parse_bot_authors(raw: Any) -> tuple[BotAuthor, ...]:
@@ -853,7 +1064,10 @@ def load_effective_policy(*, lockfile_names: Iterable[str], ownership_formats: M
     overlay_path = repo_policy_path()
     merged = merge_policy(default, _read_policy_yaml(overlay_path)) if overlay_path.is_file() else default
     _assert_self_governance_floor(default, merged)
-    return _parse_policy(merged, lockfile_names=lockfile_names, ownership_formats=ownership_formats)
+    policy = _parse_policy(merged, lockfile_names=lockfile_names, ownership_formats=ownership_formats)
+    # The server writes each manifest from the default branch into the tree, after it removes the PR
+    # head's copy, so a manifest is as trusted as the policy that names it.
+    return with_issuer_paths(policy, repo_root())
 
 
 # ── Per-folder override resolution ───────────────────────────────

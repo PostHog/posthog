@@ -26,6 +26,7 @@ for name, endpoint in ENDPOINTS.items():
                         "lambda_function_recommendations",
                         "ecs_service_recommendations",
                         "rds_database_recommendations",
+                        "license_recommendations",
                     }
                     else "look_back_period_in_days"
                 ): "Number of days of utilization data used to generate the recommendation.",
@@ -84,6 +85,18 @@ CANONICAL_DESCRIPTIONS["idle_recommendations"]["columns"].update(
         "finding_description": "Explanation of why Compute Optimizer considers the resource idle.",
     }
 )
+CANONICAL_DESCRIPTIONS["license_recommendations"]["columns"].update(
+    {
+        "resource_arn": "Amazon Resource Name of the EC2 instance that runs the licensed software.",
+        "current_license_configuration_license_name": "Name of the licensed software, such as SQL Server.",
+        "current_license_configuration_license_edition": "Edition of the license currently in use.",
+        "current_license_configuration_license_model": "Whether the license is included with the instance or brought by you.",
+        "current_license_configuration_number_of_cores": "Number of vCPU cores the license covers.",
+        "current_license_configuration_instance_type": "EC2 instance type used by the resource.",
+        "finding_reason_codes": "Reasons for the license finding, such as an over-provisioned edition.",
+        "license_recommendation_options": "Recommended license editions and models with potential savings.",
+    }
+)
 for name, endpoint in ENDPOINTS.items():
     if endpoint.fanout is not None:
         CANONICAL_DESCRIPTIONS[name]["columns"].update(
@@ -107,6 +120,14 @@ CANONICAL_DESCRIPTIONS["ecs_service_recommendation_projected_metrics"]["columns"
         "recommended_memory_size": "Recommended memory size, in MiB, the projection applies to.",
         "upper_bound_value": "Upper bound of the projected maximum utilization for the period.",
         "lower_bound_value": "Lower bound of the projected maximum utilization for the period.",
+    }
+)
+CANONICAL_DESCRIPTIONS["rds_database_recommendation_projected_metrics"]["columns"].update(
+    {
+        "resource_arn": "Amazon Resource Name of the Aurora or RDS database.",
+        "recommended_db_instance_class": "Recommended DB instance class the projection applies to.",
+        "rank": "Rank of the recommendation option. Rank 1 is the best option.",
+        "value": "Projected maximum utilization for the period if the database used the recommended instance class.",
     }
 )
 CANONICAL_DESCRIPTIONS["recommendation_summaries"]["columns"].update(

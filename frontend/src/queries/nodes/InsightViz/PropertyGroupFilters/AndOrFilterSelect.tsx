@@ -1,6 +1,6 @@
 import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { FilterLogicalOperator } from '~/types'
 

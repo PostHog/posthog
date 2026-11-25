@@ -113,6 +113,10 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
         )
 
 
+class GitHubTokenRetryError(ProcessTaskTransientError, NonReportableError):
+    pass
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
@@ -173,6 +177,19 @@ class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
 
     pass
+
+
+class ResumeSnapshotCredentialScrubError(ProcessTaskError):
+    """The restored filesystem could not be made safe to reuse."""
+
+    def __init__(self, run_id: str, sandbox_id: str):
+        super().__init__(
+            "Failed to clear credentials from restored sandbox snapshot",
+            {"run_id": run_id, "sandbox_id": sandbox_id},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
 
 
 class SandboxControlPlaneError(SandboxExecutionError):

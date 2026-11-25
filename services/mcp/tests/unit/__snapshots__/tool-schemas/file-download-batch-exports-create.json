@@ -585,6 +585,17 @@
                             ],
                             "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN."
                         },
+                        "optimizeCrossJoins": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+                        },
                         "optimizeJoinedFilters": {
                             "anyOf": [
                                 {
@@ -704,6 +715,17 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "sessionFilterGlobalJoin": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session."
                         },
                         "sessionIdPushdown": {
                             "anyOf": [

@@ -128,8 +128,6 @@ describe('createProcessPersonsStep', () => {
         const result = await personRepository.createPerson(
             DateTime.utc(),
             {},
-            {},
-            {},
             teamId,
             null,
             false,
@@ -317,8 +315,6 @@ describe('createProcessPersonsStep', () => {
             const created = await personRepository.createPerson(
                 DateTime.utc(),
                 {},
-                {},
-                {},
                 teamId,
                 null,
                 true,
@@ -417,17 +413,9 @@ describe('createProcessPersonsStep', () => {
         })
         const enabledTeam = (await getTeam(infra.postgres, enabledTeamId))!
 
-        await personRepository.createPerson(
-            DateTime.utc(),
-            {},
-            {},
-            {},
-            enabledTeamId,
-            null,
-            false,
-            new UUIDT().toString(),
-            { distinctId: 'my_id' }
-        )
+        await personRepository.createPerson(DateTime.utc(), {}, enabledTeamId, null, false, new UUIDT().toString(), {
+            distinctId: 'my_id',
+        })
 
         const futureTimestamp = DateTime.utc().plus({ hours: 2 })
         const laterEvent: PluginEvent = {
@@ -576,8 +564,6 @@ describe('createProcessPersonsStep', () => {
             const result = await personRepository.createPerson(
                 DateTime.utc(),
                 properties,
-                {},
-                {},
                 teamId,
                 null,
                 isIdentified,
@@ -873,8 +859,6 @@ describe('createProcessPersonsStep', () => {
             const source = await personRepository.createPerson(
                 olderCreatedAt,
                 { email: 'old@example.com', plan: 'pro' },
-                {},
-                {},
                 teamId,
                 null,
                 true,
@@ -884,8 +868,6 @@ describe('createProcessPersonsStep', () => {
             const survivor = await personRepository.createPerson(
                 DateTime.fromISO('2026-09-01T00:00:00Z', { zone: 'utc' }),
                 { email: 'new@example.com' },
-                {},
-                {},
                 teamId,
                 null,
                 false,

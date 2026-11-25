@@ -1,9 +1,15 @@
 """Freshchat source settings and endpoint catalog."""
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    ResponseAction,
+)
 
 # Freshchat caps `items_per_page` at 50 (default 20). Pull the max to keep the request
 # count — and therefore rate-limit pressure — as low as possible.
@@ -56,6 +62,47 @@ CONVERSATION_MESSAGES_FANOUT = FreshchatChainedFanoutConfig(
 
 
 @dataclass(frozen=True)
+class HistoricalMetric:
+    name: str
+    # Aggregate metrics need an aggregator; count metrics must be sent without one.
+    aggregator: Optional[str] = None
+
+
+# The metrics that `GET /v2/metrics/historical` returns at account level, one value per metric per
+# bucket. The `*_x_mins_ago_*` metrics ignore the time window, `team_performance.wait_time` only comes
+# inside the `team_performance` summary, and `csat_metrics.rating` is only useful split by rating, so
+# none of those are read.
+HISTORICAL_METRICS: tuple[HistoricalMetric, ...] = (
+    HistoricalMetric("conversation_metrics.created_interactions"),
+    HistoricalMetric("conversation_metrics.assigned_interactions"),
+    HistoricalMetric("conversation_metrics.resolved_interactions"),
+    HistoricalMetric("conversation_metrics.wait_time", aggregator="avg"),
+    HistoricalMetric("csat_metrics.satisfactory_interactions"),
+    HistoricalMetric("csat_metrics.unsatisfactory_interactions"),
+    HistoricalMetric("csat_metrics.total_rated_interactions"),
+    HistoricalMetric("csat_metrics.count_per_rating", aggregator="avg"),
+    HistoricalMetric("team_performance.responses_sent"),
+    HistoricalMetric("team_performance.first_response_time", aggregator="avg"),
+    HistoricalMetric("team_performance.response_time", aggregator="avg"),
+    HistoricalMetric("team_performance.resolution_time", aggregator="avg"),
+    HistoricalMetric("team_performance.concurrency_ratio", aggregator="avg"),
+)
+
+HISTORICAL_METRICS_INTERVAL = "1d"
+# Freshchat documents no maximum range, so a window stays small.
+HISTORICAL_METRICS_WINDOW = timedelta(days=30)
+HISTORICAL_METRICS_LOOKBACK = timedelta(days=365)
+HISTORICAL_METRICS_REREAD = timedelta(days=1)
+
+INTERVAL_START_FIELD = IncrementalField(
+    label="interval_start",
+    type=IncrementalFieldType.DateTime,
+    field="interval_start",
+    field_type=IncrementalFieldType.DateTime,
+)
+
+
+@dataclass(frozen=True)
 class FreshchatEndpointConfig:
     name: str
     # Path relative to the `/v2` base (e.g. `/agents`).
@@ -82,6 +129,7 @@ class FreshchatEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     # Two hops down, where the parent is itself a fan-out child.
     chained_fanout: Optional[FreshchatChainedFanoutConfig] = None
+    metrics_query: bool = False
     # Freshchat's page-size param rides in each endpoint's own params rather than through the
     # fan-out helper, so these three only satisfy the helper's structural typing.
     page_size: int = PER_PAGE
@@ -92,9 +140,9 @@ class FreshchatEndpointConfig:
 # Freshchat v2 endpoints.
 #
 # The public REST API exposes no server-side updated_since / created_since cursor on the top-level
-# list endpoints, so every endpoint is full refresh only (no `supports_incremental`). Pagination is
-# resumable by page number via the ResumableSource manager. The metrics endpoints require a metric
-# name and time-window params, and raw reports are async export jobs, so neither is covered.
+# list endpoints, so those are full refresh only. Pagination is resumable by page number via the
+# ResumableSource manager. Historical metrics take a server-side time window, so that table can sync
+# incrementally. Raw reports are async export jobs, so they are not covered.
 FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
     "agents": FreshchatEndpointConfig(
         name="agents",
@@ -155,6 +203,15 @@ FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
         partition_key="created_time",
         chained_fanout=CONVERSATION_MESSAGES_FANOUT,
     ),
+    "historical_metrics": FreshchatEndpointConfig(
+        name="historical_metrics",
+        path="/metrics/historical",
+        paginated=False,
+        partition_key="interval_start",
+        metrics_query=True,
+        incremental_fields=[INTERVAL_START_FIELD],
+        default_incremental_field="interval_start",
+    ),
 }
 
 ENDPOINTS = tuple(FRESHCHAT_ENDPOINTS.keys())
@@ -173,4 +230,5 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "outbound_messages": ["message_id"],
     "user_conversations": ["user_id", "id"],
     "conversation_messages": ["conversation_id", "id"],
+    "historical_metrics": ["metric", "grouping", "interval_start"],
 }

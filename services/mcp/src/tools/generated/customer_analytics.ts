@@ -1114,6 +1114,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
         }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
+        }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
@@ -1200,6 +1203,9 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         }
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
+        }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
         }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
@@ -1359,6 +1365,9 @@ const customerTasksCreate = (): ToolBase<ReturnType<typeof CustomerTasksCreateSc
         if (params.status !== undefined) {
             body['status'] = params.status
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.CustomerTask>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_tasks/`,
@@ -1396,6 +1405,7 @@ const customerTasksList = (): ToolBase<
                 ordering: params.ordering,
                 search: params.search,
                 statuses: params.statuses,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
@@ -1428,6 +1438,9 @@ const customerTasksPartialUpdate = (): ToolBase<
         }
         if (params.status !== undefined) {
             body['status'] = params.status
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.name !== undefined) {
             body['name'] = params.name

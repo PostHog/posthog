@@ -9,6 +9,12 @@ from products.error_tracking.backend.temporal.built_in_filters_refresh import (
     ErrorTrackingBuiltInFiltersRefreshWorkflow,
     refresh_built_in_filter_rules_activity,
 )
+from products.error_tracking.backend.temporal.issue_change_cleanup import (
+    ACTIVITIES as ISSUE_CHANGE_CLEANUP_ACTIVITIES,
+    WORKFLOWS as ISSUE_CHANGE_CLEANUP_WORKFLOWS,
+    ErrorTrackingIssueChangeCleanupWorkflow,
+    cleanup_issue_changes_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
     ACTIVITIES as LIFECYCLE_ACTIVITIES,
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
@@ -35,6 +41,13 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup import (
     ErrorTrackingSymbolSetCleanupWorkflow,
     cleanup_symbol_sets_activity,
 )
+from products.error_tracking.backend.temporal.tag_rule_sweep import (
+    ACTIVITIES as TAG_RULE_SWEEP_ACTIVITIES,
+    WORKFLOWS as TAG_RULE_SWEEP_WORKFLOWS,
+    ErrorTrackingTagRuleSweepWorkflow,
+    list_tag_rule_teams_activity,
+    sweep_team_tag_rules_activity,
+)
 from products.error_tracking.backend.temporal.weekly_digest import (
     ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
@@ -48,18 +61,22 @@ from products.error_tracking.backend.temporal.weekly_digest import (
 WORKFLOWS = (
     SYMBOL_SET_WORKFLOWS
     + SPIKE_EVENT_WORKFLOWS
+    + ISSUE_CHANGE_CLEANUP_WORKFLOWS
     + RECOMMENDATIONS_REFRESH_WORKFLOWS
     + WEEKLY_DIGEST_WORKFLOWS
     + ALERT_WORKFLOWS
     + BUILT_IN_FILTERS_REFRESH_WORKFLOWS
+    + TAG_RULE_SWEEP_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
     + SPIKE_EVENT_ACTIVITIES
+    + ISSUE_CHANGE_CLEANUP_ACTIVITIES
     + RECOMMENDATIONS_REFRESH_ACTIVITIES
     + WEEKLY_DIGEST_ACTIVITIES
     + ALERT_ACTIVITIES
     + BUILT_IN_FILTERS_REFRESH_ACTIVITIES
+    + TAG_RULE_SWEEP_ACTIVITIES
 )
 
 __all__ = [
@@ -69,18 +86,23 @@ __all__ = [
     "WORKFLOWS",
     "ErrorTrackingAlertDeliveryWorkflow",
     "ErrorTrackingBuiltInFiltersRefreshWorkflow",
+    "ErrorTrackingIssueChangeCleanupWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
     "ErrorTrackingRecommendationsRefreshWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",
+    "ErrorTrackingTagRuleSweepWorkflow",
     "ErrorTrackingWeeklyDigestWorkflow",
+    "cleanup_issue_changes_activity",
     "cleanup_spike_events_activity",
     "cleanup_symbol_sets_activity",
     "get_digest_orgs_activity",
     "get_team_batches_activity",
+    "list_tag_rule_teams_activity",
     "refresh_built_in_filter_rules_activity",
     "refresh_recommendations_batch_activity",
     "send_org_digest_activity",
+    "sweep_team_tag_rules_activity",
 ]

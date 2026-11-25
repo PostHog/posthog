@@ -107,8 +107,11 @@ class TestNotionSource:
         ]
         assert matching[0] == expected_message
 
-    def test_permission_groups_sync_without_admin_token_fails_with_setup_guidance(self) -> None:
-        result = SourceDriver(self.source, NotionSourceConfig(api_key="tok")).run("permission_groups", [])
+    @parameterized.expand(
+        [("permission_groups",), ("permission_group_members",), ("user_credit_usage",), ("agent_credit_usage",)]
+    )
+    def test_admin_table_sync_without_admin_token_fails_with_setup_guidance(self, endpoint: str) -> None:
+        result = SourceDriver(self.source, NotionSourceConfig(api_key="tok")).run(endpoint, [])
         assert isinstance(result.raised, NotionAdminTokenMissingError)
         assert result.requests == []
 
@@ -120,11 +123,18 @@ class TestNotionSource:
         ]
         assert matching == [ADMIN_TOKEN_MISSING_ERROR]
 
-    def test_endpoint_permissions_only_flag_permission_groups_without_admin_token(self) -> None:
+    def test_endpoint_permissions_only_flag_admin_tables_without_admin_token(self) -> None:
         permissions = self.source.get_endpoint_permissions(
-            NotionSourceConfig(api_key="tok"), team_id=1, endpoints=["pages", "permission_groups"]
+            NotionSourceConfig(api_key="tok"),
+            team_id=1,
+            endpoints=["pages", "permission_groups", "users", "user_credit_usage"],
         )
-        assert permissions == {"pages": None, "permission_groups": ADMIN_TOKEN_MISSING_ERROR}
+        assert permissions == {
+            "pages": None,
+            "permission_groups": ADMIN_TOKEN_MISSING_ERROR,
+            "users": None,
+            "user_credit_usage": ADMIN_TOKEN_MISSING_ERROR,
+        }
 
     @parameterized.expand(
         [

@@ -1,4 +1,180 @@
 # serializer version: 1
+# name: TestTraceListViewSet.test_the_two_reads_match_their_snapshots
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArraySortedIf(51)(tuple(negate(toUnixTimestamp64Milli(first_timestamp)), trace_id, first_timestamp),
+                                1) AS page,
+         count() AS total,
+         countIf(has_error) AS errors,
+         countIf(has_feedback) AS feedback
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS trace_id,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_timestamp,
+            greater(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0)), 0) AS has_error,
+            greater(countIf(in(events.event, tuple('$ai_metric', '$ai_feedback'))), 0) AS has_feedback
+     FROM events
+     WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')), greaterOrEquals(events.timestamp, toDateTime64('2026-08-26 09:50:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1)), or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', ''), 'true'), 1)))
+     GROUP BY trace_id
+     HAVING and(greater(countIf(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding'))), 0), greater(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 0)), 0), lessOrEquals(first_timestamp, toDateTime64('today', 6, 'UTC')), greaterOrEquals(last_timestamp, toDateTime64('2026-08-26 10:00:00.000000', 6, 'UTC'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=30,
+                     timeout_overflow_mode='throw',
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestTraceListViewSet.test_the_two_reads_match_their_snapshots.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT capped.uuid AS uuid,
+         capped.event AS event,
+         capped.timestamp AS timestamp,
+         capped.distinct_id AS distinct_id,
+         capped.session_id AS session_id,
+         capped.parent_id AS parent_id,
+         capped.span_id AS span_id,
+         capped.generation_id AS generation_id,
+         capped.span_name AS span_name,
+         capped.trace_name AS trace_name,
+         capped.model AS model,
+         capped.provider AS provider,
+         capped.input_tokens AS input_tokens,
+         capped.output_tokens AS output_tokens,
+         capped.cache_read_input_tokens AS cache_read_input_tokens,
+         capped.cache_creation_input_tokens AS cache_creation_input_tokens,
+         capped.total_cost_usd AS total_cost_usd,
+         capped.latency AS latency,
+         capped.is_error AS is_error,
+         capped.input_tokens_raw AS input_tokens_raw,
+         capped.output_tokens_raw AS output_tokens_raw,
+         capped.cache_read_input_tokens_raw AS cache_read_input_tokens_raw,
+         capped.cache_creation_input_tokens_raw AS cache_creation_input_tokens_raw,
+         capped.error_raw AS error_raw,
+         capped.ingestion_source AS ingestion_source,
+         capped.has_state AS has_state,
+         capped.git_branch AS git_branch,
+         capped.git_repo AS git_repo,
+         capped.tools_called AS tools_called,
+         capped.is_support AS is_support,
+         totals.trace_latency_s AS trace_latency_s,
+         totals.trace_cost_usd AS trace_cost_usd,
+         totals.trace_distinct_id AS trace_distinct_id,
+         totals.trace_session_id AS trace_session_id,
+         capped.trace_id AS trace_id
+  FROM
+    (SELECT uuid AS uuid,
+                    event AS event,
+                    timestamp AS timestamp,
+                    distinct_id AS distinct_id,
+                    session_id AS session_id,
+                    parent_id AS parent_id,
+                    span_id AS span_id,
+                    generation_id AS generation_id,
+                    span_name AS span_name,
+                    trace_name AS trace_name,
+                    model AS model,
+                    provider AS provider,
+                    input_tokens AS input_tokens,
+                    output_tokens AS output_tokens,
+                    cache_read_input_tokens AS cache_read_input_tokens,
+                    cache_creation_input_tokens AS cache_creation_input_tokens,
+                    total_cost_usd AS total_cost_usd,
+                    latency AS latency,
+                    is_error AS is_error,
+                    input_tokens_raw AS input_tokens_raw,
+                    output_tokens_raw AS output_tokens_raw,
+                    cache_read_input_tokens_raw AS cache_read_input_tokens_raw,
+                    cache_creation_input_tokens_raw AS cache_creation_input_tokens_raw,
+                    error_raw AS error_raw,
+                    ingestion_source AS ingestion_source,
+                    has_state AS has_state,
+                    git_branch AS git_branch,
+                    git_repo AS git_repo,
+                    tools_called AS tools_called,
+                    is_support AS is_support,
+                    trace_id AS trace_id
+     FROM
+       (SELECT ai_events.uuid AS uuid,
+               ai_events.event AS event,
+               toTimeZone(ai_events.timestamp, 'UTC') AS timestamp,
+               ai_events.distinct_id AS distinct_id,
+               ai_events.session_id AS session_id,
+               ai_events.parent_id AS parent_id,
+               ai_events.span_id AS span_id,
+               ai_events.generation_id AS generation_id,
+               ai_events.span_name AS span_name,
+               ai_events.trace_name AS trace_name,
+               ai_events.model AS model,
+               ai_events.provider AS provider,
+               ai_events.input_tokens AS input_tokens,
+               ai_events.output_tokens AS output_tokens,
+               ai_events.cache_read_input_tokens AS cache_read_input_tokens,
+               ai_events.cache_creation_input_tokens AS cache_creation_input_tokens,
+               ai_events.total_cost_usd AS total_cost_usd,
+               ai_events.latency AS latency,
+               ai_events.is_error AS is_error,
+               if(isNull(ai_events.input_tokens), JSONExtractRaw(ai_events.properties, '$ai_input_tokens'), NULL) AS input_tokens_raw,
+               if(isNull(ai_events.output_tokens), JSONExtractRaw(ai_events.properties, '$ai_output_tokens'), NULL) AS output_tokens_raw,
+               if(isNull(ai_events.cache_read_input_tokens), JSONExtractRaw(ai_events.properties, '$ai_cache_read_input_tokens'), NULL) AS cache_read_input_tokens_raw,
+               if(isNull(ai_events.cache_creation_input_tokens), JSONExtractRaw(ai_events.properties, '$ai_cache_creation_input_tokens'), NULL) AS cache_creation_input_tokens_raw,
+               JSONExtractRaw(ai_events.properties, '$ai_error') AS error_raw,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, '$ai_ingestion_source'), ''), 'null'), '^"|"$', '') AS ingestion_source,
+               or(ifNull(greater(ai_events.`input_state.size`, 4), 0), ifNull(greater(ai_events.`output_state.size`, 4), 0)) AS has_state,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, '$ai_git_branch'), ''), 'null'), '^"|"$', '') AS git_branch,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, '$ai_git_repo'), ''), 'null'), '^"|"$', '') AS git_repo,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, '$ai_tools_called'), ''), 'null'), '^"|"$', '') AS tools_called,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(ai_events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '') AS is_support,
+               ai_events.trace_id AS trace_id
+        FROM ai_events
+        WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(ai_events.trace_id, tuple('trace-1')))
+        LIMIT 1 BY ai_events.uuid)
+     ORDER BY equals(event, '$ai_trace') DESC, timestamp ASC, uuid ASC
+     LIMIT 2001 BY trace_id
+     LIMIT 2001) AS capped
+  JOIN
+    (SELECT trace_id AS trace_id,
+            round(if(equals(countIf(ifNull(greater(ifNull(if(isFinite(latency), latency, NULL), 0), 0), 0)), 0), NULL, if(ifNull(greater(maxIf(if(isFinite(latency), latency, NULL), and(equals(event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(latency), latency, NULL), 0), 0), 0))), 0), 0), maxIf(if(isFinite(latency), latency, NULL), and(equals(event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(latency), latency, NULL), 0), 0), 0))), if(equals(countIf(and(ifNull(greater(ifNull(if(isFinite(latency), latency, NULL), 0), 0), 0), notEquals(event, '$ai_generation'))), 0), sumIf(if(isFinite(latency), latency, NULL), equals(event, '$ai_generation')), sumIf(if(isFinite(latency), latency, NULL), in(ifNull(parent_id, ''), tuple('', trace_id)))))), 2) AS trace_latency_s,
+            sumIf(if(isFinite(total_cost_usd), total_cost_usd, NULL), in(event, tuple('$ai_generation', '$ai_embedding'))) AS trace_cost_usd,
+            if(greater(countIf(and(in(event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), notEquals(distinct_id, ''))), 0), argMinIf(distinct_id, tuple(notEquals(event, '$ai_trace'), timestamp, distinct_id), and(in(event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), notEquals(distinct_id, ''))), NULL) AS trace_distinct_id,
+            nullIf(argMinIf(session_id, tuple(timestamp, session_id), and(in(event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), ifNull(notEquals(ifNull(session_id, ''), ''), 1))), '') AS trace_session_id
+     FROM
+       (SELECT ai_events.event AS event,
+               toTimeZone(ai_events.timestamp, 'UTC') AS timestamp,
+               ai_events.latency AS latency,
+               ai_events.parent_id AS parent_id,
+               ai_events.distinct_id AS distinct_id,
+               ai_events.session_id AS session_id,
+               ai_events.total_cost_usd AS total_cost_usd,
+               ai_events.trace_id AS trace_id
+        FROM ai_events
+        WHERE and(equals(ai_events.team_id, 99999), in(ai_events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), in(ai_events.trace_id, tuple('trace-1')))
+        LIMIT 1 BY ai_events.uuid)
+     GROUP BY trace_id) AS totals ON equals(capped.trace_id, totals.trace_id)
+  ORDER BY equals(capped.event, '$ai_trace') DESC, capped.timestamp ASC,
+                                                   capped.uuid ASC
+  LIMIT 2001 SETTINGS readonly=2,
+                      max_execution_time=15,
+                      allow_experimental_object_type=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      optimize_rewrite_aggregate_function_with_if=0,
+                      optimize_min_inequality_conjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
+  '''
+# ---
 # name: TestTraceViewSet.test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project
   '''
   /* user_id:0 request:_snapshot_ */

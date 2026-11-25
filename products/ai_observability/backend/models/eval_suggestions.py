@@ -11,6 +11,11 @@ class EvalSuggestionKind(models.TextChoices):
     FIX_PROMPT = "fix_prompt", "Fix a prompt"
 
 
+class EvalFixProblem(models.TextChoices):
+    NO_RUNS = "no_runs", "No runs"
+    ONE_OUTCOME = "one_outcome", "One outcome"
+
+
 class EvalSuggestionStatus(models.TextChoices):
     PROPOSED = "proposed", "Proposed"
     ACCEPTED = "accepted", "Accepted"
@@ -154,12 +159,15 @@ class EvalSuggestion(UUIDModel):
 
 
 class EvalSuggestionTeamState(models.Model):
-    """Team extension: when someone last loaded the suggestions, and the day of the last first-visit run."""
+    """Team extension: when someone last loaded the suggestions, the day of the last first-visit run, and whether
+    the project turned suggestions off."""
 
     team = models.OneToOneField(
         "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     last_visited_at = models.DateTimeField(null=True, blank=True, db_index=True)
     first_visit_run_on = models.DateField(null=True, blank=True)
+    # Set while the project has suggestions turned off: the page shows none and the weekly run skips it.
+    turned_off_at = models.DateTimeField(null=True, blank=True)
 
     objects = EnvironmentScopedManager()

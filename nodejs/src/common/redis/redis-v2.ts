@@ -42,8 +42,25 @@ export type RedisV2 = {
 const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
 export const MAX_PENDING_ACQUIRES_WITH_DEADLINE = 8
 
+type ClientQueues = {
+    commandQueue: { length: number }
+    offlineQueue: { length: number }
+    prevCommandQueue: { length: number } | null
+}
+
+// Before a reconnected client is ready, its command queue holds the readiness check of ioredis. A client with an
+// offline queue holds a caller's command until the client is ready, so it can still serve a call. A client without
+// one rejects the command at once, so it must be replaced.
 const isStalled = (client: RedisClient): boolean =>
-    (client as unknown as { commandQueue: { length: number } }).commandQueue.length > 0
+    (client.status === 'ready' || client.options.enableOfflineQueue === false) &&
+    (client as unknown as ClientQueues).commandQueue.length > 0
+
+// ioredis keeps a command that timed out during a reconnect, in the offline queue or in the queue it resends
+// after the reconnect, and sends it once the connection is ready, after its caller has already seen it fail.
+const holdsCommandsOfAFinishedCall = (client: RedisClient): boolean => {
+    const queues = client as unknown as ClientQueues
+    return isStalled(client) || queues.offlineQueue.length > 0 || (queues.prevCommandQueue?.length ?? 0) > 0
+}
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const nonFatal = config.connection.exitOnRepeatedErrors === false
@@ -133,7 +150,10 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             }
             throw e
         } finally {
-            if (clientMayStillAnswer) {
+            if (
+                clientMayStillAnswer ||
+                (config.discardStalledClients === true && holdsCommandsOfAFinishedCall(client))
+            ) {
                 client.disconnect()
                 pool.destroy(client).catch(() => undefined)
             } else {

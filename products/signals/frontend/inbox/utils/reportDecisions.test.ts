@@ -1,7 +1,7 @@
 import type { ReportDecisionSetByApi, ReportDecisionsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportArtefact } from '../types'
-import { reportDecisionAttributions } from './reportDecisions'
+import { reportActionabilityRequest, reportDecisionAttributions } from './reportDecisions'
 
 const person = { id: 1, uuid: 'person-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.com' }
 
@@ -35,7 +35,7 @@ const history = [
     judgment('P1', '2026-06-12T09:00:00Z'),
 ]
 
-describe('reportDecisionAttributions', () => {
+describe('reportDecisions', () => {
     it.each([
         {
             name: 'a task choice with its reason and no previous value',
@@ -77,5 +77,67 @@ describe('reportDecisionAttributions', () => {
     it('reads a decision with no history as null, and a report without decisions as null', () => {
         expect(reportDecisionAttributions(decisions({}), [])?.repository).toBeNull()
         expect(reportDecisionAttributions(undefined, history)).toBeNull()
+    })
+
+    it('reads a boolean decision and its history as strings', () => {
+        const judgments: SignalReportArtefact[] = [false, true].map((alreadyAddressed, index) => ({
+            id: `judgment-${index}`,
+            type: 'actionability_judgment',
+            content: { actionability: 'immediately_actionable', already_addressed: alreadyAddressed },
+            created_at: `2026-06-1${index}T09:00:00Z`,
+            actor_kind: index === 1 ? 'user' : 'task',
+        }))
+        const attributions = reportDecisionAttributions(
+            {
+                ...decisions({}),
+                already_addressed: {
+                    value: true,
+                    reason: 'Changed in the inbox.',
+                    set_at: '2026-06-11T09:00:00Z',
+                    set_by: { kind: 'user', user: person, agent: null, task_id: null },
+                },
+            },
+            judgments
+        )
+        expect(attributions?.already_addressed).toEqual({
+            person,
+            agent: null,
+            setAt: '2026-06-11T09:00:00Z',
+            reason: null,
+            previousValue: 'false',
+        })
+    })
+
+    it.each([
+        {
+            name: 'an actionability change',
+            report: { actionability: 'immediately_actionable' as const, already_addressed: false },
+            change: { actionability: 'requires_human_input' as const },
+            expected: {
+                decision: 'actionability',
+                previousValue: 'immediately_actionable',
+                newValue: 'requires_human_input',
+                body: { actionability: 'requires_human_input' },
+            },
+        },
+        {
+            name: 'an already addressed change',
+            report: { actionability: 'immediately_actionable' as const, already_addressed: false },
+            change: { alreadyAddressed: true },
+            expected: {
+                decision: 'already_addressed',
+                previousValue: 'false',
+                newValue: 'true',
+                body: { already_addressed: true },
+            },
+        },
+        {
+            name: 'the value the report already has as nothing to send',
+            report: { actionability: 'immediately_actionable' as const, already_addressed: true },
+            change: { alreadyAddressed: true },
+            expected: null,
+        },
+    ])('builds the request for $name', ({ report, change, expected }) => {
+        expect(reportActionabilityRequest(report, change)).toEqual(expected)
     })
 })

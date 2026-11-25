@@ -108,7 +108,7 @@ A health issue rarely lives alone. `no_live_events` alongside an error-tracking 
 Write scratchpad entries continuously, encoding the category in the key prefix:
 
 - `dedupe:health:<issue_id>` — "surfaced {kind} issue {id} on {date}; re-file only if it escalates or recurs after a resolve."
-- `dedupe:health:cluster:<kind>` — "bundled {kind} cluster of N on {date}; re-file only if count materially grows or a new critical appears."
+- `dedupe:health:cluster:<kind>` — "bundled {kind} cluster of N on {date}; re-file only if count materially grows or a new critical appears." Set `expires_at` on both `dedupe:health:` keys about 30 days past the last read that saw the issue or cluster active: a recurrence after that is a new episode.
 - `noise:health:<kind>:team{team_id}` — "team runs {kind} at a steady baseline / dev-env only; don't surface unless it escalates."
 - `addressed:health:<kind>:team{team_id}` — "team fixed {kind} (issues auto-resolved on {date}); stay quiet."
 - `pattern:health:shape-team{team_id}` — durable note on this team's normal setup shape (distinct from the `clean-team` close-out marker above, which only records the last all-clear).

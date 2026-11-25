@@ -65,6 +65,12 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # A present but empty http.route still outranks url.template, as the drilldown's is_not_set guard reads it.
         w.span("rest", name="PUT", env="routes", attributes={"http.route": "", "url.template": "/x/{id}"})
         w.span("rest", name="process", env="routes", attributes={"http.route": "/ignored"})
+        # Outgoing calls named only by their method take their target: the database system first, then the host.
+        w.span("rest", name="GET", env="routes", attributes={"db.system": "redis", "net.peer.name": "cache.internal"})
+        w.span(
+            "rest", name="POST", env="routes", attributes={"server.address": "profiles.internal", "url.path": "/ingest"}
+        )
+        w.span("rest", name="HEAD", env="routes", attributes={"net.peer.name": "cache.internal"})
         w.insert()
 
     def _list(self, **params) -> dict:
@@ -88,6 +94,19 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 ("worker", "cron.tick"),
             ],
         )
+
+    def test_one_service_cannot_fill_the_list_unless_filtered_to_it(self) -> None:
+        with (
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_LIMIT", 4),
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_PER_SERVICE_LIMIT", 1),
+        ):
+            rows = [(r["service_name"], r["endpoint"]) for r in self._list()["results"]]
+            web = [r["endpoint"] for r in self._list(service="web")["results"]]
+        self.assertEqual(
+            rows,
+            [("queue", "orders process"), ("web", "GET /orders"), ("api", "POST /charge"), ("worker", "cron.tick")],
+        )
+        self.assertEqual(web, ["GET /orders", "GET /health", "GET /report"])
 
     def test_row_carries_the_health_contract(self) -> None:
         orders = next(r for r in self._list()["results"] if r["endpoint"] == "GET /orders")
@@ -142,6 +161,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 "DELETE": ("DELETE", None, None, 1),
                 "PUT": ("PUT", None, None, 1),
                 "process": ("process", None, None, 1),
+                "GET redis": ("GET", "db.system", "redis", 1),
+                "POST profiles.internal": ("POST", "server.address", "profiles.internal", 1),
+                "HEAD cache.internal": ("HEAD", "net.peer.name", "cache.internal", 1),
             },
         )
 

@@ -580,6 +580,11 @@ export interface ExternalDataSchemaApi {
     /** @nullable */
     readonly last_synced_at: string | null
     /**
+     * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /**
      * The latest error that occurred when syncing this schema.
      * @nullable
      */
@@ -832,6 +837,11 @@ export interface PatchedExternalDataSchemaApi {
     readonly live_query_unavailable_reason?: string | null
     /** @nullable */
     readonly last_synced_at?: string | null
+    /**
+     * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+     * @nullable
+     */
+    readonly last_checked_at?: string | null
     /**
      * The latest error that occurred when syncing this schema.
      * @nullable
@@ -2275,6 +2285,12 @@ export interface SourceSetupApi {
     description?: string | null
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
 }
 
 export interface SourceSetupWebhookApi {
@@ -3204,7 +3220,7 @@ export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
 
 export type ExternalDataSchemasListParams = {
     /**
-     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
      */
     compact?: boolean
     /**
@@ -3284,7 +3300,7 @@ export type ExternalDataSchemasResyncCreate400 = {
 
 export type ExternalDataSourcesListParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean
     /**
@@ -3307,7 +3323,7 @@ export type ExternalDataSourcesListParams = {
 
 export type ExternalDataSourcesRetrieveParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean
     /**

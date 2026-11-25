@@ -24,12 +24,14 @@ EVENTS_DEFAULT_LOOKBACK_DAYS = 90
 class PendoEndpointConfig:
     name: str
     primary_keys: list[str]
-    # GET list endpoints (feature/page/guide/tracktype/report) set `path`; aggregation endpoints
+    # GET list endpoints (feature/page/guide/tracktype/report/segment) set `path`; aggregation endpoints
     # (visitors/accounts/groups) set `aggregation_source` and POST to /api/v1/aggregation. Event
     # endpoints set `event_source` and POST a day-windowed `timeSeries` to the same endpoint.
     path: Optional[str] = None
     aggregation_source: Optional[str] = None
     event_source: Optional[str] = None
+    # Fan-out endpoints GET `path` once per object that `parent_path` lists, with `{id}` set to its id.
+    parent_path: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # App-scoped objects and events only cover the default app unless the request asks for every
     # app. Reports and survey responses are not app-scoped and document no such parameter.
@@ -37,6 +39,9 @@ class PendoEndpointConfig:
     # Grouped event sources return buckets with no id of their own. Ungrouped sources, such as
     # survey responses, return one row per record with a Pendo `id`.
     grouped_events: bool = True
+    # Ungrouped raw event sources (guideEvents, pollEvents) carry neither an id nor a server-side
+    # day: rows get a hash `id` and the `day` that the response's `startTime` names.
+    day_from_window: bool = False
 
     @property
     def is_aggregation(self) -> bool:
@@ -78,6 +83,16 @@ PENDO_ENDPOINTS: dict[str, PendoEndpointConfig] = {
     # Only the report definitions: each report's results.json has its own column set, and the
     # rows re-project the visitors and accounts tables.
     "reports": PendoEndpointConfig(name="reports", path="/api/v1/report", primary_keys=["id"], all_apps=False),
+    # Shared segments; the endpoint documents no app parameter.
+    "segments": PendoEndpointConfig(name="segments", path="/api/v1/segment", primary_keys=["id"], all_apps=False),
+    # Every version of every guide, newest first. Each row is a full guide object, so `id` is the
+    # guide id and `stableVersionId` names the version.
+    "guide_history": PendoEndpointConfig(
+        name="guide_history",
+        path="/api/v1/guide/{id}/history",
+        parent_path="/api/v1/guide",
+        primary_keys=["id", "stableVersionId"],
+    ),
     "visitors": PendoEndpointConfig(name="visitors", aggregation_source="visitors", primary_keys=["visitorId"]),
     "accounts": PendoEndpointConfig(name="accounts", aggregation_source="accounts", primary_keys=["accountId"]),
     # Pendo's `groups` source holds product areas.
@@ -97,6 +112,22 @@ PENDO_ENDPOINTS: dict[str, PendoEndpointConfig] = {
     ),
     "track_events": PendoEndpointConfig(
         name="track_events", event_source="trackEvents", primary_keys=["id"], incremental_fields=DAY_INCREMENTAL_FIELDS
+    ),
+    "guide_events": PendoEndpointConfig(
+        name="guide_events",
+        event_source="guideEvents",
+        primary_keys=["id"],
+        incremental_fields=DAY_INCREMENTAL_FIELDS,
+        grouped_events=False,
+        day_from_window=True,
+    ),
+    "poll_events": PendoEndpointConfig(
+        name="poll_events",
+        event_source="pollEvents",
+        primary_keys=["id"],
+        incremental_fields=DAY_INCREMENTAL_FIELDS,
+        grouped_events=False,
+        day_from_window=True,
     ),
     "survey_responses": PendoEndpointConfig(
         name="survey_responses",

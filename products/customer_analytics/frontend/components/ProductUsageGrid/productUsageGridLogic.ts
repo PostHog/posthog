@@ -174,7 +174,7 @@ export interface productUsageGridLogicActions {
     setControls: (controls: Partial<ProductUsageControls>) => {
         controls:
             | {
-                  assignedTo: never[]
+                  assignedTo?: number[] | undefined
                   assignmentStatus?: AssignmentStatus | undefined
                   dateRange?: DateRange | undefined
                   firstUse?: boolean | undefined
@@ -200,7 +200,7 @@ export interface productUsageGridLogicActions {
                   zoom?: ProductUsageZoom | undefined
               }
             | {
-                  assignedTo?: number[] | undefined
+                  assignedTo: never[]
                   assignmentStatus?: AssignmentStatus | undefined
                   dateRange?: DateRange | undefined
                   firstUse?: boolean | undefined

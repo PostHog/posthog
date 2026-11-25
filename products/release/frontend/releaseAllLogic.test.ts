@@ -92,11 +92,35 @@ describe('releaseAllLogic', () => {
             return { results: page, has_more: index === 0 } as never
         })
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA, FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASES_AREA]: true,
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         releaseLogic.mount()
         logic = releaseAllLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('keeps products available when release objects are turned off', async () => {
+        jest.mocked(releasesCatalogReleasesRetrieve).mockClear()
+        jest.mocked(releasesList).mockClear()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], {
+            [FEATURE_FLAGS.RELEASES_AREA]: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ types: ['release'] })
+        logic.actions.loadMore()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.types).toEqual([])
+        expect(logic.values.activeTypes).toEqual(['feature_flag', 'experiment', 'early_access_feature'])
+        expect(logic.values.listState).toBe('ready')
+        expect(logic.values.displayRows.map((row) => row.name)).toContain('flag-1')
+        expect(logic.values.displayRows.some((row) => row.type === 'release')).toBe(false)
+        expect(releasesCatalogReleasesRetrieve).not.toHaveBeenCalled()
+        expect(releasesList).not.toHaveBeenCalled()
     })
 
     it.each([

@@ -84,9 +84,8 @@ impl TestContext {
 
         sqlx::query(
             r#"INSERT INTO posthog_person
-            (id, uuid, team_id, properties, properties_last_updated_at,
-             properties_last_operation, created_at, version, is_identified, is_user_id)
-            VALUES ($1, $2, $3, $4, '{}', '{}', NOW(), 0, false, NULL)
+            (id, uuid, team_id, properties, created_at, version, is_identified, is_user_id)
+            VALUES ($1, $2, $3, $4, NOW(), 0, false, NULL)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(person_id)
