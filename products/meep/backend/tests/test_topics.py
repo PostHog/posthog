@@ -1,18 +1,12 @@
-import json
-import sqlite3
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.core.management import call_command
-
 from products.meep.backend.authoring import finish_view
+from products.meep.backend.board import finish_board
 from products.meep.backend.chat import finish_turn
-from products.meep.backend.models import ChatTurn, Topic, ViewJob
-from products.meep.backend.replication import snapshot
+from products.meep.backend.models import BoardRun, ChatTurn, Topic, ViewJob
 from products.tasks.backend.facade import access, api
 from products.tasks.backend.models import TaskRun
 
@@ -168,34 +162,6 @@ class TestTopics(APIBaseTest):
         topic.refresh_from_db()
         assert topic.state["threads"][-1]["key"] == "file-review/3/notes/readme.txt"
 
-    def test_import_snapshots_is_atomic_and_repeatable(self) -> None:
-        topic = Topic.objects.for_team(self.team.id).create(
-            team=self.team, owner=self.user, title="Source", mission="Explain"
-        )
-        data = snapshot(topic)["state"]
-        pk = str(uuid4())
-        data["topic"]["id"] = pk
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "topics.sqlite"
-            db = sqlite3.connect(path)
-            try:
-                db.execute("CREATE TABLE records(kind TEXT, id TEXT, body TEXT, deleted INTEGER)")
-                db.execute(
-                    "INSERT INTO records VALUES ('engine/topic',?,?,0)",
-                    (pk, json.dumps({**data, "revision": 7, "capability": "private-fixture"})),
-                )
-                db.commit()
-            finally:
-                db.close()
-            params = {"project": self.team.pk, "owner": self.user.pk}
-            call_command("import_meep_workspace", path, **params)
-            assert not Topic.objects.for_team(self.team.id).filter(pk=pk).exists()
-            for _ in range(2):
-                call_command("import_meep_workspace", path, apply=True, **params)
-            imported = Topic.objects.for_team(self.team.id).get(pk=pk)
-            assert imported.revision == 7 and imported.state == data
-            assert imported.receipts.count() == 1
-
     def test_read_only_device_cannot_upload(self) -> None:
         topic = Topic.objects.for_team(self.team.pk).create(
             team=self.team, owner=self.user, title="Scoped", mission="Read"
@@ -208,3 +174,34 @@ class TestTopics(APIBaseTest):
             self.client.put(url + "example.txt/", b"example", content_type="application/octet-stream").status_code
             == 403
         )
+
+    def test_agent_board_task_runs_only_when_started(self) -> None:
+        url = f"/api/projects/{self.team.pk}/meep/v1/"
+        topic, item = str(uuid4()), str(uuid4())
+
+        def send(command: dict) -> dict:
+            batch = {"commands": [{"id": str(uuid4()), "topic": topic, "command": command}]}
+            response = self.client.post(url + "commands/", batch, format="json")
+            assert response.status_code == 200, response.content
+            assert response.json()["results"][0]["status"] == "applied", response.content
+            return response.json()
+
+        send({"kind": "CreateTopicWithoutSort", "name": "Board", "mission": "Investigate trends"})
+        send({"kind": "AddConfiguredTask", "id": item, "title": "Explain activation", "start": False})
+        assert not BoardRun.objects.filter(topic_id=topic).exists()
+        create = api.create_and_run_task
+        with (
+            patch("products.meep.backend.board.check_access"),
+            patch(
+                "products.meep.backend.board.api.create_and_run_task",
+                side_effect=lambda **kwargs: create(**kwargs, start_workflow=False),
+            ),
+        ):
+            send({"kind": "StartTask", "task": item})
+        job = BoardRun.objects.get(topic_id=topic, item_id=item)
+        TaskRun.objects.filter(pk=job.run_id).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Signup volume rose."}
+        )
+        finish_board(job.run_id, self.team.pk)
+        row = self.client.get(url + f"topics/{topic}/").json()["state"]["tasks"][0]
+        assert (row["column"], row["result"]) == ("Done", "Signup volume rose.")

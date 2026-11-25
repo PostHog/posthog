@@ -204,17 +204,7 @@ async fn call(s: &Server, id: Uuid, token: &str, name: &str, args: &Value) -> Re
         _ => bail!("Unknown view tool"),
     }
 }
-const NATIVE: &[&str] = &[
-    "insights-list",
-    "insight-get",
-    "feature-flag-get-all",
-    "feature-flag-get-definition",
-    "event-definitions-list",
-    "query-run",
-];
-fn native_allowed(name: &str) -> bool {
-    NATIVE.contains(&name.replace('_', "-").as_str())
-}
+use meep_posthog::mcp::view::native_allowed;
 fn client(a: &crate::accounts::Account) -> Result<meep_posthog::mcp::McpClient> {
     let p = a.project.as_ref().context("PostHog unavailable")?;
     let config: Value = a
@@ -316,44 +306,14 @@ async fn source(s: &Server, view: Uuid, params: &Value) -> Result<Value> {
         .values
         .get("access_token")
         .context("PostHog token unavailable")?;
-    let result = if source == "posthog" {
-        ensure!(native_allowed(tool), "Unsupported PostHog read operation");
-        client(&a)?
-            .initialize(token)
-            .await?
-            .call(tool, args.clone())
-            .await?
-    } else {
-        let id = source.parse::<Uuid>()?;
-        let gateway = meep_posthog::mcp::Gateway::new(&p.origin, p.project)?;
-        ensure!(
-            gateway
-                .available(token)
-                .await?
-                .iter()
-                .any(|s| s.installation_id == id
-                    && s.tools.iter().any(|t| t.name == tool
-                        && t.approval_state == "approved"
-                        && t.annotations["readOnlyHint"] == true)),
-            "Read access unavailable for this tool"
-        );
-        gateway
-            .call(
-                token,
-                id,
-                tool,
-                args.as_object().context("Expected arguments")?,
-            )
-            .await?
-    };
-    ensure!(!result.is_error, "PostHog declined the read operation");
-    if let Some(value) = result.structured_content {
-        return Ok(value);
-    }
-    if let Some(text) = result.content.first().and_then(|v| v["text"].as_str()) {
-        return Ok(serde_json::from_str(text)
-            .or_else(|_| toon_format::decode_strict(text))
-            .unwrap_or_else(|_| json!(text)));
-    }
-    Ok(json!(result.content))
+    meep_posthog::mcp::view::read_source(
+        client(&a)?,
+        &p.origin,
+        p.project,
+        token,
+        source,
+        tool,
+        args,
+    )
+    .await
 }

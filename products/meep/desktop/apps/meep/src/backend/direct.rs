@@ -28,6 +28,8 @@ async fn authorize_direct(root: &Path, region: Region) -> Result<Credentials> {
         "project:write",
         "feature_flag:read",
         "insight:read",
+        "query:read",
+        "event_definition:read",
         "user:read",
     ];
     let (identity, values) = authorize(
@@ -176,6 +178,36 @@ impl AccessToken for Account {
         self.discover_sources(&token)
             .await
             .map_err(|err| TransportError::Protocol(err.to_string()))
+    }
+
+    async fn read_view_source(
+        &self,
+        params: &serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, TransportError> {
+        let token = self.access_token().await?;
+        let origin = self.region.origin();
+        let local_endpoint = format!("{origin}/mcp");
+        let endpoint = match origin {
+            "https://us.posthog.com" | "https://eu.posthog.com" => {
+                meep_posthog::mcp::DEFAULT_ENDPOINT
+            }
+            _ => &local_endpoint,
+        };
+        let read = async {
+            let client = meep_posthog::mcp::McpClient::new(endpoint, Some(self.project))?;
+            meep_posthog::mcp::view::read_source(
+                client,
+                origin,
+                self.project,
+                &token,
+                params["source"].as_str().context("Missing source")?,
+                params["tool"].as_str().context("Missing tool")?,
+                &params["arguments"],
+            )
+            .await
+        };
+        read.await
+            .map_err(|error| TransportError::Protocol(error.to_string()))
     }
 
     async fn mcp_store(

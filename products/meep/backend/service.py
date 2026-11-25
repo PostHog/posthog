@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models import Max, QuerySet
+from django.db.models import Max, Q, QuerySet
 from django.shortcuts import get_object_or_404
 
 from pydantic import JsonValue
@@ -11,12 +11,13 @@ from rest_framework.exceptions import NotFound, ValidationError
 from posthog.models import User
 
 from products.meep.backend import authoring, replication
+from products.meep.backend.board import finish_board
 from products.meep.backend.chat import finish_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.facade.contracts import FileData, TopicDetails
 from products.meep.backend.files import write_file
-from products.meep.backend.import_workspace import import_workspace as import_workspace
 from products.meep.backend.models import (
+    BoardRun,
     ChatTurn,
     CommandReceipt,
     DeletionReceipt,
@@ -47,14 +48,14 @@ def _details(topic: Topic) -> TopicDetails:
 def list_topics(team_id: int, owner_id: int, conversation: UUID | None) -> list[TopicDetails]:
     topics = _topics(team_id, owner_id).filter(archived=False, deleted=False)
     if conversation is not None:
-        topics = topics.filter(conversation_id=conversation)
+        topics = topics.filter(Q(conversation_id=conversation) | Q(board_runs__task_id=conversation)).distinct()
     return [_details(t) for t in topics]
 
 
 def read_topic(team_id: int, owner_id: int, topic_id: UUID, conversation: UUID | None) -> TopicDetails:
     topics = _topics(team_id, owner_id).filter(archived=False, deleted=False)
     if conversation is not None:
-        topics = topics.filter(conversation_id=conversation)
+        topics = topics.filter(Q(conversation_id=conversation) | Q(board_runs__task_id=conversation)).distinct()
     return _details(get_object_or_404(topics, pk=topic_id))
 
 
@@ -99,6 +100,8 @@ def command(
 def changes(team_id: int, owner_id: int, after: int) -> dict[str, JsonValue]:
     topics = _topics(team_id, owner_id)
     if cache.add(f"meep:reconcile:{team_id}:{owner_id}", 1, timeout=60):
+        for run_id in BoardRun.objects.filter(topic__in=topics, finished=False).values_list("run_id", flat=True):
+            finish_board(run_id, team_id)
         for run_id in ChatTurn.objects.filter(topic__in=topics, finished_at=None).values_list("run_id", flat=True):
             finish_turn(run_id, team_id)
         for run_id in ViewJob.objects.filter(

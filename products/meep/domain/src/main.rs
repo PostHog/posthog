@@ -53,6 +53,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         json!({"state": state})
+    } else if request["operation"] == "board" {
+        let mut state: TopicState = serde_json::from_value(request["state"].clone())?;
+        let action = &request["envelope"];
+        let id = serde_json::from_value(action["id"].clone())?;
+        let now = serde_json::from_value(request["now"].clone())?;
+        let text = action["text"].as_str().unwrap_or_default().to_owned();
+        let result = match action["stage"].as_str() {
+            Some("start")
+                if state
+                    .tasks
+                    .iter()
+                    .any(|t| t.id == id && t.column == meep_topic::Column::Todo) =>
+            {
+                state.start(id, text, now)
+            }
+            Some("start") => state.progress(id, text, now),
+            Some("done") => state.complete(id, text, now),
+            _ => state.work_needs_attention(id, text, now),
+        };
+        match result {
+            Ok(_) => json!({"state":state}),
+            Err(error) => json!({"error":error.to_string()}),
+        }
     } else if request["operation"] == "publish-view" {
         let mut view: meep_views::View = serde_json::from_value(request["state"].clone())?;
         let edit = &request["envelope"];

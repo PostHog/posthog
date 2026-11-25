@@ -8,11 +8,12 @@ description = "Project-scoped PostHog clients for native and headless hosts"
 oauth = ["dep:subtle", "dep:oauth2", "dep:tempfile", "serde/derive", "dep:tokio", "tokio/net", "tokio/time", "url/serde"]
 tasks = ["dep:mime_guess", "reqwest/multipart", "serde/derive", "tokio/fs", "dep:tokio", "url/serde", "dep:uuid"]
 chat = ["tasks", "dep:chrono", "chrono/serde", "dep:meep-protocol"]
-mcp = ["serde/derive", "dep:uuid", "dep:futures-util", "dep:sse-stream"]
+mcp = ["dep:toon-format", "serde/derive", "dep:uuid", "dep:futures-util", "dep:sse-stream"]
 signals = ["serde/derive"]
 workflows = ["serde/derive", "dep:uuid", "dep:chrono", "chrono/serde", "dep:futures-util"]
 
 [dependencies]
+toon-format = { version = "0.7", default-features = false, optional = true }
 thiserror = "2"
 subtle = { version = "2", optional = true }
 futures-util = { version = "0.3", optional = true }

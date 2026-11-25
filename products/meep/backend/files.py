@@ -17,6 +17,8 @@ def write_file(topic: Topic, state: dict, path: str, data: bytes, operation: UUI
     latest = versions.order_by("-revision").first()
     revision = latest.revision + 1 if latest else 1
     head = versions.filter(competing_with=None).order_by("-revision").first()
+    if path in state.get("deleted_files", {}):
+        head = None
     head_revision = head.revision if head else 0
     if base is not None and base > 0 and not versions.filter(revision=base).exists():
         raise ValidationError("Unknown file base revision.")

@@ -69,13 +69,9 @@ def start_turn(topic: Topic, owner: User, message_id: UUID, text: str) -> bool:
         topic.save(update_fields=["conversation_id"])
         run_id = created.latest_run.id
     else:
-        if previous:
-            resume_id = previous.run_id
-        else:
-            linked = api.get_task_detail(topic.conversation_id, topic.team_id, owner.pk)
-            if linked is None or linked.latest_run is None:
-                raise ValidationError("The linked conversation has no run to resume.")
-            resume_id = linked.latest_run.id
+        if previous is None:
+            raise ValidationError("Start a Meep conversation to continue chatting in this topic.")
+        resume_id = previous.run_id
         result = api.run_task(
             topic.conversation_id,
             topic.team_id,
@@ -121,6 +117,11 @@ def finish_turn(run_id: UUID, team_id: int) -> None:
 
 def run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) -> None:
     if created or not instance.is_terminal:
+        return
+    if isinstance(instance.state, dict) and instance.state.get("meep_board_item"):
+        from products.meep.backend.board import finish_board  # noqa: PLC0415
+
+        transaction.on_commit(lambda: finish_board(instance.id, instance.team_id), robust=True)
         return
     if isinstance(instance.state, dict) and instance.state.get("meep_view_id"):
         from products.meep.backend.authoring import finish_view  # noqa: PLC0415

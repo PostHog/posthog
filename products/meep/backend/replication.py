@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from django.db import transaction
 from django.utils import timezone
@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import User
 
+from products.meep.backend.board import apply_board_action
 from products.meep.backend.chat import start_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.files import choose_revision
@@ -51,11 +52,13 @@ def apply_command(
     title = state["topic"]["name"]
     if not state["deleted"] and (not title.strip() or len(title) > 255):
         raise ValidationError("Supply a topic title of up to 255 characters.")
+    created = topic is None
     if topic is None:
         if Topic.objects.unscoped().filter(pk=topic_id).exists():
             raise ValidationError("Topic unavailable.")
         topic = Topic(id=topic_id, team_id=team_id, owner=owner)
     else:
+        state = apply_board_action(topic, state, command)
         if command.get("kind") == "Answer":
             choose_revision(topic, state, command, command_id)
         if command.get("kind") == "Chat":
@@ -71,5 +74,26 @@ def apply_command(
     topic.deleted = state["deleted"]
     topic.state = state
     topic.save(force_insert=topic._state.adding)
+    if created and command["kind"] == "CreateTopic" and topic.mission.strip():
+        # Provisioning is part of the accepted command and therefore shares its replay identity.
+        message_id = uuid5(command_id, "mission")
+        initial = {
+            "kind": "Chat",
+            "message_id": str(message_id),
+            "task_id": str(uuid5(command_id, "setup-task")),
+            "text": topic.mission,
+        }
+        state = transition(
+            "topic", state, {"topic": topic_id, "id": message_id, "issued_at": timezone.now(), "command": initial}
+        )
+        try:
+            with transaction.atomic():
+                start_turn(topic, owner, message_id, topic.mission)
+        except ValidationError as error:
+            thread = next(t for t in state["threads"] if t["id"] == str(message_id))
+            thread["state"] = "Handled"
+            thread["outcomes"] = [{"Reply": {"to": "User", "text": str(error.detail)}}]
+        topic.state = state
+        topic.save(update_fields=["state"])
     CommandReceipt.objects.create(command_id=command_id, topic=topic, revision=topic.revision)
     return {"status": "applied", "id": command_id, "topic": topic_id, "revision": topic.revision}

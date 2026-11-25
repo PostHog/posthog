@@ -17,17 +17,11 @@ Start PostHog from this checkout with the usual local services. The desktop expe
 sh products/meep/desktop/scripts/local.sh
 ```
 
-Select the local account in the browser. Opening the app again reuses the Keychain session. The region, project and user determine the replica filename. To connect to a deployed version in another region, run `cargo run --locked -p meep -- --posthog us` or `--posthog eu` from `products/meep/desktop`. To open an existing standalone local workspace, use `sh scripts/meep.sh --legacy` there.
+Select the local account in the browser. Opening the app again reuses the Keychain session. The region, project and user determine the replica filename. To connect to a deployed version in another region, run `cargo run --locked -p meep -- --posthog us` or `--posthog eu` from `products/meep/desktop`.
 
-## Existing workspaces
+Meep starts empty for each project member. Creating a topic starts its mission in PostHog Tasks. Board items run when explicitly started.
 
-The importer reads a consistent backup of one owner's server-side `topics.sqlite`. It imports public topic snapshots, including board, memory, inbox and activity, and saved view snapshots. It checks destination project access, preserves identifiers and detects conflicts. Preview the import first.
-
-```sh
-python manage.py import_meep_workspace /path/to/topics.sqlite --project PROJECT_ID --owner USER_ID
-```
-
-Add `--apply` to commit. Keep the original backup and its companion directories. External file contents, local device outboxes, provider credentials, run handles and external subscriptions require separate migration.
+The desktop can read project data and approved read-only tools from installed MCP servers when rendering a view. PostHog Tasks handles chat, board work and view authoring. Scheduled routines, webhook and SaaS delivery, Scout sync, and full run artifact handling still require implementation in the PostHog product.
 
 ## Verification
 

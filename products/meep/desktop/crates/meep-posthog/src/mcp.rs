@@ -1,5 +1,6 @@
 //! Clients for PostHog's native MCP server and its connected-installation gateway.
 mod session;
+pub mod view;
 pub use session::{DEFAULT_ENDPOINT, McpClient, McpSession, McpTool};
 
 use crate::api::ProjectEndpoint;

@@ -293,6 +293,10 @@ pub trait Transport: Send + Sync {
 pub trait AccessToken: Send + Sync {
     /// List passive context visible to this account through the project API.
     async fn sources(&self) -> Result<Vec<meep_wire::WatchableSource>>;
+    /// Read an approved data source for a rendered view.
+    async fn read_view_source(&self, _: &serde_json::Value) -> Result<serde_json::Value> {
+        Err(TransportError::Protocol("View source unavailable".into()))
+    }
     /// Run a user-initiated store operation against the signed-in project.
     async fn mcp_store(
         &self,
@@ -546,6 +550,11 @@ impl Transport for HttpTransport {
         id: uuid::Uuid,
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        if params["source"] != "topics"
+            && let Some(account) = &self.account
+        {
+            return account.read_view_source(&params).await;
+        }
         json(
             self.request(Method::POST, &["views", &id.to_string(), "sources"])
                 .await?

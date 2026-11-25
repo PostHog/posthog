@@ -95,3 +95,18 @@ class ViewJob(models.Model):
     run_id = models.UUIDField(unique=True)
     generation = models.PositiveBigIntegerField()
     finished = models.BooleanField(default=False)
+
+
+class BoardRun(models.Model):
+    topic = models.ForeignKey(Topic, on_delete=models.CASCADE, related_name="board_runs")
+    item_id = models.UUIDField()
+    task_id = models.UUIDField()
+    run_id = models.UUIDField(unique=True)
+    finished = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "item_id"], condition=models.Q(finished=False), name="meep_one_live_board_run"
+            )
+        ]
