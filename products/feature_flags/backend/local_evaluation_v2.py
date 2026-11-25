@@ -172,7 +172,7 @@ def update_flag_definitions_v2_cache(
 
     A failure is logged and counted, and never raises, so the caller's legacy rebuild is not
     affected. ``entry_expected=False`` is for a caller that visits every team: a team without
-    a config version 2 flag then costs the one query and one read of the expiry set.
+    a config version 2 flag then costs the one query, one read of the expiry set and one key check.
     """
     resolved_team = _resolve_team(team)
     if resolved_team is None:
@@ -192,7 +192,12 @@ def update_flag_definitions_v2_cache(
             raise RuntimeError(f"Flag definitions v2 build failed for team {resolved_team.id}")
         else:
             score = _tracked_expiry_score(resolved_team)
-            if score is None and not entry_expected:
+            # The member can be missing while the payload is stored, after a failed ZADD.
+            if (
+                not entry_expected
+                and score is None
+                and not cache.cache_client.has_key(cache.get_cache_key(resolved_team))
+            ):
                 return True
             _remove_entry(resolved_team, score)
     except SoftTimeLimitExceeded:
@@ -229,6 +234,8 @@ FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name=FLAG_DEFINITIONS_V2_CACHE_TYPE,
     get_teams_queryset_fn=_get_teams_with_flag_definitions_v2_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # A miss has no write to clobber, and a v=2 reader falls back to the legacy feed until it is repaired.
+    repair_miss_during_grace_period=True,
     should_skip_write=_skip_write_if_group_mapping_emptied,
     refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
     refresh_ttl_min_fraction=0.7,

@@ -8,7 +8,10 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
-from django.core.cache import cache as django_cache
+from django.core.cache import (
+    cache as django_cache,
+    caches,
+)
 from django.core.cache.backends.locmem import LocMemCache
 from django.db.models.signals import post_init
 from django.test import override_settings
@@ -19,6 +22,7 @@ from prometheus_client import REGISTRY
 from referencing import Registry, Resource
 from structlog.testing import capture_logs
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.dataclasses import frozen
 from posthog.models.group_type_mapping import GroupTypesUnavailable
 from posthog.models.project import Project
@@ -39,6 +43,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     FLAG_DEFINITIONS_V2_CACHE_TYPE,
     FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG,
     _build_flag_definitions_v2_batch,
+    _build_flag_definitions_v2_hypercache,
     flag_definitions_v2_hypercache,
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
@@ -294,9 +299,6 @@ class TestDefinitionsV2Body(DefinitionsV2TestCase):
         _create_flag(self.team, "v2-float-version", FLOAT_VERSION_V2)
         _create_flag(self.team, "v2-deleted", BOOLEAN_V2, deleted=True)
         _create_flag(self.team, "v2-encrypted", BOOLEAN_V2, is_remote_configuration=True, has_encrypted_payloads=True)
-        survey_flag = FeatureFlag.objects.create(team=self.team, key="v2-survey", filters={})
-        Survey.objects.create(team=self.team, name="Survey", type="popover", targeting_flag=survey_flag)
-        FeatureFlag.objects.filter(pk=survey_flag.pk).update(filters=BOOLEAN_V2)
         invalid = _create_flag(self.team, "v2-invalid", INVALID_V2)
         # The body carries no cohort definitions for v2 rules, so cohort targeting must stay rejected.
         cohort_targeting = deepcopy(BOOLEAN_V2)
@@ -312,6 +314,17 @@ class TestDefinitionsV2Body(DefinitionsV2TestCase):
         omitted = [log for log in logs if log["event"] == "Invalid v2 feature flag omitted from definitions"]
         assert sorted(log["flag_id"] for log in omitted) == sorted([invalid.pk, cohort_flag.pk])
         assert {log["team_id"] for log in omitted} == {self.team.id}
+
+    @parameterized.expand([("targeting_flag",), ("internal_targeting_flag",), ("internal_response_sampling_flag",)])
+    def test_survey_linked_v2_flags_are_left_out(self, survey_field: str) -> None:
+        _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        survey_flag = FeatureFlag.objects.create(team=self.team, key="v2-survey", filters={})
+        Survey.objects.create(team=self.team, name="Survey", type="popover", **{survey_field: survey_flag})
+        FeatureFlag.objects.filter(pk=survey_flag.pk).update(filters=BOOLEAN_V2)
+
+        self._rebuild()
+
+        assert _keys(_body(V2, self.team)) == ["v2-boolean"]
 
     def test_deleted_v2_rows_are_not_loaded(self) -> None:
         for index in range(3):
@@ -339,10 +352,26 @@ class TestDefinitionsV2Body(DefinitionsV2TestCase):
 class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
     def test_entry_sits_beside_the_legacy_entry_on_the_same_redis_tiers(self) -> None:
         assert V2.get_cache_key(self.team) == f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts_v2.json"
-        assert V2.cache_client is LEGACY.cache_client
-        assert V2.secondary_cache_client is LEGACY.secondary_cache_client
+        # CI sets no FLAGS_REDIS_URL, so register the dedicated alias here. HyperCache reads its LOCATION
+        # for the writer URL, and the in-memory backend ignores it.
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
+            }
+        ):
+            hypercache = _build_flag_definitions_v2_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+            assert hypercache.secondary_cache_client is caches["default"]
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            hypercache = _build_flag_definitions_v2_hypercache()
+            assert hypercache.cache_client is django_cache
+            assert hypercache.secondary_cache_client is None
 
-    def test_team_without_v2_flags_costs_one_query_and_one_tracking_read(self) -> None:
+    def test_team_without_v2_flags_costs_one_query_and_two_redis_reads(self) -> None:
         self._create_v1_flags()
 
         with (
@@ -352,13 +381,17 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
             patch(f"{MODULE}.get_client") as raw_client,
         ):
             raw_client.return_value.zscore.return_value = None
+            primary.has_key.return_value = False
             assert update_flag_definitions_v2_cache(self.team, skip_if_unchanged=True, entry_expected=False) is True
 
-        assert primary.mock_calls == mirror.mock_calls == []
+        assert primary.mock_calls == [call.has_key(V2.get_cache_key(self.team))]
+        assert mirror.mock_calls == []
         assert raw_client.return_value.mock_calls == [
             call.zscore(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(self.team.id))
         ]
-        self._rebuild()
+        with patch.object(V2, "delete_cache_entry") as delete:
+            self._rebuild()
+        delete.assert_not_called()
         assert _stored(V2, self.team) == ABSENT
         assert _tracked_score(self.team) is None
 
@@ -401,6 +434,17 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
         with patch.object(V2.cache_client, "delete") as delete:
             assert update_flag_definitions_v2_cache(self.team, skip_if_unchanged=True, entry_expected=False) is True
         delete.assert_not_called()
+
+    def test_entry_goes_when_the_last_v2_flag_is_deleted_and_the_team_is_untracked(self) -> None:
+        flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        self._rebuild()
+        # As after a failed ZADD: the payload is stored, and the expiry set does not name the team.
+        get_client(V2.redis_url).zrem(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(self.team.id))
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        self._rebuild()
+
+        assert _stored(V2, self.team) == ABSENT
 
     def test_failed_removal_keeps_the_entry_tracked_for_upkeep(self) -> None:
         flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
@@ -485,6 +529,17 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         mismatch = verify_team_flag_definitions_v2(self.team)
         assert mismatch["issue"] == "DATA_MISMATCH"
         assert _keys(mismatch["db_data"]) == ["v2-added", "v2-boolean", "v2-experiment", "v2-inactive"]
+
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
+    def test_grace_period_delays_a_stale_entry_but_not_a_missing_one(self) -> None:
+        self._create_v2_flags()
+
+        assert self._verify_and_fix().cache_miss_fixed == 1
+        assert _keys(_body(V2, self.team)) == ["v2-boolean", "v2-experiment", "v2-inactive"]
+
+        _create_flag(self.team, "v2-added", BOOLEAN_V2)
+        result = self._verify_and_fix()
+        assert (result.cache_mismatch_fixed, result.skipped_for_grace_period) == (0, 1)
 
     def test_verification_repairs_a_body_that_its_etag_does_not_describe(self) -> None:
         flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
