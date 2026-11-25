@@ -77,7 +77,10 @@ from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.api import (
     get_experiment_health,
+    get_latest_recalculation,
+    get_recalculation_run,
     get_running_time_target,
+    request_metrics_recalculation,
     start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
@@ -150,15 +153,6 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeTargetQuerySerializer,
     RunningTimeTargetSerializer,
     ShipVariantSerializer,
-)
-from products.experiments.backend.recalculation import (
-    build_job_payload,
-    build_timeseries_cold_start_payload,
-    exceeds_recalculation_age_limit,
-    get_active_recalculation,
-    get_latest_recalculation,
-    get_recalculation_by_id,
-    request_recalculation,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -1692,22 +1686,24 @@ class EnterpriseExperimentsViewSet(
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
-        result = request_recalculation(experiment, cast(User, request.user), trigger)
-        # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
-        # the idempotent-reuse path without inspecting the HTTP status code.
-        is_existing = result.get("is_existing", False)
+        result = request_metrics_recalculation(
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            user_id=cast(User, request.user).id,
+            trigger=trigger,
+        )
 
         # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
-        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
+        if not result.is_existing and result.status == ExperimentMetricsRecalculation.Status.PENDING:
             start_metrics_recalculation_workflow(
-                str(result["id"]),
+                result.id,
                 team_id=experiment.team_id,
                 organization_id=str(experiment.team.organization_id),
             )
 
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
-            status=200 if is_existing else 201,
+            status=200 if result.is_existing else 201,
         )
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
@@ -1721,25 +1717,10 @@ class EnterpriseExperimentsViewSet(
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
         _check_warehouse_native_result_access(experiment, self.team, request.user)
-        active = get_active_recalculation(experiment)
-        active_run = {"id": str(active.id), "status": active.status} if active is not None else None
-        recalc = get_latest_recalculation(experiment)
-
-        if recalc is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
-
-        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately, even while a first run is active (its pending
-        # payload would blank them out); an active run still rides along for polling. Pure read, no
-        # workflow start.
-        fallback = build_timeseries_cold_start_payload(experiment)
-        if fallback is not None:
-            return Response(_serialize_latest(experiment, fallback, active_run))
-
-        if active is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
-
-        return Response({"detail": "No completed recalculation found"}, status=404)
+        latest = get_latest_recalculation(team_id=experiment.team_id, experiment_id=experiment.id)
+        if latest is None:
+            return Response({"detail": "No completed recalculation found"}, status=404)
+        return Response(ExperimentMetricsRecalculationLatestSerializer(latest).data)
 
     @extend_schema(
         parameters=[
@@ -1770,10 +1751,12 @@ class EnterpriseExperimentsViewSet(
     ) -> Response:
         experiment: Experiment = self.get_object()
         _check_warehouse_native_result_access(experiment, self.team, request.user)
-        recalc = get_recalculation_by_id(experiment, recalculation_id)
-        if recalc is None:
+        run = get_recalculation_run(
+            team_id=experiment.team_id, experiment_id=experiment.id, recalculation_id=recalculation_id
+        )
+        if run is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
+        return Response(ExperimentMetricsRecalculationRunSerializer(run).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -2194,14 +2177,3 @@ def _check_warehouse_native_result_access(experiment: Experiment, team: Team, us
     if connection_id is None:
         return
     validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
-
-
-def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
-    return build_job_payload(recalc, include_results=True, include_live_progress=True)
-
-
-def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
-    if active_run is not None:
-        payload["active_run"] = active_run
-    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
-    return ExperimentMetricsRecalculationLatestSerializer(payload).data

@@ -45,6 +45,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
     Experiment as ExperimentModel,
+    ExperimentMetricsRecalculation,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
 )
@@ -58,6 +59,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 from .contracts import (
+    ActiveRecalculationRun,
     CreateExperimentInput,
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
@@ -71,7 +73,11 @@ from .contracts import (
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    LatestRecalculation,
     LinkedExperiment,
+    MetricRecalculationResult,
+    RecalculationRun,
+    RequestedRecalculation,
     RunningExperiment,
     RunningTimeMode,
     StoredArmResult,
@@ -566,6 +572,104 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     )
 
     dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
+
+
+def request_metrics_recalculation(
+    *, team_id: int, experiment_id: int, user_id: int, trigger: str
+) -> RequestedRecalculation:
+    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    user = User.objects.get(id=user_id)
+    payload = recalculation.request_recalculation(experiment, user, trigger)
+    return RequestedRecalculation(**_run_summary_fields(payload), is_existing=payload["is_existing"])
+
+
+def get_latest_recalculation(*, team_id: int, experiment_id: int) -> LatestRecalculation | None:
+    """None when the experiment has no run and no timeseries data to show."""
+    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    active = recalculation.get_active_recalculation(experiment)
+    latest = recalculation.get_latest_recalculation(experiment)
+    payload: dict[str, Any] | None
+    if latest is not None:
+        payload = _recalculation_run_payload(latest)
+    else:
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
+        payload = recalculation.build_timeseries_cold_start_payload(experiment)
+        if payload is None and active is not None:
+            payload = _recalculation_run_payload(active)
+
+    if payload is None:
+        return None
+    run = _recalculation_run(payload)
+    return LatestRecalculation(
+        **{field.name: getattr(run, field.name) for field in dataclasses.fields(run)},
+        active_run=ActiveRecalculationRun(id=str(active.id), status=active.status) if active is not None else None,
+        result_source=payload.get("result_source", "recalculation"),
+        exceeds_recalculation_age_limit=recalculation.exceeds_recalculation_age_limit(experiment),
+    )
+
+
+def get_recalculation_run(*, team_id: int, experiment_id: int, recalculation_id: str) -> RecalculationRun | None:
+    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    recalc = recalculation.get_recalculation_by_id(experiment, recalculation_id)
+    return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
+
+
+def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:
+    from products.experiments.backend import (  # noqa: PLC0415 — recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    return recalculation.build_job_payload(recalc, include_results=True, include_live_progress=True)
+
+
+def _run_summary_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(payload["id"]),
+        "experiment_id": payload["experiment_id"],
+        "status": payload["status"],
+        "total_metrics": payload["total_metrics"],
+        "completed_metrics": payload["completed_metrics"],
+        "failed_metrics": payload["failed_metrics"],
+        "metric_errors": payload["metric_errors"],
+        "created_at": payload["created_at"],
+        "started_at": payload["started_at"],
+        "completed_at": payload["completed_at"],
+        "query_to": payload["query_to"],
+    }
+
+
+def _recalculation_run(payload: dict[str, Any]) -> RecalculationRun:
+    return RecalculationRun(
+        **_run_summary_fields(payload),
+        metric_retries=payload["metric_retries"],
+        results=tuple(
+            MetricRecalculationResult(
+                metric_uuid=item["metric_uuid"],
+                status=item["status"],
+                result=item["result"],
+                error_message=item["error_message"],
+                configuration_status=item["configuration_status"],
+            )
+            for item in payload["results"]
+        ),
+        rows_read=payload.get("rows_read"),
+        estimated_rows_total=payload.get("estimated_rows_total"),
+    )
 
 
 def validate_recalculation_times(times: Sequence[str] | None) -> None:
