@@ -459,11 +459,12 @@ class TestOtelSampler(SimpleTestCase):
             ("query_batch_new_semconv", {"url.path": "/api/environments/2/dashboard_v2/query_batch"}, None, True),
             ("other_route", {"http.target": "/api/projects/2/dashboards/"}, None, False),
             (
-                "query_batch_unsampled_parent",
+                "query_batch_unsampled_remote_parent",
                 {"http.target": "/api/projects/2/dashboard_v2/query_batch/"},
                 False,
-                False,
+                True,
             ),
+            ("other_route_sampled_remote_parent", {"http.target": "/api/projects/2/dashboards/"}, True, True),
         ]
     )
     @mock.patch.dict(

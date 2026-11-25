@@ -42,7 +42,7 @@ _ALWAYS_SAMPLED_ROOT_PATHS = re.compile(r"^/?api/(environments|projects)/\d+/das
 
 
 class _AlwaysSampleRoutesSampler(Sampler):
-    """Samples every root server span for a few low-volume routes and leaves all other decisions to `delegate`."""
+    """Samples every server span entering through a few low-volume routes and leaves all other decisions to `delegate`."""
 
     def __init__(self, delegate: Sampler) -> None:
         self._delegate = delegate
@@ -58,8 +58,9 @@ class _AlwaysSampleRoutesSampler(Sampler):
         trace_state: TraceState | None = None,
     ) -> SamplingResult:
         # Old HTTP semconv sends `http.target` (path and query), OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`.
-        # A valid parent (e.g. a `traceparent` with sampled=0) already decided, so the delegate keeps it.
-        if attributes and not trace.get_current_span(parent_context).get_span_context().is_valid:
+        # A remote parent comes from the caller's `traceparent`, so its sampled flag must not switch tracing off here.
+        parent = trace.get_current_span(parent_context).get_span_context()
+        if attributes and (not parent.is_valid or parent.is_remote):
             path = attributes.get("url.path") or attributes.get("http.target")
             if isinstance(path, str) and _ALWAYS_SAMPLED_ROOT_PATHS.match(path.partition("?")[0]):
                 return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes)
