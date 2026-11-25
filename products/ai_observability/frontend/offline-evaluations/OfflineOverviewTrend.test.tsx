@@ -68,7 +68,7 @@ describe('OfflineOverviewTrend', () => {
         expect(await screen.findByText('1 of 2 runs scored')).toBeInTheDocument()
         expect(screen.getByText('False')).toBeVisible()
         expect(screen.getByText('Missing scorer results')).toBeVisible()
-        expect(screen.getByRole('link', { name: overviewExperiments[1].name })).toHaveAttribute(
+        expect(screen.getByText(overviewExperiments[1].name).closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining(overviewExperiments[1].id)
         )
