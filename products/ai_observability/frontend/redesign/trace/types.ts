@@ -2,6 +2,7 @@ import type {
     TraceApi,
     TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
+    TraceListItemApi,
     TraceMessageApi,
     TraceNodeApi,
     TraceNodeContentApi,
@@ -9,9 +10,11 @@ import type {
     TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TracePersonApi,
+    TracePreviewMissingReasonApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
 } from '../../generated/api.schemas'
+import type { TraceCellStatus } from '../shared/cellLoads'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
@@ -61,6 +64,17 @@ export interface ConversationTurn {
     input: NodeSideContent
     output: NodeSideContent
     error: string | null
+    /** Why a side is empty or cut, when the read could not return all of it. */
+    missingReasons?: TurnMissingReasons
+    /** Whether the input and output have loaded, for a turn whose messages are read after the turn itself. */
+    sidesStatus?: TraceCellStatus
+    /** The turn's trace as a list of traces reads it, for a turn that is one of several. */
+    trace?: Pick<TraceListItemApi, 'name' | 'totals'>
+}
+
+export interface TurnMissingReasons {
+    input: TracePreviewMissingReasonApi | null
+    output: TracePreviewMissingReasonApi | null
 }
 
 export type ConversationState =
