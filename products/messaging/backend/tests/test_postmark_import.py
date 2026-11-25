@@ -12,6 +12,10 @@ from django.test import SimpleTestCase, override_settings
 import requests
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -485,14 +489,33 @@ class TestPostmarkImport(BaseTest):
         assert run.temporary_api_key is None
         assert [call.args[0] for call in self.sleep.call_args_list if call.args[0] >= 1] == [1.0, 2.0, 4.0, 8.0, 16.0]
 
-    @parameterized.expand([("deactivated", "is_active"), ("left_the_organization", "membership")])
+    @parameterized.expand(
+        [
+            ("deactivated", "is_active"),
+            ("left_the_organization", "membership"),
+            ("workflow_viewer", "hog_flow"),
+            ("project_denied", "project"),
+        ]
+    )
     def test_a_starter_who_lost_access_stops_the_step_before_it_writes(self, _name: str, lost: str) -> None:
         run = runs.start_run(self.team.id, "postmark", ["suppressions"], PRODUCTION_TOKEN, self.user.id)
         if lost == "is_active":
             self.user.is_active = False
             self.user.save()
-        else:
+        elif lost == "membership":
             self.organization_membership.delete()
+        else:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save(update_fields=["available_product_features"])
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save(update_fields=["level"])
+            create_access_control(
+                team_id=self.team.id,
+                resource=lost,
+                resource_id=str(self.team.id) if lost == "project" else None,
+                access_level="none" if lost == "project" else "viewer",
+                organization_member_id=self.organization_membership.id,
+            )
 
         with self.assertRaises(ImportAccessLost):
             runs.run_step(self.team.id, run.id, "suppressions", attempt=1)

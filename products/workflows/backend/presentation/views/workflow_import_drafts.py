@@ -378,12 +378,7 @@ def _left_alone(team: Team, context: _RequestContext) -> frozenset[str]:
         source_id
         for source_id, previous in context.previous.items()
         if previous.hog_flow_id is not None
-        and (
-            not previous.hog_flow_is_draft
-            or not authorization.check(
-                resource=_previous_workflow_resource(team, previous), action=Action.EDIT, subject=context.subject
-            )
-        )
+        and (not previous.hog_flow_is_draft or not _can_edit(context, team, previous))
     )
 
 
@@ -433,9 +428,7 @@ def import_campaign(
     }
     previous = context.previous.get(translated.source_id) or previous_import(team, translated.source_id)
     # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
-    if previous.hog_flow_id is not None and not authorization.check(
-        resource=_previous_workflow_resource(team, previous), action=Action.EDIT, subject=context.subject
-    ):
+    if previous.hog_flow_id is not None and not _can_edit(context, team, previous):
         return _skipped(
             result,
             previous.hog_flow_id,
@@ -574,12 +567,16 @@ def _can_upload_media(request: Request, team_id: int, subject: Subject) -> bool:
     )
 
 
-def _previous_workflow_resource(team: Team, previous: PreviousImport) -> Resource:
-    return Resource(
-        type=ResourceType.HOG_FLOW,
-        id=str(previous.hog_flow_id),
-        project_id=team.id,
-        created_by_id=previous.hog_flow_created_by_id,
+def _can_edit(context: _RequestContext, team: Team, previous: PreviousImport) -> bool:
+    return authorization.check(
+        resource=Resource(
+            type=ResourceType.HOG_FLOW,
+            id=str(previous.hog_flow_id),
+            project_id=team.id,
+            created_by_id=previous.hog_flow_created_by_id,
+        ),
+        action=Action.EDIT,
+        subject=context.subject,
     )
 
 

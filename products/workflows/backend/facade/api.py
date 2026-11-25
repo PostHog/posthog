@@ -115,7 +115,7 @@ def search_workflows(
     ``with_access_levels`` adds ``user_access_level``, the user's resolved level for each workflow.
     ``include_count=False`` skips the count query and reports a total of 0.
     """
-    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415 — keeps tag views off startup
+    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415
 
     with authorization.authorization_session():
         authorization.reuse_current_rules(access_control)
@@ -236,7 +236,7 @@ def get_viewable_workflow_ids(
     tag_name: str | None = None,
 ) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
-    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415 — keeps tag views off startup
+    from products.workflows.backend.services import hog_flow_reads  # noqa: PLC0415
 
     return hog_flow_reads.get_viewable_workflow_ids(
         team_id=team_id, subject=Subject(user_id=user_id), workflow_ids=workflow_ids, tag_name=tag_name

@@ -246,11 +246,13 @@ def parse_events_hogql_query(
     hogql_query: str, team_id: int, user: "User | None"
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Parse a HogQL SelectQuery from a string query."""
-    return _parse_events_hogql_query(hogql_query, team_id, user)
+    return _parse_events_hogql_query(
+        hogql_query, team_id, user, restrictions=_query_property_restrictions(team_id, user)
+    )
 
 
 def _parse_events_hogql_query(
-    hogql_query: str, team_id: int, user: "User | None", *, restrictions: set[RestrictedProperty] | None = None
+    hogql_query: str, team_id: int, user: "User | None", *, restrictions: set[RestrictedProperty]
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     try:
         parsed_query = parse_select(hogql_query)
@@ -262,9 +264,7 @@ def _parse_events_hogql_query(
             team_id=team_id,
             user=user,
             enable_select_queries=True,
-            restricted_properties=restrictions
-            if restrictions is not None
-            else _query_property_restrictions(team_id, user),
+            restricted_properties=restrictions,
             use_new_events_schema=batch_exports_read_new_events_table(team_id),
             modifiers=HogQLQueryModifiers(
                 # A materialized column would replace `properties` in the prepared query, and the field check below

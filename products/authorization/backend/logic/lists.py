@@ -49,7 +49,9 @@ def list_objects(
             f"The SDK cannot list {resource.type} yet, because its objects fall back to a parent."
         )
     session = current() or Session()
-    if resource.type == ResourceType.PROPERTY_DEFINITION and action == Action.QUERY:
+    if resource.type == ResourceType.PROPERTY_VALUES:
+        if action != Action.QUERY:
+            raise ValueError(f"{action} does not apply to a list of property values.")
         result = _list_queryable_properties(session, resource, subject)
     elif resource.type == ResourceType.PROJECT:
         result = _list_projects(session, resource, action, subject)

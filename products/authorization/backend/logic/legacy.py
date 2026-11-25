@@ -33,7 +33,7 @@ RESOURCE_LEVELS: dict[Action, AccessControlLevelResource] = {
     Action.CREATE: "editor",
     Action.MANAGE_ACCESS: "manager",
 }
-PROPERTY_VALUE_ACTIONS = frozenset({Action.QUERY, Action.EDIT})
+PROPERTY_VALUE_ACTIONS = (Action.QUERY, Action.EDIT)
 
 _Level = OrganizationMembership.Level
 _ADMIN_ACTIONS = dict.fromkeys((Action.EDIT, Action.DELETE, Action.SHARE, Action.MANAGE_ACCESS), _Level.ADMIN)
@@ -66,13 +66,11 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     results: list[bool] = []
     for request in requests:
         resource = request.resource
-        if (
-            resource.type == ResourceType.PROPERTY_DEFINITION
-            and resource.id is not None
-            and request.action in PROPERTY_VALUE_ACTIONS
-        ):
-            if resource.project_id is None:
-                raise ValueError("A property access check needs `project_id`.")
+        if resource.type == ResourceType.PROPERTY_VALUES:
+            if request.action not in PROPERTY_VALUE_ACTIONS:
+                raise ValueError(f"{request.action} does not apply to property values.")
+            if resource.id is None or resource.project_id is None:
+                raise ValueError("A property value check needs a project ID and a property definition ID.")
             key = (resource.project_id, request.subject)
             if key not in property_levels:
                 property_levels[key] = property_access_levels(session, resource.project_id, request.subject)
@@ -118,7 +116,11 @@ def object_access_levels(
 
 
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
-    actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
+    actions = (
+        PROPERTY_VALUE_ACTIONS
+        if resource.type == ResourceType.PROPERTY_VALUES
+        else tuple(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
+    )
     results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
 

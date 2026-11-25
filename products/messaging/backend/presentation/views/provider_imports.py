@@ -17,12 +17,12 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import REQUIRED_LEVEL_ACTIONS, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.enums import ResourceType
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
@@ -329,6 +329,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # enough to read or start every import.
         if not authorization.check(
             resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id),
-            action={"viewer": Action.VIEW, "editor": Action.EDIT}[level],
+            action=REQUIRED_LEVEL_ACTIONS[level],
         ):
             raise PermissionDenied(f"You need project-wide workflow {level} access to use messaging imports.")

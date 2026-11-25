@@ -425,7 +425,7 @@ def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -
         writable = authorization.check(
             [
                 CheckRequest(
-                    resource=Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=team.id, id=str(pk)),
+                    resource=Resource(type=ResourceType.PROPERTY_VALUES, project_id=team.id, id=str(pk)),
                     action=Action.EDIT,
                     subject=subject,
                 )

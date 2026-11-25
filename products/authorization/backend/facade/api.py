@@ -89,7 +89,7 @@ def check(
     """Return whether the subject may take the action on the resource, or one result per request, in order.
 
     `subject=None` means the user of the current request. Outside a request, pass `subject`.
-    QUERY and EDIT on a specific property definition check access to its values.
+    PROPERTY_VALUES supports QUERY and EDIT, using the property definition ID as the resource ID.
     """
     if requests is None:
         if resource is None or action is None:
@@ -141,7 +141,7 @@ def list_objects(
     or `ResourceType.PROJECT` and an `organization_id`. A project list without an `organization_id`
     lists the projects of every organization the subject belongs to. VIEW gives the rows of today's list filter,
     which applies object rules to org admins too. QUERY gives the rows the query guard reads, so an
-    org admin gets every row. For property definitions, QUERY evaluates access to property values.
+    org admin gets every row. For PROPERTY_VALUES, QUERY filters property definition IDs by access to their values.
     To filter a QuerySet, use `presentation.querysets` instead.
     """
     return lists.list_objects(resource, action, subject, context, limit, creator_exempt)

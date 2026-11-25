@@ -18,11 +18,12 @@ from posthog.api.tagged_item import current_tag_names
 from posthog.helpers.full_text_search import build_rank
 from posthog.models import TaggedItem, Team
 from posthog.paging import Page, PageRequest
+from posthog.permissions import REQUIRED_LEVEL_ACTIONS
 from posthog.queryset_paging import select_page
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.enums import ResourceType
 from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import (
@@ -48,7 +49,7 @@ from products.workflows.backend.services.hog_flow_secrets import TemplateCache, 
 from products.workflows.backend.services.publish_impact import build_publish_impact
 
 if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 
 def get_workflow(
@@ -117,7 +118,7 @@ def get_team_workflow_edit_state(
         raise WorkflowArchived()
     if not authorization.check(
         resource=resource_for_object(flow, team=user_access_control.team),
-        action={"viewer": Action.VIEW, "editor": Action.EDIT}[required_level],
+        action=REQUIRED_LEVEL_ACTIONS[cast("AccessControlLevel", required_level)],
         subject=Subject(user_id=user_access_control.user.pk),
     ):
         raise WorkflowAccessDenied(required_level)
@@ -202,7 +203,7 @@ def _checked_flow(
         and required_level is not None
         and not authorization.check(
             resource=resource_for_object(flow, team=user_access_control.team),
-            action={"viewer": Action.VIEW, "editor": Action.EDIT}[required_level],
+            action=REQUIRED_LEVEL_ACTIONS[cast("AccessControlLevel", required_level)],
             subject=Subject(user_id=user_access_control.user.pk),
         )
     ):

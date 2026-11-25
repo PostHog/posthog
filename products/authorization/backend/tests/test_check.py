@@ -171,10 +171,12 @@ class TestCheckMatchesCurrentRules(BaseTest):
             ("read_only", True, "read", None, True, False),
             ("member_override", True, "none", "read_write", True, True),
             ("feature_disabled", False, "none", None, True, True),
+            ("outsider", True, "none", None, False, False),
+            ("org_admin", True, "none", None, True, True),
         ]
     )
     def test_property_value_checks_agree_with_query_list(
-        self, _name: str, enabled: bool, default: str, member: str | None, readable: bool, writable: bool
+        self, scenario: str, enabled: bool, default: str, member: str | None, readable: bool, writable: bool
     ) -> None:
         if enabled:
             self.organization.available_product_features = [
@@ -191,18 +193,28 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 access_level=member,
                 organization_member_id=self.organization_membership.id,
             )
+        if scenario == "outsider":
+            self.organization_membership.delete()
+        elif scenario == "org_admin":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save(update_fields=["level"])
         subject = Subject(user_id=self.user.id)
-        resource = Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=self.team.id, id=str(definition.id))
+        resource = Resource(type=ResourceType.PROPERTY_VALUES, project_id=self.team.id, id=str(definition.id))
 
         assert authorization.check(
             [CheckRequest(resource=resource, action=action, subject=subject) for action in (Action.QUERY, Action.EDIT)]
         ) == [readable, writable]
-        assert (
-            authorization.list_objects(
-                resource=Resource(type=resource.type, project_id=self.team.id), action=Action.QUERY, subject=subject
-            ).allows(str(definition.id))
-            == readable
+        listed = authorization.list_objects(
+            resource=Resource(type=resource.type, project_id=self.team.id), action=Action.QUERY, subject=subject
         )
+        assert listed.allows(str(definition.id)) is readable
+        if scenario == "outsider":
+            assert listed.complete and not listed.excluded and not listed.ids
+        if scenario == "denied":
+            definition_resource = Resource(
+                type=ResourceType.PROPERTY_DEFINITION, project_id=self.team.id, id=str(definition.id)
+            )
+            assert authorization.check(resource=definition_resource, action=Action.EDIT, subject=subject)
 
     @parameterized.expand([("sourced_table", True, False), ("self_managed_table", False, True)])
     def test_warehouse_table_falls_back_to_its_source(self, _name: str, sourced: bool, expected: bool) -> None:

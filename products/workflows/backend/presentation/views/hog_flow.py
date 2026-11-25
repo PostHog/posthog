@@ -1249,7 +1249,7 @@ def _test_sender_step_ids(actions: Any) -> list[str]:
 
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
     return authorization.check(
-        resource=Resource(type=ResourceType.HOG_FLOW, project_id=(team).id),
+        resource=Resource(type=ResourceType.HOG_FLOW, project_id=team.id),
         action=Action.EDIT,
         subject=Subject(user_id=user.pk),
     )
@@ -2244,7 +2244,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             and user.is_authenticated
             and not isinstance(user, SyntheticUser)
             and not authorization.check(
-                resource=Resource(type=ResourceType.HOG_FLOW, project_id=(team).id),
+                resource=Resource(type=ResourceType.HOG_FLOW, project_id=team.id),
                 action=Action.EDIT,
                 subject=Subject(user_id=user.pk),
             )
@@ -2443,7 +2443,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             and user.is_authenticated
                             and not isinstance(user, SyntheticUser)
                             and not authorization.check(
-                                resource=Resource(type=ResourceType.ACCOUNT, project_id=(team).id),
+                                resource=Resource(type=ResourceType.ACCOUNT, project_id=team.id),
                                 action=Action.VIEW,
                                 subject=Subject(user_id=user.pk),
                             )

@@ -41,7 +41,7 @@ def get_restricted_query_properties(*, team_id: int, user: "User") -> set[Restri
     from products.event_definitions.backend.models import PropertyDefinition  # noqa: PLC0415
 
     properties = authorization.list_objects(
-        resource=Resource(type=ResourceType.PROPERTY_DEFINITION, project_id=team_id),
+        resource=Resource(type=ResourceType.PROPERTY_VALUES, project_id=team_id),
         action=Action.QUERY,
         subject=Subject(user_id=user.pk),
     )

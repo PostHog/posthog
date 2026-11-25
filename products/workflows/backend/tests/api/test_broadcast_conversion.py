@@ -6,8 +6,11 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.workflows.backend.models import HogFlow
 
 TRIGGER = {"id": "trigger_node", "name": "Audience", "type": "trigger", "config": {"type": "batch", "filters": {}}}
@@ -90,6 +93,23 @@ class TestBroadcastConversionAPI(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert flow.origin_product == overrides.get("origin_product")
+
+    def test_candidates_require_edit_access(self) -> None:
+        viewer_only = self._flow(name="Read only")
+        editable = self._flow(name="Editable")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(viewer_only.id),
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+
+        assert self._candidate_ids() == [str(editable.id)]
 
     def test_candidates_stop_at_the_cap_and_say_more_exist(self) -> None:
         newest = self._flow(name="Newest")

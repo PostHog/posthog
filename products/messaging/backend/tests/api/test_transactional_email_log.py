@@ -923,6 +923,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             organization_member_id=self.organization_membership.id,
         )
 
+        owned = create_workflow_for_test(team_id=self.team.id, name="Owned", created_by_id=self.user.id).id
+        owned_id = self._send(3, "owned@example.com", [("sent", 1, "")], workflow_id=owned)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=owned,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+
         denied_then_deleted = create_workflow_for_test(team_id=self.team.id, name="Secret").id
         denied_then_deleted_id = self._send(
             2, "secret@example.com", [("sent", 1, "")], workflow_id=denied_then_deleted, domain="secret.example.com"
@@ -945,8 +955,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
         over_time = self.client.get(self._url("stats_over_time/")).json()["buckets"]
 
-        assert [r["message_id"] for r in listed] == [deleted_id, visible_id]
-        assert sum(bucket["counts"]["sent"] for bucket in over_time) == 2
+        assert [r["message_id"] for r in listed] == [owned_id, deleted_id, visible_id]
+        assert sum(bucket["counts"]["sent"] for bucket in over_time) == 3
         assert detail.status_code == status.HTTP_404_NOT_FOUND
         assert activity.status_code == status.HTTP_404_NOT_FOUND
         assert results.status_code == status.HTTP_404_NOT_FOUND

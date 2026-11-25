@@ -7,6 +7,8 @@ template otherwise, so the caller always gets something to put in front of the u
 import html
 from uuid import UUID
 
+from django.db.models import Model
+
 import structlog
 
 from posthog.dataclasses import frozen
@@ -138,6 +140,11 @@ def _ai_unavailable_reason(team: Team) -> EmailDraftFallbackReason | None:
     return None
 
 
+def _check_view(entity: Model, team: Team, subject: Subject) -> None:
+    if not authorization.check(resource=resource_for_object(entity, team=team), action=Action.VIEW, subject=subject):
+        raise EmailDraftSourceForbidden()
+
+
 def _context_fields(
     team: Team, source: EmailDraftSource, source_id: str, subject: Subject
 ) -> list[EmailDraftContextField] | None:
@@ -158,10 +165,7 @@ def _context_fields(
             feature = EarlyAccessFeature.objects.filter(team_id=team.id, id=feature_id).first() if feature_id else None
             if feature is None:
                 return None
-            if not authorization.check(
-                resource=resource_for_object(feature, team=team), action=Action.VIEW, subject=subject
-            ):
-                raise EmailDraftSourceForbidden()
+            _check_view(feature, team, subject)
             return [
                 EmailDraftContextField(label="Feature name", value=feature.name),
                 EmailDraftContextField(label="Feature description", value=feature.description),
@@ -172,10 +176,7 @@ def _context_fields(
             survey = Survey.objects.filter(team_id=team.id, id=survey_id).first() if survey_id else None
             if survey is None:
                 return None
-            if not authorization.check(
-                resource=resource_for_object(survey, team=team), action=Action.VIEW, subject=subject
-            ):
-                raise EmailDraftSourceForbidden()
+            _check_view(survey, team, subject)
             questions = [
                 str(question.get("question", ""))
                 for question in (survey.questions or [])[:MAX_SURVEY_QUESTIONS]
@@ -195,10 +196,7 @@ def _context_fields(
             )
             if flag is None:
                 return None
-            if not authorization.check(
-                resource=resource_for_object(flag, team=team), action=Action.VIEW, subject=subject
-            ):
-                raise EmailDraftSourceForbidden()
+            _check_view(flag, team, subject)
             return [
                 EmailDraftContextField(label="Feature flag key", value=flag.key),
                 EmailDraftContextField(label="Feature flag description", value=flag.name or ""),
@@ -210,10 +208,7 @@ def _context_fields(
             )
             if cohort is None:
                 return None
-            if not authorization.check(
-                resource=resource_for_object(cohort, team=team), action=Action.VIEW, subject=subject
-            ):
-                raise EmailDraftSourceForbidden()
+            _check_view(cohort, team, subject)
             return [
                 EmailDraftContextField(label="Cohort name", value=cohort.name or ""),
                 EmailDraftContextField(label="Cohort description", value=cohort.description),
