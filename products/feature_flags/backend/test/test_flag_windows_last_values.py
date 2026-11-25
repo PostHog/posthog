@@ -27,8 +27,8 @@ from products.feature_flags.backend.facade.flags import (
     reads_flag_calls_without_events_fallback,
 )
 from products.feature_flags.backend.flag_windows import query as flag_window_query
-from products.feature_flags.backend.flag_windows.last_values import LOOKBACK, LastValueCounts, last_values_by_bucket
-from products.feature_flags.backend.flag_windows.query import WatchedEdit
+from products.feature_flags.backend.flag_windows.last_values import LOOKBACK, last_values_by_bucket
+from products.feature_flags.backend.flag_windows.query import SplitCounts, WatchedEdit
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
@@ -86,13 +86,14 @@ def call(
     )
 
 
-def counts(exposed: int = 0, unexposed: int = 0, errors: tuple[int, int] = (0, 0), people: int = 1) -> LastValueCounts:
-    return LastValueCounts(
+def counts(exposed: int = 0, unexposed: int = 0, errors: tuple[int, int] = (0, 0), people: int = 1) -> SplitCounts:
+    return SplitCounts(
         with_flag=people,
         exposed=exposed,
         unexposed=unexposed,
         exposed_with_errors=errors[0],
         unexposed_with_errors=errors[1],
+        unexposed_one_in=1,
     )
 
 
@@ -146,7 +147,7 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
 
     def _since_edit(
         self, edits: list[WatchedEdit], start: datetime = EDITED_AT, buckets: int = 1
-    ) -> dict[str, LastValueCounts | None]:
+    ) -> dict[str, SplitCounts | None]:
         counted = last_values_by_bucket(self.team, edits, start, start + buckets * BUCKET, BUCKET)
         return {
             edit_id: None if rows is None else rows[-1].since_edit if rows else NOBODY
@@ -262,7 +263,7 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_counts_since_the_edit(
-        self, _name: str, sent: list[Sent], expected: LastValueCounts, edit: WatchedEdit = BOOLEAN
+        self, _name: str, sent: list[Sent], expected: SplitCounts, edit: WatchedEdit = BOOLEAN
     ) -> None:
         self._send(sent)
 

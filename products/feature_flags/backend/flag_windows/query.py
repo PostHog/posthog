@@ -17,6 +17,13 @@ people per bucket and since the edit.
   on a large flag a count of a subset can come out a little above the count of the whole, for example `exposed` above
   `with_flag`. `uniqExact` would keep every person id of every count of every bucket in memory, in a query that reads
   every event of the team.
+- A person who had an exposed value counts only as exposed, also for the time before it. Most of the people that an edit
+  moves have the old value for seconds, with no time to hit an error. As unexposed people they would lower that error
+  rate, and a healthy rollout would look like a regression. So the unexposed people never had an exposed value, or in
+  the counts by the properties of each event, never at an event in the watched conditions.
+- The unexposed counts are differences of two counts, because a state of one bucket can't leave out the people who are
+  exposed in another. The noise of two estimates can be larger than their difference. So the query also counts samples
+  of the people, and the difference comes from the largest sample that `uniq` counts exactly.
 - An edit moves the people of some conditions only, and the people that match no condition get false before and after
   it. The counts in the watched conditions leave the others out, in two ways that the backtest compares:
   - By `$feature_flag_reason`, which the SDKs put on `$feature_flag_called` from the `/flags` response. The reason names
@@ -81,6 +88,11 @@ QUERY_MAX_THREADS = 2
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
 PROPERTY_VALUE_ERROR_CODES = frozenset({6, 41, 53, 72, 427})
+
+# The samples hold one in this many people. The last one is exact for up to about 15 million people.
+SAMPLES = (1, 16, 256)
+# A count that `uniq` gives exactly. It estimates above 65,536, and an estimate of more can come out a little below that.
+EXACT_COUNT = 60_000
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
@@ -196,6 +208,63 @@ class BucketCounts:
     in_bucket: tuple[int, ...]
     # From the edit, or from the range start when it is later, to the end of this bucket. Each person counts once.
     since_edit: tuple[int, ...]
+
+
+@frozen
+class SplitCounts:
+    """The people (or groups) of a flag, split by the value they had."""
+
+    with_flag: int
+    # With an exposed value.
+    exposed: int
+    # The rest of `with_flag`.
+    unexposed: int
+    # With an error under an exposed value.
+    exposed_with_errors: int
+    # The unexposed people with an error.
+    unexposed_with_errors: int
+    # The unexposed counts come from a sample of one in this many people, scaled up to everyone.
+    unexposed_one_in: int
+
+
+# One column for the exposed people with errors, and three per sample.
+SPLIT_COLUMNS = 1 + 3 * len(SAMPLES)
+
+
+def split_columns(
+    actor: ast.Expr, *, with_flag: ast.Expr, exposed: ast.Expr, exposed_error: ast.Expr, unexposed_error: ast.Expr
+) -> list[ast.Expr]:
+    """The counts that `split_counts` reads, from expressions that hold for the rows of a person with the flag, with an
+    exposed value, and with an error under each value."""
+    # Without the exposed people, the last count is the people with errors who never had an exposed value.
+    counts = [with_flag, exposed, ast.Or(exprs=[exposed, unexposed_error])]
+    columns = [exposed_error, *counts]
+    for one_in in SAMPLES[1:]:
+        in_sample = parse_expr(
+            "cityHash64({actor}) % {one_in} = 0", placeholders={"actor": actor, "one_in": ast.Constant(value=one_in)}
+        )
+        columns += [ast.And(exprs=[count, in_sample]) for count in counts]
+    return columns
+
+
+def split_counts(values: Sequence[int]) -> SplitCounts:
+    exposed_with_errors, *by_sample = values
+    samples = [(one_in, by_sample[3 * index : 3 * index + 3]) for index, one_in in enumerate(SAMPLES)]
+    _, (with_flag, exposed, _) = samples[0]
+    one_in, (sampled_with_flag, sampled_exposed, sampled_exposed_or_with_errors) = next(
+        (sample for sample in samples if sample[1][0] <= EXACT_COUNT), samples[-1]
+    )
+    # Above the limit of the last sample, the counts are separate estimates, so a part can come out above the whole.
+    unexposed = max(0, sampled_with_flag - sampled_exposed)
+    unexposed_with_errors = min(unexposed, max(0, sampled_exposed_or_with_errors - sampled_exposed))
+    return SplitCounts(
+        with_flag=with_flag,
+        exposed=exposed,
+        unexposed=unexposed * one_in,
+        exposed_with_errors=exposed_with_errors,
+        unexposed_with_errors=unexposed_with_errors * one_in,
+        unexposed_one_in=one_in,
+    )
 
 
 @frozen
