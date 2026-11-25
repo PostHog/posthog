@@ -252,6 +252,47 @@ describe('scorecard', () => {
                     part: 'role:cdp-cyclotron-worker-email',
                 },
                 reason: 'pickup_p99_under broke at the 10x step',
+                readings: [
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: 41.5,
+                            part: 'db:cyclotron',
+                            passed: true,
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 1,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: true,
+                        },
+                    ],
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: null,
+                            passed: null,
+                            unjudged:
+                                'no writer CPU reading for the minute at 2026-01-05T10:01:00.000Z in the 10x step',
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 10,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: false,
+                        },
+                    ],
+                ],
             },
             {
                 ramp_steps: [
@@ -260,12 +301,59 @@ describe('scorecard', () => {
                         started_at: '2026-01-05T10:00:00.000Z',
                         ended_at: '2026-01-05T10:01:00.000Z',
                         stretched: null,
+                        on_time: true,
+                        bars: [
+                            {
+                                name: 'writer_cpu_under',
+                                unit: '%',
+                                limit: 70,
+                                value: 41.5,
+                                key: null,
+                                part: 'db:cyclotron',
+                                passed: true,
+                                unjudged: null,
+                            },
+                            {
+                                name: 'pickup_p99_under',
+                                unit: 's',
+                                limit: 5,
+                                value: 1,
+                                key: 'email',
+                                part: 'role:cdp-cyclotron-worker-email',
+                                passed: true,
+                                unjudged: null,
+                            },
+                        ],
                     },
                     {
                         scale: 10,
                         started_at: '2026-01-05T10:01:00.000Z',
                         ended_at: '2026-01-05T10:02:15.000Z',
                         stretched: 'held the 10x rate past its planned end until the 5x step was judged',
+                        on_time: false,
+                        bars: [
+                            {
+                                name: 'writer_cpu_under',
+                                unit: '%',
+                                limit: 70,
+                                value: null,
+                                key: null,
+                                part: null,
+                                passed: null,
+                                unjudged:
+                                    'no writer CPU reading for the minute at 2026-01-05T10:01:00.000Z in the 10x step',
+                            },
+                            {
+                                name: 'pickup_p99_under',
+                                unit: 's',
+                                limit: 5,
+                                value: 10,
+                                key: 'email',
+                                part: 'role:cdp-cyclotron-worker-email',
+                                passed: false,
+                                unjudged: null,
+                            },
+                        ],
                     },
                 ],
                 ramp_end: 'broke',
@@ -391,6 +479,42 @@ describe('scorecard', () => {
                 ramp_stop_scale: 10,
                 ramp_stop_reason: '3 of 29 deliveries were lost in the 10x step (10.34%), over the 5% hard limit',
                 ramp_ran_to_end: false,
+            },
+        ],
+        [
+            'no on-time answer for a step with a bar unjudged or no bar judged',
+            {
+                end: 'ceiling',
+                sustainedScale: 10,
+                reason: 'every step held up to the 10x ceiling',
+                readings: [
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: null,
+                            passed: null,
+                            unjudged: 'the local stack has no Aurora writer to read CPU from',
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 1,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: true,
+                        },
+                    ],
+                    [],
+                ],
+            },
+            {
+                ramp_steps: [
+                    expect.objectContaining({ scale: 5, on_time: null }),
+                    expect.objectContaining({ scale: 10, on_time: null, bars: [] }),
+                ],
             },
         ],
         [
