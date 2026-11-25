@@ -143,10 +143,8 @@ export function buildGatewayEnv(
     ...buildPosthogPropertiesHeaderRecord(properties),
     ...buildPosthogSessionHeaderRecord(taskId),
   };
-  // The Go gateway writes this into the OpenAI body's `service_tier`, which
-  // is the only way a Codex run reaches the flex or priority queue: Codex
-  // itself omits a tier its model catalogue does not advertise. Codex-only,
-  // so it rides the OpenAI record; the Claude path has no tier concept.
+  // The gateway copies this into the OpenAI body's `service_tier`, the only way
+  // a Codex run reaches flex or priority: Codex omits tiers its catalogue lacks.
   if (serviceTier) {
     openaiCustomHeaders["X-PostHog-Service-Tier"] = serviceTier;
     if (serviceTier === "flex") {
