@@ -17,6 +17,7 @@ from products.data_modeling.backend.facade.models import DAG, DataWarehouseSaved
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -304,6 +305,29 @@ class TestSearch(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["type"], "hog_flow")
         self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
+
+    @parameterized.expand(
+        [
+            ("own experiment", "own", True),
+            ("own experiment with a leading #", "#own", True),
+            ("another project's experiment", "other_project", False),
+            ("number past the integer primary key range", "99999999999", False),
+        ]
+    )
+    def test_experiment_found_by_exact_id(self, _name: str, query: str, expect_match: bool) -> None:
+        def create_experiment(team: Team, key: str) -> Experiment:
+            flag = FeatureFlag.objects.create(team=team, key=key, created_by=self.user)
+            return Experiment.objects.create(team=team, name="Checkout redesign", feature_flag=flag)
+
+        experiment = create_experiment(self.team, "checkout-redesign")
+        other_experiment = create_experiment(Team.objects.create(organization=self.organization), "other")
+        q = query.replace("own", str(experiment.id)).replace("other_project", str(other_experiment.id))
+
+        response = self.client.get("/api/projects/@current/search", {"q": q, "entities": "experiment"})
+
+        assert response.status_code == 200
+        result_ids = [result["result_id"] for result in response.json()["results"]]
+        assert result_ids == ([str(experiment.id)] if expect_match else [])
 
     def test_build_search_vector_requires_search_fields(self):
         with pytest.raises(ValueError, match="search_fields cannot be empty"):
