@@ -148,7 +148,7 @@ class TestDefaultStarredProducts(BaseTest):
 
         assert self._default_paths_for(self.user, new_team) == set(DEFAULT_PRODUCT_PATHS)
 
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
     def test_access_control_signal_adds_default_products(self):
         # Private team: joining the org must NOT seed it; the explicit access grant must.
         self._make_team_private(self.team)

@@ -187,7 +187,10 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         registered_callbacks: list[Any] = []
-        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+        with patch(
+            "django.db.transaction.on_commit",
+            side_effect=lambda callback, using=None, robust=False: registered_callbacks.append(callback),
+        ):
             service.create_experiment(
                 name="Deferred Analytics",
                 feature_flag_key="deferred-flag",
@@ -210,7 +213,7 @@ class TestExperimentService(APIBaseTest):
         mock_report_user_action.side_effect = RuntimeError("analytics down")
         service = self._service()
 
-        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+        with patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func()):
             experiment = service.create_experiment(
                 name="Resilient Analytics",
                 feature_flag_key="resilient-flag",

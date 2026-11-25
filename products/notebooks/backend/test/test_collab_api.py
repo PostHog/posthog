@@ -400,7 +400,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
 
     @patch(
         "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
-        side_effect=lambda callback: callback(),
+        side_effect=lambda callback, using=None, robust=False: callback(),
     )
     def test_stream_delivers_update_event_after_full_doc_patch(self, _mock_on_commit):
         notebook = self._create_notebook()
@@ -689,7 +689,7 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
 
     @patch(
         "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
-        side_effect=lambda callback: callback(),
+        side_effect=lambda callback, using=None, robust=False: callback(),
     )
     def test_markdown_save_conflict_replays_legacy_patch_diff(self, _mock_on_commit):
         from products.notebooks.backend.markdown_collab import apply_utf16_text_changes

@@ -36,7 +36,7 @@ from products.conversations.backend.tasks.ticket_events import emit_ticket_tag_a
 
 
 # Patch on_commit to execute immediately in tests
-def immediate_on_commit(func):
+def immediate_on_commit(func, using=None, robust=False):
     func()
 
 

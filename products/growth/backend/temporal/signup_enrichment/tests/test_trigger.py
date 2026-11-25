@@ -38,7 +38,7 @@ def _dispatch_mocks(region="US"):
     return (
         patch(
             "products.growth.backend.temporal.signup_enrichment.trigger.transaction.on_commit",
-            side_effect=lambda fn: fn(),
+            side_effect=lambda fn, using=None, robust=False: fn(),
         ),
         patch("products.growth.backend.temporal.signup_enrichment.trigger.sync_connect"),
         patch("products.growth.backend.temporal.signup_enrichment.trigger.asyncio.run"),
