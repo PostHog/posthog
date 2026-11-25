@@ -654,7 +654,7 @@ class ResourcesCreateView(StripeResourceAPIView):
         if project_id:
             try:
                 team, scoped_teams = resolve_or_create_project_team(
-                    project_id, scoped_teams, user, configuration, access_token
+                    project_id, scoped_teams, user, configuration, access_token, data["payment_credentials"]
                 )
             except ProjectIdCollisionError:
                 capture_provisioning_event(

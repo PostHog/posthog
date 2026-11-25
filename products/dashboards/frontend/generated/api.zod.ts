@@ -388,8 +388,12 @@ export const dashboardV2QueryBatchCreateBodyQueriesItemTimeOneFromMax = 100
 
 export const dashboardV2QueryBatchCreateBodyQueriesItemIntervalMax = 20
 
+export const dashboardV2QueryBatchCreateBodyQueriesItemMaxDataPointsMax = 10000
+
 export const dashboardV2QueryBatchCreateBodyQueriesItemSwrDefault = false
 export const dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault = false
+export const dashboardV2QueryBatchCreateBodyQueriesItemTileMax = 64
+
 export const dashboardV2QueryBatchCreateBodyQueriesMax = 500
 
 export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
@@ -403,10 +407,12 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                             .max(dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax)
                             .describe("The panel's ID for this query. Not used for caching."),
                         language: zod
-                            .enum(['insight', 'hogql'])
-                            .describe('\* `insight` - Insight\n\* `hogql` - HogQL')
+                            .enum(['insight', 'hogql', 'promql', 'logql'])
                             .describe(
-                                "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `\/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.\n\n\* `insight` - Insight\n\* `hogql` - HogQL"
+                                '\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL'
+                            )
+                            .describe(
+                                "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `\/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.\n\n\* `insight` - Insight\n\* `hogql` - HogQL\n\* `promql` - PromQL\n\* `logql` - LogQL"
                             ),
                         query: zod
                             .string()
@@ -437,7 +443,15 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                     .max(dashboardV2QueryBatchCreateBodyQueriesItemIntervalMax)
                     .optional()
                     .describe(
-                        'For insight targets that have an interval: minute, hour, day, week, month, quarter or year.'
+                        'For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.'
+                    ),
+                maxDataPoints: zod
+                    .number()
+                    .min(1)
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemMaxDataPointsMax)
+                    .optional()
+                    .describe(
+                        'For promql and logql targets: the most points per series. Sets the step with `interval`.'
                     ),
                 swr: zod
                     .boolean()
@@ -449,6 +463,11 @@ export const DashboardV2QueryBatchCreateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .default(dashboardV2QueryBatchCreateBodyQueriesItemCacheOnlyDefault)
                     .describe('Answer from the cache only, stale or not. Never runs or refreshes the query.'),
+                tile: zod
+                    .string()
+                    .max(dashboardV2QueryBatchCreateBodyQueriesItemTileMax)
+                    .optional()
+                    .describe("The tile this target belongs to. Only labels the query's run in the query log."),
             })
         )
         .max(dashboardV2QueryBatchCreateBodyQueriesMax)

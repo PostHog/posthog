@@ -269,7 +269,7 @@ class TestShadowDiff(SimpleTestCase):
 
 @contextmanager
 def _dashboard_v2(enabled: bool) -> Iterator[MagicMock]:
-    flags = {"metrics", SNUFFLE_API_FEATURE_FLAG, *(["dashboard-v2"] if enabled else [])}
+    flags = {"metrics", SNUFFLE_API_FEATURE_FLAG, *(["dashboard-v2", "dashboard-v2-users"] if enabled else [])}
     with (
         patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag in flags),
         patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
@@ -341,7 +341,7 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _refresh_response(self, query: MetricsQuery) -> Any:
-        return MetricsQueryRunner(query=query.model_copy(deep=True), team=self.team).run(
+        return MetricsQueryRunner(query=query.model_copy(deep=True), team=self.team, user=self.user).run(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1
         )
 
@@ -486,9 +486,9 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
         query = MetricsHistogramQuery(metricName="latency", dateRange=DateRange(date_from="-1h"))
 
         def refresh() -> dict[str, Any]:
-            response = MetricsHistogramQueryRunner(query=query.model_copy(deep=True), team=self.team).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1
-            )
+            response = MetricsHistogramQueryRunner(
+                query=query.model_copy(deep=True), team=self.team, user=self.user
+            ).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
             return {"times": response.times, "bounds": response.bounds, "counts": response.counts}  # type: ignore[union-attr]
 
         with _dashboard_v2(True) as report, time_machine.travel(self.T0, tick=False) as traveller:
