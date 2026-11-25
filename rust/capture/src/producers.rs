@@ -43,6 +43,14 @@ impl ProducerName {
         }
     }
 
+    /// The fallback's topic check must never create the topic it checks.
+    fn default_overrides(&self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            ProducerName::Ingestion => &[],
+            ProducerName::Fallback => &[("ALLOW_AUTO_CREATE_TOPICS", "false")],
+        }
+    }
+
     fn is_configured(&self, env: &HashMap<String, String>) -> bool {
         match self {
             ProducerName::Ingestion => true,
@@ -211,13 +219,18 @@ pub struct ProducerConfig {
 impl ProducerConfig {
     pub fn load(name: ProducerName, env: &HashMap<String, String>) -> anyhow::Result<Self> {
         let prefix = name.env_prefix();
-        let slot_env: HashMap<String, String> = env
+        let mut slot_env: HashMap<String, String> = env
             .iter()
             .filter_map(|(k, v)| {
                 k.strip_prefix(&prefix)
                     .map(|key| (key.to_string(), v.clone()))
             })
             .collect();
+        for (key, value) in name.default_overrides() {
+            slot_env
+                .entry(key.to_string())
+                .or_insert_with(|| value.to_string());
+        }
         Self::init_from_hashmap(&slot_env)
             .map_err(|e| anyhow::anyhow!("producer {}: {e}", name.as_str()))
     }
@@ -611,6 +624,29 @@ mod tests {
         assert_eq!(ingestion.get("bootstrap.servers"), Some("msk:9094"));
         assert_eq!(ingestion.get("security.protocol"), None);
         assert_eq!(ingestion.get("allow.auto.create.topics"), Some("true"));
+    }
+
+    #[rstest::rstest]
+    #[case::fallback_default(ProducerName::Fallback, None, "false")]
+    #[case::fallback_override(ProducerName::Fallback, Some("true"), "true")]
+    #[case::ingestion_default(ProducerName::Ingestion, None, "true")]
+    fn auto_topic_creation_defaults_per_slot(
+        #[case] name: ProducerName,
+        #[case] configured: Option<&str>,
+        #[case] expected: &str,
+    ) {
+        let key = format!("KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", name.as_str());
+        let env: HashMap<String, String> = configured
+            .map(|value| (key, value.to_string()))
+            .into_iter()
+            .collect();
+
+        let config = ProducerConfig::load(name, &env).unwrap();
+
+        assert_eq!(
+            config.client_config().get("allow.auto.create.topics"),
+            Some(expected)
+        );
     }
 
     #[test]

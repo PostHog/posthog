@@ -50,10 +50,6 @@ fn fallback_env(
         (FALLBACK_BROKERS_VAR, fallback.bootstrap_servers()),
         ("KAFKA_FALLBACK_PRODUCER_LINGER_MS", "0".to_string()),
         (
-            "KAFKA_FALLBACK_PRODUCER_ALLOW_AUTO_CREATE_TOPICS",
-            "false".to_string(),
-        ),
-        (
             "CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_TOPIC",
             FALLBACK_EVENTS_TOPIC.to_string(),
         ),
