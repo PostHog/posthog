@@ -1588,6 +1588,25 @@ class TestHandleAppHomeOpened:
         assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
         assert "ChatGPT plan" not in _all_text(view)
 
+    @pytest.mark.parametrize("web_settings_enabled", [True, False])
+    def test_settings_link_shows_only_behind_the_web_settings_flag(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, settings, web_settings_enabled
+    ):
+        settings.SITE_URL = "https://app.example.com"
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_app_web_settings_enabled",
+            return_value=web_settings_enabled,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        urls = [block["accessory"].get("url") for block in view["blocks"] if "accessory" in block]
+        settings_url = f"https://app.example.com/project/{slack_integration.team_id}/settings/environment-slack-app"
+        assert (settings_url in urls) is web_settings_enabled
+
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(
             user=user,
