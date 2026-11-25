@@ -393,7 +393,8 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
 
     def paginate_queryset(self, queryset):
         page = super().paginate_queryset(queryset)
-        if page is not None and isinstance(queryset, models.query.RawQuerySet):
+        # A list holds instances that a raw statement already loaded, like a RawQuerySet.
+        if page is not None and isinstance(queryset, models.query.RawQuerySet | list):
             _prefetch_tags_for_instances(page)
         return page
 

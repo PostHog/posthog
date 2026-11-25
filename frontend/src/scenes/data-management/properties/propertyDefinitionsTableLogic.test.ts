@@ -6,14 +6,18 @@ import posthog from 'posthog-js'
 
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import {
+    PropertyDefinitionWithQueryUsage,
+    QUERY_USAGE_COLUMN_KEY,
+    propertyDefinitionsTableLogic,
+    queryUsageOrderingFromSorting,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventPropertyDefinitions } from '~/test/mocks'
-import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 describe('propertyDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof propertyDefinitionsTableLogic.build>
@@ -246,62 +250,94 @@ describe('propertyDefinitionsTableLogic', () => {
     })
 
     describe('query usage', () => {
-        const definitions = [
-            { id: 'a', name: 'plan', type: PropertyDefinitionType.Event },
-            { id: 'b', name: '$virt', type: PropertyDefinitionType.Event, virtual: true },
-            { id: 'c', name: 'industry', type: PropertyDefinitionType.Group, group_type_index: 0 },
-            { id: 'd', name: 'industry', type: PropertyDefinitionType.Group },
-            { id: 'e', name: 'email', type: PropertyDefinitionType.Person },
-        ] as PropertyDefinition[]
-        let requestedProperties: unknown[] | null
+        const listRequestParams = (): URLSearchParams[] =>
+            api.get.mock.calls
+                .filter(([url]) => String(url).includes('/property_definitions'))
+                .map(([url]) => new URLSearchParams(String(url).split('?')[1]))
 
         beforeEach(() => {
-            requestedProperties = null
             useMocks({
-                post: {
-                    '/api/projects/:team/property_definitions/usage_metrics/': async ({ request }) => {
-                        const { properties } = (await request.json()) as { properties: Record<string, unknown>[] }
-                        requestedProperties = properties
-                        return [
-                            200,
-                            {
-                                results: properties.map((entry, index) => ({
-                                    ...entry,
-                                    group_type_index: entry.group_type_index ?? null,
-                                    query_usage_30_day: (index + 1) * 10,
-                                })),
-                            },
-                        ]
-                    },
+                get: {
+                    '/api/projects/:team/property_definitions/': () => [
+                        200,
+                        { count: 1, results: mockEventPropertyDefinitions.slice(0, 1), next: null, previous: null },
+                    ],
                 },
             })
         })
 
+        const setUsageFlag = (enabled: boolean): void => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
+                enabled ? { [FEATURE_FLAGS.DEFINITION_USAGE_SECTION]: true } : {}
+            )
+        }
+
         it.each([
-            [
-                'on',
-                { a: 10, c: 20, e: 30 },
-                [
-                    { type: 'event', name: 'plan' },
-                    { type: 'group', name: 'industry', group_type_index: 0 },
-                    { type: 'person', name: 'email' },
-                ],
-            ],
-            ['off', null, null],
+            ['most queried with the flag on', true, '-query_usage', '-query_usage', 'true'],
+            ['least queried with the flag on', true, 'query_usage', 'query_usage', 'true'],
+            ['an unknown ordering with the flag on', true, 'name', null, 'true'],
+            ['most queried with the flag off', false, '-query_usage', null, null],
         ])(
-            'loads counts for the visible page by definition id when the flag is %s',
-            async (flag, expectedUsage, expectedRequest) => {
-                featureFlagLogic.actions.setFeatureFlags(
-                    [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
-                    flag === 'on' ? { [FEATURE_FLAGS.DEFINITION_USAGE_SECTION]: true } : {}
-                )
+            'requests the order from the URL for %s',
+            async (_, flagEnabled, urlOrdering, expectedOrdering, expectedIncludeUsage) => {
+                setUsageFlag(flagEnabled)
+                api.get.mockClear()
 
-                logic.actions.loadPropertyDefinitionsSuccess({ count: definitions.length, results: definitions })
-                await expectLogic(logic).toFinishAllListeners()
+                router.actions.push(urls.propertyDefinitions(), { ordering: urlOrdering })
+                await expectLogic(logic).toDispatchActions(['loadPropertyDefinitionsSuccess']).toFinishAllListeners()
 
-                expect(logic.values.queryUsage).toEqual(expectedUsage)
-                expect(requestedProperties).toEqual(expectedRequest)
+                const [params] = listRequestParams()
+                expect(params.get('ordering')).toEqual(expectedOrdering)
+                expect(params.get('include_query_usage')).toEqual(expectedIncludeUsage)
             }
         )
+
+        it('writes a column sort to the URL and clears it again', async () => {
+            setUsageFlag(true)
+            router.actions.push(urls.propertyDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadPropertyDefinitionsSuccess']).toFinishAllListeners()
+
+            logic.actions.setFilters(
+                { ordering: queryUsageOrderingFromSorting({ columnKey: QUERY_USAGE_COLUMN_KEY, order: -1 }) },
+                false
+            )
+            await expectLogic(logic).toDispatchActions(['loadPropertyDefinitionsSuccess']).toFinishAllListeners()
+
+            expect(router.values.searchParams.ordering).toEqual('-query_usage')
+            expect(logic.values.queryUsageSorting).toEqual({ columnKey: QUERY_USAGE_COLUMN_KEY, order: -1 })
+            expect(listRequestParams().at(-1)?.get('ordering')).toEqual('-query_usage')
+
+            logic.actions.setFilters({ ordering: queryUsageOrderingFromSorting(null) }, false)
+            await expectLogic(logic).toDispatchActions(['loadPropertyDefinitionsSuccess']).toFinishAllListeners()
+
+            expect(router.values.searchParams.ordering).toBeUndefined()
+            expect(listRequestParams().at(-1)?.get('ordering')).toBeNull()
+        })
+
+        it.each([
+            [
+                'the project has too many properties to sort',
+                { code: 'too_many_properties_to_order_by_usage', detail: 'Too many properties to sort.' },
+                'Too many properties to sort.',
+            ],
+            ['the request failed for another reason', { code: 'error', detail: 'Server error' }, null],
+        ])('shows a sort error only when %s', async (_, errorObject, expectedError) => {
+            setUsageFlag(true)
+
+            logic.actions.loadPropertyDefinitionsFailure('Request failed', errorObject)
+
+            expect(logic.values.usageSortError).toEqual(expectedError)
+        })
+
+        it('reads the coverage of a young project from the list response', () => {
+            logic.actions.loadPropertyDefinitionsSuccess({
+                count: 1,
+                results: [{ id: 'a', name: 'plan', query_usage_30_day: 4 } as PropertyDefinitionWithQueryUsage],
+                query_usage: { computed_at: '2026-11-12T10:00:00Z', tracking_since: '2026-11-09T14:00:00Z' },
+            })
+
+            expect(logic.values.queryUsageCoverageDays).toEqual(3)
+        })
     })
 })
