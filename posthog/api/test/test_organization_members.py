@@ -13,7 +13,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 
 
@@ -526,6 +526,25 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 403)
 
         mock_sync_delay.assert_not_called()
+
+    @parameterized.expand(
+        [("admin", OrganizationMembership.Level.ADMIN), ("owner", OrganizationMembership.Level.OWNER)]
+    )
+    def test_service_account_cannot_be_raised_above_member(self, _name, level):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@example.com", None, type=UserType.SERVICE_ACCOUNT
+        )
+
+        response = self.client.patch(f"/api/organizations/@current/members/{service_account.uuid}", {"level": level})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "service_account_level")
+        self.assertEqual(
+            OrganizationMembership.objects.get(user=service_account, organization=self.organization).level,
+            OrganizationMembership.Level.MEMBER,
+        )
 
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
