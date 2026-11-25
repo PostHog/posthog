@@ -30,7 +30,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend import platform_subscribers
+from products.alerts.backend import investigation_row_detach, platform_subscribers
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.forecast.access import forecast_detector_access_error
 from products.alerts.backend.forecast.rules import forecast_rule
@@ -848,6 +848,17 @@ def _native_alert(*, team_id: int, alert_id: uuid.UUID) -> AlertConfiguration:
     if alert is None:
         raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")
     return alert
+
+
+def teams_with_row_linked_investigations() -> list[int]:
+    """The teams with an insight alert investigation that still links a legacy row."""
+    return investigation_row_detach.teams_with_row_linked_investigations()
+
+
+def detach_investigations_from_rows(team_id: int, *, batch_size: int, apply: bool) -> int:
+    """Clears the legacy row link on the team's investigations of alerts the platform owns, in batches,
+    and returns how many it cleared, or would clear without `apply`."""
+    return investigation_row_detach.detach_investigations_from_rows(team_id, batch_size=batch_size, apply=apply)
 
 
 __all__ = [

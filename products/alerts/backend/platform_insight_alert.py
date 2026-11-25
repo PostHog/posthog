@@ -332,12 +332,6 @@ def _no_insight_row(*args: object, **kwargs: object) -> None:
     raise TypeError("This insight alert has no insight row. Write it through the platform.")
 
 
-def is_built_from_platform(alert: AlertConfiguration, configuration_id: UUID) -> bool:
-    """Whether the alert has no insight row. A built alert carries its platform alert's id, and a
-    copy's row never does."""
-    return alert.id == configuration_id
-
-
 def alert_from_platform(
     configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView, *, team_id: int, enabled: bool
 ) -> AlertConfiguration | None:
