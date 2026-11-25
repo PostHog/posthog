@@ -169,6 +169,9 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "<!-- <%asm_group_unsubscribe_url%> --><p>x</p>",
                 "<%asm_group_unsubscribe_url%>",
             ),
+            ("unsubscribe_in_a_loop", "{{#each unsubscribe}}x{{/each}}", "{{#each unsubscribe}}"),
+            ("unsubscribe_in_a_with", "{{#with this.unsubscribe}}x{{/with}}", "{{#with this.unsubscribe}}"),
+            ("unsubscribe_in_a_condition", "{{#if unsubscribe}}x{{/if}}", "{{#if unsubscribe}}"),
         ]
     )
     def test_a_tag_without_a_faithful_liquid_form_stays_as_written(self, _name: str, html: str, kept: str) -> None:
@@ -235,6 +238,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         [
             ("value", "<p>Hi {{ name }}</p>", '{{ variables.name | join: "," }}'),
             ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_from_a_loop", "{{#each a}}<p>{{../unsubscribe}}</p>{{/each}}", "{{ unsubscribe_url }}"),
+            (
+                "unsubscribe_link_from_the_root",
+                "{{#each a}}<p>{{@root.unsubscribe}}</p>{{/each}}",
+                "{{ unsubscribe_url }}",
+            ),
+            ("unsubscribe_link_of_this", "<p>{{this.unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_with_a_default", '<p>{{insert unsubscribe "default=x"}}</p>', "{{ unsubscribe_url }}"),
             ("unescaped_unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', '<a href="{{ unsubscribe_url }}">'),
             (
                 "unsubscribe_link_tag",

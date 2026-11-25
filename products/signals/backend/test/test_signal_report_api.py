@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.db.models import F
 from django.http import QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -5861,7 +5862,17 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         # Listing must not write the synthetic artefacts — the backfill owns that.
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_synthetic_rows_count_and_interleave_chronologically(self):
+    @parameterized.expand(
+        [
+            ("unfiltered", {}, 4, ["newer", "note", "middle", "older"]),
+            ("task_runs_only", {"type": "task_run"}, 3, ["newer", "middle", "older"]),
+            ("note_only", {"type": "note"}, 1, ["note"]),
+            ("second_page_of_task_runs", {"type": "task_run", "limit": 1, "offset": 1}, 3, ["middle"]),
+        ]
+    )
+    def test_synthetic_rows_count_and_interleave_chronologically(
+        self, _name: str, query: dict[str, str | int], expected_count: int, expected_rows: list[str]
+    ) -> None:
         report = self._create_report()
         older_task = self._create_task()
         newer_task = self._create_task()
@@ -5876,18 +5887,25 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
             task_id=str(self._create_task().id),
         )
         SignalReportArtefact.objects.filter(id=middle.id).update(created_at=timezone.now() - timedelta(hours=1))
+        note = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "Checked the export job."}),
+        )
+        SignalReportArtefact.objects.filter(id=note.id).update(created_at=F("created_at") - timedelta(minutes=30))
         newer = SignalReportTask.objects.create(
             team=self.team, report=report, task=newer_task, relationship="implementation"
         )
+        ids = {"newer": str(newer.id), "note": str(note.id), "middle": str(middle.id), "older": str(older.id)}
 
-        response = self.client.get(self._artefacts_url(str(report.id)))
+        response = self.client.get(self._artefacts_url(str(report.id)), query)
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        # count covers the real artefact plus both synthetic legacy rows.
-        assert body["count"] == 3
+        # count covers every matching row, real and synthetic, not only the page.
+        assert body["count"] == expected_count
         # Default order is newest-first; the legacy rows land at their own timestamps, not appended last.
-        ids_newest_first = [a["id"] for a in body["results"]]
-        assert ids_newest_first == [str(newer.id), str(middle.id), str(older.id)]
+        assert [a["id"] for a in body["results"]] == [ids[name] for name in expected_rows]
 
     def test_legacy_rows_do_not_cross_reports(self):
         report = self._create_report()
