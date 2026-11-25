@@ -411,7 +411,7 @@
       "q": "\"><script>alert('x')</script>&amp; ü 🦔",
       "safe": "<b>bold</b>"
     },
-    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: \",\" }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
+    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: &quot;,&quot; }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
     "expected": "<p>&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔</p><a href=\"https://example.com/?q=&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔\" title='&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔'><b>bold</b></a>"
   },
   {
@@ -421,7 +421,7 @@
       "prefix": "<a href",
       "x": "=https://example.com"
     },
-    "liquid": "{{ variables.prefix | join: \",\" | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
+    "liquid": "{{ variables.prefix | join: \",\" | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}>",
     "expected": "<a href&#x3D;https://example.com>"
   },
   {
@@ -452,7 +452,7 @@
         }
       ]
     },
-    "liquid": "{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}{% endif %}",
+    "liquid": "{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}{% endif %}",
     "expected": "<p>a&#x3D;b</p><i>x</i><p>c&#x60;d</p><b>y</b>"
   },
   {
@@ -578,7 +578,7 @@
     "data": {
       "name": "Ann"
     },
-    "liquid": "<a title=\"{{ \"{{\" }}a&quot; &lt;b}} {{ variables.name | join: \",\" }}\">x</a>",
+    "liquid": "<a title=\"{{ &quot;{{&quot; }}a&quot; &lt;b}} {{ variables.name | join: &quot;,&quot; }}\">x</a>",
     "expected": "<a title=\"{{a&quot; &lt;b}} Ann\">x</a>"
   },
   {

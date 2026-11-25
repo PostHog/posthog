@@ -9964,6 +9964,8 @@ export namespace Schemas {
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
+      /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Client provided name of the query */
@@ -24970,6 +24972,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `frames` - Frames
+     * * `result` - Result
+     */
+    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
+
+
+    export const CachedTileFormatEnum = {
+      Frames: 'frames',
+      Result: 'result',
+    } as const;
+
+    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25076,6 +25090,71 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    export interface FrameMeta {
+      /**
+         * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+         * @nullable
+         */
+      interval: string | null;
+      /**
+         * Start of the range the frame covers.
+         * @nullable
+         */
+      date_from: string | null;
+      /**
+         * End of the range the frame covers.
+         * @nullable
+         */
+      date_to: string | null;
+      /** Whether the frame is the compared period. Its dates are that period's dates. */
+      previous: boolean;
+    }
+
+    /**
+     * * `time` - Time
+     * * `number` - Number
+     */
+    export type FrameFieldTypeEnum = typeof FrameFieldTypeEnum[keyof typeof FrameFieldTypeEnum];
+
+
+    export const FrameFieldTypeEnum = {
+      Time: 'time',
+      Number: 'number',
+    } as const;
+
+    export interface FrameField {
+      /** Field name: 'time' for the time field, 'value' for a number field. */
+      name: string;
+      /** What the values are.
+       *
+       * * `time` - Time
+       * * `number` - Number */
+      type: FrameFieldTypeEnum;
+      /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+      values: (number | null)[];
+      /**
+         * UCUM unit of the values, e.g. 'By' or 'ms'.
+         * @nullable
+         */
+      unit: string | null;
+    }
+
+    /**
+     * Label values that identify the series within the tile.
+     */
+    export type FrameLabels = {[key: string]: string};
+
+    export interface Frame {
+      /** Series name, as the chart legend shows it. */
+      name: string;
+      /** Label values that identify the series within the tile. */
+      labels: FrameLabels;
+      /** Interval and date range of the frame. */
+      meta: FrameMeta;
+      /** A time field, then one number field. */
+      fields: FrameField[];
+    }
+
     export interface CachedTileResult {
       /** Dashboard tile ID. */
       id: number;
@@ -25088,6 +25167,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `frames` - Frames
+       * * `result` - Result */
+      format?: CachedTileFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
     }
 
     export interface CachedTilesResponse {
@@ -35985,6 +36071,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `frames` - Frames
+       * * `result` - Result */
+      format?: CachedTileFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
       stale?: boolean;
     }
@@ -60659,6 +60752,19 @@ export namespace Schemas {
       readonly version_live_since: string;
     }
 
+    export interface SuggestionsSchedule {
+      /**
+         * Roughly when the project's suggestions scout last checked its workflows. Null before its first check.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * Roughly when the scout checks next. Null before its first check, or when a custom schedule or a backoff decides it.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+    }
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
@@ -60672,6 +60778,8 @@ export namespace Schemas {
       readonly scout_status: SuggestionsScoutStatusEnum;
       /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
       readonly sample: SuggestionsSample | null;
+      /** When the project's suggestions scout last checked and checks next. Null unless the scout is running. */
+      readonly schedule: SuggestionsSchedule | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -97515,7 +97623,7 @@ export namespace Schemas {
       readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
-      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
       readonly flag_calls_only_in_flag_evaluations?: boolean;
@@ -103941,7 +104049,7 @@ export namespace Schemas {
       readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
       readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
-      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
       readonly flag_calls_only_in_flag_evaluations: boolean;
@@ -122290,7 +122398,7 @@ export namespace Schemas {
       catalog_version: number;
       /** The preview reads records created in this many past days. */
       lookback_days: number;
-      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
       total_count: number;
       /** Records in the window that pass the filter. */
       passing_count: number;
@@ -122792,12 +122900,14 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, so that setting moves it back to events as well.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
        * * `2` - Flag evaluations only */
       flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Whether ingestion keeps writing $feature_flag_called to the events table for the organization of this team while it is on mode 2. Always false on modes 0 and 1. */
+      keep_writing_flag_calls_to_events: boolean;
       /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
       feature_flag_count: number;
     }
@@ -141213,6 +141323,10 @@ export namespace Schemas {
      */
     filters_override?: string;
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat;
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string;
@@ -141221,6 +141335,14 @@ export namespace Schemas {
      */
     variables_override?: string;
     };
+
+    export type DashboardsCachedTilesRetrieveFormat = typeof DashboardsCachedTilesRetrieveFormat[keyof typeof DashboardsCachedTilesRetrieveFormat];
+
+
+    export const DashboardsCachedTilesRetrieveFormat = {
+      Frames: 'frames',
+      Json: 'json',
+    } as const;
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
