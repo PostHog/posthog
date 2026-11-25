@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -17,6 +18,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -25,10 +27,13 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.parse import parse_properties_for_team
+from posthog.models.property.property import QUERY_SCOPED_PROPERTY_TYPES
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.access_control.backend.facade import api as access_control_api
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import (
@@ -64,7 +69,70 @@ def use_blast_radius_query_v2(team: Team) -> bool:
     )
 
 
-def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
+def blast_radius_data_scopes(properties: object, is_group: bool) -> list[str]:
+    """
+    The API scopes that read the data a blast radius count reads, beyond the caller's own resource scope.
+
+    A person count needs person:read. A group count needs only group:read when every filter is a plain group
+    property. Any other filter, such as a HogQL expression or a cohort, can read persons through a subquery, so
+    the count also needs person:read. A HogQL or data warehouse filter can read any table, so it also needs
+    query:read. A filter shape this function cannot classify counts as one that needs every scope.
+    """
+    if isinstance(properties, str):
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            return ["person:read", "group:read", "query:read"]
+    leaves = list(iter_raw_condition_properties(properties))
+    if not is_group:
+        scopes = ["person:read"]
+    elif all(isinstance(prop, dict) and prop.get("type") == "group" for prop in leaves):
+        scopes = ["group:read"]
+    else:
+        scopes = ["person:read", "group:read"]
+    if any(
+        not isinstance(prop, dict)
+        or not isinstance(prop.get("type"), str | None)
+        or prop.get("type") in QUERY_SCOPED_PROPERTY_TYPES
+        for prop in leaves
+    ):
+        scopes.append("query:read")
+    return scopes
+
+
+def iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
+        yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
+        return
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
+
+
+def sampled_person_blast_radius(
+    team: Team, prop_group: PropertyGroup, query_type: str, user: Optional[User] = None
+) -> BlastRadiusResult:
     """
     Person blast radius that counts a sample of the persons and extrapolates, so the dedup
     aggregation holds only the sampled persons and keeps the fast parallel hash aggregation.
@@ -82,13 +150,13 @@ def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_typ
 
     weight = _flag_dependency_weight(team, prop_group)
     try:
-        affected = count_matching_persons(team, prop_group, database, query_type=query_type, weight=weight)
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type, weight=weight, user=user)
     except InternalCHQueryError as e:
         if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
         # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
         # the caller's input, so the dependency sizes neutrally instead of failing the request.
-        affected = count_matching_persons(team, prop_group, database, query_type=query_type)
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type, user=user)
     return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
@@ -197,18 +265,21 @@ def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
+    user: Optional[User] = None,
 ) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         if group_type_index is not None:
-            return _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return _get_group_blast_radius(team, cleaned_filter, group_type_index, user=user)
         else:
-            return _get_person_blast_radius(team, cleaned_filter)
+            return _get_person_blast_radius(team, cleaned_filter, user=user)
 
 
-def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+def get_person_blast_radius_v2(
+    team: Team, feature_flag_condition: dict, user: Optional[User] = None
+) -> BlastRadiusResult:
     """
     Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
 
@@ -219,7 +290,7 @@ def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> Blas
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2, user=user)
 
 
 def get_user_blast_radius_persons(
@@ -238,7 +309,7 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadiusResult:
+def _get_person_blast_radius(team: Team, prop_group: PropertyGroup, user: Optional[User] = None) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
 
     properties = prop_group.flat
@@ -255,13 +326,13 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
     database = Database.create_for(team=team)
     weight = _flag_dependency_weight(team, prop_group)
     try:
-        estimate = _run_exact_person_count(team, prop_group, database, weight)
+        estimate = _run_exact_person_count(team, prop_group, database, weight, user)
     except InternalCHQueryError as e:
         if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
         # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
         # the caller's input, so the dependency sizes neutrally instead of failing the request.
-        estimate = _run_exact_person_count(team, prop_group, database, weight=None)
+        estimate = _run_exact_person_count(team, prop_group, database, weight=None, user=user)
     # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
     total_count = int(round(estimate))
     total_users = team.count_persons_seen_so_far(database=database, settings=bounded_memory_settings())
@@ -271,7 +342,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
 
 def _run_exact_person_count(
-    team: Team, prop_group: PropertyGroup, database: Database, weight: Optional[ast.Expr]
+    team: Team, prop_group: PropertyGroup, database: Database, weight: Optional[ast.Expr], user: Optional[User] = None
 ) -> float:
     # property_to_expr handles all properties including cohorts
     select_query = build_person_count_query(team, prop_group, sample_modulus=None, weight=weight)
@@ -279,6 +350,7 @@ def _run_exact_person_count(
         query=select_query,
         team=team,
         context=HogQLContext(team_id=team.pk, database=database),
+        user=user,
         settings=bounded_memory_settings(),
     )
     return read_person_count(response.results, weighted=weight is not None)[1]
@@ -339,8 +411,25 @@ def _build_person_query(team: Team, prop_group: PropertyGroup, cursor: Optional[
     return select_query
 
 
+def _restrictions_for_group_filter(
+    user: Optional[User], team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+) -> Optional[set[RestrictedProperty]]:
+    """
+    The property restrictions to apply, or None to let HogQL load every group type's restrictions.
+
+    The groups table spans every group type, so the default load applies another type's restriction to this
+    count. Narrowing to the requested type is safe only when each filter reads that type's own properties.
+    Any other filter, such as a HogQL expression, can read other group types and keeps every restriction.
+    """
+    if any(prop.type not in ("group", "flag") for prop in prop_group.flat):
+        return None
+    return access_control_api.get_restricted_properties_for_group_type(
+        user=user, team_id=team.pk, group_type_index=group_type_index
+    )
+
+
 def _get_group_blast_radius(
-    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex, user: Optional[User] = None
 ) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
 
@@ -374,7 +463,13 @@ def _get_group_blast_radius(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
+        context=HogQLContext(
+            team_id=team.pk,
+            database=database,
+            globals=_group_property_globals(group_type_index),
+            restricted_properties=_restrictions_for_group_filter(user, team, prop_group, group_type_index),
+        ),
+        user=user,
     )
 
     total_affected = response.results[0][0] if response.results else 0
@@ -661,7 +756,11 @@ def _get_group_blast_radius_persons(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, globals=_group_property_globals(group_type_index)),
+        context=HogQLContext(
+            team_id=team.pk,
+            globals=_group_property_globals(group_type_index),
+            restricted_properties=_restrictions_for_group_filter(None, team, prop_group, group_type_index),
+        ),
     )
 
     # Extract group keys from results

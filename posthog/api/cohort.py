@@ -53,7 +53,7 @@ from posthog.api.services.flags_service import (
     batch_evaluate_flag_for_team,
 )
 from posthog.api.shared import SearchMatchTypeSerializerMixin, SerializedPersonActorSerializer, UserBasicSerializer
-from posthog.api.utils import action, paging_params, parse_actor_property_filters
+from posthog.api.utils import action, paging_params, parse_actor_property_filters, require_query_read_for_hogql_filters
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -3031,7 +3031,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
-        cohort_properties.extend(parse_actor_property_filters(request.GET.get("properties")))
+        caller_properties = parse_actor_property_filters(request.GET.get("properties"))
+        require_query_read_for_hogql_filters(request, caller_properties)
+        cohort_properties.extend(caller_properties)
 
         actors_query = ActorsQuery(
             select=["id"],

@@ -10,6 +10,16 @@ from products.cohorts.backend.realtime_teams import is_serving_team
 from products.workflows.backend.facade.contracts import RealtimeCohortStatus
 
 
+def is_static_cohort(project_id: int, cohort_id: object) -> bool:
+    """Whether the cohort is static, resolved by project the way the audience query resolves it."""
+    if not isinstance(cohort_id, str | int):
+        return False
+    try:
+        return Cohort.objects.filter(pk=cohort_id, team__project_id=project_id, deleted=False, is_static=True).exists()
+    except (ValueError, TypeError):
+        return False
+
+
 def find_behavioral_cohort_name(project_id: int, cohort_ids: list[int | str]) -> str | None:
     """The name of the first non-static cohort, among the given cohorts and their dependencies,
     that filters on event behavior. Static cohorts are exempt, because their membership is frozen."""

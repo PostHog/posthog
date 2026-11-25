@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.schema_enums import PersonsArgMaxVersion
 
 # Above this, a GROUP BY goes to disk instead of failing the query on the memory limit.
@@ -105,6 +106,7 @@ def count_matching_persons(
     database: Database,
     query_type: str,
     weight: Optional[ast.Expr] = None,
+    user: Optional[User] = None,
 ) -> int:
     """
     Count the persons a filter matches, or every person on the team when filter is None.
@@ -113,7 +115,7 @@ def count_matching_persons(
     weights over the matched persons instead of their number.
     """
     return sampled_or_exact_estimate(
-        lambda sample_modulus: _run_person_count(team, prop_group, database, query_type, sample_modulus, weight)
+        lambda sample_modulus: _run_person_count(team, prop_group, database, query_type, sample_modulus, weight, user)
     )
 
 
@@ -124,6 +126,7 @@ def _run_person_count(
     query_type: str,
     sample_modulus: Optional[int],
     weight: Optional[ast.Expr] = None,
+    user: Optional[User] = None,
 ) -> tuple[int, float]:
     query = build_person_count_query(team, prop_group, sample_modulus=sample_modulus, weight=weight)
     response = execute_hogql_query(
@@ -139,6 +142,7 @@ def _run_person_count(
         # automatic choice.
         modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1) if prop_group is None else None,
         context=HogQLContext(team_id=team.pk, database=database),
+        user=user,
         settings=count_settings(sample_modulus),
     )
     return read_person_count(response.results, weighted=weight is not None)

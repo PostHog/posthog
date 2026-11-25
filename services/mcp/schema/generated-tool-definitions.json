@@ -8285,7 +8285,7 @@
         "feature": "flags",
         "summary": "Get user blast radius",
         "title": "Get user blast radius",
-        "required_scopes": ["feature_flag:read"],
+        "required_scopes": ["feature_flag:read", "person:read", "group:read"],
         "api_operations": ["POST /api/projects/{project_id}/feature_flags/user_blast_radius/"],
         "annotations": {
             "destructiveHint": false,

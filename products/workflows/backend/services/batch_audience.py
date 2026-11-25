@@ -10,6 +10,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import key_read_overlaps_restriction
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -17,17 +18,30 @@ from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import Property, PropertyValidationError
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
     get_user_blast_radius_persons,
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
-from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
+from products.workflows.backend.services.batch_audience_cohorts import (
+    is_static_cohort,
+    reject_excluded_cohort_without_members,
+)
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+
+
+def can_read_email(user: Optional[User], team_id: int) -> bool:
+    """Email dedupe and the audience cards both group people by email, so they need to read it."""
+    restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        user=user, team_id=team_id
+    )
+    return EMAIL_DEDUPE_KEY not in access_control_api.split_restricted_property_names(restrictions).person
 
 
 def person_audience_page_size() -> int:
@@ -56,6 +70,10 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+RESTRICTED_AUDIENCE_PROPERTY = (
+    "This audience filters on a property you don't have access to. "
+    "Ask an admin for access, or remove that filter to size and send it."
+)
 
 
 def _is_condition_group(condition: Any) -> bool:
@@ -107,6 +125,49 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def _reads_only(key: object, restricted_keys: frozenset[str]) -> bool:
+    """Whether a filter on this key reads only that key, and the key overlaps no restricted key."""
+    # An empty key reads the whole properties blob. A $virt_ key is computed from other properties.
+    if not isinstance(key, str) or not key or key.startswith("$virt_"):
+        return False
+    return not key_read_overlaps_restriction(key, restricted_keys)
+
+
+def reject_audience_reading_restricted_properties(team: Team, filters: dict, user: Optional[User]) -> None:
+    """
+    Refuse an audience whose preview would count different people than the send reaches.
+
+    The send selects recipients without a user, so only the team's default property rules mask it. The preview
+    runs as the user, so their member and role rules mask it too. The two match only when every filter reads
+    properties that the user's rules and the default rules mask the same way. A filter this check cannot read
+    the keys of, such as HogQL or an event filter, could read any property, so it counts as a mismatch. A
+    static cohort reads only stored membership, so it never counts as one.
+    """
+    diff = access_control_api.split_restricted_property_names(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+        ^ access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
+    )
+    if not diff.person and not diff.event and not any(diff.group.values()):
+        return
+
+    # The counts and the send read the same expanded filter, which includes the team's test account filters.
+    with unevaluable_filters_as_validation_errors():
+        prop_group = replace_proxy_properties(team, filters or {})
+    for prop in prop_group.flat:
+        if prop.type == "static-cohort" and is_static_cohort(team.project_id, prop.value):
+            # A static cohort reads stored membership, which no property rule masks. The caller sets the filter
+            # type, so the stored cohort decides. A precalculated cohort can be recalculated inline from its
+            # filters, so it is not exempt.
+            continue
+        if prop.type == "person" and _reads_only(prop.key, diff.person):
+            continue
+        if prop.type == "group" and (
+            prop.key == "$group_key" or _reads_only(prop.key, diff.group_property_names(prop.group_type_index))
+        ):
+            continue
+        raise exceptions.ValidationError(RESTRICTED_AUDIENCE_PROPERTY)
 
 
 def get_batch_audience_person_ids(

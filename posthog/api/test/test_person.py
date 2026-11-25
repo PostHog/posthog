@@ -2284,7 +2284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
         # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
         # revenue analytics config, which each request reads on its own Team instance.
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -2764,6 +2764,44 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         kwargs = mock_execute_hogql_query.call_args.kwargs
         self.assertEqual(kwargs["user"], self.user)
         self.assertEqual(kwargs["context"].user, self.user)
+
+    def test_list_filter_and_total_apply_a_member_scoped_restriction(self) -> None:
+        tier = PropertyDefinition.objects.create(
+            team=self.team, name="tier", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=tier,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_person(team=self.team, distinct_ids=["gold_user"], properties={"tier": "gold"}, immediate=True)
+        flush_persons_and_events()
+        filters = json.dumps([{"key": "tier", "value": "gold", "type": "person", "operator": "exact"}])
+
+        response = self.client.get("/api/person/", {"properties": filters, "include_total": ""})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["results"], [])
+        self.assertEqual(response.json()["count"], 0)
+
+    @parameterized.expand(
+        [
+            ("person_read_cannot_run_hogql_filter", ["person:read"], status.HTTP_403_FORBIDDEN),
+            ("query_read_can_run_hogql_filter", ["person:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_hogql_property_filter_needs_query_read_scope(self, _name, scopes, expected_status) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        filters = json.dumps([{"type": "hogql", "key": "1 = 1"}])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/",
+            {"properties": filters},
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(

@@ -196,8 +196,10 @@ from products.feature_flags.backend.session_recording_links import (
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.usage_dashboard import update_feature_flag_dashboard
 from products.feature_flags.backend.user_blast_radius import (
+    blast_radius_data_scopes,
     get_person_blast_radius_v2,
     get_user_blast_radius,
+    iter_raw_condition_properties,
     use_blast_radius_query_v2,
 )
 from products.feature_flags.backend.version_history import (
@@ -1056,36 +1058,6 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _iter_raw_condition_properties(properties: object) -> Iterator[object]:
-    # Classifies each node the way parse_property_group_data does at that position, but yields each property
-    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
-    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
-    if isinstance(properties, dict) and "type" in properties and "values" in properties:
-        yield from _iter_raw_group_values(properties["values"])
-    elif isinstance(properties, list):
-        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
-        yield from properties
-    elif isinstance(properties, dict):
-        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
-        yield from ({"key": key, "type": "event"} for key in properties)
-    elif properties:
-        yield properties
-
-
-def _iter_raw_group_values(values: object) -> Iterator[object]:
-    if not isinstance(values, list):
-        if values:
-            yield values
-        return
-    for item in values:
-        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
-        # a group type other than AND or OR.
-        if isinstance(item, dict) and "type" in item and "values" in item:
-            yield from _iter_raw_group_values(item["values"])
-        else:
-            yield item
-
-
 def _validate_blast_radius_property_types(condition: object) -> None:
     # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
     # The check sits here and not in user_blast_radius.py, because workflows size event and hogql filters
@@ -1093,7 +1065,7 @@ def _validate_blast_radius_property_types(condition: object) -> None:
     if not isinstance(condition, dict):
         raise exceptions.ValidationError({"condition": "The condition must be an object."})
     supported = ", ".join(sorted(_RUST_PROPERTY_TYPES))
-    for prop in _iter_raw_condition_properties(condition.get("properties")):
+    for prop in iter_raw_condition_properties(condition.get("properties")):
         prop_type = prop.get("type") if isinstance(prop, dict) else None
         if not isinstance(prop_type, str):
             raise exceptions.ValidationError(
@@ -4364,6 +4336,7 @@ class FeatureFlagViewSet(
     # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
+    request_dependent_scope_actions = frozenset({"user_blast_radius"})
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -6013,11 +5986,24 @@ class FeatureFlagViewSet(
 
         return Response(flags_with_evaluation_reasons)
 
+    def dangerously_get_required_scopes(self, request, view) -> Optional[builtins.list[str]]:
+        # Sizing a condition counts persons (or groups) by their property values, so a key also needs
+        # the scope that reads them.
+        if self.action == "user_blast_radius":
+            data = request.data if isinstance(request.data, dict) else {}
+            condition = data.get("condition")
+            properties = condition.get("properties") if isinstance(condition, dict) else None
+            return [
+                "feature_flag:read",
+                *blast_radius_data_scopes(properties, is_group=data.get("group_type_index") is not None),
+            ]
+        return super().dangerously_get_required_scopes(request, view)
+
     @extend_schema(
         request=UserBlastRadiusRequestSerializer,
         responses={200: UserBlastRadiusResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
+    @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
@@ -6028,11 +6014,12 @@ class FeatureFlagViewSet(
         # and the check above doesn't see those.
         condition = {"properties": condition.get("properties")}
         group_type_index = request.data.get("group_type_index", None)
+        user = cast(Optional[User], request.user)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
-            result = get_person_blast_radius_v2(self.team, condition)
+            result = get_person_blast_radius_v2(self.team, condition, user=user)
         else:
-            result = get_user_blast_radius(self.team, condition, group_type_index)
+            result = get_user_blast_radius(self.team, condition, group_type_index, user=user)
 
         return Response({"affected": result.affected, "total": result.total})
 

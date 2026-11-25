@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -7,7 +9,14 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.person_sampling import bounded_memory_settings, build_person_count_query
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, replace_proxy_properties
 from products.workflows.backend.services.audience_v2 import (
@@ -16,9 +25,11 @@ from products.workflows.backend.services.audience_v2 import (
     get_person_audience_count_v2,
 )
 from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
     get_batch_audience_person_ids,
     get_batch_audience_person_ids_snapshot,
 )
+from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -311,3 +322,164 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert "cityHash64" in inner_scan
         assert "optimize_aggregation_in_order" in clickhouse_sql
         assert "max_bytes_before_external_group_by=4294967296" in clickhouse_sql
+
+
+EMAIL_FILTER = {"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}
+
+
+class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.restricted_member = self._member("restricted@example.com")
+        self.other_member = self._member("other@example.com")
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=OrganizationMembership.objects.get(user=self.restricted_member).id,
+        )
+        _create_person(team=self.team, distinct_ids=["a"], properties={"email": "a@example.com"})
+        _create_person(team=self.team, distinct_ids=["b"], properties={"email": "b@example.com"})
+        flush_persons_and_events()
+        self.filters = {"properties": [EMAIL_FILTER]}
+
+    def _member(self, email: str) -> User:
+        user = User.objects.create_user(email=email, password=None, first_name="Member")
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        return user
+
+    def test_person_count_skips_a_restricted_property(self):
+        assert get_person_audience_count_v2(self.team, self.filters, user=self.restricted_member).affected == 0
+        assert get_person_audience_count_v2(self.team, self.filters, user=self.other_member).affected == 1
+
+    def test_dedupe_count_is_refused_when_the_email_property_is_restricted(self):
+        with pytest.raises(ValidationError):
+            get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.restricted_member)
+
+        allowed = get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.other_member)
+        assert allowed.affected == 1
+
+    def test_audience_size_falls_back_to_the_person_count_without_email_access(self):
+        def size(user: User):
+            return get_audience_size(
+                team_id=self.team.pk,
+                filters={"properties": []},
+                group_type_index=None,
+                dedupe_key=EMAIL_DEDUPE_KEY,
+                sends_email=True,
+                user=user,
+            )
+
+        restricted = size(self.restricted_member)
+        assert (restricted.affected, restricted.dedupe_key) == (2, None)
+        allowed = size(self.other_member)
+        assert (allowed.affected, allowed.dedupe_key) == (2, EMAIL_DEDUPE_KEY)
+
+    def test_audience_size_falls_back_to_the_person_count_when_the_send_cannot_read_email(self):
+        email = PropertyDefinition.objects.get(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=email.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.READ.value,
+            organization_member_id=OrganizationMembership.objects.get(user=self.other_member).id,
+        )
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters={"properties": []},
+            group_type_index=None,
+            dedupe_key=EMAIL_DEDUPE_KEY,
+            sends_email=True,
+            user=self.other_member,
+        )
+
+        assert (size.affected, size.dedupe_key) == (2, None)
+
+    def _size(self, user: User, filters: dict) -> int:
+        return get_audience_size(
+            team_id=self.team.pk,
+            filters=filters,
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=False,
+            use_cached_counts=True,
+            user=user,
+        ).affected
+
+    @parameterized.expand(
+        [
+            ("filter_on_the_restricted_property", [EMAIL_FILTER], True),
+            ("hogql_filter", [{"type": "hogql", "key": "1 = 1"}], True),
+            ("filter_on_an_allowed_property", [{"key": "plan", "type": "person", "value": "pro"}], False),
+            ("filter_on_the_whole_properties_blob", [{"key": "", "type": "person", "value": "a"}], True),
+            (
+                "filter_on_a_virtual_property",
+                [{"key": "$virt_initial_channel_type", "type": "person", "value": "a"}],
+                True,
+            ),
+            ("no_filters", [], False),
+        ]
+    )
+    def test_audience_size_refuses_a_filter_the_user_cannot_read(self, _name, properties, refused):
+        filters = {"properties": properties}
+        with pytest.raises(ValidationError) if refused else nullcontext():
+            self._size(self.restricted_member, filters)
+        self._size(self.other_member, filters)
+
+    def test_audience_size_refuses_a_test_account_filter_on_the_restricted_property(self):
+        self.team.test_account_filters = [EMAIL_FILTER]
+        self.team.save()
+
+        with pytest.raises(ValidationError):
+            self._size(self.restricted_member, {"properties": [], "filter_test_accounts": True})
+
+    @parameterized.expand(
+        [
+            ("dynamic_cohort", False, "cohort", True),
+            ("precalculated_cohort", False, "precalculated-cohort", True),
+            ("dynamic_cohort_labeled_static", False, "static-cohort", True),
+            ("static_cohort", True, "cohort", False),
+        ]
+    )
+    def test_audience_size_checks_cohorts_by_what_they_read(self, _name, is_static, filter_type, refused):
+        cohort = Cohort.objects.create(
+            team=self.team, is_static=is_static, groups=[] if is_static else [{"properties": [EMAIL_FILTER]}]
+        )
+        filters = {"properties": [{"key": "id", "type": filter_type, "value": cohort.pk}]}
+
+        with pytest.raises(ValidationError) if refused else nullcontext():
+            self._size(self.restricted_member, filters)
+
+    def test_cached_count_is_dropped_when_a_default_rule_changes(self):
+        filters = {"properties": [EMAIL_FILTER]}
+        assert self._size(self.other_member, filters) == 1
+
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=PropertyDefinition.objects.get(team=self.team, name="email").id,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        assert self._size(self.other_member, filters) == 0
+
+    def test_refusal_lifts_once_the_rule_is_removed(self):
+        filters = {"properties": [EMAIL_FILTER]}
+        assert self._size(self.other_member, filters) == 1
+        with pytest.raises(ValidationError):
+            self._size(self.restricted_member, filters)
+
+        PropertyAccessControl.objects.all().delete()
+
+        assert self._size(self.restricted_member, filters) == 1

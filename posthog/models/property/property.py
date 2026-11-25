@@ -151,6 +151,9 @@ VALIDATE_PROP_TYPES = {
     "workflow_variable": ["key", "value"],
 }
 
+# These filter types can read any table the query can reach, so a scoped token also needs query:read to send one.
+QUERY_SCOPED_PROPERTY_TYPES = frozenset({"hogql", "data_warehouse", "data_warehouse_person_property"})
+
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         {"time_value", "time_interval"},

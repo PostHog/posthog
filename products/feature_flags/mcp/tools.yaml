@@ -926,6 +926,8 @@ tools:
         enabled: true
         scopes:
             - feature_flag:read
+            - person:read
+            - group:read
         annotations:
             readOnly: true
             destructive: false

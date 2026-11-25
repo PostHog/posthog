@@ -43,7 +43,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, paging_params, parse_actor_property_filters
+from posthog.api.utils import action, paging_params, parse_actor_property_filters, require_query_read_for_hogql_filters
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
@@ -871,6 +871,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
         person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
+        # The filters the handler adds itself (email, distinct_id) are not caller-supplied and need no extra scope.
+        require_query_read_for_hogql_filters(request, person_properties)
         if request.GET.get("email"):
             person_properties.append(
                 {"type": "person", "key": "email", "value": request.GET.get("email"), "operator": "exact"}
@@ -992,7 +994,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
-            actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            user = cast(User, request.user)
+            actors_runner = ActorsQueryRunner(team=team, query=actors_query, user=user)
             # ClickHouse can lag behind personhog or fail, so the hit leads the first page regardless.
             hit_leads_page = email_property_search and offset == 0
             actor_ids: list[Any] = []
@@ -1013,7 +1016,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         select=[ast.Call(name="count", args=[])],
                         select_from=ast.JoinExpr(table=count_inner),
                     )
-                    total_count = execute_hogql_query(count_query, team=team).results[0][0]
+                    total_count = execute_hogql_query(count_query, team=team, user=user).results[0][0]
             except Exception as err:
                 if classify_query_error(err) is QueryErrorCategory.CANCELLED:
                     # The caller killed this search, so there is no body to return and nothing went

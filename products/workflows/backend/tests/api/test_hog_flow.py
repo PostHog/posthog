@@ -32,6 +32,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes.catalog import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
@@ -57,6 +59,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
@@ -196,6 +199,10 @@ def _fail_run_then_time_out(flow_id: str):
         raise requests.ReadTimeout("read timed out")
 
     return side_effect
+
+
+PLAIN_GROUP_PROP = {"type": "group", "key": "industry", "value": "tech", "operator": "exact", "group_type_index": 0}
+HOGQL_PROP = {"type": "hogql", "key": "1 IN (SELECT 1 FROM persons)", "group_type_index": 0}
 
 
 class TestHogFlowAPI(APIBaseTest):
@@ -5628,7 +5635,7 @@ class TestHogFlowAPI(APIBaseTest):
             body = response.json()
             assert body["affected"] == 3200
             assert body["dedupe_key"] == "email"
-            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email", user=self.user)
             mock_v1.assert_not_called()
 
             # Group audiences stay on the exact query: the sampled count only covers person audiences.
@@ -5639,8 +5646,8 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
             assert response.status_code == 200, response.json()
-            mock_v1.assert_called_once()
-            mock_v2.assert_called_once()
+            mock_v1.assert_called_once_with(self.team, {"properties": []}, 0, user=self.user)
+            mock_v2.assert_called_once_with(self.team, {"properties": []}, user=self.user)
 
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
@@ -5763,6 +5770,101 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 403, response.json()
         assert "person:read" in response.json().get("detail", "")
+
+    @parameterized.expand(
+        [
+            ("person_read_cannot_size_groups", ["hog_flow:read", "person:read"], PLAIN_GROUP_PROP, 0, 403),
+            ("group_read_can_size_groups", ["hog_flow:read", "group:read"], PLAIN_GROUP_PROP, 0, 200),
+            (
+                "person_read_cannot_size_groups_by_string_index",
+                ["hog_flow:read", "person:read"],
+                PLAIN_GROUP_PROP,
+                "0",
+                403,
+            ),
+            ("group_read_cannot_run_a_hogql_filter", ["hog_flow:read", "group:read"], HOGQL_PROP, 0, 403),
+            ("hogql_filter_needs_query_read", ["hog_flow:read", "group:read", "person:read"], HOGQL_PROP, 0, 403),
+            (
+                "all_scopes_can_run_a_hogql_filter",
+                ["hog_flow:read", "group:read", "person:read", "query:read"],
+                HOGQL_PROP,
+                0,
+                200,
+            ),
+            (
+                "group_read_cannot_size_persons_with_a_blank_index",
+                ["hog_flow:read", "group:read"],
+                PLAIN_GROUP_PROP,
+                None,
+                403,
+            ),
+        ]
+    )
+    def test_user_blast_radius_group_audience_requires_group_read_scope(
+        self, _name, scopes, prop, group_type_index, expected_status
+    ):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="sizing", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius",
+            return_value=BlastRadiusResult(affected=1, total=2),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": [prop]}, "group_type_index": group_type_index},
+                headers={"authorization": f"Bearer {key}"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_user_blast_radius_form_body_with_a_blank_group_index_needs_person_read(self):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="sizing", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read", "group:read"]
+        )
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
+            return_value=BlastRadiusResult(affected=1, total=2),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {
+                    "group_type_index": "",
+                    "filters.properties": '[{"type": "person", "key": "email", "value": "a@example.com"}]',
+                },
+                format="multipart",
+                headers={"authorization": f"Bearer {key}"},
+            )
+
+        assert response.status_code == 403, response.content
+
+    def test_user_blast_radius_refuses_a_filter_on_a_property_the_member_cannot_read(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=self.organization_membership.id,
+        )
+
+        with patch("products.workflows.backend.services.blast_radius.get_person_audience_count_v2") as mock_count:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": [{"key": "email", "type": "person", "value": "a@example.com"}]}},
+                format="json",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "confirm_token" not in response.json()
+        mock_count.assert_not_called()
 
     def test_user_blast_radius_personal_api_key_with_person_read_scope_allowed(self):
         key = generate_random_token_personal()
@@ -6048,7 +6150,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["dedupe_key"] == dedupe_key
         if dedupe_key is not None:
             # The person-count query is skipped — only the deduped count runs
-            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email", user=self.user)
             mock_person_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()

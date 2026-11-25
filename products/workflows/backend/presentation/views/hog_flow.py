@@ -184,6 +184,7 @@ from products.workflows.backend.facade.batch_jobs import (
 )
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
+    audience_sizing_data_scopes,
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
@@ -5876,6 +5877,7 @@ class HogFlowViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
+    request_dependent_scope_actions = frozenset({"user_blast_radius"})
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -5980,20 +5982,26 @@ class HogFlowViewSet(
             return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
-            # outbound messages, so it's person-data access on top of the workflow write - same
-            # rationale as user_blast_radius. Listing jobs/schedules stays workflow-read.
+            # outbound messages, so it's person-data access on top of the workflow write.
+            # Listing jobs/schedules stays workflow-read.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
-        # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
-        # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
-        # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
-        # session auth, so live sizing while editing is unaffected.
+        # Sizing an audience reads person or group data through caller-supplied filters, so the scopes depend
+        # on the request. The web builder uses session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
-            return ["hog_flow:read", "person:read"]
+            # A body that fails validation gets the strictest scopes, and the handler then rejects it.
+            serializer = BlastRadiusRequestSerializer(data=request.data)
+            if not serializer.is_valid():
+                return ["hog_flow:read", "person:read", "group:read", "query:read"]
+            params = serializer.validated_data
+            return [
+                "hog_flow:read",
+                *audience_sizing_data_scopes(params["filters"], is_group=params.get("group_type_index") is not None),
+            ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
-        # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
+        # on top of workflow read. A hog_flow:read-only token must not be
         # able to enumerate who a workflow ran for. The count endpoint returns no person data but
         # accepts a distinct_id filter, so without person:read it would be a person-existence oracle.
         if self.action in ("invocation_results", "invocation_result", "invocation_results_count"):
@@ -7895,6 +7903,7 @@ class HogFlowViewSet(
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
             use_cached_counts=not params["refresh"],
+            user=cast(Optional[User], request.user),
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.

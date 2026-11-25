@@ -10,9 +10,16 @@ from django.core.cache import cache
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import (
+    BlastRadiusResult,
+    blast_radius_data_scopes,
+    get_user_blast_radius,
+)
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
@@ -21,7 +28,13 @@ from products.workflows.backend.services.account_audience import (
     get_account_group_type_name as _get_account_group_type_name,
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
+    audience_page_size,
+    can_read_email,
+    get_batch_audience_person_ids,
+    reject_audience_reading_restricted_properties,
+)
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -40,6 +53,11 @@ REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
 AUDIENCE_COUNT_CACHE_SECONDS = 600
 
 
+def audience_sizing_data_scopes(filters: dict[str, Any], is_group: bool) -> list[str]:
+    """The API scopes, beyond workflow read, that sizing an audience needs for the data its filters read."""
+    return blast_radius_data_scopes(filters.get("properties"), is_group=is_group)
+
+
 def _realtime_audience_total(team: Team) -> int:
     cache_key = f"workflows:realtime_audience_person_total:{team.pk}"
     total = cache.get(cache_key)
@@ -50,24 +68,42 @@ def _realtime_audience_total(team: Team) -> int:
 
 
 def _count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team,
+    filters: dict,
+    group_type_index: GroupTypeIndex | None,
+    dedupe_key: str | None,
+    user: User | None,
 ) -> BlastRadiusResult:
     if group_type_index is not None:
-        return get_user_blast_radius(team, filters, group_type_index)
+        return get_user_blast_radius(team, filters, group_type_index, user=user)
     if dedupe_key is not None:
-        return get_dedupe_audience_count_v2(team, filters, dedupe_key)
-    return get_person_audience_count_v2(team, filters)
+        return get_dedupe_audience_count_v2(team, filters, dedupe_key, user=user)
+    return get_person_audience_count_v2(team, filters, user=user)
 
 
 def _cached_count_audience(
-    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+    team: Team,
+    filters: dict,
+    group_type_index: GroupTypeIndex | None,
+    dedupe_key: str | None,
+    user: User | None,
 ) -> BlastRadiusResult:
-    audience = json.dumps([filters, group_type_index, dedupe_key], sort_keys=True, default=str)
+    # get_audience_size first refuses any filter that the user's property rules mask differently from the
+    # default rules, so a count that reaches here depends only on the default rules. Their fingerprint in the key
+    # drops a cached count once a default rule changes.
+    default_restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        user=None, team_id=team.pk
+    )
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, restriction_fingerprint(default_restrictions)],
+        sort_keys=True,
+        default=str,
+    )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, tuple) and len(cached) == 2:
         return BlastRadiusResult(affected=cached[0], total=cached[1])
-    result = _count_audience(team, filters, group_type_index, dedupe_key)
+    result = _count_audience(team, filters, group_type_index, dedupe_key, user)
     cache.set(cache_key, (result.affected, result.total), AUDIENCE_COUNT_CACHE_SECONDS)
     return result
 
@@ -95,6 +131,7 @@ def get_audience_size(
     sends_email: bool,
     email_rate_limit: dict[str, Any] | None = None,
     use_cached_counts: bool = False,
+    user: User | None = None,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
@@ -102,7 +139,6 @@ def get_audience_size(
     # sends (unique emails + email-less persons), not the number of matching persons.
     # The applied key is echoed back so the frontend labels the count from the response
     # instead of guessing whether the dedup actually ran.
-    applied_dedupe_key = None
     realtime_cohort = realtime_audience_cohort(team.project_id, filters) if group_type_index is None else None
     if realtime_cohort is not None:
         # The send reads the realtime pipeline's Postgres table, which this process can't query. The
@@ -116,10 +152,16 @@ def get_audience_size(
             realtime_cohort=realtime_cohort_status(realtime_cohort),
             rate_limited=audience_limit.rate_limited,
         )
-    if group_type_index is None:
-        applied_dedupe_key = dedupe_key
+    # A realtime cohort's count and send read no masked property, so only the ClickHouse count is checked.
+    reject_audience_reading_restricted_properties(team, filters, user)
+    applied_dedupe_key = dedupe_key if group_type_index is None else None
+    if applied_dedupe_key == EMAIL_DEDUPE_KEY and not (can_read_email(user, team.pk) and can_read_email(None, team.pk)):
+        # The deduped count groups people by email, so it matches the send only when both this user and the
+        # send, which runs without a user, can read email. The person count is never smaller than the deduped
+        # count, so a launch that checks it against the audience limit stays safe.
+        applied_dedupe_key = None
     count = _cached_count_audience if use_cached_counts else _count_audience
-    blast_radius = count(team, filters, group_type_index, applied_dedupe_key)
+    blast_radius = count(team, filters, group_type_index, applied_dedupe_key, user)
 
     mixed_realtime_cohort = (
         find_realtime_behavioral_cohort(team.project_id, _top_level_cohort_ids(filters))

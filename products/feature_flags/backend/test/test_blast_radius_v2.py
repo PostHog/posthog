@@ -10,6 +10,7 @@ from posthog.models.team.team import Team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
+    blast_radius_data_scopes,
     get_person_blast_radius_v2,
     get_user_blast_radius,
     use_blast_radius_query_v2,
@@ -148,3 +149,52 @@ class TestBlastRadiusGate(SimpleTestCase):
         # for every team, whatever the rollout says.
         assert kwargs["groups"] == {"project": "42"}
         assert kwargs["group_properties"] == {"project": {"id": "42"}}
+
+
+class TestBlastRadiusDataScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_count", [], None, ["person:read"]),
+            ("plain_group_filters", [{"type": "group", "key": "industry"}], 0, ["group:read"]),
+            ("no_filters", None, 0, ["group:read"]),
+            ("hogql_group_filter", [{"type": "hogql", "key": "1"}], 0, ["person:read", "group:read", "query:read"]),
+            ("hogql_person_filter", [{"type": "hogql", "key": "1"}], None, ["person:read", "query:read"]),
+            ("warehouse_filter", [{"type": "data_warehouse", "key": "a"}], None, ["person:read", "query:read"]),
+            ("cohort_filter_can_read_persons", [{"type": "cohort", "value": 1}], 0, ["person:read", "group:read"]),
+            (
+                "nested_hogql_filter",
+                {"type": "AND", "values": [{"type": "OR", "values": [{"type": "hogql", "key": "1"}]}]},
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
+                "lowercase_group_hogql_filter",
+                {"type": "and", "values": [{"type": "hogql", "key": "1"}]},
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
+                "nested_lowercase_group_hogql_filter",
+                {"type": "AND", "values": [{"type": "or", "values": [{"type": "hogql", "key": "1"}]}]},
+                0,
+                ["person:read", "group:read", "query:read"],
+            ),
+            (
+                "top_level_hogql_filter_with_values_key",
+                [{"type": "hogql", "key": "1", "values": []}],
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
+                "nested_plain_group_filters",
+                {"type": "AND", "values": [{"type": "group", "key": "a"}]},
+                0,
+                ["group:read"],
+            ),
+            ("json_string_filters", '[{"type": "hogql", "key": "1"}]', None, ["person:read", "query:read"]),
+            ("malformed_filter", ["group"], 0, ["person:read", "group:read", "query:read"]),
+            ("list_type_filter", [{"type": ["hogql"], "key": "1"}], None, ["person:read", "query:read"]),
+        ]
+    )
+    def test_scopes_follow_what_the_filters_can_read(self, _name, properties, group_type_index, expected):
+        assert blast_radius_data_scopes(properties, is_group=group_type_index is not None) == expected
