@@ -1700,25 +1700,27 @@ def get_custom_property_definition_target_type(team_id: int, definition_id: str)
     return definition.target_type if definition is not None else None
 
 
+def _definition_view_with_workflow_references(
+    team_id: int, definition: CustomPropertyDefinition, access: contracts.CustomPropertyAccess | None
+) -> contracts.CustomPropertyDefinitionView:
+    definition_id = str(definition.id)
+    workflow_references = _custom_property_references_by_definition_id(team_id, definition_id=definition_id)
+    visible_references = _visible_workflow_references(team_id, workflow_references, access)
+    return _to_custom_property_definition_view(
+        definition,
+        _to_custom_property_references(visible_references.get(definition_id, [])),
+        has_workflow_reference=bool(workflow_references.get(definition_id)),
+        access=access,
+    )
+
+
 def get_custom_property_definition(
     team_id: int, definition_id: str, *, access: contracts.CustomPropertyAccess
 ) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
-    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
-        team_id, definition_id=str(definition.id)
-    )
-    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = _visible_workflow_references(team_id, workflow_references_by_definition_id, access).get(
-        str(definition.id), []
-    )
-    return _to_custom_property_definition_view(
-        definition,
-        _to_custom_property_references(references),
-        has_workflow_reference=bool(workflow_references),
-        access=access,
-    )
+    return _definition_view_with_workflow_references(team_id, definition, access)
 
 
 def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
@@ -1836,19 +1838,7 @@ def update_custom_property_definition(
         was_impersonated=was_impersonated,
         previous=previous,
     )
-    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
-        team_id, definition_id=str(definition.id)
-    )
-    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = _visible_workflow_references(team_id, workflow_references_by_definition_id, access).get(
-        str(definition.id), []
-    )
-    return _to_custom_property_definition_view(
-        definition,
-        _to_custom_property_references(references),
-        has_workflow_reference=bool(workflow_references),
-        access=access,
-    )
+    return _definition_view_with_workflow_references(team_id, definition, access)
 
 
 def delete_custom_property_definition(
