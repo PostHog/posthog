@@ -860,10 +860,17 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
-        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+        [
+            (f"{route}_{name}", route, listed, third_status)
+            for route in ("template", "send_email", "send_email_key_scoped")
+            for name, listed, third_status in (
+                ("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS),
+                ("listed", True, status.HTTP_202_ACCEPTED),
+            )
+        ]
     )
     def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, listed, third_status
+        self, mock_post, _flag, _capture, _name, route, listed, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
@@ -877,11 +884,12 @@ class TestTransactionalEmail(APIBaseTest):
         ):
             try:
                 is_rate_limit_enabled.cache_clear()
-                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
+                statuses = [self._send(client, route, self.body).status_code for _ in range(3)]
             finally:
-                redis_cache = caches["default"]
-                assert isinstance(redis_cache, RedisCache)
-                redis_cache.delete_pattern("*")
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
                 is_rate_limit_enabled.cache_clear()
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
