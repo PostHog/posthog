@@ -9573,6 +9573,43 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("window_in_days", {}, None, 200),
+            (
+                "counted_since_a_date",
+                {"value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+                "unsupported_time_range",
+                400,
+            ),
+            (
+                "counted_in_hours",
+                {"value": "performed_event_multiple", "explicit_datetime": "-24h"},
+                "unsupported_time_range",
+                400,
+            ),
+        ]
+    )
+    def test_an_off_cohort_names_the_time_range_a_turn_on_refuses(
+        self, _name: str, overrides: dict, reason: str | None, turn_on_status: int
+    ) -> None:
+        cohort = self._cohort({**_REALTIME_PAGEVIEW_LEAF, **overrides})
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        turned_on = self._switch(cohort, True)
+
+        assert (realtime["state"], realtime["reason"], turned_on.status_code) == ("off", reason, turn_on_status)
+
+    def test_a_cohort_that_is_on_names_the_time_range_nothing_can_prepare(self) -> None:
+        cohort = self._cohort(
+            {**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+            enabled=True,
+        )
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        assert (realtime["state"], realtime["reason"]) == ("needs_attention", "unsupported_time_range")
+
+    @parameterized.expand(
+        [
             ("sent_in_a_patch", False, "patch", {"realtime_enabled": True}, "json", 400, "realtime_enabled_read_only"),
             # DRF reads a boolean left out of form data as false.
             ("left_out_of_a_multipart_put", True, "put", {"name": "Renamed"}, "multipart", 200, None),

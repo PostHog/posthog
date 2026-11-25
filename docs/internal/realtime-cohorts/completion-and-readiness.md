@@ -237,6 +237,9 @@ For a team inside the gate, that field also carries how many of the project's co
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 `off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
 An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
+An `off` or `needs_attention` cohort carries `reason: unsupported_time_range` when the pipeline drops one of its event criteria for its time range, such as an event counted several times since a fixed date.
+The reason is read at request time with the leaf rule a turn-on checks, so a cohort with this reason is one a turn-on refuses, and on an `off` cohort it wins over `history_over_limit`, because a turn-on checks the pipeline first.
+The converse does not hold: an `off` cohort with no reason can still be refused, because the reason reads only the cohort's own criteria, not the cohorts it includes, and covers none of a turn-on's other refusals.
 A `daily` cohort carries the first check of the [realtime decision](definitions-and-eligibility.md#the-realtime-decision) that kept it off realtime, in the order the save applies them.
 The reason is read at request time from what the save stored, with no query and no second compile:
 

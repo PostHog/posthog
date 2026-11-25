@@ -1368,9 +1368,9 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
-        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the "
-        "cohort can't be realtime, so its membership only comes from the once-a-day calculation. See "
-        "`reason`. `person_properties`: it matches on person properties, which flags read "
+        "realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, "
+        "it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the "
+        "once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
     ready_at = serializers.DateTimeField(
@@ -1390,10 +1390,13 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "`includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. "
         "`history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it "
         "matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test "
-        "users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan "
-        "allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its "
-        "criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a "
-        "`daily` cohort whose stored criteria don't show why.",
+        "users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, "
+        "one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria "
+        "look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: "
+        "`too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. "
+        "`unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so "
+        "PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't "
+        "show why.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,

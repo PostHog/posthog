@@ -48,7 +48,12 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit, is_action_key
+from products.cohorts.backend.parity.eligibility import (
+    UNSUPPORTED_STATE_VARIANT,
+    behavioral_history_over_limit,
+    is_action_key,
+    leaf_drop_reason,
+)
 from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
@@ -74,6 +79,7 @@ class CohortRealtimeUnavailableReason(models.TextChoices):
     INCLUDES_NON_REALTIME_COHORT = "includes_non_realtime_cohort", "Includes a cohort that is not realtime"
     MEMBERS_OVER_LIMIT = "members_over_limit", "Members over limit"
     TEST_ACCOUNT_FILTER = "test_account_filter", "Test account filter"
+    UNSUPPORTED_TIME_RANGE = "unsupported_time_range", "Unsupported time range"
 
 
 class CohortHistoryBuildPhase(models.TextChoices):
@@ -208,6 +214,18 @@ def _criteria_reason(cohort: Cohort) -> tuple[bool, CohortRealtimeUnavailableRea
     return has_bytecode_and_error, None
 
 
+def _time_range_refusal(cohort: Cohort) -> CohortRealtimeUnavailableReason | None:
+    """The reason for a cohort the pipeline can't prepare because of an event criterion's time range.
+
+    A save types such a cohort realtime and a turn-on refuses it, so without a reason it offers a switch that
+    never works.
+    """
+    properties = (cohort.filters or {}).get("properties")
+    if any(leaf_drop_reason(leaf) == UNSUPPORTED_STATE_VARIANT for leaf in walk_filter_leaves(properties)):
+        return CohortRealtimeUnavailableReason.UNSUPPORTED_TIME_RANGE
+    return None
+
+
 def _unavailable_reason(
     cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
 ) -> tuple[CohortRealtimeUnavailableReason | None, int | None]:
@@ -221,6 +239,11 @@ def _unavailable_reason(
         criteria_stop_it, criteria_reason = _criteria_reason(cohort)
         if criteria_stop_it:
             return criteria_reason, None
+    if state == CohortRealtimeState.OFF:
+        # A turn-on checks what the pipeline can prepare before the plan's limits.
+        time_range_reason = _time_range_refusal(cohort)
+        if time_range_reason is not None:
+            return time_range_reason, None
     history_limit_days = _history_limit_to_report(cohort, state, plan_history_days=plan_history_days, today=today)
     if history_limit_days is not None:
         return CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, history_limit_days
@@ -478,7 +501,11 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             state=CohortRealtimeState.NEEDS_ATTENTION,
             ready_at=None,
             build=None,
-            reason=CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD if cohort.id in too_large else None,
+            reason=(
+                CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD
+                if cohort.id in too_large
+                else _time_range_refusal(cohort)
+            ),
         )
 
     # A cohort is only as far along as its least advanced kind, and that is the only run a reader
