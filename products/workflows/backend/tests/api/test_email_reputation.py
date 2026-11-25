@@ -122,9 +122,12 @@ class TestEmailReputationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         return response.json()
 
-    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
+    @parameterized.expand([("delivery_answered", set()), ("delivery_query_failed", {"DELIVERY"})])
+    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(
+        self, _name: str, failing_metrics: set[str]
+    ):
         with FakeSesEndpoint().installed() as ses:
-            ses.failing_metrics.add("DELIVERY")
+            ses.failing_metrics.update(failing_metrics)
             ses.account_metrics.update(
                 {
                     "SEND": 4_276_310,
