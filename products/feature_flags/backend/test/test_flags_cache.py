@@ -1004,12 +1004,30 @@ class TestServiceFlagsSignals(BaseTest):
 
         with (
             override_settings(FLAGS_REDIS_URL=deleting_process_flags_redis_url),
-            self.captureOnCommitCallbacks(execute=True),
+            self.captureOnCommitCallbacks() as queued_clears,
         ):
             self.team.delete()
+        # The Celery worker that runs the queued clear has the flags Redis config.
+        for queued_clear in queued_clears:
+            queued_clear()
 
         assert flags_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
+
+    def test_team_delete_succeeds_when_the_broker_rejects_the_clear(self):
+        team = Team.objects.create(organization=self.organization, name="Doomed team")
+        team_id = team.id
+
+        with (
+            patch(
+                "products.feature_flags.backend.tasks.clear_team_evaluation_cache.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            team.delete()
+
+        assert not Team.objects.filter(id=team_id).exists()
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -1449,8 +1467,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         update_flags_cache(team)
         cache_key = flags_hypercache.get_cache_key(team_id)
         self.addCleanup(flags_hypercache.delete_cache_entry, team_id)
-        with patch.object(clear_team_evaluation_cache, "delay"):
-            team.delete()
+        team.delete()
 
         with patch.object(object_storage, "delete", side_effect=ConnectionError("s3 down")):
             with self.assertRaises(ConnectionError):

@@ -1671,7 +1671,8 @@ def team_deleted_flags_cache(sender, instance: "Team", **kwargs):
     from products.feature_flags.backend.tasks import clear_team_evaluation_cache
 
     team_id = instance.id
-    transaction.on_commit(lambda: clear_team_evaluation_cache.delay(team_id))
+    # robust=True keeps a broker failure from failing the delete. The daily cleanup then deletes the entry.
+    transaction.on_commit(lambda: clear_team_evaluation_cache.delay(team_id), robust=True)
 
 
 @receiver(post_save, sender=FeatureFlagEvaluationContext)

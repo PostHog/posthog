@@ -249,6 +249,8 @@ def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id
 @skip_team_scope_audit
 def clear_team_evaluation_cache(team_id: int) -> None:
     """Clear the /flags evaluation cache for a team, on team deletion or from staff tooling."""
+    if not settings.FLAGS_REDIS_URL:
+        return
     delete_entry_keeping_failed_delete_tracked(flags_hypercache, team_id)
 
 
@@ -264,7 +266,7 @@ def clear_team_evaluation_cache(team_id: int) -> None:
 def clear_team_definitions_cache(team_id: int) -> None:
     """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling."""
     # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
-    flag_definitions_hypercache.delete_cache_entry(team_id, strict_mirror=True)
+    delete_entry_keeping_failed_delete_tracked(flag_definitions_hypercache, team_id)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
