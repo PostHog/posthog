@@ -5389,6 +5389,22 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
         self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
 
+    @parameterized.expand(
+        [("no_query", ""), ("search_misses", "?search=unrelated"), ("search_matches", "?search=denied")]
+    )
+    def test_retrieve_of_a_denied_experiment_ignores_the_list_filters(self, name: str, query: str) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Denied experiment", "denied-experiment-flag")
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, f"denied-{name}@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
     @parameterized.expand([("eligible_flag", True), ("ineligible_flag", False)])
     def test_copy_experiment_to_project_refuses_denied_flag_in_target(self, _name: str, eligible: bool) -> None:
         self._enable_access_control()

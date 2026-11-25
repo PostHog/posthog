@@ -24,6 +24,8 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQue
 USER_QUERY_ERRORS: tuple[type[Exception], ...] = (
     ExposedHogQLError,
     hogql_errors.QueryError,
+    hogql_errors.TransientQueryError,
+    hogql_errors.ServerConfigurationQueryError,
     hogql_errors.SyntaxError,
     ValidationError,
     ClickHouseQueryMemoryLimitExceeded,

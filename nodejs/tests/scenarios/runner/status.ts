@@ -19,6 +19,19 @@ export function exitCodeOf({ status, scorecardError }: { status: Status; scoreca
     return scorecardError === undefined ? EXIT_CODE[status] : EXIT_CODE.writeFailed
 }
 
+export function withEvidenceError<Run extends { status: Status; statusReason: string }>(
+    run: Run,
+    error: string | undefined
+): Run {
+    return error === undefined
+        ? run
+        : {
+              ...run,
+              status: 'invalid',
+              statusReason: `${run.statusReason}; the evidence could not be written: ${error}`,
+          }
+}
+
 export type Admission = { name: 'load' | 'host'; passed: boolean; reason: string }
 
 type RateCheck = { what: string; measured: number | undefined; target: number }
