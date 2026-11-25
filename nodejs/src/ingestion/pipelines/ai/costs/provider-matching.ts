@@ -78,10 +78,8 @@ export const PROVIDER_ALIASES: Record<string, CanonicalProvider> = {
     or: 'default',
 }
 
-/**
- * Keys tried before alias resolution. Not in PROVIDER_ALIASES because the key
- * may be absent from the generated CanonicalProvider type.
- */
+// Keys tried before PROVIDER_ALIASES; kept separate because the key may be
+// absent from the generated CanonicalProvider type.
 export const PREFERRED_PROVIDER_KEYS: Record<string, string> = {
     openrouter: 'openrouter',
     or: 'openrouter',
@@ -178,7 +176,7 @@ export const resolveModelCostForProvider = (
             return preferredMatch
         }
 
-        // Try alias resolution first
+        // Then alias resolution
         const canonicalKey: string = resolveProviderAliases(provider)
         const match: ResolvedModelCost | undefined = findProviderMatch(canonicalKey)
 
