@@ -78,12 +78,13 @@ class Command(BaseCommand):
 
     @staticmethod
     def _client(errors: list[Exception]) -> posthoganalytics.Client:
-        if posthoganalytics.disabled or self_hosted_capture_reaches_posthog():
+        api_key = posthoganalytics.api_key
+        if api_key is None or posthoganalytics.disabled or self_hosted_capture_reaches_posthog():
             raise CommandError("Analytics capture is off in this process, or this is a self-hosted instance.")
         # The shared client cannot report failed sends. Its key and host are reused, so the events land in the
         # project that scans send to.
         return posthoganalytics.Client(
-            posthoganalytics.api_key,
+            api_key,
             host=posthoganalytics.host,
             super_properties=posthoganalytics.super_properties,
             on_error=lambda error, _batch: errors.append(error),
