@@ -1388,9 +1388,19 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_time", {}, (False, None)),
-            ("a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}, (False, None)),
-            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d")),
+            ("without_a_time", {}, (False, None, None)),
+            (
+                "a_time_that_passed_before_cdp_api_read_it",
+                {"scheduled_at": "2026-11-20T08:00:00.500Z"},
+                (False, None, None),
+            ),
+            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d", 1.0)),
+            (
+                "a_time_three_and_a_half_days_ahead",
+                {"scheduled_at": "2026-11-23T20:00:00Z"},
+                (True, "<7d", 84.0),
+            ),
+            ("a_time_ten_minutes_ahead", {"scheduled_at": "2026-11-20T08:10:00Z"}, (True, "<1h", 0.17)),
         ]
     )
     def test_the_send_event_reports_what_cdp_api_did_with_the_time_asked_for(
@@ -1413,7 +1423,30 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         [event] = analytics.properties_of("transactional email api send")
-        assert (event["scheduled"], event["scheduled_lead_bucket"]) == reported
+        assert (event["scheduled"], event["scheduled_lead_bucket"], event["scheduled_lead_hours"]) == reported
+
+    @parameterized.expand(
+        [
+            ("too_far_ahead", True, "2026-11-30T08:00:00Z", 240.0),
+            ("while_scheduled_sends_are_off", False, "2026-11-21T14:00:00Z", 30.0),
+            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T08:00:00Z", None),
+        ]
+    )
+    @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
+    def test_a_send_refused_for_its_time_reports_how_far_ahead_it_asked(
+        self, mock_post, flag, capture, _name, scheduled_sends_on, scheduled_at, lead_hours
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+        flag.side_effect = lambda key, *_args, **_kwargs: scheduled_sends_on or key != EMAIL_SCHEDULED_SENDS_FLAG
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(self._psak_client(["hog_flow:write"]), "code", scheduled_at)
+
+        assert (response.status_code, response.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
+        assert cdp.received == []
+        [event] = analytics.properties_of("transactional email api send")
+        assert (event["outcome"], event["scheduled_lead_hours"]) == ("rejected", lead_hours)
 
     @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
     def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(

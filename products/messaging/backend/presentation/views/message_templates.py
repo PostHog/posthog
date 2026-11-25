@@ -1266,6 +1266,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             self.request,
             {
                 **({} if body_read else {"attachment_count": None, "attachment_bytes": None}),
+                **_refused_schedule_properties(self.request),
                 "outcome": "rejected",
                 "error_code": response.data.get("code") if isinstance(response.data, dict) else None,
             },
@@ -1971,13 +1972,26 @@ def _scheduled_send_properties(
     scheduled_at: datetime | None, asked_at: datetime, scheduled: bool, replayed: bool
 ) -> dict[str, Any]:
     if scheduled_at is None or not scheduled:
-        return {"scheduled": False, "scheduled_lead_bucket": None}
+        return {"scheduled": False, "scheduled_lead_bucket": None, "scheduled_lead_hours": None}
     # A replay schedules nothing new, and its lead from now says nothing about the lead the first send had.
     if replayed:
-        return {"scheduled": True, "scheduled_lead_bucket": None}
+        return {"scheduled": True, "scheduled_lead_bucket": None, "scheduled_lead_hours": None}
     lead = scheduled_at - asked_at
     bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
-    return {"scheduled": True, "scheduled_lead_bucket": bucket}
+    return {"scheduled": True, "scheduled_lead_bucket": bucket, "scheduled_lead_hours": _lead_hours(lead)}
+
+
+def _refused_schedule_properties(request: Any) -> dict[str, Any]:
+    data = getattr(request, "validated_data", None)
+    scheduled_at = data.get("scheduled_at") if isinstance(data, Mapping) else None
+    if scheduled_at is None:
+        return {}
+    lead = scheduled_at - timezone.now()
+    return {"scheduled_lead_hours": _lead_hours(lead) if lead > timedelta(0) else None}
+
+
+def _lead_hours(lead: timedelta) -> float:
+    return round(lead / timedelta(hours=1), 2)
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
