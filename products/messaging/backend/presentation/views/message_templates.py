@@ -1207,6 +1207,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     transactional_email_route: str
     _validation_started_at: float | None = None
     _send_reported: bool = False
+    _scheduled_lead: timedelta | None = None
     _batch_properties: Mapping[str, Any] = MappingProxyType({})
 
     def _is_transactional_email_send(self) -> bool:
@@ -1261,12 +1262,34 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def body_too_large(self) -> ExplainedRefusal:
         return email_body_too_large()
 
+    def _check_scheduled_at(self, scheduled_at: datetime | None) -> None:
+        if scheduled_at is None:
+            return
+        # A refusal reports this lead, so its event and the check agree on the side of now and of the cap it fell.
+        self._scheduled_lead = lead = scheduled_at - timezone.now()
+        if not _flag_enabled(self.team, EMAIL_SCHEDULED_SENDS_FLAG):
+            raise serializers.ValidationError(
+                {
+                    "scheduled_at": "Scheduled sends are off for this project, so PostHog didn't send this request's "
+                    "email. An email PostHog already scheduled still goes out at its time. To send this one now, leave "
+                    "out `scheduled_at`."
+                }
+            )
+        if lead > SCHEDULED_SEND_MAX_LEAD:
+            raise ExplainedRefusal(
+                "`scheduled_at` is more than 7 days away, so PostHog didn't send the email.",
+                code="scheduled_too_far",
+                attr="scheduled_at",
+                why="PostHog holds a scheduled email for at most 7 days after the request.",
+                fix="Pick a time within 7 days, or send the email closer to the time.",
+            )
+
     def _report_refused_request(self, response: Response, *, body_read: bool) -> None:
         self._report_transactional_email_send(
             self.request,
             {
                 **({} if body_read else {"attachment_count": None, "attachment_bytes": None}),
-                **_refused_schedule_properties(self.request),
+                **({} if self._scheduled_lead is None else {"scheduled_lead_hours": _lead_hours(self._scheduled_lead)}),
                 "outcome": "rejected",
                 "error_code": response.data.get("code") if isinstance(response.data, dict) else None,
             },
@@ -1884,7 +1907,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             return self._send_code_email(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
-            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
+            self._check_scheduled_at(request.validated_data.get("scheduled_at"))
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
         return self._queue_transactional_email(request, template)
@@ -1892,7 +1915,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
-            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
+            self._check_scheduled_at(request.validated_data.get("scheduled_at"))
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
         email = code_email(data)
@@ -1947,27 +1970,6 @@ def code_email_usage_properties(email: CodeEmail) -> dict[str, Any]:
     }
 
 
-def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
-    if scheduled_at is None:
-        return
-    if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
-        raise serializers.ValidationError(
-            {
-                "scheduled_at": "Scheduled sends are off for this project, so PostHog didn't send this request's "
-                "email. An email PostHog already scheduled still goes out at its time. To send this one now, leave out "
-                "`scheduled_at`."
-            }
-        )
-    if scheduled_at - timezone.now() > SCHEDULED_SEND_MAX_LEAD:
-        raise ExplainedRefusal(
-            "`scheduled_at` is more than 7 days away, so PostHog didn't send the email.",
-            code="scheduled_too_far",
-            attr="scheduled_at",
-            why="PostHog holds a scheduled email for at most 7 days after the request.",
-            fix="Pick a time within 7 days, or send the email closer to the time.",
-        )
-
-
 def _scheduled_send_properties(
     scheduled_at: datetime | None, asked_at: datetime, scheduled: bool, replayed: bool
 ) -> dict[str, Any]:
@@ -1979,13 +1981,6 @@ def _scheduled_send_properties(
     lead = scheduled_at - asked_at
     bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
     return {"scheduled": True, "scheduled_lead_bucket": bucket, "scheduled_lead_hours": _lead_hours(lead)}
-
-
-def _refused_schedule_properties(request: Any) -> dict[str, Any]:
-    scheduled_at = getattr(request, "validated_data", {}).get("scheduled_at")
-    if scheduled_at is None:
-        return {}
-    return {"scheduled_lead_hours": _lead_hours(scheduled_at - timezone.now())}
 
 
 def _lead_hours(lead: timedelta) -> float:

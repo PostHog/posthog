@@ -1437,15 +1437,21 @@ class TestTransactionalEmail(APIBaseTest):
             ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T08:00:00Z", -24.0),
         ]
     )
-    @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
     def test_a_send_refused_for_its_time_reports_how_far_ahead_it_asked(
         self, mock_post, flag, capture, _name, scheduled_sends_on, scheduled_at, lead_hours
     ):
         analytics = FakeAnalytics()
         capture.side_effect = analytics.capture
-        flag.side_effect = lambda key, *_args, **_kwargs: scheduled_sends_on or key != EMAIL_SCHEDULED_SENDS_FLAG
 
-        with FakeCdpApi().serving(mock_post) as cdp:
+        with time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock, FakeCdpApi().serving(mock_post) as cdp:
+
+            def a_slow_flag_lookup(key: str, *_args: Any, **_kwargs: Any) -> bool:
+                if key != EMAIL_SCHEDULED_SENDS_FLAG:
+                    return True
+                clock.shift(3600)
+                return scheduled_sends_on
+
+            flag.side_effect = a_slow_flag_lookup
             response = self._send_with_scheduled_at(self._psak_client(["hog_flow:write"]), "code", scheduled_at)
 
         assert (response.status_code, response.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
@@ -1475,9 +1481,11 @@ class TestTransactionalEmail(APIBaseTest):
         assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
         assert len(cdp.queued) == 1
         events = analytics.properties_of("transactional email api send")
-        assert [(event["scheduled"], event["scheduled_lead_bucket"]) for event in events[:2]] == [
-            (True, "<1d"),
-            (True, None),
+        assert [
+            (event["scheduled"], event["scheduled_lead_bucket"], event["scheduled_lead_hours"]) for event in events[:2]
+        ] == [
+            (True, "<1d", 1.0),
+            (True, None, None),
         ]
 
     @parameterized.expand(
