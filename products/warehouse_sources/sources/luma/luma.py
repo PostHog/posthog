@@ -1,4 +1,5 @@
 import dataclasses
+import unicodedata
 from collections.abc import Iterator
 from typing import Any, Optional
 
@@ -40,6 +41,18 @@ class LumaResumeConfig:
     # events page has been yielded, so a resume re-pulls at most one page of parents and merge
     # dedupes the re-pulled rows on the primary key.
     pagination_cursor: str | None = None
+
+
+UNSUPPORTED_CHARACTER_MESSAGE = (
+    "Your Luma API key contains a character that can't be sent to Luma, such as an invisible one "
+    "pasted from another app. Copy the key again from your Luma settings and reconnect."
+)
+
+
+def clean_api_key(api_key: str) -> str:
+    # Luma keys are ASCII, so format characters (zero-width space, byte order mark) and Unicode
+    # whitespace such as a line separator at either end are copy debris, not part of the key.
+    return "".join(char for char in api_key if unicodedata.category(char) != "Cf").strip()
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -240,6 +253,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[LumaResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = LUMA_ENDPOINTS[endpoint]
+    api_key = clean_api_key(api_key)
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     if config.fan_out_over_events:
@@ -277,6 +291,7 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
     for a connection problem, other HTTP status otherwise. Luma answers 400 when the key header is
     missing/blank and 401 when the key is not recognized.
     """
+    api_key = clean_api_key(api_key)
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
     try:
         response = session.get(f"{LUMA_BASE_URL}{path}", params={"pagination_limit": 1}, timeout=15)
@@ -293,6 +308,12 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    # The key rides in a header, which http.client encodes as latin-1, so any other character (for
+    # example the "…" of a truncated key) fails mid-request with a raw encoding error.
+    api_key = clean_api_key(api_key)
+    if not api_key.isascii() or "\r" in api_key or "\n" in api_key:
+        return False, UNSUPPORTED_CHARACTER_MESSAGE
+
     status, message = check_access(api_key)
     if status == 200:
         return True, None

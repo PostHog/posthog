@@ -597,7 +597,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     metric_event_names = _metric_event_names(metrics)
     # The same rollout resolution the analysis applies, resolved here for the cache key and the
     # exposure event's name; the population read inside the linkage resolves it again itself.
-    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
+    default_exposure_event = resolve_default_exposure_event(experiment.start_date)
     multiple_variant_handling = get_multiple_variant_handling_from_experiment(experiment.exposure_criteria)
 
     cache_key = _cache_key(team, user, experiment, window_end, default_exposure_event)

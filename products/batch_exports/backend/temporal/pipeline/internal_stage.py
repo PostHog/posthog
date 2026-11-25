@@ -765,7 +765,7 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        if batch_exports_read_new_events_table():
+        if batch_exports_read_new_events_table(team_id):
             events_query = await _get_new_events_query(
                 team_id=team_id,
                 full_range=full_range,

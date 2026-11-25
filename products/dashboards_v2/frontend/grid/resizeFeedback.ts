@@ -73,7 +73,7 @@ export function endResizeFeedback(tile: HTMLElement | null): void {
             }
             tile.style.setProperty('--dv2-squeeze-x', '1')
             tile.style.setProperty('--dv2-squeeze-y', '1')
-            // The spring back takes 300ms in DashboardV2.scss, so the overlay stays until then.
+            // The spring back takes 300ms in TileGrid.css, so the overlay stays until then.
             setTimeout(() => tile.removeAttribute('data-dv2-at-minimum'), 300)
         })
     )

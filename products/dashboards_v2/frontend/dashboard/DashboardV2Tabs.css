@@ -1,0 +1,77 @@
+@property --dv2-fade-start {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0;
+}
+
+@property --dv2-fade-end {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0;
+}
+
+@keyframes DashboardV2Tabs__fade {
+    0% {
+        --dv2-fade-start: 0;
+        --dv2-fade-end: var(--dv2-fade-size);
+    }
+
+    5%,
+    95% {
+        --dv2-fade-start: var(--dv2-fade-size);
+        --dv2-fade-end: var(--dv2-fade-size);
+    }
+
+    100% {
+        --dv2-fade-start: var(--dv2-fade-size);
+        --dv2-fade-end: 0;
+    }
+}
+
+/* A bar on the side a dragged tab will land, drawn outside the trigger so quill's own styles leave it alone. */
+.DashboardV2Tabs__tab--insert-before,
+.DashboardV2Tabs__tab--insert-after {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: 15%;
+        bottom: 15%;
+        width: 2px;
+        content: '';
+        background: var(--color-accent);
+        border-radius: 1px;
+    }
+}
+
+.DashboardV2Tabs__tab--insert-before::after {
+    left: -1px;
+}
+
+.DashboardV2Tabs__tab--insert-after::after {
+    right: -1px;
+}
+
+.DashboardV2Tabs__tab--drop-target {
+    border-radius: var(--radius);
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* Tabs that don't fit scroll sideways with no scrollbar, and fade out on whichever side has more to scroll to.
+   The fade follows the scroll position, so it needs no script; a browser without scroll timelines shows no fade. */
+.DashboardV2Tabs__scroller {
+    --dv2-fade-size: 24px;
+
+    @supports (animation-timeline: scroll()) {
+        mask-image: linear-gradient(
+            to right,
+            transparent,
+            #000 var(--dv2-fade-start),
+            #000 calc(100% - var(--dv2-fade-end)),
+            transparent
+        );
+        animation: DashboardV2Tabs__fade linear both;
+        animation-timeline: scroll(self inline);
+    }
+}

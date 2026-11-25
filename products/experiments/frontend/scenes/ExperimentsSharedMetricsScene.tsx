@@ -31,13 +31,15 @@ import { urls } from 'scenes/urls'
 
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
+import { SharedMetricsFilterBar } from '../components/SharedMetricsFilterBar'
+
 export const scene: SceneExport = {
     component: ExperimentsSharedMetricsScene,
     logic: sharedMetricsLogic,
 }
 
 export function ExperimentsSharedMetricsScene(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page, hasActiveFilters } =
         useValues(sharedMetricsLogic)
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -178,14 +180,15 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without
                 having to set them up each time.
             </LemonBanner>
-            <div className="flex justify-between items-center gap-2">
-                <div className="flex items-center gap-2">
+            <div className="flex justify-between items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <LemonInput
                         type="search"
                         placeholder="Search shared metrics..."
                         value={searchTerm}
                         onChange={setSearchTerm}
                     />
+                    <SharedMetricsFilterBar />
                     {count ? (
                         <span className="text-secondary whitespace-nowrap">
                             {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(
@@ -203,7 +206,13 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 columns={columns}
                 dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}
-                emptyState={<div>You haven't created any shared metrics yet.</div>}
+                emptyState={
+                    <div>
+                        {hasActiveFilters
+                            ? 'No shared metrics match these filters. Try changing or clearing them.'
+                            : "You haven't created any shared metrics yet."}
+                    </div>
+                }
             />
             {count > PAGE_SIZE ? (
                 <div className="flex items-center justify-end gap-1">

@@ -178,8 +178,9 @@ The copy is switched on per project, apart from the setting that makes an experi
 When `resolved_exposure_event` is `$experiment_exposure`, the query window is on or after 2026-09-01 (UTC), that event has no rows for the flag, and `$feature_flag_called` has variant responses in the same window, the copy is not written for the project.
 That is not a fault of the SDK or of the application: say so, and point the user to PostHog support.
 
-<!-- Source for maintainers (may rot): resolve_default_exposure_event and EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
-products/experiments/backend/hogql_queries/exposure_query_logic.py; build_variant_property in
+<!-- Source for maintainers (may rot): resolve_default_exposure_event in
+products/experiments/backend/hogql_queries/exposure_query_logic.py; EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
+posthog/settings/experiments.py; build_variant_property in
 experiment_exposure_query_builder.py; isMultivariateFeatureFlagCalledEvent in
 nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts. -->
 

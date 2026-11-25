@@ -21,7 +21,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isClickTrackingEnabled, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -741,12 +741,7 @@ export class EmailService {
     ): Promise<WorkflowRunTag | null> {
         // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
         // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
-        if (
-            !trackingEnabled ||
-            invocation.state?.send?.tracking.clicks === false ||
-            isTest ||
-            isSensitiveMessage(invocation)
-        ) {
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {

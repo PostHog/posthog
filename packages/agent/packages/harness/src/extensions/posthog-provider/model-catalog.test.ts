@@ -140,7 +140,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-6.1-sol", "GPT-6.1 Sol"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3.1-pro", "Kimi K3.1 Pro"],
-    ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],
+    ["deepseek-ai/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash"],
   ])("formats %s for Pi", (id, name) => {
     const models = resolvePosthogPiModelCatalog(
       [
