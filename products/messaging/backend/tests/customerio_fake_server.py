@@ -23,7 +23,7 @@ NO_EXPORT_KEY = "fake-customerio-key-without-exports"
 SEGMENT_TIME = "1795627826"
 
 
-@dataclass
+@dataclass(frozen=False)
 class Workspace:
     id: int = 1001
     people: list[dict[str, Any]] = field(default_factory=list)
