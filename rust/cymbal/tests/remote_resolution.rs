@@ -452,7 +452,6 @@ async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
         delay: Duration::from_millis(400),
     })
     .await;
-    // With no retry left, the attempt that runs into the deadline is also the last one.
     for max_retries in [1, 0] {
         let ctx = make_ctx(&[slow_addr], max_retries, Duration::from_millis(100)).await;
         let evt = build_event(1);

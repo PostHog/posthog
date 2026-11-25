@@ -882,8 +882,6 @@ async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(d
     let (status, _) = harness.post_body(false, body.clone(), |_| {}).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
-    // serde_json rejects a value nested past its recursion limit, which is a parse failure
-    // of that event only.
     let mut nested = make_event(vec![make_exception("Error", "boom")]);
     nested.properties["nested"] = (0..200).fold(json!(1), |value, _| json!([value]));
 
@@ -956,8 +954,6 @@ async fn item_results_fail_the_whole_request_when_no_event_resolved(db: PgPool) 
         load_static_event("javascript_chunk_id"),
         load_static_event("javascript_chunk_id_2"),
     ];
-    // One event is poison and the other finds no pod, so answering per event would send the
-    // second one to the dead letter queue for a failure of the pool.
     let (addr, _) = common::spawn_stub_server(common::ServerBehavior::ErrorThenError {
         first: ErrorKind::Poison,
         rest: ErrorKind::Overloaded,
