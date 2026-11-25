@@ -290,7 +290,6 @@ def _read_limited_team_attributes(client: QuotaRedisClient, key: str) -> list[st
 
 
 def _read_shared_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
-    """Reads shared Redis whatever the read switch says."""
     return _read_limited_team_attributes(get_client(), f"{cache_key.value}{resource.value}")
 
 
@@ -1788,7 +1787,6 @@ def update_all_orgs_billing_quotas(
     failed_org_ids: set[str] = set()
     failed_team_tokens: set[str] = set()
 
-    # Reconciliation must use this run's own snapshot, not the asynchronous 30-second cache.
     previously_quota_limited_team_tokens = _snapshot_shared_limited_team_attributes(
         QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )

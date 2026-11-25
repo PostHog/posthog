@@ -3813,7 +3813,10 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         ):
             update_all_orgs_billing_quotas()
 
-        assert snapshot_mock.call_args_list
+        assert [call.args for call in snapshot_mock.call_args_list] == [
+            (QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,),
+            (QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,),
+        ]
 
         zset_score = get_client().zscore(
             f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
