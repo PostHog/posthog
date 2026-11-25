@@ -31,7 +31,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import (
@@ -54,6 +54,7 @@ from products.cohorts.backend.parity.eligibility import (
     is_action_key,
     leaf_drop_reason,
 )
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
@@ -170,7 +171,7 @@ def _settled_state(cohort: Cohort) -> str | None:
 
 
 def _history_limit_to_report(
-    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], team_today: Callable[[], date]
 ) -> int | None:
     """The plan's history limit, when criteria that look back past a limit keep this cohort ``off`` or ``daily``.
 
@@ -180,8 +181,14 @@ def _history_limit_to_report(
     """
     if state == CohortRealtimeState.OFF:
         limit_days = plan_history_days()
+        # The turn-on uses the team's calendar day, so an absolute start date at the limit reads the same here.
+        today = team_today()
     elif state == CohortRealtimeState.DAILY:
         limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+        # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute start
+        # date at the limit can read on the other side of it here, which changes only the reason, and a page of
+        # daily cohorts reads no team.
+        today = timezone.now().date()
     else:
         return None
     if not behavioral_history_over_limit((cohort.filters or {}).get("properties"), limit_days=limit_days, today=today):
@@ -227,7 +234,7 @@ def _time_range_refusal(cohort: Cohort) -> CohortRealtimeUnavailableReason | Non
 
 
 def _unavailable_reason(
-    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], team_today: Callable[[], date]
 ) -> tuple[CohortRealtimeUnavailableReason | None, int | None]:
     """Why a settled cohort can't be realtime or can't be turned on, and the plan's history limit when that is why.
 
@@ -244,7 +251,9 @@ def _unavailable_reason(
         time_range_reason = _time_range_refusal(cohort)
         if time_range_reason is not None:
             return time_range_reason, None
-    history_limit_days = _history_limit_to_report(cohort, state, plan_history_days=plan_history_days, today=today)
+    history_limit_days = _history_limit_to_report(
+        cohort, state, plan_history_days=plan_history_days, team_today=team_today
+    )
     if history_limit_days is not None:
         return CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, history_limit_days
     if state == CohortRealtimeState.DAILY:
@@ -437,11 +446,10 @@ def _too_large_to_build(team_id: int, cohorts: Sequence[Cohort]) -> set[int]:
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
-    # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
-    # start date at the limit can read on the other side of it here, which changes only the reason.
-    today = timezone.now().date()
-    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no organization.
-    plan_history_days = cache(lambda: max_realtime_history_days(Organization.objects.get(team__id=team_id)))
+    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no team.
+    team = cache(lambda: Team.objects.select_related("organization").get(id=team_id))
+    plan_history_days = cache(lambda: max_realtime_history_days(team().organization))
+    team_today = cache(lambda: day_of_instant(timezone.now(), resolve_zoneinfo(team().timezone)))
 
     for cohort in cohorts:
         settled = _settled_state(cohort)
@@ -449,7 +457,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             pending.append(cohort)
         else:
             reason, history_limit_days = _unavailable_reason(
-                cohort, settled, plan_history_days=plan_history_days, today=today
+                cohort, settled, plan_history_days=plan_history_days, team_today=team_today
             )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
