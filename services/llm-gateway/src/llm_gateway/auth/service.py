@@ -176,11 +176,11 @@ class AuthService:
         UserAccessControl.get_user_access_level for resource="project": org
         admins bypass, rows apply only when the organization has the
         access_control feature, and no rows means the open project default.
-        Rows resolve most-specific-first (_object_access_level_from_rows):
-        explicit member and role rows for this user take the highest level
-        among themselves and the default row is consulted only when no
-        explicit row names the user. Role rows count only when the
-        organization also has the role_based_access feature and the user
+        Rows resolve most-specific-first (_most_specific_rows_decision): the
+        user's own member row decides when one exists, then the highest row
+        among the roles the user holds, then the default row. A less specific
+        row never overrides a more specific one. Role rows count only when
+        the organization also has the role_based_access feature and the user
         holds the role in the project's organization
         (UserAccessControl._user_role_ids).
         """
@@ -226,18 +226,19 @@ class AuthService:
                 return True
 
             default_levels: list[str] = []
-            explicit_levels: list[str] = []
+            member_levels: list[str] = []
             role_grants: dict[str, str] = {}
             for row in rows:
                 if row["organization_member_id"] is None and row["role_id"] is None:
                     default_levels.append(row["access_level"])
                 elif row["organization_member_id"] is not None:
                     if str(row["organization_member_id"]) == str(project["membership_id"]):
-                        explicit_levels.append(row["access_level"])
+                        member_levels.append(row["access_level"])
                 elif row["role_id"] is not None:
                     role_grants[str(row["role_id"])] = row["access_level"]
 
-            if role_grants and "role_based_access" in features:
+            role_levels: list[str] = []
+            if not member_levels and role_grants and "role_based_access" in features:
                 user_roles = await conn.fetch(
                     """
                     SELECT rm.role_id
@@ -248,11 +249,11 @@ class AuthService:
                     user.user_id,
                     project["organization_id"],
                 )
-                explicit_levels.extend(
+                role_levels = [
                     role_grants[str(row["role_id"])] for row in user_roles if str(row["role_id"]) in role_grants
-                )
+                ]
 
-            levels = explicit_levels or default_levels
+            levels = member_levels or role_levels or default_levels
             if not levels:
                 return True
             return any(_PROJECT_ACCESS_LEVEL_RANK.get(level, 0) > 0 for level in levels)

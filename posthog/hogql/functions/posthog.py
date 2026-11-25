@@ -98,13 +98,19 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "getTrafficType",
         1,
         2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        signatures=[
+            ((StringType(),), StringType(nullable=False)),
+            ((StringType(), StringType()), StringType(nullable=False)),
+        ],
     ),
     "getTrafficCategory": HogQLFunctionMeta(
         "getTrafficCategory",
         1,
         2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        signatures=[
+            ((StringType(),), StringType(nullable=False)),
+            ((StringType(), StringType()), StringType(nullable=False)),
+        ],
     ),
     "isLikelyBot": HogQLFunctionMeta(
         "isLikelyBot",
@@ -116,35 +122,62 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "getBotType",
         1,
         2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        signatures=[
+            ((StringType(),), StringType(nullable=False)),
+            ((StringType(), StringType()), StringType(nullable=False)),
+        ],
     ),
     "getBotName": HogQLFunctionMeta(
         "getBotName",
         1,
         2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        signatures=[
+            ((StringType(),), StringType(nullable=False)),
+            ((StringType(), StringType()), StringType(nullable=False)),
+        ],
     ),
     "getBotOperator": HogQLFunctionMeta(
         "getBotOperator",
         1,
         2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        signatures=[
+            ((StringType(),), StringType(nullable=False)),
+            ((StringType(), StringType()), StringType(nullable=False)),
+        ],
     ),
     # Deprecated __preview_* aliases — kept so ad-hoc queries written against the preview names keep working.
     "__preview_getTrafficType": HogQLFunctionMeta(
-        "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]
+        "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType(nullable=False))]
     ),
     "__preview_getTrafficCategory": HogQLFunctionMeta(
-        "__preview_getTrafficCategory", 1, 1, signatures=[((StringType(),), StringType())]
+        "__preview_getTrafficCategory", 1, 1, signatures=[((StringType(),), StringType(nullable=False))]
     ),
     "__preview_isBot": HogQLFunctionMeta("__preview_isBot", 1, 1, signatures=[((StringType(),), BooleanType())]),
     "__preview_getBotType": HogQLFunctionMeta(
-        "__preview_getBotType", 1, 1, signatures=[((StringType(),), StringType())]
+        "__preview_getBotType", 1, 1, signatures=[((StringType(),), StringType(nullable=False))]
     ),
     "__preview_getBotName": HogQLFunctionMeta(
-        "__preview_getBotName", 1, 1, signatures=[((StringType(),), StringType())]
+        "__preview_getBotName", 1, 1, signatures=[((StringType(),), StringType(nullable=False))]
     ),
     "__preview_getBotOperator": HogQLFunctionMeta(
-        "__preview_getBotOperator", 1, 1, signatures=[((StringType(),), StringType())]
+        "__preview_getBotOperator", 1, 1, signatures=[((StringType(),), StringType(nullable=False))]
     ),
 }
+
+
+BOT_DETECTION_FUNCTIONS = frozenset(
+    {
+        "isLikelyBot",
+        "getTrafficType",
+        "getTrafficCategory",
+        "getBotType",
+        "getBotName",
+        "getBotOperator",
+        "__preview_isBot",
+        "__preview_getTrafficType",
+        "__preview_getTrafficCategory",
+        "__preview_getBotType",
+        "__preview_getBotName",
+        "__preview_getBotOperator",
+    }
+)

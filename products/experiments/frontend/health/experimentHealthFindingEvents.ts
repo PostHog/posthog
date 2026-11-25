@@ -34,6 +34,8 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
     | 'no_metric'
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
@@ -87,7 +89,7 @@ const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentH
     not_started_but_multiple_variants_rolled_out: 'flag_live_before_launch',
 }
 
-export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
+const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
     Object.values(EXPERIMENT_WARNING_FINDING_CODES)
 )
 

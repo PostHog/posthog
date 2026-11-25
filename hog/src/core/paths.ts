@@ -1,7 +1,16 @@
+import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import { HogError } from './errors'
 import type { Runtime } from './runtime'
+
+export function canonical(path: string): string {
+    try {
+        return realpathSync(path)
+    } catch {
+        return path
+    }
+}
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
@@ -25,6 +34,22 @@ export async function realWritePath(runtime: Pick<Runtime, 'exists' | 'realPath'
     }
 
     return join(await runtime.realPath(existing), ...missing)
+}
+
+// Where a write to `path` lands, or undefined when that is outside `root`. A link to a missing file
+// counts as outside, because the write would create whatever file the link names.
+export async function confinedWritePath(
+    runtime: Pick<Runtime, 'exists' | 'realPath'>,
+    root: string,
+    path: string
+): Promise<string | undefined> {
+    const folder = await realWritePath(runtime, dirname(path))
+    const unresolved = join(folder, basename(path))
+    const target = (await runtime.exists(folder))
+        ? await runtime.realPath(unresolved).catch(() => undefined)
+        : unresolved
+
+    return target !== undefined && isInside(await realWritePath(runtime, root), target) ? target : undefined
 }
 
 export async function findGitRoot(

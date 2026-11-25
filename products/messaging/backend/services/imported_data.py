@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -18,6 +19,9 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+
+# Postgres takes at most 65,535 values in one query, so a large list is looked up and written in parts.
+LOOKUP_CHUNK_SIZE = 10_000
 
 
 @frozen
@@ -161,8 +165,15 @@ def import_opt_outs_changed(team_id: int, opt_outs: Mapping[str, Iterable[str]],
         for identifier, category_ids in opt_outs.items()
     }
     patches = {identifier: patch for identifier, patch in patches.items() if patch}
-    if not patches:
-        return set()
+    identifiers = sorted(patches)
+    changed: set[str] = set()
+    for start in range(0, len(identifiers), LOOKUP_CHUNK_SIZE):
+        chunk = {identifier: patches[identifier] for identifier in identifiers[start : start + LOOKUP_CHUNK_SIZE]}
+        changed |= _import_opt_out_chunk(team_id, chunk, created_by_id)
+    return changed
+
+
+def _import_opt_out_chunk(team_id: int, patches: Mapping[str, dict[str, str]], created_by_id: int | None) -> set[str]:
     preferences = MessageRecipientPreference.objects.filter(team_id=team_id)
     with transaction.atomic():
         stored = set(preferences.filter(identifier__in=list(patches)).values_list("identifier", flat=True))
@@ -190,6 +201,41 @@ def import_opt_outs_changed(team_id: int, opt_outs: Mapping[str, Iterable[str]],
             merged.append(row)
         MessageRecipientPreference.objects.bulk_update(merged, ["preferences", "updated_at"], batch_size=500)
     return inserted | {row.identifier for row in merged}
+
+
+def carry_opt_outs(team_id: int, addresses: Iterable[str], created_by_id: int | None) -> int:
+    """Give every spelling of each address the opt-outs stored under any of its spellings, because a send matches the
+    exact address it names.
+
+    `addresses` holds each spelling the import saw, from the provider or from the person it matched. A spelling an
+    opt-out was stored under counts too.
+    """
+    spellings: dict[str, set[str]] = {}
+    for address in addresses:
+        spellings.setdefault(address.lower(), set()).add(address)
+    if not spellings:
+        return 0
+    opted_out: dict[str, set[str]] = {}
+    lowered_addresses = sorted(spellings)
+    for start in range(0, len(lowered_addresses), LOOKUP_CHUNK_SIZE):
+        stored = (
+            MessageRecipientPreference.objects.filter(team_id=team_id, deleted=False)
+            .annotate(lowered=Lower("identifier"))
+            .filter(lowered__in=lowered_addresses[start : start + LOOKUP_CHUNK_SIZE])
+            .values_list("lowered", "identifier", "preferences")
+        )
+        for lowered, identifier, preferences in stored.iterator(chunk_size=2000):
+            spellings[lowered].add(identifier)
+            opted_out.setdefault(lowered, set()).update(
+                category_id
+                for category_id, status in (preferences or {}).items()
+                if status == PreferenceStatus.OPTED_OUT.value
+            )
+    return import_opt_outs(
+        team_id,
+        {spelling: categories for lowered, categories in opted_out.items() for spelling in spellings[lowered]},
+        created_by_id,
+    )
 
 
 def import_categories(

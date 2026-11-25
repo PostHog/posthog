@@ -28,6 +28,11 @@ class TaboolaEndpointConfig:
     path: str = ""
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # False for user-level endpoints that live directly under the API base, not under {account_id}.
+    account_scoped: bool = True
+    # The endpoint answers 404 when the account doesn't support it (e.g. a non-network
+    # account), which means "no rows" rather than a bad account ID.
+    empty_on_not_found: bool = False
 
 
 TABOOLA_ENDPOINTS: dict[str, TaboolaEndpointConfig] = {
@@ -47,6 +52,18 @@ TABOOLA_ENDPOINTS: dict[str, TaboolaEndpointConfig] = {
         name="conversion_rules",
         kind="entity",
         path="/universal_pixel/conversion_rule",
+    ),
+    "allowed_accounts": TaboolaEndpointConfig(
+        name="allowed_accounts",
+        kind="entity",
+        path="/users/current/allowed-accounts",
+        account_scoped=False,
+    ),
+    "advertisers": TaboolaEndpointConfig(
+        name="advertisers",
+        kind="entity",
+        path="/advertisers",
+        empty_on_not_found=True,
     ),
     # Date-windowed report with per-row date + campaign — incremental with a
     # restatement lookback.
@@ -71,6 +88,20 @@ TABOOLA_ENDPOINTS: dict[str, TaboolaEndpointConfig] = {
         kind="snapshot_report",
         path="/reports/top-campaign-content/dimensions/item_breakdown",
         primary_keys=["campaign", "item"],
+    ),
+    # Site and country breakdown rows carry no date either, and per-day requests
+    # would blow the 300-requests-per-hour report budget on a backfill.
+    "campaign_summary_by_site": TaboolaEndpointConfig(
+        name="campaign_summary_by_site",
+        kind="snapshot_report",
+        path="/reports/campaign-summary/dimensions/site_breakdown",
+        primary_keys=["site"],
+    ),
+    "campaign_summary_by_country": TaboolaEndpointConfig(
+        name="campaign_summary_by_country",
+        kind="snapshot_report",
+        path="/reports/campaign-summary/dimensions/country_breakdown",
+        primary_keys=["country"],
     ),
 }
 

@@ -203,6 +203,9 @@ async fn the_repeated_aggregate_is_computed_once() {
     );
     let plan = client
         .query(&format!("EXPLAIN actions = 1 {explained}"))
+        // The checks below read the text plan layout from before 26.7. Compatibility 26.7 and later
+        // default to the `pretty` layout, which prefixes each line with tree glyphs.
+        .with_option("explain_query_plan_default", "legacy")
         .fetch_all::<ExplainLine>()
         .await
         .unwrap_or_else(|error| panic!("EXPLAIN failed: {error}\n{explained}"))

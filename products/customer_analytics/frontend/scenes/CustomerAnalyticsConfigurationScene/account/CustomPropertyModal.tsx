@@ -21,6 +21,7 @@ import {
 
 import type { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -29,7 +30,10 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 
-import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    type CustomPropertyOptionApi,
+    WarehousePersonPropertyMissingRowBehaviorEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     ColumnPropertyMapping,
@@ -44,6 +48,9 @@ import {
     OPTION_COLOR_TOKENS,
     isNumericDisplayType,
 } from './customPropertyTypes'
+import { QuillCustomPropertyModal } from './QuillCustomPropertyModal'
+import { QuillCustomPropertyOptionsEditor } from './QuillCustomPropertyOptionsEditor'
+import { QuillPersonSourceEditor } from './QuillPersonSourceEditor'
 
 const SOURCE_MODE_OPTIONS: { value: CustomPropertySourceMode; label: string }[] = [
     { value: 'manual', label: 'Manual' },
@@ -162,7 +169,7 @@ function ReadOnlyColumnMappings({
 // Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
 // (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
 // also picks which group type. The binding + mappings are create-only on the backend, so they're
-// read-only once a source exists (only the key column + enabled switch stay editable).
+// read-only once a source exists (the key column, missing-row behavior and enabled switch stay editable).
 function PersonSourceEditor(): JSX.Element {
     const {
         customPropertyForm,
@@ -179,6 +186,7 @@ function PersonSourceEditor(): JSX.Element {
     const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables, mapAllColumns } =
         useActions(customPropertyDefinitionsLogic)
     const { groupTypes, groupTypesLoading } = useValues(groupsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
@@ -224,9 +232,94 @@ function PersonSourceEditor(): JSX.Element {
     }))
     const selectedGroupTypeLabel =
         groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
+    const existingSourceUrl =
+        existingBindsAView && existingSource?.saved_query
+            ? urls.sqlEditor({ view_id: existingSource.saved_query })
+            : existingSource?.external_data_source && existingSource.external_data_schema
+              ? urls.dataWarehouseSourceSchema(existingSource.external_data_source, existingSource.external_data_schema)
+              : null
+
+    const handleWarehouseSourceChange = (newValue: string | null, onChange: (value: string | null) => void): void => {
+        onChange(newValue)
+        // Columns belong to one source, so a change invalidates the picks and
+        // loads the new source's columns for the pickers below.
+        setCustomPropertyFormValue('keyColumn', null)
+        setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
+        // Also load on clear (null) so the pickers below drop the previous source's
+        // stale columns; the loader returns an empty list for null.
+        loadSelectedTableColumns({ source: newValue })
+    }
+
+    const handleMappingColumnChange = (index: number, column: string): void => {
+        const columnMeta = columnByName.get(column)
+        setMappings(
+            mappings.map((m, i) =>
+                i === index
+                    ? {
+                          ...m,
+                          column,
+                          // Seed the property name and description from the
+                          // column when they're still empty, so a mapping is
+                          // one click when the warehouse names are good. The
+                          // description has no input here — it rides along
+                          // from the warehouse column's own description.
+                          property: m.property.trim() ? m.property : column,
+                          description: m.description.trim() ? m.description : (columnMeta?.description ?? ''),
+                      }
+                    : m
+            )
+        )
+    }
+
+    const setMappingColumn = (index: number, column: string): void =>
+        setMappings(mappings.map((m, i) => (i === index ? { ...m, column } : m)))
+
+    const setMappingProperty = (index: number, property: string): void =>
+        setMappings(mappings.map((m, i) => (i === index ? { ...m, property } : m)))
+
+    const removeMapping = (index: number): void => setMappings(mappings.filter((_, i) => i !== index))
+
+    const addMapping = (): void => setMappings([...mappings, { column: '', property: '', description: '' }])
+
+    if (todayRailNav) {
+        return (
+            <QuillPersonSourceEditor
+                noSources={noSources}
+                isGroup={isGroup}
+                entityLabel={entityLabel}
+                entityPlural={entityPlural}
+                isEditing={!!editingDefinition}
+                hasExistingSource={hasExistingSource}
+                existingBindsAView={existingBindsAView}
+                existingTableName={existingSource?.saved_query_name ?? existingSource?.table_name ?? null}
+                existingSourceUrl={existingSourceUrl}
+                groupTypeOptions={groupTypeOptions}
+                selectedGroupTypeLabel={selectedGroupTypeLabel}
+                groupTypesLoading={groupTypesLoading}
+                warehouseSourceOptions={warehouseSourceOptions}
+                warehouseSourcesLoading={warehouseTablesLoading || savedQueriesLoading}
+                selectedTableColumns={selectedTableColumns}
+                selectedTableColumnsLoading={selectedTableColumnsLoading}
+                mappings={mappings}
+                columnMappingWarnings={columnMappingWarnings}
+                warningCount={warningCount}
+                keyColumnLabelText={keyColumnLabelText}
+                mappableColumnCount={mappableColumns.length}
+                mapAllDisabledReason={mapAllDisabledReason}
+                onWarehouseSourceChange={handleWarehouseSourceChange}
+                onWarehouseSourceSearch={(search) => loadWarehouseTables({ search })}
+                onMappingColumnChange={handleMappingColumnChange}
+                onMappingColumnType={setMappingColumn}
+                onMappingPropertyChange={setMappingProperty}
+                onRemoveMapping={removeMapping}
+                onAddMapping={addMapping}
+                onMapAllColumns={mapAllColumns}
+            />
+        )
+    }
 
     // Only block on missing sources while creating a property — an existing source still needs its key
-    // column and enabled switch editable even if what it reads was later deleted or filtered out.
+    // column, missing-row behavior and enabled switch editable even if what it reads was later deleted or filtered out.
     if (noSources && !hasExistingSource) {
         return (
             <LemonBanner type="info">
@@ -265,16 +358,7 @@ function PersonSourceEditor(): JSX.Element {
                     entityPlural={entityPlural}
                     isView={existingBindsAView}
                     tableName={existingSource?.saved_query_name ?? existingSource?.table_name ?? null}
-                    sourceUrl={
-                        existingBindsAView && existingSource?.saved_query
-                            ? urls.sqlEditor({ view_id: existingSource.saved_query })
-                            : existingSource?.external_data_source && existingSource.external_data_schema
-                              ? urls.dataWarehouseSourceSchema(
-                                    existingSource.external_data_source,
-                                    existingSource.external_data_schema
-                                )
-                              : null
-                    }
+                    sourceUrl={existingSourceUrl}
                 />
             ) : (
                 <LemonField
@@ -286,17 +370,7 @@ function PersonSourceEditor(): JSX.Element {
                         <LemonInputSelect
                             mode="single"
                             value={value ? [value] : []}
-                            onChange={(newValues) => {
-                                const newValue = newValues[0] ?? null
-                                onChange(newValue)
-                                // Columns belong to one source, so a change invalidates the picks and
-                                // loads the new source's columns for the pickers below.
-                                setCustomPropertyFormValue('keyColumn', null)
-                                setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
-                                // Also load on clear (null) so the pickers below drop the previous source's
-                                // stale columns; the loader returns an empty list for null.
-                                loadSelectedTableColumns({ source: newValue })
-                            }}
+                            onChange={(newValues) => handleWarehouseSourceChange(newValues[0] ?? null, onChange)}
                             // Table search runs on the backend so the whole synced catalog is reachable,
                             // not just the first page loaded into the picker. Views are all loaded already,
                             // so the picker filters those itself.
@@ -352,29 +426,7 @@ function PersonSourceEditor(): JSX.Element {
                                         mode="single"
                                         allowCustomValues
                                         value={mapping.column ? [mapping.column] : []}
-                                        onChange={(newValues) => {
-                                            const column = newValues[0] ?? ''
-                                            const columnMeta = columnByName.get(column)
-                                            setMappings(
-                                                mappings.map((m, i) =>
-                                                    i === index
-                                                        ? {
-                                                              ...m,
-                                                              column,
-                                                              // Seed the property name and description from the
-                                                              // column when they're still empty, so a mapping is
-                                                              // one click when the warehouse names are good. The
-                                                              // description has no input here — it rides along
-                                                              // from the warehouse column's own description.
-                                                              property: m.property.trim() ? m.property : column,
-                                                              description: m.description.trim()
-                                                                  ? m.description
-                                                                  : (columnMeta?.description ?? ''),
-                                                          }
-                                                        : m
-                                                )
-                                            )
-                                        }}
+                                        onChange={(newValues) => handleMappingColumnChange(index, newValues[0] ?? '')}
                                         options={columnOptions}
                                         loading={selectedTableColumnsLoading}
                                         placeholder="Warehouse column"
@@ -384,9 +436,7 @@ function PersonSourceEditor(): JSX.Element {
                                 <div className="flex-1">
                                     <LemonInput
                                         value={mapping.property}
-                                        onChange={(property) =>
-                                            setMappings(mappings.map((m, i) => (i === index ? { ...m, property } : m)))
-                                        }
+                                        onChange={(property) => setMappingProperty(index, property)}
                                         placeholder={`${isGroup ? 'Group' : 'Person'} property`}
                                         fullWidth
                                     />
@@ -398,7 +448,7 @@ function PersonSourceEditor(): JSX.Element {
                                     disabledReason={
                                         mappings.length === 1 ? 'At least one mapping is required' : undefined
                                     }
-                                    onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
+                                    onClick={() => removeMapping(index)}
                                 />
                             </div>
                             {columnMappingWarnings[index] && (
@@ -414,11 +464,7 @@ function PersonSourceEditor(): JSX.Element {
                         </span>
                     )}
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlus />}
-                            onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
-                        >
+                        <LemonButton type="secondary" icon={<IconPlus />} onClick={addMapping}>
                             Add mapping
                         </LemonButton>
                         <LemonButton type="secondary" onClick={mapAllColumns} disabledReason={mapAllDisabledReason}>
@@ -433,6 +479,27 @@ function PersonSourceEditor(): JSX.Element {
                         you create the property, so you can edit or remove any row first.
                     </span>
                 </div>
+            )}
+            {!isGroup && (
+                <LemonField
+                    name="missingRowBehavior"
+                    label="When a person leaves the table"
+                    help="Keep the last synced values, or remove this mapping's properties, once a person's row is gone from the table. Only a full refresh of the table removes properties."
+                >
+                    <LemonSelect
+                        options={[
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep,
+                                label: 'Keep the last synced values',
+                            },
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Remove,
+                                label: 'Remove mapped properties',
+                            },
+                        ]}
+                        fullWidth
+                    />
+                </LemonField>
             )}
             <LemonField
                 name="isEnabled"
@@ -464,8 +531,45 @@ function CustomPropertyOptionsEditor(): JSX.Element {
     const { customPropertyForm } = useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue } = useActions(customPropertyDefinitionsLogic)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const options = customPropertyForm.options
     const setOptions = (next: CustomPropertyOptionApi[]): void => setCustomPropertyFormValue('options', next)
+
+    const setOptionColor = (index: number, colorToken: DataColorToken): void =>
+        setOptions(
+            options.map((candidate, candidateIndex) =>
+                candidateIndex === index
+                    ? { ...candidate, color: colorToken as CustomPropertyOptionApi['color'] }
+                    : candidate
+            )
+        )
+
+    const removeOption = (index: number): void =>
+        setOptions(options.filter((_, candidateIndex) => candidateIndex !== index))
+
+    const addOption = (): void =>
+        setOptions([
+            ...options,
+            {
+                id: `${NEW_OPTION_ID_PREFIX}${crypto.randomUUID()}`,
+                label: '',
+                color: OPTION_COLOR_TOKENS[
+                    options.length % OPTION_COLOR_TOKENS.length
+                ] as CustomPropertyOptionApi['color'],
+            },
+        ])
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomPropertyOptionsEditor
+                options={options}
+                onColorChange={setOptionColor}
+                onRemove={removeOption}
+                onAdd={addOption}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -475,15 +579,7 @@ function CustomPropertyOptionsEditor(): JSX.Element {
                     <LemonColorPicker
                         colorTokens={OPTION_COLOR_TOKENS}
                         selectedColorToken={option.color as DataColorToken}
-                        onSelectColorToken={(colorToken) =>
-                            setOptions(
-                                options.map((candidate, candidateIndex) =>
-                                    candidateIndex === index
-                                        ? { ...candidate, color: colorToken as CustomPropertyOptionApi['color'] }
-                                        : candidate
-                                )
-                            )
-                        }
+                        onSelectColorToken={(colorToken) => setOptionColor(index, colorToken as DataColorToken)}
                         hideDropdown
                     />
                     <div className="flex-1">
@@ -495,26 +591,11 @@ function CustomPropertyOptionsEditor(): JSX.Element {
                         icon={<IconTrash />}
                         size="small"
                         tooltip="Remove option"
-                        onClick={() => setOptions(options.filter((_, candidateIndex) => candidateIndex !== index))}
+                        onClick={() => removeOption(index)}
                     />
                 </div>
             ))}
-            <LemonButton
-                type="secondary"
-                icon={<IconPlus />}
-                onClick={() =>
-                    setOptions([
-                        ...options,
-                        {
-                            id: `${NEW_OPTION_ID_PREFIX}${crypto.randomUUID()}`,
-                            label: '',
-                            color: OPTION_COLOR_TOKENS[
-                                options.length % OPTION_COLOR_TOKENS.length
-                            ] as CustomPropertyOptionApi['color'],
-                        },
-                    ])
-                }
-            >
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={addOption}>
                 Add option
             </LemonButton>
         </div>
@@ -546,6 +627,7 @@ export function CustomPropertyModal(): JSX.Element {
     } = useActions(customPropertyDefinitionsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showBigNumberSwitch = isNumericDisplayType(customPropertyForm.displayType)
     const { sourceMode, targetType } = customPropertyForm
     const isProfileTarget = targetType === 'person' || targetType === 'group'
@@ -581,6 +663,35 @@ export function CustomPropertyModal(): JSX.Element {
                   : targetType === 'account' && sourceMode === 'workflow' && !editingHasWorkflowReference
                     ? 'Create a workflow that updates this property first'
                     : undefined))
+
+    const targetTypeOptions = TARGET_TYPE_OPTIONS.map((option) => ({
+        ...option,
+        disabledReason: editingDefinition ? "A property's target can't change after it's created" : undefined,
+    }))
+
+    const handleSavedQueryChange = (newValue: string | null, onChange: (value: string | null) => void): void => {
+        onChange(newValue)
+        // Columns are view-specific, so a view change invalidates the picks.
+        setCustomPropertyFormValue('sourceColumn', null)
+        setCustomPropertyFormValue('keyColumn', null)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomPropertyModal
+                submitDisabledReason={submitDisabledReason}
+                showTargetType={profileTargetAvailable && !targetTypeLocked}
+                targetTypeOptions={targetTypeOptions}
+                sourceModeOptions={sourceModeOptions}
+                showBigNumberSwitch={showBigNumberSwitch}
+                hasExistingSource={hasExistingSource}
+                noViews={noViews}
+                onSavedQueryChange={handleSavedQueryChange}
+                optionsEditor={<CustomPropertyOptionsEditor />}
+                personSourceEditor={<PersonSourceEditor />}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -625,12 +736,7 @@ export function CustomPropertyModal(): JSX.Element {
                             <LemonSegmentedButton
                                 value={value}
                                 onChange={onChange}
-                                options={TARGET_TYPE_OPTIONS.map((option) => ({
-                                    ...option,
-                                    disabledReason: editingDefinition
-                                        ? "A property's target can't change after it's created"
-                                        : undefined,
-                                }))}
+                                options={targetTypeOptions}
                                 fullWidth
                             />
                         )}
@@ -693,12 +799,7 @@ export function CustomPropertyModal(): JSX.Element {
                                         {({ value, onChange }) => (
                                             <LemonSearchableSelect
                                                 value={value}
-                                                onChange={(newValue) => {
-                                                    onChange(newValue)
-                                                    // Columns are view-specific, so a view change invalidates the picks.
-                                                    setCustomPropertyFormValue('sourceColumn', null)
-                                                    setCustomPropertyFormValue('keyColumn', null)
-                                                }}
+                                                onChange={(newValue) => handleSavedQueryChange(newValue, onChange)}
                                                 options={materializedViews.map((view) => ({
                                                     value: view.id,
                                                     label: view.name,

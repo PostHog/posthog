@@ -95,6 +95,19 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_one_service_cannot_fill_the_list_unless_filtered_to_it(self) -> None:
+        with (
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_LIMIT", 4),
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_PER_SERVICE_LIMIT", 1),
+        ):
+            rows = [(r["service_name"], r["endpoint"]) for r in self._list()["results"]]
+            web = [r["endpoint"] for r in self._list(service="web")["results"]]
+        self.assertEqual(
+            rows,
+            [("queue", "orders process"), ("web", "GET /orders"), ("api", "POST /charge"), ("worker", "cron.tick")],
+        )
+        self.assertEqual(web, ["GET /orders", "GET /health", "GET /report"])
+
     def test_row_carries_the_health_contract(self) -> None:
         orders = next(r for r in self._list()["results"] if r["endpoint"] == "GET /orders")
         self.assertEqual(orders["status"], "serious")

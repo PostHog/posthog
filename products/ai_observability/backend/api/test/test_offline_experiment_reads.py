@@ -91,6 +91,32 @@ class TestOfflineExperimentReads(APIBaseTest):
             f"offline_scorers/{definition_id or self.definition.id}/history/"
         )
 
+    @parameterized.expand(
+        [
+            ("evaluated_before_edit", -1, None, True),
+            ("updated_at_edit", -1, 0, False),
+            ("accepted_after_edit", None, None, False),
+        ]
+    )
+    def test_result_cells_and_detail_use_the_same_score_time(
+        self, _name: str, evaluated_hours: int | None, updated_hours: int | None, expected_stale: bool
+    ) -> None:
+        edit_time = self.result.accepted_at - timedelta(hours=1)
+        self.item.content_updated_at = edit_time
+        self.item.save(update_fields=["content_updated_at"])
+        self.result.evaluated_at = edit_time + timedelta(hours=evaluated_hours) if evaluated_hours is not None else None
+        self.result.score_updated_at = edit_time + timedelta(hours=updated_hours) if updated_hours is not None else None
+        self.result.save(update_fields=["evaluated_at", "score_updated_at"])
+        query = {"scorer_version_ids": str(self.version.id)}
+        cells = self.client.get(
+            self._endpoint(f"{self.experiment.id}/result_cells/"), {**query, "item_ids": str(self.item.id)}
+        )
+        items = self.client.get(self._endpoint(f"{self.experiment.id}/items/"), query)
+        detail = self.client.get(self._endpoint(f"{self.experiment.id}/items/{self.item.id}/results/"))
+        self.assertEqual(cells.data["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(items.data["results"][0]["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(detail.data["results"][0]["is_stale"], expected_stale)
+
     def _metadata_paths(self) -> list[str]:
         return [
             self._endpoint(),
@@ -278,7 +304,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             ("personal_uploader", "personal_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
             ("scorer_only", "personal_key", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
             ("project_uploader", "project_key", ["offline_evaluation_ingestion:write"], status.HTTP_403_FORBIDDEN),
-            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("project_reader", "project_key", ["evaluation:read", "llm_analytics:read"], status.HTTP_200_OK),
         ]
     )
     def test_read_routes_enforce_credential_scopes(
@@ -303,7 +329,7 @@ class TestOfflineExperimentReads(APIBaseTest):
                 "editor",
                 status.HTTP_403_FORBIDDEN,
             ),
-            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+            ("project_key", "project_key", ["evaluation:write"], "none", status.HTTP_200_OK),
         ]
     )
     def test_tag_updates_require_evaluation_editor_access(
@@ -315,8 +341,9 @@ class TestOfflineExperimentReads(APIBaseTest):
         assert response.status_code == expected_status, response.data
         assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
 
-    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
-        self._authenticate("personal_key", ["evaluation:read"])
+    @parameterized.expand(["personal_key", "project_key"])
+    def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self, auth_kind: str) -> None:
+        self._authenticate(auth_kind, ["evaluation:read"])
         for path in self._metadata_paths():
             with self.subTest(path=path):
                 response = self.client.get(path)

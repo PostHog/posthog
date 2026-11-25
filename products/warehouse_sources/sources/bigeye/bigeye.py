@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     _is_host_safe,
     create_response_hooks,
     frozen,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -89,6 +90,17 @@ def _flatten_delta(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, "id": delta.get("id"), "name": delta.get("name")}
 
 
+def _flatten_column(item: dict[str, Any]) -> dict[str, Any]:
+    # The parent table repeats every column it holds, so drop that list to keep each row one column.
+    table = item.get("table")
+    if not isinstance(table, dict):
+        table = {}
+    row = lift_nested({key: value for key, value in item.items() if key != "table"}, "column")
+    row["table"] = {key: value for key, value in table.items() if key != "columns"} or None
+    row["table_id"] = table.get("id")
+    return row
+
+
 def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     info = item.get("revisionInfo") or {}
     return {**item, "revision_epoch_seconds": info.get("epochSeconds"), "revision_type": info.get("type")}
@@ -142,6 +154,8 @@ def get_resource(name: str, workspace_id: Optional[int]) -> EndpointResource:
         resource["data_map"] = _flatten_collection
     elif name == "Deltas":
         resource["data_map"] = _flatten_delta
+    elif name == "Columns":
+        resource["data_map"] = _flatten_column
     elif name == "MetricScorecard":
         resource["data_map"] = _explode_scorecard
     return resource

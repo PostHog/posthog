@@ -11,6 +11,7 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
+from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.contrib import auth
@@ -23,7 +24,7 @@ from django.db import (
     connections as db_connections,
 )
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
@@ -44,7 +45,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
-from posthog.api.current_alias_usage import record_current_alias_use
+from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -75,6 +76,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -719,12 +721,13 @@ class CHQueries:
             return response
         finally:
             if is_api_request and (route := request.resolver_match) is not None:
+                api_route = request_route(request)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
-                    route=request_route(request),
+                    route=api_route,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -732,7 +735,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_current_alias_use(request, route=request_route(request), status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class)
             reset_query_tags()
 
     def process_view(
@@ -1241,6 +1244,21 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
     return request.session.setdefault(settings.SESSION_COOKIE_CREATED_AT_KEY, time.time())
 
 
+SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
+# `next` lands in the `/login` URL, which analytics and the request log record, so a credential in the query gets none.
+# A path token is kept: returning to a share or preferences link outweighs it reaching the instance's own analytics.
+_NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
+
+
+def session_expired_login_url(request: HttpRequest) -> str:
+    params = {"message": SESSION_EXPIRED_MESSAGE}
+    next_url = request.get_full_path()
+    holds_credential = any(name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET)
+    if request.method == "GET" and next_url != "/" and not holds_credential:
+        params["next"] = next_url
+    return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
+
+
 class SessionAgeMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1265,7 +1283,7 @@ class SessionAgeMiddleware:
             current_time = time.time()
             if current_time - session_created_at > session_age:
                 logout(request)
-                return redirect("/login?message=Your session has expired. Please log in again.")
+                return redirect(session_expired_login_url(request))
 
         response = self.get_response(request)
         return response
@@ -1457,6 +1475,24 @@ class UnversionedStaticPathMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if is_hobby():
             request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
+class MissingStaticFileMiddleware:
+    """Answers 404 for a /static/ path that WhiteNoise did not serve.
+
+    Without it the request goes on to the login middleware and to the frontend
+    catch-all route, so each missing file costs a database connection. A browser with developer
+    tools open asks for the source map of every chunk, and the production image ships no source
+    maps, so one page load can open more connections than Postgres allows.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.path_info.startswith(settings.STATIC_URL):
+            return HttpResponseNotFound(content_type="text/plain")
         return self.get_response(request)
 
 
@@ -1704,6 +1740,7 @@ class SocialAuthExceptionMiddleware:
                 "google_sso_enforced",
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
+                "chatgpt_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
                 "access_blocked",
@@ -1969,7 +2006,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(
             r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
-            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|latency_percentiles|aggregate|tree"
             r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
         ),
     ),

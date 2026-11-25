@@ -23,7 +23,7 @@ import {
     stepFeedbackWithCounts,
 } from '../storyFixtures'
 import { toMatchingNodeIds, toSearchBox } from '../traceSearchBox'
-import { stepLabelsOf } from '../traceTreeLookups'
+import { steppedNodeId, stepLabelsOf } from '../traceTreeLookups'
 import { EvalRollupOutcome, MessagesOpening, NodeDetailTab, TraceMode } from '../types'
 import { SummaryModeView } from './SummaryModeView'
 import { Thread } from './Thread'
@@ -121,6 +121,9 @@ function Playground({
                 tree={fixture.tree}
                 selectedNodeId={selectedNodeId}
                 onSelectNode={setSelectedNodeId}
+                onStepNode={(step) =>
+                    setSelectedNodeId(steppedNodeId(fixture.tree, selectedNodeId, step) ?? selectedNodeId)
+                }
                 onPrefetchNode={() => {}}
                 detail={{
                     ...fixture.details[node.id],
@@ -194,7 +197,8 @@ function Playground({
             }
             summaryBar={
                 <TraceSummaryBar
-                    trace={fixture.trace}
+                    overview={fixture.trace}
+                    person={fixture.trace.person}
                     evals={evals ? { summary: evals, onClick: showFailingEvals } : null}
                 />
             }
@@ -273,6 +277,26 @@ export const Loading: StoryObj<typeof TraceView> = {
     render: () => <TraceView status="loading" />,
     decorators: [withWidth(1100)],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+export const LoadingWithHeader: StoryObj<typeof TraceView> = {
+    render: () => (
+        <TraceView
+            status="loading"
+            header={<TraceHeader name={FIXTURE_TRACE.header.name} hasError={false} backLink={null} />}
+            summaryBar={
+                <TraceSummaryBar
+                    overview={{ ...FIXTURE_TRACE.trace, totalsPartial: true }}
+                    person={FIXTURE_TRACE.trace.person}
+                />
+            }
+        />
+    ),
+    decorators: [withWidth(1100)],
+    parameters: { testOptions: { waitForLoadersToDisappear: false, snapshotBrowsers: [] } },
+}
+export const NarrowLoadingWithHeader: StoryObj<typeof TraceView> = {
+    ...LoadingWithHeader,
+    decorators: [withWidth(420)],
 }
 export const LoadError: StoryObj<typeof TraceView> = {
     render: () => (

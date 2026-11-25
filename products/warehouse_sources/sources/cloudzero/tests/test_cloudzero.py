@@ -10,7 +10,13 @@ from products.warehouse_sources.sources.cloudzero.cloudzero import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.cloudzero.source import CloudzeroSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 class TestRollingIncrementalStartDate:
@@ -57,6 +63,23 @@ def _list_page(data_key: str, next_cursor: str | None, rows: list[dict[str, Any]
     }
 
 
+def _comments(insight_id: str, comment_ids: list[str]) -> dict[str, Any]:
+    return {
+        "insight": {"id": insight_id},
+        "comments": [
+            {
+                "id": comment_id,
+                "message": "Rightsized the cluster",
+                "author": "api-key",
+                "insight": {"id": insight_id},
+                "created": "1767225600.0",
+                "last_updated": "1767225600.0",
+            }
+            for comment_id in comment_ids
+        ],
+    }
+
+
 class TestCloudzeroSourceTransport:
     """End-to-end behaviour of ``CloudzeroSource`` via ``rest_api_resource``."""
 
@@ -77,6 +100,7 @@ class TestCloudzeroSourceTransport:
                 {"limit": 1000},
                 _list_page("recommendations", None, [{"recommendation_id": "r-1"}]),
             ),
+            ("Views", "/v2/views", {}, _list_page("views", None, [{"id": "v-1"}])),
         ]
     )
     def test_list_endpoint_reads_its_own_path_params_and_envelope(
@@ -100,6 +124,7 @@ class TestCloudzeroSourceTransport:
             ("Budgets", "budgets"),
             ("Insights", "insights"),
             ("Recommendations", "recommendations"),
+            ("Views", "views"),
         ]
     )
     def test_paginated_list_endpoint_follows_the_cursor(self, endpoint: str, data_key: str) -> None:
@@ -115,6 +140,67 @@ class TestCloudzeroSourceTransport:
         assert result.raised is None
         assert result.params("cursor") == [None, "cursor-1"]
         assert len(result.rows) == 2
+
+    def test_insight_comments_fan_out_over_every_insight_page(self) -> None:
+        result = self._driver().run(
+            "InsightComments",
+            route(
+                {
+                    "/v2/insights": [
+                        ScriptedResponse(json=_list_page("insights", "cursor-1", [{"id": "i-1"}, {"id": "i-2"}])),
+                        ScriptedResponse(json=_list_page("insights", None, [{"id": "i-3"}])),
+                    ],
+                    "/v2/insights/i-1/comments": [
+                        ScriptedResponse(json=_comments("i-1", ["c-1", "c-2"])),
+                    ],
+                    # Deleted after the listing; its comments are gone, so the sync carries on.
+                    "/v2/insights/i-2/comments": [ScriptedResponse(status=404, json={"message": "Not Found"})],
+                    "/v2/insights/i-3/comments": [ScriptedResponse(json=_comments("i-3", ["c-1"]))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["insight_id"], row["id"]) for row in result.rows] == [
+            ("i-1", "c-1"),
+            ("i-1", "c-2"),
+            ("i-3", "c-1"),
+        ]
+        assert all("_Insights_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["insight_id", "id"]
+
+    def test_insight_comments_resume_skips_insights_already_read(self) -> None:
+        insight_pages = [
+            ScriptedResponse(json=_list_page("insights", "cursor-1", [{"id": "i-1"}])),
+            ScriptedResponse(json=_list_page("insights", None, [{"id": "i-2"}])),
+        ]
+        first = self._driver().run(
+            "InsightComments",
+            route(
+                {
+                    "/v2/insights": insight_pages,
+                    "/v2/insights/i-1/comments": [ScriptedResponse(json=_comments("i-1", ["c-1"]))],
+                    "/v2/insights/i-2/comments": [ScriptedResponse(status=401, json={"message": "Unauthorized"})],
+                }
+            ),
+        )
+        assert first.raised is not None
+
+        resumed = self._driver().run(
+            "InsightComments",
+            route(
+                {
+                    "/v2/insights": insight_pages,
+                    "/v2/insights/i-2/comments": [ScriptedResponse(json=_comments("i-2", ["c-9"]))],
+                }
+            ),
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert "/v2/insights/i-1/comments" not in resumed.paths
+        assert [(row["insight_id"], row["id"]) for row in resumed.rows] == [("i-2", "c-9")]
 
     def test_costs_resume_seeds_paginator_with_saved_cursor(self) -> None:
         result = self._driver().run(

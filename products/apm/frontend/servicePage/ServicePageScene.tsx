@@ -106,10 +106,9 @@ export function ServicePageScene(): JSX.Element {
         requestsSeries,
         requestsSeriesLoading,
         requestsSeriesFailed,
-        latencyHeatmapData,
         latencyPercentiles,
-        rawLatencyHeatmapLoading,
-        rawLatencyHeatmapFailed,
+        latencyRowsLoading,
+        latencyRowsFailed,
         topErrors,
         errorSpans,
         errorSpansLoading,
@@ -129,7 +128,7 @@ export function ServicePageScene(): JSX.Element {
         fetchServicesHealth,
         fetchEndpointsHealth,
         fetchRequestsSeries,
-        fetchLatencyHeatmap,
+        fetchLatencyPercentiles,
         fetchStatusCodeErrors,
         fetchErrorSpans,
         fetchDependencies,
@@ -244,17 +243,17 @@ export function ServicePageScene(): JSX.Element {
                             </div>
                             <div className="flex flex-col gap-1">
                                 <span className="text-sm font-semibold">Latency</span>
-                                {rawLatencyHeatmapFailed && !rawLatencyHeatmapLoading ? (
-                                    <ChartLoadError onRetry={() => fetchLatencyHeatmap()} />
+                                {latencyRowsFailed && !latencyRowsLoading ? (
+                                    <ChartLoadError onRetry={() => fetchLatencyPercentiles()} />
                                 ) : (
                                     <ServiceLatencyChart
-                                        timeBuckets={latencyHeatmapData.timeBuckets}
                                         percentiles={latencyPercentiles}
-                                        loading={rawLatencyHeatmapLoading}
+                                        loading={latencyRowsLoading}
                                     />
                                 )}
                                 <span className="text-xs text-muted">
-                                    Each point is the top of the latency bucket the percentile falls in.
+                                    Server and consumer spans, or root spans for a service with neither. The same spans
+                                    and percentile calculation as the summary p95, per interval.
                                 </span>
                             </div>
                         </div>

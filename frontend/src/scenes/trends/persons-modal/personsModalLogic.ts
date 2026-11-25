@@ -155,8 +155,8 @@ export interface personsModalLogicValues {
 export interface personsModalLogicActions {
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     } // eventUsageLogic
     reportPersonsModalViewed: (params: any) => {
@@ -235,7 +235,7 @@ export interface personsModalLogicActions {
         search: string
     }
     updateActorsQuery: (query: Partial<InsightActorsQuery> | Partial<FunnelsActorsQuery>) => {
-        query: Partial<InsightActorsQuery<InsightQueryNode>> | Partial<FunnelsActorsQuery>
+        query: Partial<FunnelsActorsQuery> | Partial<InsightActorsQuery<InsightQueryNode>>
     }
     updateQuery: (query: FunnelsActorsQuery | InsightActorsQuery) => {
         query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode>

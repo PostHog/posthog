@@ -6,6 +6,25 @@ import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import type {
+    DataNode,
+    ErrorTrackingQueryResponse,
+    EventsQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    LogsQueryResponse,
+    MetricsQueryResponse,
+    RefreshType,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
+} from '~/queries/schema/schema-general'
 import type { AnyResponseType, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -78,88 +97,88 @@ export interface chartPreviewsLogicActions {
     } // chartAlternativesLogic
     loadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
-                  overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+                  overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
-                  refresh: import('~/queries/schema').RefreshType | undefined
+                  refresh: RefreshType | undefined
               }
             | undefined
     ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema').RefreshType | undefined
+            refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // insightVizDataLogic
     setInsightData: (
         response:
+            | ErrorTrackingQueryResponse
+            | EventsQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogsQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').EventsQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogsQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
     ) =>
+        | ErrorTrackingQueryResponse
+        | EventsQueryResponse
+        | HogQLAutocompleteResponse
+        | HogQLMetadataResponse
+        | HogQLQueryResponse<any[]>
+        | HogQueryResponse
+        | LogAttributesQueryResponse
+        | LogsQueryResponse
+        | LogValuesQueryResponse
+        | MetricsQueryResponse
         | Record<string, any>
-        | import('~/queries/schema').ErrorTrackingQueryResponse
-        | import('~/queries/schema').EventsQueryResponse
-        | import('~/queries/schema').HogQLAutocompleteResponse
-        | import('~/queries/schema').HogQLMetadataResponse
-        | import('~/queries/schema').HogQLQueryResponse<any[]>
-        | import('~/queries/schema').HogQueryResponse
-        | import('~/queries/schema').LogAttributesQueryResponse
-        | import('~/queries/schema').LogsQueryResponse
-        | import('~/queries/schema').LogValuesQueryResponse
-        | import('~/queries/schema').MetricsQueryResponse
-        | import('~/queries/schema').SessionsQueryResponse
-        | import('~/queries/schema').TraceSpansAggregationQueryResponse
-        | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-        | import('~/queries/schema').TraceSpansQueryResponse
-        | import('~/queries/schema').TraceSpansTreeQueryResponse // insightVizDataLogic
+        | SessionsQueryResponse
+        | TraceSpansAggregationQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
+        | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse // insightVizDataLogic
     rememberTimeSeries: (entry: TimeSeriesEntry) => {
         entry: TimeSeriesEntry
     }

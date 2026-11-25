@@ -125,42 +125,22 @@ def test_compose_filters_clause_prints_for_the_new_schema(ateam):
         use_new_events_schema=True,
     )
 
-    # `$browser` is read from its typed path. `$feature/checkout` is not a stored key, so it is read from the
-    # `$feature_flags` map: a missing flag is NULL (unset), and the `$true` / `$false` sentinels that boolean flags store
-    # map back to 'true' / 'false', so the filter value matches as it does on the legacy schema.
+    # `$browser` is read from its typed path. `$feature/checkout` is read from its own subcolumn of the `$feature_flags`
+    # map, where a missing flag is '' and matches no filter value. 'true' also matches `$true`, the stored spelling of a
+    # variant named "true", so the filter matches as it does on the legacy schema.
     expected_clause = """
         and(
             equals(events.properties.`$browser`, %(hogql_val_0)s),
-            ifNull(
-                equals(
-                    if(
-                        has(events.properties.`$feature_flags`, %(hogql_val_1)s),
-                        multiIf(
-                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_2)s], %(hogql_val_3)s), 0), 'false',
-                            ifNull(equals(events.properties.`$feature_flags`[%(hogql_val_4)s], %(hogql_val_5)s), 0), 'true',
-                            events.properties.`$feature_flags`[%(hogql_val_6)s]
-                        ),
-                        NULL
-                    ),
-                    %(hogql_val_7)s
-                ),
-                0
+            in(
+                accurateCast(events.properties.`$feature_flags`.key_checkout, 'String'),
+                tuple(%(hogql_val_1)s, %(hogql_val_2)s)
             )
         )
     """
     # The expected clause is indented for reading, so both sides are compared without whitespace. This is safe because
     # no literal in the clause contains whitespace: the filter values are query parameters.
     assert "".join(result_clause.split()) == "".join(expected_clause.split())
-    assert result_values == {
-        "hogql_val_0": "Chrome",
-        "hogql_val_1": "checkout",
-        "hogql_val_2": "checkout",
-        "hogql_val_3": "$false",
-        "hogql_val_4": "checkout",
-        "hogql_val_5": "$true",
-        "hogql_val_6": "checkout",
-        "hogql_val_7": "true",
-    }
+    assert result_values == {"hogql_val_0": "Chrome", "hogql_val_1": "true", "hogql_val_2": "$true"}
 
 
 async def _evaluate_filters_clause(clause: str, values: dict, document: str, *, use_new_events_schema: bool) -> bool:
@@ -203,6 +183,20 @@ async def test_filters_preserve_property_types(
     matches = await _evaluate_filters_clause(clause, values, document, use_new_events_schema=use_new_events_schema)
 
     assert matches is expected
+
+
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_negated_flag_set_filter_skips_an_event_without_the_flag(ateam, use_new_events_schema):
+    clause, values = await database_sync_to_async(compose_filters_clause)(
+        [{"key": "NOT (properties.`$feature/checkout` IN ('test', 'control'))", "type": "hogql"}],
+        team_id=ateam.id,
+        use_new_events_schema=use_new_events_schema,
+    )
+
+    # The export query runs without HogQL's transform_null_in, so the missing flag's NULL keeps the event out.
+    matches = await _evaluate_filters_clause(clause, values, '{"value":1}', use_new_events_schema=use_new_events_schema)
+
+    assert matches is False
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,7 @@ import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
+import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
@@ -272,7 +273,7 @@ describe('valves', () => {
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
-            { shortValuesOf: 'Maximum' },
+            { shortValuesOf: 'Average' },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
         ],
@@ -517,6 +518,7 @@ describe('valves', () => {
         let edge: ProviderEdge
         let ses: SESv2Client
         let caDir: string
+        let truth: Truth
 
         beforeAll(() => {
             caDir = mkdtempSync(path.join(os.tmpdir(), 'valves-edge-'))
@@ -527,10 +529,12 @@ describe('valves', () => {
         })
 
         beforeEach(async () => {
+            truth = new Truth()
             edge = await startProviderEdge({
                 port: 0,
                 caDir,
                 feedbackUrl: 'http://127.0.0.1:1/public/m/ses_webhook',
+                truth,
             })
             ses = new SESv2Client({
                 endpoint: edge.url,
@@ -555,14 +559,34 @@ describe('valves', () => {
             },
         })
 
-        const send = (): Promise<string> =>
+        const onEdgeHeld = (): { context: ValveContext; held: Promise<void> } => {
+            let actuated = (): void => undefined
+            const held = new Promise<void>((resolve) => (actuated = resolve))
+            const { actuate } = onEdge().environment
+            return {
+                context: {
+                    ...onEdge(),
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await actuate(action)
+                            actuated()
+                            return hold
+                        },
+                    },
+                },
+                held,
+            }
+        }
+
+        const send = (abortSignal?: AbortSignal): Promise<string> =>
             ses
                 .send(
                     new SendEmailCommand({
                         FromEmailAddress: 'flows@www.example.com',
                         Destination: { ToAddresses: ['run-1-1@www.example.com'] },
                         Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
-                    })
+                    }),
+                    { abortSignal }
                 )
                 .then(
                     () => 'sent',
@@ -602,6 +626,140 @@ describe('valves', () => {
             }).toEqual({
                 outcomes: [outcome, outcome],
                 faults: ['ses.reject', 'ses.reject'],
+            })
+        })
+
+        it.each<[boolean, (number | string | undefined)[][]]>([
+            [
+                true,
+                [
+                    [200, 'ses.ambiguous'],
+                    [200, undefined],
+                ],
+            ],
+            [false, [[200, undefined]]],
+        ])(
+            'drops the connection of the next SES send with ses.ambiguous accepted %s, recording only what SES took',
+            async (accepted, sends) => {
+                const valves = createValves({ pollMs: 5 })
+                const edgeHeld = onEdgeHeld()
+
+                await valves.start(
+                    [{ valve: 'ses.ambiguous', target: 'ses', dose: { accepted, count: 1 }, at: '0ms', for: '1m' }],
+                    edgeHeld.context
+                )
+                await edgeHeld.held
+                const outcomes = [await send(), await send()]
+                const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
+                await valves.releaseAll()
+
+                expect({
+                    outcomes,
+                    sends: truth.records.map(({ status, fault }) => [status, fault]),
+                    error: valves.timeline()[0].error,
+                    observed: valves.timeline()[0].observedAt !== undefined,
+                }).toEqual({ outcomes: ['Error', 'sent'], sends, error: undefined, observed: true })
+            }
+        )
+
+        const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
+
+        const withWorker = (running: boolean) => {
+            const worker = new AbortController()
+            const sentWhenKilled: number[] = []
+            let boundaryHeld = (): void => undefined
+            const held = new Promise<void>((resolve) => (boundaryHeld = resolve))
+            const context: ValveContext = {
+                ...onEdge(),
+                environment: {
+                    actuate: (action) => {
+                        if (action.kind === 'edge.fault') {
+                            boundaryHeld()
+                            return Promise.resolve(edge.hold(action.rule))
+                        }
+                        if (action.kind !== 'kill' || action.role !== EMAIL_WORKER || !running) {
+                            return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
+                        }
+                        sentWhenKilled.push(edge.sent.length)
+                        worker.abort()
+                        return Promise.resolve({
+                            observed: () => Promise.resolve(true),
+                            release: () => Promise.resolve(),
+                        })
+                    },
+                },
+            }
+            return { context, held, worker: worker.signal, sentWhenKilled }
+        }
+
+        it.each<[string, boolean, string, number[], string | undefined]>([
+            [
+                'kills the worker after SES took its send, so the send never hears the answer',
+                true,
+                'AbortError',
+                [1],
+                undefined,
+            ],
+            [
+                'answers the held send on release when the kill fails',
+                false,
+                'sent',
+                [],
+                `${EMAIL_WORKER} is not running`,
+            ],
+        ])('edge_accepted on ses %s', async (_story, running, outcome, sentWhenKilled, error) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(running)
+
+            await valves.start([killAfterAccept], stack.context)
+            await stack.held
+            const answered = await send(stack.worker)
+            await valves.releaseAll()
+
+            expect({
+                answered,
+                sentWhenKilled: stack.sentWhenKilled,
+                error: valves.timeline()[0].error,
+                observed: valves.timeline()[0].observedAt !== undefined,
+                next: await send(),
+            }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it.each<[string, boolean, string]>([
+            [
+                'SES took no send before the drive ended',
+                false,
+                'never applied: edge_accepted on ses did not happen before the drive ended',
+            ],
+            ['SES took its send as the drive ended', true, 'never applied: the drive ended before the valve applied'],
+        ])('kills nothing and lifts its boundary when %s', async (_story, endsOnSend, error) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(true)
+
+            await valves.start([killAfterAccept], stack.context)
+            await stack.held
+            const append = truth.append.bind(truth)
+            truth.append = (record) => {
+                const appended = append(record)
+                void valves.releaseAll()
+                return appended
+            }
+            const heldSend = endsOnSend ? send(stack.worker) : Promise.resolve(undefined)
+            if (endsOnSend) {
+                await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+            }
+            await valves.releaseAll()
+
+            expect({
+                error: valves.timeline()[0].error,
+                heldSend: await heldSend,
+                next: await send(),
+                sentWhenKilled: stack.sentWhenKilled,
+            }).toEqual({
+                error,
+                heldSend: endsOnSend ? 'sent' : undefined,
+                next: 'sent',
+                sentWhenKilled: [],
             })
         })
 

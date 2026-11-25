@@ -222,9 +222,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "A column in this query doesn't exist in the data. Check the column names. "
                 "If the query uses a view, check that the view still matches its source table.",
             ),
-            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
-            ("syntax_error", 62, "ClickHouse error while executing query."),
-            ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            (
+                "unsupported_method",
+                1,
+                "This operation isn't supported here. Simplify the expression or use a different SQL function.",
+            ),
+            (
+                "syntax_error",
+                62,
+                "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+            ),
+            (
+                "unknown_code",
+                999_999,
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
+            ),
             *[
                 (
                     storage_error,
@@ -597,7 +609,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_safe_clickhouse_error_passed_through(self):
+    def test_argument_type_error_names_the_function(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
         with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
@@ -609,7 +621,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response["code"], "illegal_type_of_argument")
             self.assertEqual(response["attr"], None)
             self.assertIn(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
+                "`plus` cannot combine DateTime64 and String",
                 response["detail"],
             )
 
@@ -1689,6 +1701,11 @@ class TestQueryRetrieve(APIBaseTest):
                 "too_many_parts",
                 "The database had a temporary problem while it ran this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
+            ),
+            (
+                "future_error",
+                "clickhouse_999999",
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
             ),
             (
                 "internal_query_rejection",

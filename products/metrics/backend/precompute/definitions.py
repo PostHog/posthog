@@ -24,6 +24,8 @@ from products.metrics.backend.facade.enums import (
 from products.metrics.backend.models import MetricPrecomputedMetric
 
 MAX_PRECOMPUTED_METRICS_PER_TEAM = 20
+MAX_METRIC_NAME_LENGTH: int = MetricPrecomputedMetric._meta.get_field("metric_name").max_length or 0
+NOT_STARTED_BY_VIEWER = "precomputing starts when a project member opens this tile"
 MAX_KEPT_LABELS = 5
 
 _KIND_BY_AGGREGATION = {

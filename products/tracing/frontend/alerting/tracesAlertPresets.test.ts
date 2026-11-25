@@ -78,10 +78,15 @@ describe('buildPresetForm', () => {
         expect(payload.grouping.mode).toBe('single')
     })
 
-    it('shortens a long operation name to the API limit and keeps the condition', () => {
-        const form = buildPresetForm(row({ name: 'x'.repeat(400) }), 'error_rate')
+    it.each([
+        ['ascii', 'x'.repeat(400)],
+        // An emoji across the cut must not leave half a surrogate pair behind.
+        ['an emoji at the cut', `${'x'.repeat(228)}${'😀'.repeat(20)}`],
+    ])('shortens a long operation name with %s to the API limit and keeps the condition', (_, name) => {
+        const form = buildPresetForm(row({ name }), 'error_rate')
 
-        expect(form.name).toHaveLength(255)
+        expect(form.name.length).toBeLessThanOrEqual(255)
+        expect(form.name).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
         expect(form.name.endsWith('…: error rate')).toBe(true)
     })
 

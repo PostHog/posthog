@@ -7,6 +7,10 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import {
+    IntegrationsDomainConnectApplyUrlCreateBody,
+    IntegrationsEmailPartialUpdateBody,
+} from '../generated/integrations/api'
 import { HogFlowsActionsEmailPartialUpdateBody } from '../generated/workflows/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
@@ -168,6 +172,21 @@ export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+
+const EmailSenderConfigFields = IntegrationsEmailPartialUpdateBody().shape.config.unwrap()
+
+export const EmailSenderConfigSchema = EmailSenderConfigFields.omit({ setup_method: true })
+    .extend({
+        email: z.string().describe(EmailSenderConfigFields.shape.email.description!),
+        reply_to: z.string().optional().describe(EmailSenderConfigFields.shape.reply_to.description!),
+        provider: z.literal('ses').default('ses').describe('Sending provider. Always `ses`.'),
+    })
+    .describe('Email sender config.')
+
+export const DomainConnectSenderIdSchema = IntegrationsDomainConnectApplyUrlCreateBody()
+    .shape.integration_id.unwrap()
+    .unwrap()
+    .describe('ID of the email sender integration, the `id` from integrations-email-create or integrations-list.')
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
@@ -1081,6 +1100,21 @@ const WarehouseSyncAlertGroupingSchema = z
             .describe(
                 'One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination.'
             ),
+        max_instances: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe(
+                'Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.'
+            ),
+        on_overflow: z
+            .literal('degrade_visible')
+            .optional()
+            .describe(
+                'What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.'
+            ),
     })
     .describe(
         'How the alert splits into groups, each of which fires and resolves on its own. Replaces the stored grouping as a whole.'
@@ -1221,7 +1255,7 @@ export const ExecuteSQLSchema = z.object({
         .optional()
         .default(true)
         .describe(
-            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+            'Whether to shorten long values and cap the result at a preview. Defaults to true. Set to false when you need every row and full values (e.g., for dumping to a file).'
         ),
     connectionId: z
         .string()

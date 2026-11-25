@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import F, Func, Q, Value
@@ -37,6 +39,10 @@ class OfflineExperiment(Taggable):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     finished_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    closed_item_count = models.BigIntegerField(null=True, blank=True)
+    closed_result_count = models.BigIntegerField(null=True, blank=True)
+    next_item_revision = models.BigIntegerField(default=0, db_default=0)
     expected_item_count = models.PositiveBigIntegerField(null=True, blank=True)
     expected_result_count = models.PositiveBigIntegerField(null=True, blank=True)
     submission_fingerprint = models.CharField(max_length=64)
@@ -91,6 +97,8 @@ class OfflineExperiment(Taggable):
 class OfflinePayloadOwner(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     accepted_at = models.DateTimeField(default=timezone.now, editable=False)
+    revision = models.BigIntegerField(default=0, db_default=0)
+    payload_deleted_at = models.DateTimeField(null=True, blank=True)
     payload_state = models.CharField(max_length=16, choices=PayloadState.choices, default=PayloadState.NOT_PROVIDED)
     payload_expires_at = models.DateTimeField(null=True, blank=True)
     submission_fingerprint = models.CharField(max_length=64)
@@ -117,8 +125,13 @@ class OfflinePayloadOwner(models.Model):
             ),
         ]
 
+    @property
+    def payload_availability(self) -> str:
+        return "deleted" if self.payload_deleted_at is not None else self.payload_state
+
 
 class OfflineExperimentItem(OfflinePayloadOwner):
+    content_updated_at = models.DateTimeField(null=True, blank=True)
     id = models.UUIDField(primary_key=True)
     experiment = models.ForeignKey(OfflineExperiment, on_delete=models.CASCADE, related_name="items", db_index=False)
     case_key = models.CharField(max_length=255, null=True, blank=True)
@@ -153,6 +166,11 @@ class OfflineExperimentItem(OfflinePayloadOwner):
 
 
 class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
+    receipt_requires_read = models.BooleanField(default=False, db_default=False)
+    score_updated_at = models.DateTimeField(null=True, blank=True)
+    original_status = models.CharField(max_length=16, null=True, blank=True)
+    original_error_code = models.CharField(max_length=128, null=True, blank=True)
+
     class Status(models.TextChoices):
         OK = "ok", "OK"
         ERROR = "error", "Error"
@@ -228,6 +246,18 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
                 name="aio_result_payload_expiry_idx",
             ),
         ]
+
+    @property
+    def effective_score_time(self) -> datetime:
+        return self.score_updated_at or self.evaluated_at or self.accepted_at
+
+    @property
+    def value(self) -> float | bool | list[str] | None:
+        if self.numeric_value is not None:
+            return self.numeric_value
+        if self.boolean_value is not None:
+            return self.boolean_value
+        return self.categorical_values
 
 
 class OfflineEvaluationUsageLedger(UUIDModel):

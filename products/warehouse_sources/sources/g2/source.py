@@ -94,6 +94,19 @@ Access tokens expire one year after creation and must be regenerated.
             "G2 product ID is required": "Add your G2 product ID to this source's settings, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` calls `raise_for_status()` on its own session rather than going through the
+        # shared REST engine, so a 5xx is a plain `HTTPError`, not `RESTClientRetryableError`.
+        # `DEFAULT_RETRY` already retried it in-process before it reaches us, so it is a transient
+        # G2 outage that a later Temporal attempt clears. Match the status and the G2 origin, not
+        # the paged URL.
+        return {
+            f"500 Server Error: Internal Server Error for url: {G2_BASE_URL}",
+            f"502 Server Error: Bad Gateway for url: {G2_BASE_URL}",
+            f"503 Server Error: Service Unavailable for url: {G2_BASE_URL}",
+            f"504 Server Error: Gateway Timeout for url: {G2_BASE_URL}",
+        }
+
     def get_schemas(
         self,
         config: G2SourceConfig,

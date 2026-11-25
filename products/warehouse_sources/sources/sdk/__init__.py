@@ -1,7 +1,7 @@
 """The only import surface for a vendor directory under `products/warehouse_sources/sources/`.
 
 A vendor imports shared code from this module (or from `products.warehouse_sources.sources.sdk.testing` in tests), and its own
-directory as `products.warehouse_sources.sources.<vendor>`. tach (`products.warehouse_sources.sources.*` in `tach.toml`) forbids every other first-party import.
+directory as `products.warehouse_sources.sources.<vendor>`. hoglint (`sources-vendors-use-sdk` in `tools/hoglint/presets/posthog.toml`) forbids every other first-party import.
 
 This module only re-exports. `gen_sdk.py` in the layer 2 scripts wrote it from the imports the vendors
 had. To add a name, import it here from its origin module and add it to `__all__`. The goal is that
@@ -75,6 +75,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
     config,
     credentials_service,
     source_helpers,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.async_job import (
+    AsyncJobFailedError,
+    AsyncJobTimeoutError,
+    JobStatus,
+    poll_until_done,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -410,6 +416,8 @@ __all__ = [
     "AZURE_EXAMPLE_URL",
     "AnsiIdentifierQuoter",
     "ApiKeyAuthConfig",
+    "AsyncJobFailedError",
+    "AsyncJobTimeoutError",
     "AuthConfig",
     "AuthConfigBase",
     "AzureBlobConfig",
@@ -484,6 +492,7 @@ __all__ = [
     "JSONResponseCursorPaginator",
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
+    "JobStatus",
     "KEYWORDS",
     "LegacyOAuthGrant",
     "LegacyOAuthGrantUnusable",
@@ -654,6 +663,7 @@ __all__ = [
     "parse_retry_after",
     "parse_s3_url",
     "pinned_connect_host",
+    "poll_until_done",
     "probe_status_message",
     "raise_for_retryable_status",
     "raise_for_status_redacted",

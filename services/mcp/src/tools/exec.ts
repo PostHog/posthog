@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 
+import { toolResponsesShortenedTotal } from '@/hono/metrics'
+import { dedupeRepeatedDescriptions } from '@/hono/tool-catalog'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
@@ -17,9 +19,19 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { getNextPageHint } from '@/lib/next-page-hint'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
+import {
+    boundText,
+    byteLength,
+    jsonResponseBody,
+    maxResponseBytes,
+    responseTokenBudget,
+    type ResponseBodySource,
+    toonResponseBody,
+} from '@/lib/response-budget'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 import { LearnLookupError } from '@/skills/skill-catalog'
@@ -27,10 +39,11 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exec-names'
 import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
-import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { compileSearchPattern, isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -120,7 +133,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
 function namesMatchingSearch(names: string[], term: string): string[] {
     if (isRegexPattern(term)) {
         try {
-            const regex = new RegExp(term, 'i')
+            const regex = compileSearchPattern(term)
             return names.filter((name) => regex.test(name))
         } catch {
             return []
@@ -275,6 +288,9 @@ export interface ExecToolOptions {
     isInlineExecUiHost?: boolean
     appendTimeSeriesChartData?: boolean
     mcpClientName?: string | undefined
+    toolResultTokenLimit?: number | undefined
+    /** Bytes of the guidance notice the executor will add to this result, which a shortened result leaves room for. */
+    guidanceBytes?: (outcome: { toolName: string; resultEmpty: boolean }) => Promise<number>
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -305,6 +321,23 @@ export interface ExecToolOptions {
      */
     heldTools?: ReadonlySet<string>
     metricCatalogLookup?: boolean
+    refuseWrites?: boolean
+}
+
+/** A connected server's `readOnlyHint` is its own claim, which PostHog cannot check. */
+function isTrustedReadOnly(tool: Tool<ZodObjectAny>): boolean {
+    return tool.annotations.readOnlyHint === true && !isGatewayToolName(tool.name)
+}
+
+export function isReadOnlyDefinition(toolName: string): boolean {
+    return getToolDefinitions()[toolName]?.annotations.readOnlyHint === true
+}
+
+function needsWriteTool(toolName: string, command: string): ExecCommandError {
+    return new ExecCommandError(
+        `Tool "${toolName}" can change data, so "${EXEC_READ_TOOL_NAME}" only runs read-only tools. Run the same command with the "${EXEC_WRITE_TOOL_NAME}" tool: ${EXEC_WRITE_TOOL_NAME}(${JSON.stringify({ command })}).`,
+        'needs_write_tool'
+    )
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -649,15 +682,15 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'entity-search': (allTools) => {
         const base =
             'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
-        const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
+        const hasCatalog = allTools.some((t) => t.name === 'metric-list')
         return hasCatalog
-            ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
+            ? `${base} For governed business metrics, call "metric-list" instead of searching \`system.insights\`.`
             : base
     },
     'vision-scanners-suggest-tags': () =>
         'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
-    'llma-tagger-create': () =>
-        'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. Each option is { key, label }: the key is lowercase snake_case or kebab-case (for example "billing-issue"), and the label keeps the tag name. For an LLM tagger, set evaluation_type="llm_judge" with model_configuration (provider and model), and put the tagger prompt plus any tag descriptions in evaluation_config.prompt. For a Hog tagger, set evaluation_type="hog" with Hog source in evaluation_config.source that returns option keys. Run "info llma-evaluation-create" for the full schema.',
+    'llma-tagger-list': () =>
+        'Tool "llma-tagger-list" was removed because taggers are deprecated. Every tagger was switched off or converted into a categorical evaluation. Use "llma-evaluation-list" to list evaluations. Tags that taggers already wrote stay queryable as `$ai_tag` events through "execute-sql".',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -1778,6 +1811,22 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
+function withInfoFieldDescriptions(
+    jsonSchema: Record<string, unknown>,
+    descriptions: Record<string, string> | undefined
+): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
+    if (!properties || !descriptions) {
+        return jsonSchema
+    }
+    const compacted = Object.fromEntries(
+        Object.entries(properties).map(([field, property]) =>
+            field in descriptions ? [field, { ...property, description: descriptions[field] }] : [field, property]
+        )
+    )
+    return { ...jsonSchema, properties: compacted }
+}
+
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
 const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
 
@@ -1897,7 +1946,7 @@ export function createExecTool(
     const flagGatedTools = options.flagGatedTools ?? []
 
     return {
-        name: 'exec',
+        name: EXEC_TOOL_NAME,
         title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
@@ -2041,8 +2090,11 @@ export function createExecTool(
                             matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
                             matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, query)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        } catch (error) {
+                            throw new ExecCommandError(
+                                `Invalid regex pattern: "${query}": ${(error as Error).message}`,
+                                'invalid_regex'
+                            )
                         }
                         // A guessed name such as `project-update` matches nothing as a regex,
                         // but its words usually name the tool the agent wants.
@@ -2163,7 +2215,11 @@ export function createExecTool(
                         description: tool.description,
                         annotations: tool.annotations,
                     }
-                    const fullOutput = serialize(topShape, fullSchema)
+                    const infoSchema = withInfoFieldDescriptions(
+                        fullSchema as Record<string, unknown>,
+                        tool.infoFieldDescriptions
+                    )
+                    const fullOutput = serialize(topShape, infoSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
@@ -2173,7 +2229,7 @@ export function createExecTool(
                     // Each complex field's `hint` carries the imperative to run
                     // `schema` before populating it, so no separate directive is
                     // needed here.
-                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    const summary = summarizeSchema(infoSchema, tool.name)
                     return serialize(topShape, summary)
                 }
 
@@ -2206,8 +2262,8 @@ export function createExecTool(
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
-                    const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
-                    if (!resolved) {
+                    const found = resolveSchemaPath(fullJsonSchema, fieldPath)
+                    if (!found) {
                         const available = listAvailablePaths(fullJsonSchema)
                         throw new ExecCommandError(
                             `Unknown path "${fieldPath}". Available: ${available.join(', ')}`,
@@ -2215,6 +2271,9 @@ export function createExecTool(
                         )
                     }
 
+                    // Dedupe only the drilled slice: deduping the whole schema first strips the
+                    // description from this field when it is a later copy of a repeated subschema.
+                    const resolved = dedupeRepeatedDescriptions(found)
                     const serialized = JSON.stringify({
                         field: fieldPath,
                         schema: resolved,
@@ -2251,6 +2310,14 @@ export function createExecTool(
                     const forceJson = leadingFlags.forceJson || bodyFlags.forceJson
                     const confirmed = leadingFlags.confirmed || bodyFlags.confirmed
                     const jsonBody = bodyFlags.rest
+                    // Ahead of `findTool`, so a write the token lacks a scope for doesn't ask for that scope here first.
+                    if (
+                        options.refuseWrites &&
+                        scopeGatedTools.some((gated) => gated.name === toolName) &&
+                        !isReadOnlyDefinition(toolName)
+                    ) {
+                        throw needsWriteTool(toolName, params.command)
+                    }
                     const tool = findTool(
                         await resolveTools(),
                         scopeGatedTools,
@@ -2260,6 +2327,9 @@ export function createExecTool(
                         isNotGranted,
                         options
                     )
+                    if (options.refuseWrites && !isTrustedReadOnly(tool)) {
+                        throw needsWriteTool(tool.name, params.command)
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -2467,21 +2537,55 @@ export function createExecTool(
                     // Serialize once so the token estimate measures the exact text
                     // returned to the client, not the raw object.
                     let outputText: string
+                    let bodySource: ResponseBodySource | undefined
                     if (useJson) {
                         outputText = JSON.stringify(result)
-                    } else {
+                        bodySource = jsonResponseBody(result)
+                    } else if (typeof formattedOverride === 'string') {
                         // Optimized mode: when the handler attached a backend-formatted table
                         // via `__formatted_results_override`, return ONLY that string. The raw
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
-                        const chartData = options.appendTimeSeriesChartData
-                            ? buildTimeSeriesChartData(result)
-                            : undefined
-                        if (chartData) {
-                            outputText = `${outputText}\n\n${chartData}`
-                        }
+                        outputText = formattedOverride
+                    } else {
+                        outputText = formatResponse(result)
+                        bodySource = typeof result === 'string' ? undefined : toonResponseBody(result)
+                    }
+                    const chartData =
+                        !useJson && options.appendTimeSeriesChartData ? buildTimeSeriesChartData(result) : undefined
+                    const chartFooter = chartData ? `\n\n${chartData}` : ''
+                    // `formatResponse` drops the pagination fields a client needs to fetch the next page.
+                    const nextPageHint = useJson ? null : getNextPageHint(tool.name, result)
+                    const fullText = `${outputText}${chartFooter}${nextPageHint ? `\n\n${nextPageHint}` : ''}`
+                    const budget = responseTokenBudget(options.toolResultTokenLimit, input)
+                    const maxBytes =
+                        budget === undefined
+                            ? undefined
+                            : maxResponseBytes(budget) -
+                              ((await options.guidanceBytes?.({
+                                  toolName: tool.name,
+                                  resultEmpty: 'result_empty' in resultShape,
+                              })) ?? 0)
+                    if (budget === undefined || maxBytes === undefined || byteLength(fullText) <= maxBytes) {
+                        outputText = fullText
+                    } else {
+                        // The executor's own cap then sees a text that fits, so it never counts this one.
+                        toolResponsesShortenedTotal.inc({
+                            tool: tool.name,
+                            budget: options.toolResultTokenLimit === undefined ? 'default' : 'client',
+                        })
+                        // Reserve the chart's bytes before re-serializing the result body. The next-page
+                        // hint is dropped because it offsets past the rows the bound cuts.
+                        const bodyBudget = maxBytes - byteLength(chartFooter)
+                        const body =
+                            chartFooter && bodyBudget > 0
+                                ? boundText(outputText, budget, bodySource, bodyBudget)
+                                : undefined
+                        outputText =
+                            body !== undefined && byteLength(body) <= bodyBudget
+                                ? body + chartFooter
+                                : boundText(outputText, budget, bodySource, maxBytes)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

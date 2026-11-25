@@ -16,7 +16,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubInstallationUnavailableError, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -274,6 +274,79 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert len(data["results"]) == 2
         types = {row["type"] for row in data["results"]}
         assert types == {"suggested_reviewers", "priority_judgment"}
+
+    @parameterized.expand(
+        [
+            ("one_type", "note", False, ["note"]),
+            ("several_types", "signal_finding, note", False, ["note", "signal_finding"]),
+            ("blank_returns_every_readable_type", "", False, ["note", "priority_judgment", "signal_finding"]),
+            ("staff_selects_a_scoring_type", "ranking_score", True, ["ranking_score"]),
+        ]
+    )
+    def test_list_filters_by_type(self, _name: str, type_filter: str, is_staff: bool, expected: list[str]) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        report = self._create_report()
+        for artefact_type in ("signal_finding", "note", "priority_judgment", "ranking_score"):
+            self._create_artefact(report, artefact_type=artefact_type, content={})
+
+        response = self.client.get(self._list_url(str(report.id)), {"type": type_filter})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(row["type"] for row in response.json()["results"]) == expected
+        assert response.json()["count"] == len(expected)
+
+    @parameterized.expand(
+        [
+            ("unknown_type", "evidence", True, True, "evidence", frozenset()),
+            (
+                "scoring_type_for_non_staff",
+                "ranking_score",
+                False,
+                True,
+                "ranking_score",
+                SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES,
+            ),
+            (
+                "internal_type_beside_a_readable_one",
+                "note,check_authoring",
+                False,
+                True,
+                "check_authoring",
+                SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES | SignalReportArtefact.INTERNAL_ARTEFACT_TYPES,
+            ),
+            (
+                "observation_with_monitoring_off",
+                "check_observation",
+                True,
+                False,
+                "check_observation",
+                frozenset({"check_observation"}),
+            ),
+        ]
+    )
+    def test_list_type_filter_rejects_types_the_caller_cannot_read(
+        self,
+        _name: str,
+        type_filter: str,
+        is_staff: bool,
+        monitoring: bool,
+        invalid: str,
+        hidden: frozenset[str],
+    ) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        report = self._create_report()
+
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=monitoring):
+            response = self.client.get(self._list_url(str(report.id)), {"type": type_filter})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "type"
+        accepted = sorted(set(SignalReportArtefact.ArtefactType.values) - hidden)
+        assert response.json()["detail"] == (
+            f"Invalid artefact type(s): {invalid}. Accepted values: {', '.join(accepted)}."
+        )
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_monitoring_observation_reads_and_counts_follow_the_flag(self, _name: str, enabled: bool) -> None:
@@ -2777,13 +2850,26 @@ class TestSignalReportCommitDiff(APIBaseTest):
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_diff_returns_404_when_no_integration_can_access_repo(self):
+    @parameterized.expand(
+        [
+            ("no_integration", {"return_value": None}, status.HTTP_404_NOT_FOUND, "github_repository_inaccessible"),
+            (
+                "installation_unavailable",
+                {"side_effect": GitHubInstallationUnavailableError("token refresh after 401 failed")},
+                status.HTTP_403_FORBIDDEN,
+                "github_installation_unavailable",
+            ),
+        ]
+    )
+    def test_diff_links_github_settings_when_github_cannot_serve_repo(
+        self, _name: str, lookup: dict, expected_status: int, expected_code: str
+    ) -> None:
         report = self._create_report()
         artefact = self._create_commit_artefact(report)
-        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", **lookup):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.status_code == expected_status
+        assert response.json()["code"] == expected_code
         assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):

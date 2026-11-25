@@ -40,6 +40,7 @@ from posthog.api.id_jag import (
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
+from posthog.errors import InternalCHQueryError
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.id_jag_identity import IdJagIdentity
@@ -53,6 +54,8 @@ from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
+
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
@@ -1401,3 +1404,47 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])
+
+    def test_a_staff_users_token_cannot_change_global_dashboard_templates(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        template = DashboardTemplate.objects.create(template_name="Global", scope=DashboardTemplate.Scope.GLOBAL)
+
+        token = self._mint_access_token(scope="dashboard_template:write")
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{template.id}/",
+            {"template_name": "Changed"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        template.refresh_from_db()
+        self.assertEqual(template.template_name, "Global")
+
+    def test_a_staff_users_token_gets_no_internal_error_text_from_an_async_query(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        token = self._mint_access_token(scope="query:read")
+        error = InternalCHQueryError("DB::Exception: internal detail", code=47)
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select 1"}, "refresh": "force_async"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/query/{resp.json()['query_status']['id']}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, resp.content)
+        self.assertNotIn("internal detail", resp.json()["query_status"]["error_message"])

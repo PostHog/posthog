@@ -221,6 +221,181 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot", "compact"]
 
+    @parameterized.expand(
+        [
+            ("opted_in_complete_read", True, True, [{"distinct_id": "present", "plan": "pro"}], False, ["left"]),
+            ("opted_in_present_null", True, True, [{"distinct_id": "present", "plan": None}], False, ["left"]),
+            ("opted_in_partial_read", True, False, [{"distinct_id": "present", "plan": "pro"}], False, []),
+            ("default_complete_read", False, True, [{"distinct_id": "present", "plan": "pro"}], False, []),
+            ("opted_in_missing_key_column", True, True, [{"plan": "pro"}], False, []),
+            ("opted_in_empty_complete_read", True, True, [], True, ["left", "present"]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_removes_only_after_an_opted_in_complete_read(
+        self,
+        _name: str,
+        remove_when_missing: bool,
+        complete_table_read: bool,
+        staged_rows: list[dict],
+        empty_read_has_key_column: bool,
+        expected_removed_ids: list[str],
+    ) -> None:
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            remove_when_missing=remove_when_missing,
+        )
+        prior = {
+            "present": pps.bundle_hash({"plan_tier": "pro"}),
+            "left": pps.bundle_hash({"plan_tier": "free"}),
+        }
+        fake = _FakeS3()
+        if staged_rows:
+            _stage(fake, "chunk_1_000000", staged_rows)
+        with _fake_s3_patch(fake), _person_directory({"present": 1, "left": 2}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch(
+                    f"{_MODULE}._sources_with_key_column_for_empty_read",
+                    new=AsyncMock(return_value=frozenset({"source-1"}) if empty_read_has_key_column else frozenset()),
+                ),
+                patch(
+                    f"{_MODULE}._produce_intents",
+                    side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
+                        distinct_id for distinct_id, _bundle in bundles
+                    },
+                ) as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+                patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                result = await pps.run_person_property_sync(
+                    team_id=1,
+                    binding=_SCHEMA,
+                    job_id="job-1",
+                    complete_table_read=complete_table_read,
+                )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
+
+        assert result.removed == len(expected_removed_ids)
+        removed = {distinct_id for call in produce.call_args_list for distinct_id, _bundle in call.args[3]}
+        assert removed == {*expected_removed_ids}
+        if expected_removed_ids:
+            assert all(call.kwargs["unset_properties"] == ["plan_tier"] for call in produce.call_args_list)
+        assert snapshot == {key: value for key, value in prior.items() if key not in expected_removed_ids}
+
+    @parameterized.expand(
+        [
+            ("table_missing", False, ("distinct_id", "plan"), [], False),
+            ("key_column_missing", True, ("plan",), [], False),
+            ("table_still_has_rows", True, ("distinct_id", "plan"), [[{"distinct_id": "a", "plan": "pro"}]], False),
+            ("table_empty", True, ("distinct_id", "plan"), [], True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_an_empty_staged_read_is_a_zero_row_read_only_for_an_empty_table(
+        self, _name: str, is_deltatable: bool, columns: tuple[str, ...], batches: list, expected_confirmed: bool
+    ) -> None:
+        source = PersonPropertySyncSource(
+            "source-1", "def-1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True
+        )
+        with (
+            _delta_table_patch(batches, columns=columns) as dt_cls,
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+        ):
+            dt_cls.is_deltatable.return_value = is_deltatable
+            confirmed = await pps._sources_with_key_column_for_empty_read(1, _SCHEMA, [source])
+
+        assert confirmed == (frozenset({"source-1"}) if expected_confirmed else frozenset())
+
+    @parameterized.expand([("staged_listing_fails", True), ("table_unreadable", False)])
+    @pytest.mark.asyncio
+    async def test_a_failed_read_removes_nothing_instead_of_looking_like_zero_rows(
+        self, _name: str, listing_fails: bool
+    ) -> None:
+        source = PersonPropertySyncSource(
+            "source-1", "def-1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True
+        )
+        prior = {"left": pps.bundle_hash({"plan_tier": "free"})}
+        fake = _FakeS3()
+        with _fake_s3_patch(fake), _person_directory({"left": 1}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch.object(fake, "_ls", new=_ls_denied_for_staged_files(fake))
+                if listing_fails
+                else contextlib.nullcontext(),
+                patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+                patch(f"{_MODULE}.delta_storage_options", return_value={}),
+                _delta_table_patch([]) if listing_fails else patch("deltalake.DeltaTable", side_effect=OSError("x")),
+                patch(f"{_MODULE}._produce_intents") as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                with pytest.raises((PermissionError, OSError)):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", complete_table_read=True
+                    )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
+
+        produce.assert_not_called()
+        assert snapshot == prior
+
+    @pytest.mark.asyncio
+    async def test_a_person_whose_distinct_ids_were_cut_short_is_kept(self) -> None:
+        owned = {f"id-{index}": 1 for index in range(3)}
+        with (
+            _person_directory(owned),
+            patch(f"{_MODULE}._REMOVAL_DISTINCT_ID_LIMIT", 3),
+        ):
+            removable = pps._removable_ids(1, ["id-0"], present_ids={"unrelated"})
+
+        assert removable == set()
+
+    @pytest.mark.asyncio
+    async def test_a_person_with_another_distinct_id_still_in_the_table_keeps_their_properties(self) -> None:
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            remove_when_missing=True,
+        )
+        bundle_hash = pps.bundle_hash({"plan_tier": "pro"})
+        prior = {"anon-1": bundle_hash, "user@x": bundle_hash, "gone": bundle_hash}
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", [{"distinct_id": "user@x", "plan": "pro"}])
+        with _fake_s3_patch(fake), _person_directory({"anon-1": 1, "user@x": 1, "gone": 2}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch(
+                    f"{_MODULE}._produce_intents",
+                    side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
+                        distinct_id for distinct_id, _bundle in bundles
+                    },
+                ) as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+                patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                result = await pps.run_person_property_sync(
+                    team_id=1, binding=_SCHEMA, job_id="job-1", complete_table_read=True
+                )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
+
+        assert result.removed == 1
+        assert [distinct_id for call in produce.call_args_list for distinct_id, _bundle in call.args[3]] == ["gone"]
+        assert snapshot == {"user@x": bundle_hash}
+
     @parameterized.expand([("unconfirmed_delivery", False), ("snapshot_write_failure", True)])
     @pytest.mark.asyncio
     async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self, _name, snapshot_write_fails):
@@ -746,6 +921,27 @@ class TestBackfillOrchestration:
         dt_cls.is_deltatable.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_table_whose_first_sync_has_not_landed_completes_with_zero_rows(self):
+        sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True)]
+        with (
+            _fake_s3_patch(_FakeS3()),
+            _delta_table_patch([]) as dt_cls,
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}._produce_intents") as produce,
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            dt_cls.is_deltatable.return_value = False
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
+
+        (ps,) = result.per_source
+        assert (ps.rows_read, ps.produced, ps.error) == (0, 0, None)
+        produce.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_view_binding_reads_the_model_table_uri(self):
         # A view's rows live under its own model prefix. Reading the schema path instead would find no
         # Delta log and report a silent 0-row backfill.
@@ -817,6 +1013,31 @@ class _FakeS3:
             self.times.pop(key, None)
 
 
+@contextlib.contextmanager
+def _person_directory(person_id_by_distinct_id: dict[str, int]):
+    """Stand in for personhog: each known distinct_id resolves to the person id it maps to."""
+
+    def _persons(_team_id, distinct_ids):
+        return {
+            distinct_id: MagicMock(id=person_id_by_distinct_id[distinct_id])
+            for distinct_id in distinct_ids
+            if distinct_id in person_id_by_distinct_id
+        }
+
+    def _distinct_ids(_team_id, person_ids, limit_per_person=None):
+        owned = {
+            person_id: [d for d, owner in person_id_by_distinct_id.items() if owner == person_id]
+            for person_id in person_ids
+        }
+        return {person_id: ids[:limit_per_person] for person_id, ids in owned.items()}
+
+    with (
+        patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", side_effect=_persons),
+        patch(f"{_MODULE}.get_distinct_ids_for_persons", side_effect=_distinct_ids),
+    ):
+        yield
+
+
 def _fake_s3_patch(fake):
     import contextlib
 
@@ -847,6 +1068,18 @@ def _delta_table_patch(batches, columns=("distinct_id", "plan"), key_pass_batche
         yield dt_cls
 
 
+def _ls_denied_for_staged_files(fake):
+    staged_prefix = pps._s3_key(pps.job_staged_prefix(1, _SCHEMA, "job-1"))
+    listing = fake._ls
+
+    async def _ls(path, detail=True):
+        if pps._s3_key(path).startswith(staged_prefix):
+            raise PermissionError("denied")
+        return await listing(path, detail=detail)
+
+    return _ls
+
+
 def _stage(fake, name, rows, job_id="job-1"):
     buffer = io.BytesIO()
     pq.write_table(pa.Table.from_pylist(rows), buffer)
@@ -872,6 +1105,36 @@ class TestSnapshotCompaction:
         # Two producing runs collapse to a single file whose union is newest-wins (b came from job-2).
         assert len(keys) == 1
         assert hashes == {"a": "h1", "b": "h2", "c": "h2"}
+
+    @pytest.mark.asyncio
+    async def test_tombstone_removes_the_id_from_the_snapshot_and_from_compaction(self):
+        fake = _FakeS3()
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "h1", "b": "h1"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": None})
+
+            before_compaction = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-3", {"c": "h3"})
+            after_compaction = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            stored = pq.read_table(io.BytesIO(fake.store[pps._s3_key(keys[0])])).to_pydict()
+
+        assert before_compaction == {"b": "h1"}
+        assert after_compaction == {"b": "h1", "c": "h3"}
+        assert sorted(stored["distinct_id"]) == ["b", "c"]
+
+    @pytest.mark.asyncio
+    async def test_an_id_that_leaves_and_returns_with_the_same_values_is_changed_again(self):
+        fake = _FakeS3()
+        bundle = {"plan_tier": "pro"}
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": pps.bundle_hash(bundle)})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": None})
+            prior = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        changed, _new_hashes = pps.select_changed([("a", bundle)], prior)
+
+        assert changed == [("a", bundle)]
 
     @pytest.mark.asyncio
     async def test_repeated_run_token_overwrites_its_own_file(self):
@@ -924,16 +1187,21 @@ class TestSnapshotCompaction:
         with _fake_s3_patch(fake):
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "old"})
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": "new"})
-            original_cat_file = fake._cat_file
+            await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "new"})
+            concurrent_data = fake.store.pop(f"{prefix}/concurrent.parquet")
+            concurrent_time = fake.times.pop(f"{prefix}/concurrent.parquet")
+            original_merge_snapshot_path = pps._merge_snapshot_path
 
-            async def _cat_after_concurrent_compaction(path):
-                data = await original_cat_file(path)
+            def _merge_after_concurrent_compaction(path, hashes):
+                original_merge_snapshot_path(path, hashes)
                 if path.endswith("/job-1.parquet"):
-                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "new"})
-                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
-                return data
+                    fake.store[f"{prefix}/concurrent.parquet"] = concurrent_data
+                    fake.times[f"{prefix}/concurrent.parquet"] = concurrent_time
+                    for key in (f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"):
+                        fake.store.pop(key)
+                        fake.times.pop(key)
 
-            with patch.object(fake, "_cat_file", _cat_after_concurrent_compaction):
+            with patch(f"{_MODULE}._merge_snapshot_path", side_effect=_merge_after_concurrent_compaction):
                 await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-3", {})
 
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
@@ -948,18 +1216,24 @@ class TestSnapshotCompaction:
         with _fake_s3_patch(fake):
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "h1"})
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"b": "h2"})
-            original_cat_file = fake._cat_file
+            await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
+            concurrent_data = fake.store.pop(f"{prefix}/concurrent.parquet")
+            concurrent_time = fake.times.pop(f"{prefix}/concurrent.parquet")
+            original_merge_snapshot_path = pps._merge_snapshot_path
             compacted = False
 
-            async def _cat_with_one_concurrent_compaction(path):
+            def _merge_with_one_concurrent_compaction(path, hashes):
                 nonlocal compacted
                 if not compacted:
                     compacted = True
-                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
-                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
-                return await original_cat_file(path)
+                    fake.store[f"{prefix}/concurrent.parquet"] = concurrent_data
+                    fake.times[f"{prefix}/concurrent.parquet"] = concurrent_time
+                    for key in (f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"):
+                        fake.store.pop(key)
+                        fake.times.pop(key)
+                original_merge_snapshot_path(path, hashes)
 
-            with patch.object(fake, "_cat_file", _cat_with_one_concurrent_compaction):
+            with patch(f"{_MODULE}._merge_snapshot_path", side_effect=_merge_with_one_concurrent_compaction):
                 hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         assert hashes == {"a": "h1", "b": "h2"}

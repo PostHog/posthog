@@ -9,6 +9,7 @@ capabilities on the writer rather than branched on by the engine.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import AsyncIterator
 from dataclasses import field
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
@@ -42,6 +43,9 @@ class DestinationRunContext:
     primary_keys: tuple[str, ...] = ()
     config: dict = field(default_factory=dict)
     integration_id: int | None = None
+    # When the sync job started, so every batch of the run reads the same time. None when the
+    # job row is gone.
+    run_started_at: dt.datetime | None = None
 
     @property
     def is_full_refresh(self) -> bool:
@@ -70,10 +74,21 @@ class DestinationBatchContext:
 
 @frozen
 class BatchWriteOutcome:
-    """What a writer actually delivered for one batch."""
+    """What a writer actually delivered for one batch.
+
+    `bytes_written` is the egress billed for the batch: the bytes sent to the destination after
+    format encoding and compression, summed over every file or chunk the batch was split into.
+    Required so that a new writer cannot report zero by omission.
+    """
 
     rows_written: int
-    bytes_written: int = 0
+    bytes_written: int
+
+    def __add__(self, other: BatchWriteOutcome) -> BatchWriteOutcome:
+        return BatchWriteOutcome(
+            rows_written=self.rows_written + other.rows_written,
+            bytes_written=self.bytes_written + other.bytes_written,
+        )
 
 
 @runtime_checkable

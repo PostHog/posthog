@@ -28,6 +28,20 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true, undefined])('email sender tools require the email from code rollout: %s', async (enabled) => {
+        const tools = await getToolsFromContext(createMockContext(['integration:write']), {
+            featureFlags: { 'workflows-email-from-code': enabled },
+        })
+        const names = tools.map((tool) => tool.name)
+        for (const tool of [
+            'integrations-email-partial-update',
+            'integrations-domain-connect-check-retrieve',
+            'integrations-domain-connect-apply-url-create',
+        ]) {
+            expect(names.includes(tool)).toBe(enabled === true)
+        }
+        expect(names).toContain('integrations-list')
+    })
     it.each([
         { scopes: ['llm_analytics:read'], enabled: true, visible: true },
         { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
@@ -1059,6 +1073,17 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it.each([false, true])('app tools require their own flag with collaboration=%s', async (collaboration) => {
+        for (const enabled of [false, true]) {
+            const tools = await getToolsFromContext(createMockContext(['notebook:read', 'notebook:write']), {
+                featureFlags: { 'notebooks-collaboration': collaboration, 'notebook-app-builder': enabled },
+            })
+            const names = tools.map((tool) => tool.name)
+            expect(names.includes('notebooks-app-get')).toBe(enabled)
+            expect(names.includes('notebooks-app-update')).toBe(enabled)
+        }
+    })
+
     it('organization-billing-api flag gates the tools that call the organization billing API', () => {
         const gated = [
             'billing-subscription-get',
@@ -1121,7 +1146,8 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
-            'workflows-supabase-auth-emails',
+            'notebook-app-builder',
+            'workflows-email-activity',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
@@ -1135,7 +1161,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
-            'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
@@ -1157,9 +1182,9 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
-            'workflows-resend-import',
             'signals-source-filters',
             'error-tracking-issue-tags',
+            'inbox-plan-edits-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1199,16 +1224,17 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'aeo-citation-tracking',
+                'web-analytics-content-autopilot',
                 'self-driving-usage-display',
                 'logs-agent-tools',
                 'release-objects',
+                'signals-monitor-pr',
             ])
         )
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
