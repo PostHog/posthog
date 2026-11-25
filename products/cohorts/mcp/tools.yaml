@@ -243,7 +243,7 @@ tools:
             Turn realtime on or off for a dynamic cohort. With realtime on, PostHog keeps the cohort's membership
             current within about a minute, so feature flags can target it and workflows can trigger on it. Send
             'enabled: true' to turn it on and 'enabled: false' to turn it off. Sending the value the cohort already has
-            changes nothing.
+            changes nothing, except for a cohort in 'needs_attention', described below.
 
 
             Read the cohort with 'cohorts-retrieve' first. 'realtime_enabled' says whether realtime is on. Only a cohort
@@ -257,8 +257,9 @@ tools:
             response and 'cohorts-retrieve' both return 'realtime.state'. It is 'building' or 'rebuilding' while the
             build runs, with progress in 'realtime.build', and 'ready' once feature flags can target the cohort. Don't
             wait on any other state. 'person_properties' means feature flags read the cohort directly and it never
-            becomes 'ready'. 'needs_attention' means nothing is preparing the cohort, so tell the user. A null
-            'realtime' has no state to follow.
+            becomes 'ready'. 'needs_attention' means nothing is preparing the cohort. When its 'realtime.reason' is
+            null, sending 'enabled: true' again asks PostHog to prepare it again. Otherwise, or when that call fails,
+            tell the user. A null 'realtime' has no state to follow.
 
 
             PostHog refuses to turn realtime on for a static or deleted cohort, for criteria that can't be realtime,
