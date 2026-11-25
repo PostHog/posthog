@@ -28097,7 +28097,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": null,
+            "agentNote": "Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can see the context. Then attach each pull request to the report with `pull_requests` on this tool.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28592,7 +28592,7 @@
                 "field": "id",
                 "suffix": ""
             },
-            "agentNote": "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve: its note says how to claim the report and link your pull request.\n",
+            "agentNote": "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n",
             "informational": null,
             "textInclude": []
         },

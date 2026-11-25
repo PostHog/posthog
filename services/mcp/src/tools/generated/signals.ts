@@ -651,7 +651,7 @@ const InboxReportsClaimSchema = () => {
 
 const inboxReportsClaim = (): ToolBase<
     ReturnType<typeof InboxReportsClaimSchema>,
-    WithPostHogUrl<Schemas.SignalReport>
+    WithAgentNote<WithPostHogUrl<Schemas.SignalReport>>
 > => ({
     name: 'inbox-reports-claim',
     schema: InboxReportsClaimSchema(),
@@ -681,7 +681,10 @@ const inboxReportsClaim = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/claim/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, result, `/inbox/${result.id}`),
+            "Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can see the context. Then attach each pull request to the report with `pull_requests` on this tool.\n"
+        )
     },
 })
 
@@ -977,7 +980,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve: its note says how to claim the report and link your pull request.\n'
+            "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n"
         )
     },
 })
