@@ -432,18 +432,25 @@ class BigQueryDestinationWriter:
         staging = staging_table_name(ctx.run)
         staging_ref = self._table_ref(staging)
         table = pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)])
+        staging_absent = False
 
         if first_chunk:
             staging_absent = self._claim_staging_table(client, staging_ref)
             if not staging_absent:
                 self._delete_batch_rows(client, staging, ctx.batch_index)
 
-            bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if staging_absent:
-                self._mark_owned(client, staging_ref)
-            return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
+        if not staging_absent:
+            # The staging table spans the whole run, so every batch past the first lands here
+            # with a schema BigQuery already fixed from an earlier one. `ALLOW_FIELD_ADDITION`
+            # only covers a column new to this chunk; it does not let a column the table already
+            # has load as a different type (e.g. a batch with every value null autodetected as
+            # STRING, followed by a batch sending real integers), which fails the load outright
+            # on every retry without this.
+            table = self._align_to_target(table, client.get_table(staging_ref))
 
         bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+        if first_chunk and staging_absent:
+            self._mark_owned(client, staging_ref)
         return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
     def _delete_batch_rows(self, client: bigquery.Client, table: str, batch_index: int) -> None:

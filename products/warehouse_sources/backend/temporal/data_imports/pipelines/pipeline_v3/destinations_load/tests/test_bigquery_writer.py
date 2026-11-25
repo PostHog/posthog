@@ -402,6 +402,25 @@ class TestFullRefresh:
 
         assert _read(client) == [(1, "a"), (2, "b")]
 
+    async def test_a_column_that_is_null_in_an_earlier_batch_does_not_fail_once_a_later_batch_sends_a_value(
+        self,
+    ) -> None:
+        # Regression: the staging table spans the whole run, and BigQuery autodetects an
+        # all-null column as STRING on the batch that creates it. Loading a later batch's real
+        # value for that column failed the whole load job on every retry without aligning to
+        # the staging table's already-established schema first, the same way the append and
+        # merge paths already align to the live table's schema.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "note": [None]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "note": [42]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["note"] == "STRING"
+        assert sorted((row["id"], row["note"]) for row in table.rows) == [(1, None), (2, "42")]
+
 
 @pytest.mark.asyncio
 class TestIncremental:

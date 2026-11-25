@@ -37,9 +37,6 @@ _ADD_COLUMN = re.compile(r"ALTER TABLE\s+`([^`]+)`\s+(ADD COLUMN IF NOT EXISTS.*
 _ADD_COLUMN_CLAUSE = re.compile(r"ADD COLUMN IF NOT EXISTS\s+`([^`]+)`\s+(\w+)", re.IGNORECASE)
 
 
-# What schema autodetect gives a parquet column, in the legacy names `SchemaField` reports.
-_AUTODETECTED_TYPE = {pa.int64(): "INTEGER", pa.float64(): "FLOAT", pa.bool_(): "BOOLEAN"}
-
 # NUMERIC's own range: scale 9, 29 integer digits. A decimal column outside it needs BIGNUMERIC
 # in the job's `decimal_target_types`, the way real BigQuery's autodetect does.
 _NUMERIC_MAX_SCALE = 9
@@ -47,6 +44,9 @@ _NUMERIC_MAX_PRECISION = 38
 
 
 def _autodetected_type(arrow_type: pa.DataType, decimal_target_types: frozenset[str]) -> str:
+    # Keyed on width-independent Arrow type families, in the legacy names `SchemaField` reports,
+    # the way real BigQuery's autodetect does: a parquet int32 column autodetects as INTEGER
+    # exactly like an int64 one.
     if pa.types.is_decimal(arrow_type):
         if arrow_type.scale <= _NUMERIC_MAX_SCALE and arrow_type.precision <= _NUMERIC_MAX_PRECISION:
             return "NUMERIC"
@@ -57,7 +57,13 @@ def _autodetected_type(arrow_type: pa.DataType, decimal_target_types: frozenset[
             f"Value will lose precision after scaling down to NUMERIC type; scale: {arrow_type.scale}. Consider "
             "specifying decimal target types to allow a larger range of values."
         )
-    return _AUTODETECTED_TYPE.get(arrow_type, "STRING")
+    if pa.types.is_integer(arrow_type):
+        return "INTEGER"
+    if pa.types.is_floating(arrow_type):
+        return "FLOAT"
+    if pa.types.is_boolean(arrow_type):
+        return "BOOLEAN"
+    return "STRING"
 
 
 # `get_table` reports a column's type using the legacy names regardless of which standard SQL
