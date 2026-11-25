@@ -772,7 +772,32 @@ class SourceFilterPreviewRecordSerializer(serializers.Serializer):
     )
 
 
-class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+class FilterExpressionErrorSerializer(serializers.Serializer):
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, "
+            "`boolean_required` or `expression_limit`. Null when the expression is valid."
+        ),
+    )
+    error_start = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` where the invalid part starts. Null when the expression is "
+            "valid, or when the error has no position, for example an expression that is too long."
+        ),
+    )
+    error_end = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "0-based character offset in `expression` just after the invalid part, so the part is "
+            "`expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example "
+            "an expression that ends too early. Null when `error_start` is null."
+        ),
+    )
+
+
+class SourceFilterPreviewResponseSerializer(FilterExpressionErrorSerializer):
     status = serializers.ChoiceField(
         choices=SourceFilterPreviewStatus.choices,
         help_text=(
