@@ -401,7 +401,9 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
                     'sides',
                     batch,
                     async (batchRows) => {
-                        const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows))
+                        const { items } = await aiObservabilityTracesTurnsCreate(projectId, pageRequest(batchRows), {
+                            signal: cache.sidesSignal,
+                        })
                         return { items: turnSidesOfRows(batchRows, items) }
                     },
                     actions.sidesLoaded
@@ -482,7 +484,11 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             },
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
+        const sidesRequests = new AbortController()
+        cache.sidesSignal = sidesRequests.signal
+        // Leaving a session frees the query slots of the messages still loading. A hidden tab keeps them.
+        cache.disposables.add(() => () => sidesRequests.abort(), 'sidesRequests', { pauseOnPageHidden: false })
         actions.reload()
     }),
 ])

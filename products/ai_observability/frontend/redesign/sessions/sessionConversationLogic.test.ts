@@ -218,6 +218,24 @@ describe('sessionConversationLogic', () => {
         expect(sidesStatuses()).toEqual(['ready', 'ready'])
     })
 
+    it('unmounting aborts the messages still loading, and reports no failure', async () => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const fetched = jest.spyOn(window, 'fetch')
+        answerSides = () => new Promise<SidesAnswer>(() => {})
+        logic = sessionConversationLogic(PROPS)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['sidesRequested'])
+        const sidesSignal = fetched.mock.calls.find(([url]) => String(url).includes('/traces/turns/'))?.[1]?.signal
+
+        logic.unmount()
+        await new Promise(process.nextTick)
+
+        expect(sidesSignal?.aborted).toBe(true)
+        expect(captureException).not.toHaveBeenCalled()
+        answerSides = answerEveryTurn
+        await mount()
+    })
+
     it('shows a turn the messages read leaves out as read, with nothing in it', async () => {
         answerSides = () => [200, { items: [makeTraceTurn('trace-1')] }]
         await mount()
