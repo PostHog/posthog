@@ -1661,7 +1661,7 @@ export interface TransactionalEmailLogDetailApi {
     action_id: string
     /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
     sensitive: boolean
-    /** False when the email went out with open and click tracking off, so it can never record an open or a click. An email sent before PostHog recorded this setting reads true. */
+    /** False when the email went out with open and click tracking off, so it can never record an open or a click. It reads true until the email's sent status arrives, and for an email sent before PostHog recorded this setting. */
     tracked: boolean
 }
 

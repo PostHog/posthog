@@ -46,8 +46,8 @@ function StepWhen({ step }: { step: DeliveryStep }): JSX.Element | null {
     }
     if (step.state === 'untracked') {
         return (
-            <Tooltip title="Tracking was off for this send, so it records no opens or clicks.">
-                <span className="text-xs text-secondary" data-attr="transactional-email-not-tracked">
+            <Tooltip title="Tracking was off for this send, so it records no opens or clicks." openOnClick>
+                <span tabIndex={0} className="text-xs text-secondary" data-attr="transactional-email-not-tracked">
                     Not tracked
                 </span>
             </Tooltip>
