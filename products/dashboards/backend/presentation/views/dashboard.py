@@ -172,6 +172,7 @@ from products.dashboards.backend.facade.enums import (
     MAX_WIDGETS_BATCH_SIZE,
     DashboardAccessMethod,
     DashboardTileBadge,
+    ResultFormat,
 )
 from products.dashboards.backend.facade.query_sharing import (
     MAX_CACHED_TILES_BATCH_SIZE,
@@ -185,7 +186,6 @@ from products.dashboards.backend.presentation.dashboard_template_json_schema_par
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.presentation.frames import (
-    CachedTileFormat,
     FrameSerializer,
     FramesRenderer,
     cached_tile_format,
@@ -1424,7 +1424,7 @@ class CachedTileResultSerializer(serializers.Serializer):
         required=False, help_text="The cached result. Present only when status is 'hit'."
     )
     format = serializers.ChoiceField(
-        choices=CachedTileFormat.choices,
+        choices=ResultFormat.choices,
         required=False,
         help_text=(
             "Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces "

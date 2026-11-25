@@ -1,4 +1,4 @@
-import { Survey, SurveyEventsWithProperties } from '~/types'
+import { Survey, SurveyEventsWithProperties, SurveyQuestionType } from '~/types'
 
 import { SURVEY_SDK_REQUIREMENTS, SurveySdkType, getSurveyWarnings } from './surveyVersionRequirements'
 
@@ -38,6 +38,19 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
         const features = getSurveyWarnings(survey, { 'posthog-js': '1.400.0' }).map((w) => w.feature)
 
         expect(features.includes('Event filters using ≥ or ≤')).toBe(warns)
+    })
+
+    it.each([
+        ['4.77.0', true],
+        ['4.77.1', false],
+    ])('warns about shuffled choice options on posthog-react-native %s: %s', (version, warns) => {
+        const survey = {
+            questions: [{ type: SurveyQuestionType.MultipleChoice, choices: ['A', 'B', 'C'], shuffleOptions: true }],
+        } as unknown as Survey
+
+        const features = getSurveyWarnings(survey, { 'posthog-react-native': version }).map((w) => w.feature)
+
+        expect(features.includes('Shuffle choice options')).toBe(warns)
     })
 
     it.each([

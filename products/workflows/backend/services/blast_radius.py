@@ -29,6 +29,7 @@ from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_cohort_is_ready,
     realtime_cohort_status,
 )
+from products.workflows.backend.services.batch_audience_test_accounts import skipped_test_account_filter_keys
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
 # An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
@@ -62,7 +63,9 @@ def _count_audience(
 def _cached_count_audience(
     team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
 ) -> BlastRadiusResult:
-    audience = json.dumps([filters, group_type_index, dedupe_key], sort_keys=True, default=str)
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, team.test_account_filters], sort_keys=True, default=str
+    )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, tuple) and len(cached) == 2:
@@ -132,6 +135,9 @@ def get_audience_size(
         limit=audience_limit.limit,
         dedupe_key=applied_dedupe_key,
         rate_limited=audience_limit.rate_limited,
+        skipped_test_account_filters=(
+            skipped_test_account_filter_keys(team, filters) if group_type_index is None else []
+        ),
         realtime_cohort_with_other_conditions=(
             RealtimeAudienceCohort(
                 id=mixed_realtime_cohort.pk,

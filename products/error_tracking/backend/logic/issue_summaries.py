@@ -275,21 +275,21 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueS
     """The stored summary, or the reason none is shown. Never starts generation."""
     if not issue_summaries_enabled(team_id):
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.DISABLED)
+    stored = get_issue_summary(team_id, issue_id)
+    # A stored summary stays visible with the setting off, because reading it costs nothing. Without one, the setting
+    # comes before the access checks, as it does in `gate_generation`, and the issue page shows nothing for it.
+    if stored is None and not ai_feature_setting_on(ISSUE_SUMMARIES, team_id):
+        return IssueSummaryState(
+            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.SETTING_OFF
+        )
     if not summary_sources_readable(team_id, user):
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.RESTRICTED)
     if not is_ai_data_processing_approved(team_id):
         return IssueSummaryState(
             status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.AI_NOT_APPROVED
         )
-    stored = get_issue_summary(team_id, issue_id)
     if stored is not None:
         return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
-    # A stored summary stays visible after the setting is turned off, because reading it costs nothing. Only the
-    # request to write one needs the setting.
-    if not ai_feature_setting_on(ISSUE_SUMMARIES, team_id):
-        return IssueSummaryState(
-            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.SETTING_OFF
-        )
     return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 

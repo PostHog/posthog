@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import GroupTypeIndex
+from posthog.constants import GROUP_TYPES_LIMIT, GroupTypeIndex
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
@@ -125,6 +125,14 @@ class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
     )
 
 
+class GroupTypeMetadataUpdateRequestSerializer(serializers.Serializer):
+    updates = serializers.ListField(
+        child=GroupTypeMetadataUpdateSerializer(),
+        max_length=GROUP_TYPES_LIMIT,
+        help_text=f"Group type metadata updates to apply, at most {GROUP_TYPES_LIMIT}, one per group type.",
+    )
+
+
 class GroupTypeCreateDetailDashboardSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(help_text="Index of the group type that gets the detail dashboard.")
 
@@ -175,7 +183,26 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        for row in cast(list[dict], request.data):
+        updates_field = GroupTypeMetadataUpdateRequestSerializer().fields["updates"]
+        return self._update_metadata(request, updates_field.run_validation(request.data))
+
+    @extend_schema(
+        request=GroupTypeMetadataUpdateRequestSerializer,
+        responses={200: GroupTypeSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["PATCH"],
+        name="Update group types metadata for agents",
+        required_scopes=["group:write"],
+    )
+    def update_metadata_for_agents(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_data = GroupTypeMetadataUpdateRequestSerializer(data=request.data)
+        request_data.is_valid(raise_exception=True)
+        return self._update_metadata(request, request_data.validated_data["updates"])
+
+    def _update_metadata(self, request: request.Request, rows: Iterable[dict[str, Any]]) -> response.Response:
+        for row in rows:
             instance = get_group_type_mapping_instance(
                 self.team.project_id,
                 row["group_type_index"],
@@ -194,7 +221,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 update_group_type_mapping_fields(instance, fields=fields, caller_tag="groups/update-metadata")
 
         invalidate_group_types_cache(self.team.project_id)
-        return self.list(request, *args, **kwargs)
+        return self.list(request)
 
     @extend_schema(request=GroupTypeCreateDetailDashboardSerializer, responses={200: GroupTypeSerializer})
     @action(methods=["PUT"], detail=False)

@@ -325,7 +325,8 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
 
         assert (metrics.current, metrics.previous, metrics.buckets) == (NO_TRACES, NO_TRACES, {})
 
-    @parameterized.expand([(case["name"], case) for case in CASES])
+    # A session-scoped list skips its counts, so those cases have no list count to match.
+    @parameterized.expand([(case["name"], case) for case in CASES if "session_id" not in case["selection"]])
     def test_metrics_match_list_counts(self, _name: str, case: dict[str, Any]) -> None:
         if "team_test_account_filters" in case:
             self.team.test_account_filters = case["team_test_account_filters"]

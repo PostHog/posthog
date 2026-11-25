@@ -694,7 +694,7 @@ export interface NotebookVariableApi {
      * @maxLength 200
      */
     name: string
-    /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+    /** Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'. */
     type: string
     /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
     value?: unknown
