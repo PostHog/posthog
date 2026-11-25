@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { RefreshContext } from '../refreshContext'
 import { cachedResult, runCachedQuery } from './queryCache'
@@ -31,6 +31,24 @@ export function afterRequestChange(previous: QueryFrames, cached: QueryFrames): 
     return unchanged(previous, cached) ? previous : cached
 }
 
+/**
+ * Carries each query's last result over to its new request. A query is matched by its key, so removing one target does
+ * not hand its frames to the next. An edited query has a new key, and while the number of queries stays the same it
+ * keeps the result at its position.
+ */
+export function carryOverResults(
+    previousKeys: string[],
+    previous: QueryFrames[],
+    keys: string[],
+    fresh: (key: string) => QueryFrames
+): QueryFrames[] {
+    return keys.map((key, index) => {
+        const at = previousKeys.indexOf(key)
+        const match = at >= 0 ? previous[at] : keys.length === previousKeys.length ? previous[index] : undefined
+        return match ? afterRequestChange(match, fresh(key)) : fresh(key)
+    })
+}
+
 /** Runs a chart's queries through the host's runner, and again when a query, its time range or the dashboard refresh changes. */
 export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): QueryFrames[] {
     // An edit rebuilds the request objects, so the queries run again only when their content changes.
@@ -38,9 +56,12 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
     const keysKey = JSON.stringify(queryKeys)
     const refresh = useContext(RefreshContext)
     const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key, refresh)))
+    const resultKeys = useRef(queryKeys)
     useEffect(() => {
         let cancelled = false
         const keys = JSON.parse(keysKey) as string[]
+        const previousKeys = resultKeys.current
+        resultKeys.current = keys
         const show = (index: number, next: QueryFrames): void =>
             setResults((previous) => {
                 if (previous[index] && unchanged(previous[index], next)) {
@@ -51,11 +72,7 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
                 return updated
             })
         setResults((previous) => {
-            const next = keys.map((key, index) =>
-                previous[index]
-                    ? afterRequestChange(previous[index], initial(runQuery, key, refresh))
-                    : initial(runQuery, key, refresh)
-            )
+            const next = carryOverResults(previousKeys, previous, keys, (key) => initial(runQuery, key, refresh))
             return next.length === previous.length && next.every((one, index) => one === previous[index])
                 ? previous
                 : next
