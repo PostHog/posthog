@@ -1,3 +1,5 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
+
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
@@ -37,6 +39,15 @@ export function resolvedExposureEvent(
     fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
 ): string {
     return experiment.resolved_exposure_event || fallbackEvent
+}
+
+/**
+ * The default exposure event of a draft launched now, from the instance's `experiment_exposure_event_cutoff`
+ * preflight value. Mirrors `resolve_default_exposure_event` for a start date of now, so an unsaved draft
+ * names the same event the experiment gets once saved.
+ */
+export function draftDefaultExposureEvent(cutoff: string | null | undefined, now: Dayjs = dayjs()): string {
+    return cutoff && !now.isBefore(dayjs(cutoff)) ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
 }
 
 /**

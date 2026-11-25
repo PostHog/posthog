@@ -32,8 +32,8 @@ import {
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import {
-    EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,
+    draftDefaultExposureEvent,
     exposureEventLabel,
     getActivationConfig,
     resolveFilterTestAccounts,
@@ -333,12 +333,10 @@ export function ExposureCriteriaPanel({
             !!warehouseExposure,
             metricDataSources ?? { warehouseNative: false, posthog: false }
         )
-    const { isCloud } = useValues(preflightLogic)
-    // A draft that is not saved yet has no server-resolved event. A new experiment counts $experiment_exposure
-    // only where the backend sets EXPERIMENT_EXPOSURE_EVENT_CUTOFF, which by default is PostHog Cloud.
+    const { preflight } = useValues(preflightLogic)
     const defaultExposureEvent = resolvedExposureEvent(
         experiment,
-        isCloud ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
+        draftDefaultExposureEvent(preflight?.experiment_exposure_event_cutoff)
     )
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
