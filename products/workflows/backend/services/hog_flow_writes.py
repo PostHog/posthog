@@ -195,44 +195,55 @@ TRANSACTIONAL_STEP_TYPES: dict[str, str] = {
 }
 
 
+def _fallback_click_tracking(live_configs: list[dict[str, Any]]) -> bool | None:
+    values = [
+        config["click_tracking_enabled"]
+        for config in live_configs
+        if isinstance(config.get("click_tracking_enabled"), bool)
+    ]
+    if False in values:
+        return False
+    if values and len(values) == len(live_configs):
+        return True
+    return None
+
+
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
     # A transactional message's protection follows its template, and only the template sync writes it.
     # Every other write, such as publishing a restored version, keeps the live setting.
     step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
     if step_type is None or "actions" not in validated_data:
         return validated_data
-    live_configs = [
-        action.get("config") or {}
-        for action in before.actions or []
-        if isinstance(action, dict) and action.get("type") == step_type
+    live_steps = [
+        action for action in before.actions or [] if isinstance(action, dict) and action.get("type") == step_type
     ]
+    live_configs = [action.get("config") or {} for action in live_steps]
+    live_by_id: dict[str, dict[str, Any]] = {
+        action["id"]: action.get("config") or {} for action in live_steps if isinstance(action.get("id"), str)
+    }
     if live_configs:
         sensitive = any(config.get("sensitive") is True for config in live_configs)
-        click_tracking = (
-            next(
-                (
-                    config["click_tracking_enabled"]
-                    for config in live_configs
-                    if isinstance(config.get("click_tracking_enabled"), bool)
-                ),
-                None,
-            )
-            if step_type == "function_email"
-            else None
-        )
+        fallback_click_tracking = _fallback_click_tracking(live_configs) if step_type == "function_email" else None
     elif step_type == "function_email":
         template_tracking = get_transactional_template_tracking(before.team_id, before.id)
         if template_tracking is None:
             return validated_data
         sensitive = template_tracking.sensitive
-        click_tracking = template_tracking.click_tracking_enabled
+        fallback_click_tracking = template_tracking.click_tracking_enabled
     else:
-        return validated_data
+        sensitive = False
+        fallback_click_tracking = None
     actions = []
     for action in validated_data["actions"] or []:
         if isinstance(action, dict) and action.get("type") == step_type:
             config = {**(action.get("config") or {}), "sensitive": sensitive}
             if step_type == "function_email":
+                action_id = action.get("id")
+                if isinstance(action_id, str) and action_id in live_by_id:
+                    step_live = live_by_id[action_id].get("click_tracking_enabled")
+                    click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
+                else:
+                    click_tracking = fallback_click_tracking
                 if click_tracking is None:
                     config.pop("click_tracking_enabled", None)
                 else:

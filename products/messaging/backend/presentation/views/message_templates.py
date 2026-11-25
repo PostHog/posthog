@@ -447,7 +447,7 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
-    sensitive = serializers.BooleanField(
+    sensitive = OmittableBooleanField(
         required=False,
         help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
         "email's body or filled-in subject, turns click tracking off by default, and records only the site address "
@@ -859,11 +859,11 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     sensitive = OmittableBooleanField(
         required=False,
         help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
-        "leave the subject off engagement events, turn click tracking off by default (unless the matched template "
-        "opted in or `tracking` enables clicks), record only the site address of a clicked link when click tracking "
-        "is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct even on a "
-        "template that opted in. Defaults to the matched template's setting, or true when no template matches. It "
-        "can't be false when the matched template is sensitive.",
+        "leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive "
+        "template opted in or `tracking` enables clicks), record only the site address of a clicked link when click "
+        "tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct "
+        "even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no "
+        "template matches. It can't be false when the matched template is sensitive.",
     )
 
     def to_internal_value(self, data: Any) -> Any:

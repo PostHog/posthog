@@ -233,14 +233,23 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["click_tracking_enabled"] is expected
 
-    def test_form_put_omitting_click_tracking_enabled_preserves_existing_setting(self):
+    @parameterized.expand(
+        [
+            ("non_sensitive_opt_out", False, False),
+            ("sensitive_opt_out", True, False),
+            ("sensitive_opt_in", True, True),
+        ]
+    )
+    def test_form_put_omitting_click_tracking_enabled_preserves_existing_setting(
+        self, _name: str, initial_sensitive: bool, initial_clicks: bool
+    ):
         template = MessageTemplate.objects.create(
             team=self.team,
             name="Receipt",
             content={"email": {"subject": "Receipt", "text": "Body"}},
             type="email",
-            sensitive=False,
-            click_tracking_enabled=False,
+            sensitive=initial_sensitive,
+            click_tracking_enabled=initial_clicks,
         )
 
         response = self.client.put(
@@ -250,9 +259,11 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["click_tracking_enabled"] is False
+        assert response.json()["sensitive"] is initial_sensitive
+        assert response.json()["click_tracking_enabled"] is initial_clicks
         template.refresh_from_db()
-        assert template.click_tracking_enabled is False
+        assert template.sensitive is initial_sensitive
+        assert template.click_tracking_enabled is initial_clicks
 
     def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
         # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.

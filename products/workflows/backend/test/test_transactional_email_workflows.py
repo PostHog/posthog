@@ -25,7 +25,7 @@ from products.workflows.backend.facade.transactional_emails import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
+from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer, set_workflow_enabled
 from products.workflows.backend.services.hog_flow_writes import save_validated_workflow
 
 
@@ -143,7 +143,16 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         else:
             assert config["click_tracking_enabled"] is live_clicks
 
-    def test_restoring_after_email_step_removed_recovers_template_click_tracking_setting(self):
+    @parameterized.expand(
+        [
+            ("non_sensitive_opt_out", {"click_tracking_enabled": False}, False, False),
+            ("sensitive_default_off", {"sensitive": True}, True, None),
+            ("sensitive_opt_in", {"sensitive": True, "click_tracking_enabled": True}, True, True),
+        ]
+    )
+    def test_restoring_after_email_step_removed_recovers_template_tracking_settings(
+        self, _name, patch_body, expected_sensitive, expected_clicks
+    ):
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {
@@ -162,7 +171,7 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
 
         updated = self.client.patch(
             f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
-            {"click_tracking_enabled": False},
+            patch_body,
             format="json",
         )
         assert updated.status_code == 200, updated.json()
@@ -174,8 +183,11 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         published = self._restore_and_publish(flow_id, 1)
 
         email_action = next(action for action in published["actions"] if action["type"] == "function_email")
-        assert email_action["config"]["sensitive"] is False
-        assert email_action["config"]["click_tracking_enabled"] is False
+        assert email_action["config"]["sensitive"] is expected_sensitive
+        if expected_clicks is None:
+            assert "click_tracking_enabled" not in email_action["config"]
+        else:
+            assert email_action["config"]["click_tracking_enabled"] is expected_clicks
 
     def test_resuming_paused_workflow_keeps_concurrent_click_tracking_update(self):
         flow_id = create_transactional_email_workflow(
@@ -184,26 +196,53 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
             content=_content(sensitive=False, click_tracking_enabled=None),
         )
         HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.DRAFT)
-        stale_flow = HogFlow.objects.get(id=flow_id)
-        stale_serializer = HogFlowSerializer(
-            stale_flow,
-            data={"status": HogFlow.State.ACTIVE},
-            partial=True,
-            context={"team_id": self.team.id, "get_team": lambda: self.team},
-        )
-        assert stale_serializer.is_valid(), stale_serializer.errors
-        stale_validated = dict(stale_serializer.validated_data)
 
-        update_transactional_email_workflow(
+        def _interleave_template_sync(**kwargs):
+            update_transactional_email_workflow(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                hog_flow_id=flow_id,
+                content=_content(sensitive=False, click_tracking_enabled=False),
+            )
+            save_validated_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.save_validated_workflow",
+            side_effect=_interleave_template_sync,
+        ):
+            new_status = set_workflow_enabled(
+                team_id=self.team.id, user_id=self.user.id, workflow_id=flow_id, enabled=True
+            )
+
+        assert new_status == HogFlow.State.ACTIVE
+        reloaded = HogFlow.objects.get(id=flow_id)
+        assert reloaded.status == HogFlow.State.ACTIVE
+        assert reloaded.actions[1]["config"]["click_tracking_enabled"] is False
+
+    def test_resuming_multi_step_workflow_preserves_each_steps_click_tracking_setting(self):
+        flow_id = create_transactional_email_workflow(
             team_id=self.team.id,
             user_id=self.user.id,
-            hog_flow_id=flow_id,
-            content=_content(sensitive=False, click_tracking_enabled=False),
+            content=_content(sensitive=False, click_tracking_enabled=True),
         )
-        save_validated_workflow(team_id=self.team.id, hog_flow_id=flow_id, validated_data=stale_validated)
+        flow = HogFlow.objects.get(id=flow_id)
+        second_email = deepcopy(flow.actions[1])
+        second_email["id"] = "action-send-email-2"
+        second_email["config"]["click_tracking_enabled"] = False
+        actions = [flow.actions[0], flow.actions[1], second_email, flow.actions[2]]
+        edges = [
+            {"from": flow.actions[0]["id"], "to": flow.actions[1]["id"], "type": "continue"},
+            {"from": flow.actions[1]["id"], "to": second_email["id"], "type": "continue"},
+            {"from": second_email["id"], "to": flow.actions[2]["id"], "type": "continue"},
+        ]
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.DRAFT, actions=actions, edges=edges)
 
-        config = HogFlow.objects.get(id=flow_id).actions[1]["config"]
-        assert config["click_tracking_enabled"] is False
+        set_workflow_enabled(team_id=self.team.id, user_id=self.user.id, workflow_id=flow_id, enabled=True)
+
+        reloaded = HogFlow.objects.get(id=flow_id)
+        by_id = {action["id"]: action["config"] for action in reloaded.actions if action["type"] == "function_email"}
+        assert by_id[flow.actions[1]["id"]]["click_tracking_enabled"] is True
+        assert by_id["action-send-email-2"]["click_tracking_enabled"] is False
 
     def test_the_stored_workflow_passes_the_workflows_api_validation(self):
         flow = HogFlow.objects.get(
