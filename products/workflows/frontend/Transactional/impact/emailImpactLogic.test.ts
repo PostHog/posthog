@@ -79,7 +79,7 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact).toEqual(WITHOUT_EVENT)
         expect(logic.values.followedNote).toBeNull()
 
-        answer = [200, IMPACT]
+        answer = [200, { ...IMPACT, clicks_untracked: 3 }]
         logic.actions.setEvent('plan upgraded')
         await expectLogic(logic).toFinishAllListeners()
 
@@ -91,7 +91,7 @@ describe('emailImpactLogic', () => {
             ],
             [
                 'transactional email impact loaded',
-                { has_event: true, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: false },
+                { has_event: true, days: 30, has_untracked_sends: false, has_clicks_untracked_sends: true },
             ],
         ])
     })
