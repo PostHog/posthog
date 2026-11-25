@@ -1198,12 +1198,12 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             if (args[0] === 'ps') {
-                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--format', '{{.Label "com.docker.compose.service"}}']
+                const lists = ['--all', '--filter', 'label=com.docker.compose.project=posthog', '--filter', 'label=com.docker.compose.oneoff=False', '--format', '{{.Label "com.docker.compose.service"}}']
                 if (args.slice(1).join(' ') !== lists.join(' ')) {
                     process.stderr.write('unknown flag: ' + args.join(' ') + '\\n')
                     process.exit(125)
                 }
-                process.stdout.write('db\\nkafka\\n')
+                process.stdout.write('kafka\\ndb\\n')
                 process.exit(0)
             }
             const [exec, container, rpk, noun, verb, group] = args
@@ -1583,6 +1583,22 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('names the existing dev services it keeps when it starts the stack', async () => {
+            writeStack({ running: false, ready: false })
+            const said = jest.spyOn(process.stderr, 'write')
+            environment = environmentOf()
+
+            try {
+                await environment.up(NEVER_ABORTED)
+
+                expect(said).toHaveBeenCalledWith(
+                    expect.stringContaining('Keeping the existing dev services as they are: db, kafka.')
+                )
+            } finally {
+                said.mockRestore()
+            }
+        }, 30_000)
 
         it.each([
             ['stop on SIGTERM', false],

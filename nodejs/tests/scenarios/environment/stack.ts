@@ -104,12 +104,40 @@ export class StackNotReadyError extends Error {
     }
 }
 
+const COMPOSE_OPTIONS_WITH_VALUE = new Set(['-p', '--project-name', '-f', '--file', '--profile', '--env-file'])
+
+type ComposeCall = { subcommand: string; args: string[] }
+
+function composeCalls(shell: string): ComposeCall[] {
+    const raw = shell.match(/(?:[^\s"';&|{}()]+|"[^"]*"|'[^']*')+|[;&|{}()]+/g) ?? []
+    const words = raw.map((word) => (/^[;&|{}()]+$/.test(word) ? null : word.replace(/"([^"]*)"|'([^']*)'/g, '$1$2')))
+    const calls: ComposeCall[] = []
+    words.forEach((word, at) => {
+        const binary = word === 'docker-compose' ? 1 : word === 'docker' && words[at + 1] === 'compose' ? 2 : 0
+        if (binary === 0) {
+            return
+        }
+        let next = at + binary
+        while (words[next]?.startsWith('-')) {
+            next += COMPOSE_OPTIONS_WITH_VALUE.has(words[next]!) ? 2 : 1
+        }
+        const end = words.indexOf(null, next)
+        const args = words.slice(next + 1, end === -1 ? undefined : end) as string[]
+        calls.push({ subcommand: words[next] ?? '', args })
+    })
+    return calls
+}
+
 export function keepRunningContainers(mprocsYaml: string): string {
     const config = parse(mprocsYaml) as { procs?: Record<string, { shell?: unknown }> }
     const compose = config.procs?.['docker-compose']
     const shell = typeof compose?.shell === 'string' ? compose.shell : ''
-    const upsOutsideQuotes = shell.replace(/"[^"]*"|'[^']*'/g, '').match(/\bup\b/g) ?? []
-    if (shell.split(RECREATING_COMPOSE_UP).length !== 2 || upsOutsideQuotes.length !== 1) {
+    const ups = composeCalls(shell).filter((call) => call.subcommand === 'up')
+    if (
+        ups.length !== 1 ||
+        ` up ${ups[0].args.join(' ')} ` !== RECREATING_COMPOSE_UP ||
+        shell.split(RECREATING_COMPOSE_UP).length !== 2
+    ) {
         throw new StackNotReadyError(
             `The dev config hogli generated has no docker-compose proc that runs \`docker compose${RECREATING_COMPOSE_UP.trimEnd()}\` as its only \`up\`, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}`
         )
@@ -126,6 +154,8 @@ export async function existingServices(docker: string, project: string, signal?:
             '--all',
             '--filter',
             `label=com.docker.compose.project=${project}`,
+            '--filter',
+            'label=com.docker.compose.oneoff=False',
             '--format',
             '{{.Label "com.docker.compose.service"}}',
         ],
@@ -178,6 +208,7 @@ export async function untilMigrated(
 ): Promise<void> {
     const deadline = performance.now() + withinMs
     for (;;) {
+        signal.throwIfAborted()
         const missing = await Promise.all(
             tables.map(({ url, table }) =>
                 withPostgres(async (client) => {
@@ -189,9 +220,9 @@ export async function untilMigrated(
                 }, url).catch((error: Error) => error.message)
             )
         )
+        signal.throwIfAborted()
         const problems = missing.filter((problem): problem is string => problem !== null)
         if (problems.length === 0) {
-            signal.throwIfAborted()
             return
         }
         if (performance.now() >= deadline) {

@@ -25,24 +25,30 @@ describe('withPostgres', () => {
 })
 
 describe('keepRunningContainers', () => {
-    it('starts the compose services without recreating the running ones and leaves the rest of the config alone', () => {
-        const shell = `${COMPOSE} up --pull always -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${COMPOSE} logs --tail=100 -f`
+    it.each([
+        ['the posthog project', COMPOSE],
+        ['a project whose name holds up', 'docker compose -p bring-up -f docker-compose.dev.yml'],
+    ])(
+        'starts the compose services of %s without recreating the running ones and leaves the rest of the config alone',
+        (_case, compose) => {
+            const shell = `${compose} up --pull always -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${compose} logs --tail=100 -f`
 
-        expect(parse(keepRunningContainers(generatedConfig(shell)))).toEqual({
-            procs: {
-                'docker-compose': {
-                    shell: `${COMPOSE} up --pull always --no-recreate -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${COMPOSE} logs --tail=100 -f`,
-                    ready_pattern: 'docker-compose ready',
+            expect(parse(keepRunningContainers(generatedConfig(shell)))).toEqual({
+                procs: {
+                    'docker-compose': {
+                        shell: `${compose} up --pull always --no-recreate -d || { echo "failed"; exit 1; } && echo "docker-compose ready" && ${compose} logs --tail=100 -f`,
+                        ready_pattern: 'docker-compose ready',
+                    },
+                    backend: { shell: 'bin/start-backend' },
                 },
-                backend: { shell: 'bin/start-backend' },
-            },
-            _posthog: { intents: ['workflows'] },
-        })
-    })
+                _posthog: { intents: ['workflows'] },
+            })
+        }
+    )
 
     it.each([
         ['an up call it does not know', `${COMPOSE} up --pull missing -d && echo "docker-compose ready"`],
-        ['a second up call', `${COMPOSE} up --pull always -d && ${COMPOSE} up db && echo "docker-compose ready"`],
+        ['a second up call', `${COMPOSE} up --pull always -d && ${COMPOSE} "up" -d db && echo "docker-compose ready"`],
         ['no docker-compose proc', ''],
     ])('refuses a config with %s, which would recreate the shared containers', (_case, shell) => {
         const config = shell ? generatedConfig(shell) : 'procs:\n  backend:\n    shell: bin/start-backend\n'
@@ -73,15 +79,12 @@ describe('untilMigrated', () => {
         await expect(waited).rejects.toThrow('has no table scenario_never_migrated')
     })
 
-    it.each([
-        ['once the tables exist', 'cyclotron_jobs'],
-        ['while it waits for a missing table', 'scenario_never_migrated'],
-    ])('stops a cancelled run %s', async (_case, table) => {
+    it('stops a cancelled run before it probes, even when the tables exist', async () => {
         const cancel = new AbortController()
         cancel.abort()
 
-        await expect(untilMigrated([{ url: URL, table }], 60_000, 60_000, cancel.signal)).rejects.toMatchObject({
-            name: 'AbortError',
-        })
+        await expect(
+            untilMigrated([{ url: URL, table: 'cyclotron_jobs' }], 60_000, 60_000, cancel.signal)
+        ).rejects.toMatchObject({ name: 'AbortError' })
     })
 })
