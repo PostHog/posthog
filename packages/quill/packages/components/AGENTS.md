@@ -57,7 +57,9 @@ Rules:
 - A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Focus then returns to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
 - The button draws 20px so it fits a line of text, and an invisible layer grows its target to 24px. Don't shrink it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
-- Keep the content to short text, optionally with an inline link. It renders inside a `<p>`, so no block elements. Anything longer, or with controls, is a `Popover`.
+- A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
+- Put it next to a `<label>`, not inside one, and never inside a button, tab, menu item or select option. Inside a label its name joins the control's accessible name, and inside another control it nests one control in another.
+- Keep the content short: text, an inline link, or a short list. Anything longer, or with controls, is a `Popover`.
 - `side` and `align` place the popup (top and center by default). `className` styles the icon button and `contentClassName` the popup.
 
 ## DataTable

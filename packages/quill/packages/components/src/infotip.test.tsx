@@ -19,8 +19,14 @@ describe('Infotip', () => {
                 await userEvent.keyboard(key)
             },
         })),
-    ])('opens by $method as a named dialog, then Escape closes it and returns focus', async ({ open }) => {
-        render(<Infotip label="About average position">1 means your site is the first source cited.</Infotip>)
+    ])('opens by $method as a named dialog without reaching its parent, then Escape closes it', async ({ open }) => {
+        const parentHandler = jest.fn()
+        render(
+            // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- stands in for a sortable header or clickable card
+            <div onClick={parentHandler} onKeyDown={parentHandler}>
+                <Infotip label="About average position">1 means your site is the first source cited.</Infotip>
+            </div>
+        )
         const trigger = screen.getByLabelText('About average position')
 
         await open(trigger)
@@ -31,11 +37,13 @@ describe('Infotip', () => {
         expect(popup.getAttribute('aria-describedby')).toBe(
             screen.getByText('1 means your site is the first source cited.').id
         )
+        await userEvent.click(screen.getByText('1 means your site is the first source cited.'))
 
         await userEvent.keyboard('{Escape}')
 
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
         expect(document.activeElement).toBe(trigger)
+        expect(parentHandler).not.toHaveBeenCalled()
     })
 
     it('lets a keyboard user reach a link inside the popup', async () => {
