@@ -195,10 +195,7 @@ impl RedisLimiter {
 mod tests {
     use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
     use crate::redis::{QuotaResource, RedisLimiter, ServiceName};
-    use chrono::Utc;
     use common_redis::MockRedisClient;
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-    use std::collections::HashMap;
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
@@ -259,54 +256,6 @@ mod tests {
 
         assert!(!prefixed_limiter.is_limited("not_limited").await);
         assert!(prefixed_limiter.is_limited("banana").await);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_last_success_timestamp_moves_only_on_a_successful_refresh() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        let _guard = metrics::set_default_local_recorder(&recorder);
-        let client = Arc::new(
-            MockRedisClient::new()
-                .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]),
-        );
-        let before = Utc::now().timestamp() as f64;
-
-        // The mock holds no set for the exceptions key, so that limiter's refresh always fails.
-        for resource in [QuotaResource::Events, QuotaResource::Exceptions] {
-            RedisLimiter::new(
-                Duration::from_secs(1),
-                client.clone(),
-                QUOTA_LIMITER_CACHE_KEY.to_string(),
-                None,
-                resource,
-                ServiceName::Capture,
-            )
-            .expect("Failed to create billing limiter");
-        }
-        tokio::time::sleep(Duration::from_millis(30)).await;
-        let after = Utc::now().timestamp() as f64;
-
-        let timestamps: HashMap<String, f64> = snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .filter(|(key, _, _, _)| {
-                key.key().name() == "capture_billing_limits_last_success_timestamp_seconds"
-            })
-            .filter_map(|(key, _, _, value)| {
-                let cache_key = key.key().labels().find(|l| l.key() == "cache_key")?;
-                match value {
-                    DebugValue::Gauge(timestamp) => {
-                        Some((cache_key.value().to_string(), timestamp.into_inner()))
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
-        assert_eq!(timestamps.len(), 1, "{timestamps:?}");
-        let timestamp = timestamps["@posthog/quota-limits/events"];
-        assert!(before <= timestamp && timestamp <= after, "{timestamp}");
     }
 
     #[tokio::test]

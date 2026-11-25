@@ -53,6 +53,7 @@ pub fn spawn_observation(
 mod tests {
     use std::collections::HashMap;
 
+    use chrono::Utc;
     use common_redis::MockRedisClient;
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
@@ -60,7 +61,7 @@ mod tests {
     use crate::redis::QUOTA_LIMITER_CACHE_KEY;
 
     #[tokio::test(start_paused = true)]
-    async fn observation_reports_set_size_errors_and_read_time_per_key() {
+    async fn limiter_and_observer_report_each_key_on_its_own() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let _guard = metrics::set_default_local_recorder(&recorder);
@@ -69,11 +70,21 @@ mod tests {
                 "@posthog/quota-limits/events",
                 vec!["apple".to_string(), "banana".to_string()],
             ));
+        let before = Utc::now().timestamp() as f64;
 
         // The mock holds no set for the exceptions key, so every read of it fails.
         let runners: Vec<JoinHandle<()>> = [QuotaResource::Events, QuotaResource::Exceptions]
             .into_iter()
             .map(|resource| {
+                RedisLimiter::new(
+                    Duration::from_secs(5),
+                    client.clone(),
+                    QUOTA_LIMITER_CACHE_KEY.to_string(),
+                    None,
+                    resource.clone(),
+                    ServiceName::Capture,
+                )
+                .unwrap();
                 spawn_observation(
                     Duration::from_secs(5),
                     client.clone(),
@@ -86,6 +97,7 @@ mod tests {
             .collect();
         // Reads at 0 s, 5 s and 10 s.
         tokio::time::sleep(Duration::from_secs(12)).await;
+        let after = Utc::now().timestamp() as f64;
         for runner in &runners {
             runner.abort();
         }
@@ -122,5 +134,9 @@ mod tests {
             matches!(metric("observe_duration_seconds", events), Some(DebugValue::Histogram(reads)) if reads.len() == 3)
         );
         assert_eq!(metric("observe_duration_seconds", exceptions), None);
+        assert!(
+            matches!(metric("last_success_timestamp_seconds", events), Some(DebugValue::Gauge(timestamp)) if (before..=after).contains(&timestamp.into_inner()))
+        );
+        assert_eq!(metric("last_success_timestamp_seconds", exceptions), None);
     }
 }
