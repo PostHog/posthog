@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
-from posthog.hogql.errors import QueryError, TransientQueryError
+from posthog.hogql.errors import CompilationBudgetExceededError, CompilationTimeLimitExceededError, QueryError
 
 MAX_VIEW_DEPTH = 100
 MAX_VIEW_EXPANSIONS = 1000
@@ -20,7 +20,9 @@ class CompilationBudget:
 
     def check_time(self) -> None:
         if time.monotonic() > self.deadline:
-            raise TransientQueryError("HogQL compilation exceeded its time limit. Simplify the query and try again.")
+            raise CompilationTimeLimitExceededError(
+                "HogQL compilation exceeded its time limit. Simplify the query and try again."
+            )
 
     def expand_view(self, query: str) -> None:
         self.check_time()
@@ -69,6 +71,3 @@ def bounded_compilation(function: Callable[P, R]) -> Callable[P, R]:
                 compilation_budget.reset(token)
 
     return wrapped
-
-
-from posthog.hogql.errors import CompilationBudgetExceededError  # noqa: E402

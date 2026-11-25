@@ -148,6 +148,10 @@ class CompilationBudgetExceededError(QueryError):
     """The query used up its compilation time or saved-view expansion budget."""
 
 
+class CompilationTimeLimitExceededError(CompilationBudgetExceededError, TransientQueryError):
+    """The compilation time budget ran out. Transient, so a retry can succeed."""
+
+
 class TableAccessDeniedError(QueryError):
     """The user has no access to the table (raised by Database.get_table)."""
 
