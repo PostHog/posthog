@@ -1302,13 +1302,14 @@ class TestActivateBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("overview", "", "get_billing", {"products": [], "available_product_features": []}),
-            ("coupons", "coupons/overview", "coupons_overview", {}),
-            ("credits", "credits/overview", "credits_overview", {}),
+            ("overview", "get", "", "get_billing", {"products": [], "available_product_features": []}),
+            ("coupons", "get", "coupons/overview", "coupons_overview", {}),
+            ("credits", "get", "credits/overview", "credits_overview", {}),
+            ("limits", "patch", "//", "update_billing", {}),
         ]
     )
     def test_organization_in_the_path_wins_over_the_current_project(
-        self, _name: str, path: str, manager_method: str, billing_response: dict[str, Any]
+        self, _name: str, method: str, path: str, manager_method: str, billing_response: dict[str, Any]
     ) -> None:
         organization = Organization.objects.create(name="Another organization")
         team = Team.objects.create(organization=organization, name="Another project")
@@ -1319,8 +1320,18 @@ class TestActivateBillingAPI(APILicensedTest):
         self.user.current_organization = organization
         self.user.save()
 
-        with patch.object(BillingManager, manager_method, return_value=billing_response) as manager:
-            response = self.client.get(f"/api/billing/{self.organization.id}/{path}")
+        with (
+            patch.object(
+                BillingManager, "get_billing", return_value={"products": [], "available_product_features": []}
+            ),
+            patch.object(BillingManager, manager_method, return_value=billing_response) as manager,
+        ):
+            response = self.client.generic(
+                method.upper(),
+                f"/api/billing/{self.organization.id}/{path}",
+                json.dumps({"custom_limits_usd": {"events": 10}}) if method == "patch" else "",
+                content_type="application/json",
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert manager.call_args.args[0] == self.organization
@@ -2566,11 +2577,14 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_get_usage_data.assert_called_once()
 
+    @parameterized.expand([("current_project", "/api/billing//"), ("organization_in_path", "/api/billing/{}///")])
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
-    def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
+    def test_owner_only_billing_rejects_admin_limit_update(
+        self, _name: str, path: str, _mock_feature_enabled: MagicMock, mock_update_billing: MagicMock
+    ) -> None:
         response = self.client.patch(
-            "/api/billing//",
+            path.format(self.organization.id),
             data={"custom_limits_usd": {"events": 10}},
             content_type="application/json",
         )

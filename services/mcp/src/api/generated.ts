@@ -22195,12 +22195,6 @@ export namespace Schemas {
       opened_time_seconds: string | null;
     }
 
-    export interface Billing {
-      /** @maxLength 100 */
-      plan: string;
-      billing_limit: number;
-    }
-
     export interface BillingActivationRequest {
       /** Organization selected when this payment flow started. */
       organization_id: string;
@@ -22762,6 +22756,103 @@ export namespace Schemas {
       success?: boolean;
     }
 
+    export interface BillingClaimedCoupon {
+      /** Coupon code that was claimed. */
+      code: string;
+      /** Name of the campaign the coupon belongs to. */
+      campaign_name: string;
+      /**
+         * Slug of the campaign, if it has one.
+         * @nullable
+         */
+      campaign_slug: string | null;
+      /** When the coupon was claimed. */
+      claimed_at: string;
+      /**
+         * When the coupon credit expires, if it does.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** Coupon state: `claimed` or `expired`. */
+      status: string;
+    }
+
+    export interface BillingCouponClaimResponse {
+      /**
+         * Name of the campaign the claimed coupon belongs to.
+         * @nullable
+         */
+      campaign?: string | null;
+      /**
+         * When the claimed coupon credit expires, if it does.
+         * @nullable
+         */
+      expires_at?: string | null;
+    }
+
+    export interface BillingCouponsOverviewResponse {
+      /** Coupons the organization has claimed, active and expired. */
+      claimed_coupons: BillingClaimedCoupon[];
+    }
+
+    export interface BillingCreditBracket {
+      /** Smallest annual credit amount in USD that gets this discount. */
+      annual_credit_from_inclusive: number;
+      /**
+         * Annual credit amount in USD where the next bracket starts. Null for the last bracket.
+         * @nullable
+         */
+      annual_credit_to_exclusive?: number | null;
+      /** Discount for this bracket, as a fraction from 0 to 1. */
+      discount: number;
+    }
+
+    export interface BillingCreditsOverviewResponse {
+      /** Whether the organization can buy prepaid credits at a discount. */
+      eligible?: boolean;
+      /** State of the latest credit purchase: `none`, `pending`, or `paid`. */
+      status?: string;
+      /**
+         * Monthly spend in USD that billing suggests as the base of a credit purchase.
+         * @nullable
+         */
+      estimated_monthly_credit_amount_usd?: number | null;
+      /**
+         * Hosted invoice for a pending credit purchase.
+         * @nullable
+         */
+      invoice_url?: string | null;
+      /**
+         * How the pending credit purchase is paid: `charge_automatically` or `send_invoice`.
+         * @nullable
+         */
+      collection_method?: string | null;
+      /**
+         * Last four digits of the card on file.
+         * @nullable
+         */
+      cc_last_four?: string | null;
+      /**
+         * Billing email that gets invoices.
+         * @nullable
+         */
+      email?: string | null;
+      /** Discount for each range of annual credit amounts. */
+      credit_brackets?: BillingCreditBracket[];
+    }
+
+    export interface BillingCreditsPurchaseRequest {
+      /** Amount of credits in USD to buy for one year. */
+      annual_credit_amount_usd: number;
+      /** How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice. */
+      collection_method: string;
+    }
+
+    export interface BillingDeactivateRequest {
+      /** Comma-separated product types to unsubscribe from. */
+      products: string;
+    }
+
     export interface BillingFeatures {
       available_product_features: ProductFeature[];
     }
@@ -22871,6 +22962,19 @@ export namespace Schemas {
       created: string | null;
       /** @nullable */
       due_date: string | null;
+    }
+
+    export interface BillingInvoiceSummaryResponse {
+      /**
+         * Link to pay the invoices: the hosted invoice when there is one, the billing portal otherwise.
+         * @nullable
+         */
+      link?: string | null;
+      /**
+         * Number of invoices with the requested status.
+         * @nullable
+         */
+      count?: number | null;
     }
 
     export interface BillingInvoices {
@@ -23184,6 +23288,48 @@ export namespace Schemas {
       pricing_reset_dates?: string[];
     }
 
+    export interface BillingStartupApplicationRequest {
+      /** Organization that applies to the startup program. */
+      organization_id: string;
+      /** Program to apply to: `YC` or `startup`. */
+      program: string;
+      /**
+         * Number of YC merch items the founders want.
+         * @nullable
+         */
+      yc_merch_count?: number | null;
+      /**
+         * YC Bookface link that proves the founder is in YC.
+         * @nullable
+         */
+      yc_verification_url?: string | null;
+      /**
+         * YC batch, for example `W25`.
+         * @nullable
+         */
+      yc_batch?: string | null;
+      /**
+         * Uploaded screenshot that proves the founder is in YC.
+         * @nullable
+         */
+      yc_proof_screenshot_url?: string | null;
+      /**
+         * Total funding raised, in USD.
+         * @nullable
+         */
+      raised?: string | null;
+      /**
+         * Date the company was incorporated, as YYYY-MM-DD.
+         * @nullable
+         */
+      incorporation_date?: string | null;
+      /**
+         * Partner that referred the startup, in lowercase.
+         * @nullable
+         */
+      referrer?: string | null;
+    }
+
     export interface Trial {
       type: string;
       status: string;
@@ -23227,6 +23373,17 @@ export namespace Schemas {
       billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
+    export interface BillingSwitchPlanRequest {
+      /** Product the organization is subscribed to now. */
+      from_product_key: string;
+      /** Plan the organization is subscribed to now. */
+      from_plan_key: string;
+      /** Product to switch to. */
+      to_product_key: string;
+      /** Plan to switch to. */
+      to_plan_key: string;
+    }
+
     export interface BillingTeamOptionsResponse {
       /** Project ids that appear in the organization's usage reports. */
       team_id_options: number[];
@@ -23240,6 +23397,13 @@ export namespace Schemas {
       team_id_options?: number[];
       next?: string;
       total_count?: number;
+    }
+
+    export interface BillingTrialActivationRequest {
+      /** Trial type: `autosubscribe` or `standard`. */
+      type: string;
+      /** Product type or plan the trial is for. */
+      target: string;
     }
 
     export interface UsageStatusItem {
@@ -91364,12 +91528,6 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
-    export interface PatchedBilling {
-      /** @maxLength 100 */
-      plan?: string;
-      billing_limit?: number;
-    }
-
     export interface PatchedBillingAlertConfiguration {
       /** Unique identifier for this billing alert. */
       readonly id?: string;
@@ -91475,6 +91633,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Spend limit in USD for each product or usage key. Null removes the limit for that key.
+     */
+    export type PatchedBillingLimitsUpdateRequestCustomLimitsUsd = {[key: string]: number | null};
+
+    export interface PatchedBillingLimitsUpdateRequest {
+      /** Spend limit in USD for each product or usage key. Null removes the limit for that key. */
+      custom_limits_usd?: PatchedBillingLimitsUpdateRequestCustomLimitsUsd;
+      /** Product type whose limit for the next billing period is removed. */
+      reset_limit_next_period?: string;
     }
 
     export interface PatchedBriefConfig {
@@ -95480,6 +95650,11 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
+    }
+
+    export interface PatchedLicenseKey {
+      /** License key to activate on this self-hosted instance. */
+      license?: string;
     }
 
     /**
@@ -136745,6 +136920,14 @@ export namespace Schemas {
     organization_id?: string;
     };
 
+    export type BillingOrganizationGetInvoicesRetrieveParams = {
+    /**
+     * Stripe invoice status to count, for example `open` or `uncollectible`.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
     export type BillingOrganizationSpendRetrieveParams = {
     /**
      * The `next` cursor from the previous page. Opaque. Ignored without page_size.
@@ -136951,6 +137134,14 @@ export namespace Schemas {
      * @nullable
      */
     usage_types?: string | null;
+    };
+
+    export type BillingGetInvoicesRetrieveParams = {
+    /**
+     * Stripe invoice status to count, for example `open` or `uncollectible`.
+     * @minLength 1
+     */
+    status?: string;
     };
 
     export type BillingSpendRetrieveParams = {
