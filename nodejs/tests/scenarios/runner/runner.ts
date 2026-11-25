@@ -53,7 +53,7 @@ import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { WEBHOOK_HOST } from '../provider-edge'
-import { provenanceOf } from '../scorecard/provenance'
+import { Provenance, provenanceOf } from '../scorecard/provenance'
 import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
@@ -133,7 +133,15 @@ export interface Runner {
 
 type Judged = JudgedRun & { loaded: LoadedCard; live: ReturnType<typeof openLiveLog> }
 
-type Saved = { result: RunVerdict; scorecard: ScorecardProperties; pair?: ScorecardPair }
+type Saved = {
+    result: RunVerdict
+    scorecard: ScorecardProperties
+    pair?: ScorecardPair
+    loaded: LoadedCard
+    provenance: Provenance
+    saveError?: string
+    written: boolean
+}
 
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
@@ -488,6 +496,21 @@ export function createRunner(
         }))
     }
 
+    function writeSaved(
+        verdict: RunVerdict,
+        loaded: LoadedCard,
+        provenance: Provenance,
+        pair: ScorecardPair | undefined
+    ): Promise<string | undefined> {
+        return errorOf(() =>
+            writeJson(verdict.evidenceDir, SAVED_RUN_FILE, {
+                ...verdict,
+                host,
+                event: scorecardOf(verdict, loaded, provenance, pair),
+            } satisfies SavedRun)
+        )
+    }
+
     const stage = {
         async judge(loaded: LoadedCard, signal: AbortSignal): Promise<Judged> {
             if (restartRequired !== undefined) {
@@ -806,18 +829,26 @@ export function createRunner(
             using live = judged.live
             const { loaded, verdict } = judged
             const provenance = provenanceOf()
-            const evidenceError =
-                judged.evidenceError ??
-                (await errorOf(() =>
-                    writeJson(verdict.evidenceDir, SAVED_RUN_FILE, {
-                        ...verdict,
-                        host,
-                        event: scorecardOf(verdict, loaded, provenance, pair),
-                    } satisfies SavedRun)
-                ))
-            const result = withEvidenceError(verdict, evidenceError)
+            const saveError =
+                judged.evidenceError === undefined ? await writeSaved(verdict, loaded, provenance, pair) : undefined
+            const result = withEvidenceError(verdict, judged.evidenceError ?? saveError)
             live.write({ type: 'end', at: Date.now(), status: result.status, statusReason: result.statusReason })
-            return { result, scorecard: scorecardOf(result, loaded, provenance, pair), pair }
+            return {
+                result,
+                scorecard: scorecardOf(result, loaded, provenance, pair),
+                pair,
+                loaded,
+                provenance,
+                saveError,
+                written: judged.evidenceError === undefined && saveError === undefined,
+            }
+        },
+
+        async resave(saved: Saved, pair: ScorecardPair): Promise<Saved> {
+            const { loaded, provenance } = saved
+            const rewriteError = saved.written ? await writeSaved(saved.result, loaded, provenance, pair) : undefined
+            const result = withEvidenceError(saved.result, rewriteError)
+            return { ...saved, result, scorecard: scorecardOf(result, loaded, provenance, pair), pair }
         },
 
         async publish({ result, scorecard, pair }: Saved, signal: AbortSignal): Promise<RunResult> {
@@ -854,9 +885,20 @@ export function createRunner(
             if (!('missing' in faulted)) {
                 saved.push(await stage.save(faulted, { ...pair, role: 'faulted' }))
             }
+            const [savedControl, savedFaulted] = saved
+            const reread = saved.some(({ saveError }) => saveError !== undefined)
+                ? pairOf(
+                      loaded,
+                      { ...control, evidenceError: control.evidenceError ?? savedControl.saveError },
+                      'missing' in faulted
+                          ? faulted
+                          : { ...faulted, evidenceError: faulted.evidenceError ?? savedFaulted?.saveError }
+                  )
+                : undefined
             const results = []
             for (const run of saved) {
-                results.push(await stage.publish(run, signal))
+                const read = reread && run.pair ? await stage.resave(run, { ...reread, role: run.pair.role }) : run
+                results.push(await stage.publish(read, signal))
             }
             return results
         },
