@@ -1389,11 +1389,12 @@ def _csv_rows(file: IO[bytes], names: list[str]) -> Iterator[dict[str, str | Non
         known = CONTACT_FIELDS | _RECORD_FIELDS
         header = [column.strip() for column in first]
         header = [name if (name := column.lower().replace(" ", "_")) in known else column for column in header]
-        if "email" in header:
+        has_header = sorted(header) == sorted(names) if names else "email" in header
+        if has_header:
             names[:] = header
         elif not names:
             raise _ExportGone(UNREADABLE_EXPORT_MESSAGE)
-        for row in reader if "email" in header else chain([first], reader):
+        for row in reader if has_header else chain([first], reader):
             if not row:
                 continue
             if len(row) != len(names):

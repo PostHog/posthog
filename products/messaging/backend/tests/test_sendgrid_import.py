@@ -845,6 +845,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             alternate_emails=["other@example.com"], list_ids=["11111111-0000-4000-8000-000000000001"], external_id="x"
         )
         self.state.account["lists"][1]["contact_count"] = 1
+        self.state.account["contacts"][1]["custom_fields"]["Plan"] = "email"
         self.state.export_shape = shape
         run = self._start()
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
