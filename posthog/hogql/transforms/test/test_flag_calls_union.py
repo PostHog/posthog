@@ -63,6 +63,7 @@ from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -84,9 +85,11 @@ UNION_EXPANSION = "FROM flag_evaluations"
 FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
 FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
 SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+MATCHES_ACTION_ROWS = "SELECT distinct_id, event, properties.source FROM events"
+LAST_WEEK = "timestamp >= now() - INTERVAL 7 DAY"
 UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
 UNKEYED_READ_MEMORY_CAP = "max_memory_usage=8589934592"
-KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
+KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND {LAST_WEEK}"
 
 
 def _performed_flag_call_cohort(team, flag_key: str) -> Cohort:
@@ -2651,6 +2654,92 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         # Comparisons with string literals behave the same on both types.
         widened = {"`elements_chain_elements`": "Array(String)"}
         assert types[True] == {**types[False], **widened}
+
+    @parameterized.expand(
+        [
+            (f"{name}_{mode.name.lower()}", mode, query, expected)
+            for mode in (READ, ONLY)
+            for name, query, expected in (
+                (
+                    "flag_calls",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_by_name",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction('probe flag') AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_and_named_event",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND event = '$feature_flag_called' "
+                    f"AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_and_pageviews",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{mixed}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$pageview", None), ("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_in_count_if",
+                    f"SELECT countIf(matchesAction({{flag}})), groupArrayIf(properties.source, matchesAction({{flag}})) "
+                    f"FROM events WHERE {LAST_WEEK}",
+                    [(1, ["flag_evaluations"])],
+                ),
+                (
+                    "pageviews",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{pageview}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$pageview", None)],
+                ),
+                (
+                    "pageviews_from_named_flag_calls",
+                    f"{MATCHES_ACTION_ROWS} WHERE {MIXED} AND matchesAction({{pageview}}) AND {LAST_WEEK} "
+                    "ORDER BY timestamp",
+                    [("recent", "$pageview", None)],
+                ),
+                (
+                    "flag_calls_and_url_pageviews_on_aliased_events",
+                    "SELECT e.distinct_id, e.event, e.properties.source FROM events AS e "
+                    f"WHERE matchesAction({{url_mixed}}) AND {LAST_WEEK} ORDER BY e.timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_after_a_subquery",
+                    f"{MATCHES_ACTION_ROWS} WHERE distinct_id IN (SELECT distinct_id FROM person_distinct_ids) "
+                    f"AND matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+            )
+        ]
+    )
+    def test_matches_action_reads_flag_calls_from_flag_evaluations(
+        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[tuple]
+    ):
+        flag_step: dict[str, object] = {
+            "event": "$feature_flag_called",
+            "properties": [{"key": "$feature_flag", "value": "probe-flag", "type": "event", "operator": "exact"}],
+        }
+        pageview_step: dict[str, object] = {"event": "$pageview"}
+        url_step: dict[str, object] = {"event": "$pageview", "url": "example.com"}
+        actions = {
+            "flag": create_action(team=self.team, name="probe flag", steps_json=[flag_step]).id,
+            "mixed": create_action(
+                team=self.team, name="probe flag or pageview", steps_json=[flag_step, pageview_step]
+            ).id,
+            "pageview": create_action(team=self.team, name="pageview", steps_json=[pageview_step]).id,
+            "url_mixed": create_action(
+                team=self.team, name="probe flag or url pageview", steps_json=[flag_step, url_step]
+            ).id,
+        }
+
+        rows = [tuple(row) for row in self._run(query.format(**actions), mode).results]
+
+        # The last column names the table that each flag call came from. Mode 1 can read either one.
+        if mode == ONLY:
+            assert rows == expected
+        else:
+            assert [row[:-1] for row in rows] == [row[:-1] for row in expected]
 
 
 def _events_schema_for(mode: FlagEvaluationsMode, new_events_schema: bool | None) -> bool | None:
