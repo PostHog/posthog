@@ -403,7 +403,7 @@ class TestBuildersRequireGoGateway:
     @pytest.mark.parametrize(
         ("url", "api_key", "message"),
         [
-            ("", "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"),
+            ("", "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured.*bin/setup-gateway-e2e"),
             (AI_GATEWAY_URL, "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"),
             ("https://ai-gateway.example", AI_GATEWAY_KEY, "AI_GATEWAY_URL must include the OpenAI base path"),
         ],

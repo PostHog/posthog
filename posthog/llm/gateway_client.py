@@ -250,7 +250,10 @@ def _require_ai_gateway_config() -> AIGatewayConfig:
         misconfig = _gateway_misconfig(url, api_key)
         assert misconfig is not None
         raise GatewayNotConfiguredError(misconfig)
-    raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    raise GatewayNotConfiguredError(
+        "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured; locally, enable the `ai_gateway` "
+        "dev capability and run bin/setup-gateway-e2e"
+    )
 
 
 def build_openai_client(
