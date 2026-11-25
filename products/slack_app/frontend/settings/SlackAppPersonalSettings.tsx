@@ -74,10 +74,9 @@ function SettingRow({
 }
 
 export function SlackAppPersonalSettings(): JSX.Element {
-    const { settings, settingsLoading, slackIntegrations, integrationsLoading } = useValues(slackAppSettingsLogic)
+    const { settings, settingsLoading, slackIntegrations, integrationsLoading, personalSettingsDisabledReason } =
+        useValues(slackAppSettingsLogic)
     const { updatePersonalSettings } = useActions(slackAppSettingsLogic)
-    // One change at a time, so two quick clicks can't save out of order.
-    const savingReason = settingsLoading ? 'Saving your last change' : undefined
 
     if ((integrationsLoading || settingsLoading) && !settings) {
         return <LemonSkeleton className="h-60" />
@@ -150,7 +149,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                 ),
                             })),
                         ]}
-                        disabledReason={savingReason}
+                        disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-default-project"
                     />
                 </SettingRow>
@@ -161,7 +160,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                     <LemonSwitch
                         checked={personal.auto_model_choice}
                         onChange={(checked) => updatePersonalSettings({ auto_model_choice: checked })}
-                        disabledReason={savingReason}
+                        disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-auto-model"
                     />
                 </SettingRow>
@@ -180,7 +179,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         value={personal.untagged_followup_mode}
                         onChange={(value) => updatePersonalSettings({ untagged_followup_mode: value })}
                         options={UNTAGGED_MODE_OPTIONS}
-                        disabledReason={savingReason}
+                        disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-untagged-replies"
                     />
                 </SettingRow>
@@ -190,7 +189,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         value={personal.untagged_question_mode}
                         onChange={(value) => updatePersonalSettings({ untagged_question_mode: value })}
                         options={UNTAGGED_MODE_OPTIONS}
-                        disabledReason={savingReason}
+                        disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-untagged-questions"
                     />
                 </SettingRow>
@@ -219,7 +218,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         value={personal.thread_join_mode}
                                         onChange={(value) => updatePersonalSettings({ thread_join_mode: value })}
                                         options={THREAD_JOIN_OPTIONS}
-                                        disabledReason={savingReason}
+                                        disabledReason={personalSettingsDisabledReason}
                                         data-attr="slack-app-settings-thread-join"
                                     />
                                 </SettingRow>
@@ -232,7 +231,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         onChange={(checked) =>
                                             updatePersonalSettings({ feature_tips_enabled: checked })
                                         }
-                                        disabledReason={savingReason}
+                                        disabledReason={personalSettingsDisabledReason}
                                         data-attr="slack-app-settings-feature-tips"
                                     />
                                 </SettingRow>
