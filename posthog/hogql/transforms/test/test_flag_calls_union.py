@@ -1967,92 +1967,6 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
 
-    @parameterized.expand(
-        [
-            (f"{name}_{mode.name.lower()}", mode, query, expected)
-            for mode in (READ, ONLY)
-            for name, query, expected in (
-                (
-                    "flag_calls",
-                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-                (
-                    "flag_calls_by_name",
-                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction('probe flag') AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-                (
-                    "flag_calls_and_named_event",
-                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND event = '$feature_flag_called' "
-                    f"AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-                (
-                    "flag_calls_and_pageviews",
-                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{mixed}}) AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$pageview", None), ("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-                (
-                    "flag_calls_in_count_if",
-                    f"SELECT countIf(matchesAction({{flag}})), groupArrayIf(properties.source, matchesAction({{flag}})) "
-                    f"FROM events WHERE {LAST_WEEK}",
-                    [(1, ["flag_evaluations"])],
-                ),
-                (
-                    "pageviews",
-                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{pageview}}) AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$pageview", None)],
-                ),
-                (
-                    "pageviews_from_named_flag_calls",
-                    f"{MATCHES_ACTION_ROWS} WHERE {MIXED} AND matchesAction({{pageview}}) AND {LAST_WEEK} "
-                    "ORDER BY timestamp",
-                    [("recent", "$pageview", None)],
-                ),
-                (
-                    "flag_calls_and_url_pageviews_on_aliased_events",
-                    "SELECT e.distinct_id, e.event, e.properties.source FROM events AS e "
-                    f"WHERE matchesAction({{url_mixed}}) AND {LAST_WEEK} ORDER BY e.timestamp",
-                    [("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-                (
-                    "flag_calls_after_a_subquery",
-                    f"{MATCHES_ACTION_ROWS} WHERE distinct_id IN (SELECT distinct_id FROM person_distinct_ids) "
-                    f"AND matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
-                    [("recent", "$feature_flag_called", "flag_evaluations")],
-                ),
-            )
-        ]
-    )
-    def test_matches_action_reads_flag_calls_from_flag_evaluations(
-        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[tuple]
-    ):
-        flag_step: dict[str, object] = {
-            "event": "$feature_flag_called",
-            "properties": [{"key": "$feature_flag", "value": "probe-flag", "type": "event", "operator": "exact"}],
-        }
-        pageview_step: dict[str, object] = {"event": "$pageview"}
-        url_step: dict[str, object] = {"event": "$pageview", "url": "example.com"}
-        actions = {
-            "flag": create_action(team=self.team, name="probe flag", steps_json=[flag_step]).id,
-            "mixed": create_action(
-                team=self.team, name="probe flag or pageview", steps_json=[flag_step, pageview_step]
-            ).id,
-            "pageview": create_action(team=self.team, name="pageview", steps_json=[pageview_step]).id,
-            "url_mixed": create_action(
-                team=self.team, name="probe flag or url pageview", steps_json=[flag_step, url_step]
-            ).id,
-        }
-
-        rows = [tuple(row) for row in self._run(query.format(**actions), mode).results]
-
-        # The last column names the table that each flag call came from. Mode 1 can read either one.
-        if mode == ONLY:
-            assert rows == expected
-        else:
-            assert [row[:-1] for row in rows] == [row[:-1] for row in expected]
-
     def test_inline_cohort_counts_flag_calls_that_only_flag_evaluations_holds(self):
         fresh = _create_person(distinct_ids=["fresh"], team_id=self.team.pk)
         _create_flag_evaluations(
@@ -2670,6 +2584,92 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         # Comparisons with string literals behave the same on both types.
         widened = {"`elements_chain_elements`": "Array(String)"}
         assert types[True] == {**types[False], **widened}
+
+    @parameterized.expand(
+        [
+            (f"{name}_{mode.name.lower()}", mode, query, expected)
+            for mode in (READ, ONLY)
+            for name, query, expected in (
+                (
+                    "flag_calls",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_by_name",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction('probe flag') AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_and_named_event",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{flag}}) AND event = '$feature_flag_called' "
+                    f"AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_and_pageviews",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{mixed}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$pageview", None), ("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_in_count_if",
+                    f"SELECT countIf(matchesAction({{flag}})), groupArrayIf(properties.source, matchesAction({{flag}})) "
+                    f"FROM events WHERE {LAST_WEEK}",
+                    [(1, ["flag_evaluations"])],
+                ),
+                (
+                    "pageviews",
+                    f"{MATCHES_ACTION_ROWS} WHERE matchesAction({{pageview}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$pageview", None)],
+                ),
+                (
+                    "pageviews_from_named_flag_calls",
+                    f"{MATCHES_ACTION_ROWS} WHERE {MIXED} AND matchesAction({{pageview}}) AND {LAST_WEEK} "
+                    "ORDER BY timestamp",
+                    [("recent", "$pageview", None)],
+                ),
+                (
+                    "flag_calls_and_url_pageviews_on_aliased_events",
+                    "SELECT e.distinct_id, e.event, e.properties.source FROM events AS e "
+                    f"WHERE matchesAction({{url_mixed}}) AND {LAST_WEEK} ORDER BY e.timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_after_a_subquery",
+                    f"{MATCHES_ACTION_ROWS} WHERE distinct_id IN (SELECT distinct_id FROM person_distinct_ids) "
+                    f"AND matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+            )
+        ]
+    )
+    def test_matches_action_reads_flag_calls_from_flag_evaluations(
+        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[tuple]
+    ):
+        flag_step: dict[str, object] = {
+            "event": "$feature_flag_called",
+            "properties": [{"key": "$feature_flag", "value": "probe-flag", "type": "event", "operator": "exact"}],
+        }
+        pageview_step: dict[str, object] = {"event": "$pageview"}
+        url_step: dict[str, object] = {"event": "$pageview", "url": "example.com"}
+        actions = {
+            "flag": create_action(team=self.team, name="probe flag", steps_json=[flag_step]).id,
+            "mixed": create_action(
+                team=self.team, name="probe flag or pageview", steps_json=[flag_step, pageview_step]
+            ).id,
+            "pageview": create_action(team=self.team, name="pageview", steps_json=[pageview_step]).id,
+            "url_mixed": create_action(
+                team=self.team, name="probe flag or url pageview", steps_json=[flag_step, url_step]
+            ).id,
+        }
+
+        rows = [tuple(row) for row in self._run(query.format(**actions), mode).results]
+
+        # The last column names the table that each flag call came from. Mode 1 can read either one.
+        if mode == ONLY:
+            assert rows == expected
+        else:
+            assert [row[:-1] for row in rows] == [row[:-1] for row in expected]
 
 
 def _events_schema_for(mode: FlagEvaluationsMode, new_events_schema: bool | None) -> bool | None:
