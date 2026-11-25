@@ -102,6 +102,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailTracking,
     FieldNotAccepted,
     MessageTooLarge,
+    PushBusy,
     QueuedEmail,
     QueuedEmailStatus,
     SendWarningCode,
@@ -1103,6 +1104,12 @@ class TransactionalPushUnavailable(exceptions.APIException):
     default_code = "delivery_unavailable"
 
 
+class TransactionalPushBusy(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Too many push notifications are being sent at once, so nothing was sent. Try again shortly."
+    default_code = "push_busy"
+
+
 class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "quota_limited": 429,
@@ -2047,6 +2054,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)
+        except PushBusy:
+            outcome.update({"outcome": "rejected", "error_code": TransactionalPushBusy.default_code})
+            raise TransactionalPushBusy() from None
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"
             raise TransactionalPushUnavailable() from None
@@ -2094,6 +2104,11 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 request, template.id, {**batch, "outcome": "rejected", "error_code": e.code}
             )
             raise TransactionalEmailRejected(e) from None
+        except PushBusy:
+            self._report_transactional_push_send(
+                request, template.id, {**batch, "outcome": "rejected", "error_code": TransactionalPushBusy.default_code}
+            )
+            raise TransactionalPushBusy() from None
         except DeliveryUnavailable:
             self._report_transactional_push_send(request, template.id, {**batch, "outcome": "unavailable"})
             raise unconfirmed_push_batch() from None
