@@ -46,6 +46,7 @@ import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { MessageTemplateSceneMenuBar } from './MessageTemplateSceneMenuBar'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -101,9 +102,12 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingDraft,
         isDiscardingDraft,
         isSavingSensitive,
+        isTransactional,
+        section,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
@@ -142,6 +146,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    const isLoaded = props.id === 'new' || originalTemplate.id === props.id
+    // Only the saved template tells its type, so until it loads the page takes the one its section mostly holds.
+    const isLibraryTemplate = isLoaded ? !isTransactional : section !== 'transactional'
+    const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft
@@ -167,6 +175,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
     const isCreating = props.id === 'new' && savedTemplateLoading
+    // Tags look empty until the saved ones load, so editing them earlier would replace those.
+    const canEditTags = !editDisabledReason && isLoaded && !isCreating
     const editor = (
         <div
             className="flex flex-col flex-1 gap-2 min-h-0 relative"
@@ -319,12 +329,21 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {...{ className: 'flex flex-col grow h-full' }}
         >
             <SceneContent className="h-full flex flex-col grow">
+                {showMenuBar && (
+                    <MessageTemplateSceneMenuBar
+                        {...props}
+                        editDisabledReason={editDisabledReason}
+                        saveDisabledReason={saveDisabledReason}
+                        sendTestDisabledReason={sendTestDisabledReason}
+                        canEditTags={canEditTags}
+                    />
+                )}
                 <SceneTitleSection
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
                     canEdit={!editDisabledReason && !isCreating}
-                    descriptionAlwaysVisible
+                    descriptionAlwaysVisible={!isLibraryTemplate}
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
@@ -493,13 +512,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     }
                 />
 
-                <SceneTags
-                    tags={[...(template.tags ?? [])]}
-                    onSave={saveTags}
-                    canEdit={!editDisabledReason && !isCreating}
-                    loading={isTemplateSubmitting}
-                    dataAttrKey="message-template"
-                />
+                {!showMenuBar && (
+                    <SceneTags
+                        tags={[...(template.tags ?? [])]}
+                        onSave={saveTags}
+                        canEdit={canEditTags}
+                        loading={isTemplateSubmitting}
+                        dataAttrKey="message-template"
+                    />
+                )}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />

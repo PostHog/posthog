@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -631,6 +632,115 @@ describe('messageTemplateLogic', () => {
             if (editWhileConverting) {
                 expect(logic.values.template.name).toEqual('Renamed while converting')
             }
+        })
+    })
+
+    describe('tags', () => {
+        let patches: unknown[]
+
+        const tagMocks = (status: number): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'A', tags: ['old'] },
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [status, { id: 'existing-id', name: 'A', ...body }]
+                },
+            },
+        })
+
+        const mountLoaded = async (): Promise<void> => {
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        }
+
+        beforeEach(() => {
+            patches = []
+        })
+
+        it('keeps every tag added before the first save answers', async () => {
+            useMocks(tagMocks(200))
+            await mountLoaded()
+            // The menu bar has no state of its own, so it adds to whatever tags the template shows.
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'a'])
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'b'])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+            expect(logic.values.templateChanged).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(patches).toEqual([{ tags: ['old', 'a', 'b'] }])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+        })
+
+        it('sends the next tags after the save before them answers, also when the person leaves', async () => {
+            const mocks = tagMocks(200)
+            const answers: (() => void)[] = []
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        await new Promise<void>((resolve) => answers.push(resolve))
+                        return [200, { id: 'existing-id', name: 'A', ...body }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(answers).toHaveLength(1))
+            logic.actions.saveTags(['old', 'a', 'b'])
+            logic.unmount()
+            await delay(100)
+            expect(patches).toEqual([{ tags: ['old', 'a'] }])
+
+            answers[0]()
+            // Coming back waits for both, so the page never shows tags from before them.
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await waitFor(() => expect(patches).toEqual([{ tags: ['old', 'a'] }, { tags: ['old', 'a', 'b'] }]))
+            expect(logic.values.originalTemplate.id).not.toBe('existing-id')
+            answers[1]()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        it('keeps a tag added while the template saves', async () => {
+            const mocks = tagMocks(200)
+            let answerSave: (() => void) | undefined
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        if (body.tags) {
+                            return [200, { id: 'existing-id', name: 'A', tags: body.tags }]
+                        }
+                        await new Promise<void>((resolve) => (answerSave = resolve))
+                        return [200, { id: 'existing-id', name: 'A', tags: ['old'] }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTemplate(logic.values.template)
+            await waitFor(() => expect(answerSave).toBeTruthy())
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(patches).toContainEqual({ tags: ['old', 'a'] }))
+            answerSave?.()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'a'])
+            expect(logic.values.templateChanged).toBe(false)
+        })
+
+        it('goes back to the saved tags when the save fails', async () => {
+            useMocks(tagMocks(500))
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old'])
         })
     })
 })
