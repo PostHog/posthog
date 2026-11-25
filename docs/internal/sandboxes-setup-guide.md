@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and opt-in observation, including sandbox replacement and revocation checks.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and bounded enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
 
 ## GitHub App
 
@@ -274,6 +274,8 @@ reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
+The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
+
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
 worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
@@ -283,7 +285,10 @@ what it derives itself. Both are reserved keys: a sandbox environment cannot set
 Account audit runs use the reserved `account_audit` origin and AI product, and must
 carry the server-set `internal` flag before they can mint a token. Add
 `account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
-Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+Their Python gateway fallback uses `background_agents`. Autoresearch training runs
+follow the same rules with the reserved `autoresearch` origin and AI product, so
+`SANDBOX_AI_GATEWAY_PRODUCTS` must list `autoresearch` or training runs fail to
+start. Signup onboarding stays
 on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
 waits three minutes for cost accounting before reporting the audit result. Audits use an
 internal `CUSTOM` sandbox environment with no extra allowed domains. Each new

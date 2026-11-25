@@ -215,7 +215,7 @@ class TestProviderImportRuns(BaseTest):
     ) -> None:
         mock_client_class.return_value.get_subscription_topics.return_value = [
             {"id": 1, "identifier": "topic_1", "name": "Newsletter"},
-            {"id": 2, "identifier": "topic_2", "name": "Product updates"},
+            {"id": 2, "identifier": "topic_2", "name": "Product updates", "subscribed_by_default": False},
         ]
         run = self._start(["categories"])
 
@@ -226,9 +226,25 @@ class TestProviderImportRuns(BaseTest):
             runs.run_step(self.team.id, run.id, "categories", attempt=1)
 
         run.refresh_from_db()
-        assert run.progress["categories"]["warnings"] == [
-            "2 subscription topics couldn't be imported. Run the import again to retry them."
+        warnings = run.progress["categories"]["warnings"]
+        assert warnings[0] == "2 subscription topics couldn't be imported. Run the import again to retry them."
+        assert "internal-detail" not in str(warnings)
+
+    def test_warns_about_topics_people_are_not_in_by_default(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        mock_client_class.return_value.get_subscription_topics.return_value = [
+            {"id": 1, "identifier": "topic_1", "name": "Newsletter", "subscribed_by_default": True},
+            {"id": 2, "identifier": "topic_2", "name": "Partner news", "subscribed_by_default": False},
         ]
+        run = self._start(["categories"])
+
+        runs.run_step(self.team.id, run.id, "categories", attempt=1)
+
+        run.refresh_from_db()
+        (warning,) = run.progress["categories"]["warnings"]
+        assert "Partner news" in warning
+        assert "Newsletter" not in warning
 
     @parameterized.expand(
         [
@@ -276,9 +292,9 @@ class TestProviderImportRuns(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_step_completed", ["completed", "completed"], "completed", ["completed", "completed"]),
-            ("a_step_still_running", ["completed", "running"], "failed", ["completed", "failed"]),
-            ("a_step_never_started", ["pending", "completed"], "failed", ["failed", "completed"]),
+            ("every_step_completed", ["completed", "completed"], "completed", ["completed", "completed"], None),
+            ("a_step_still_running", ["completed", "running"], "failed", ["completed", "failed"], "StepNotFinished"),
+            ("a_step_never_started", ["pending", "completed"], "failed", ["failed", "completed"], "StepNotFinished"),
         ]
     )
     def test_finish_sets_the_run_status_from_its_steps_once(
@@ -289,13 +305,15 @@ class TestProviderImportRuns(BaseTest):
         step_statuses: list[str],
         expected_run_status: str,
         expected_step_statuses: list[str],
+        error_class: str | None,
     ) -> None:
         run = self._start(["suppressions", "opt_outs"])
         for step, step_status in zip(run.steps, step_statuses):
             run.progress[step]["status"] = step_status
+        run.progress["suppressions"].update(processed=6, imported=3, counts={"failed": 1, "already_present": 2})
         run.save()
 
-        with patch("products.messaging.backend.provider_imports.runs.report_team_action") as report:
+        with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
             runs.finish_run(self.team.id, run.id)
             runs.finish_run(self.team.id, run.id)
 
@@ -303,10 +321,12 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == expected_run_status
         assert [run.progress[step]["status"] for step in run.steps] == expected_step_statuses
         assert run.finished_at is not None
-        assert [call.args[1] for call in report.call_args_list] == [
-            "messaging provider import finished",
-            "workflows import run",
-        ]
+        [(user, event, properties)] = [call.args for call in report.call_args_list]
+        assert (user, event) == (self.user, "workflows import run")
+        assert properties["stage"] == expected_run_status
+        assert properties.get("error_class") == error_class
+        assert properties["counts"]["suppressions"] == {"imported": 3, "skipped": 2, "failed": 1}
+        assert report.call_args.kwargs["organization"] == self.organization
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)
     def test_reading_an_expired_run_fails_it_and_its_unfinished_steps(

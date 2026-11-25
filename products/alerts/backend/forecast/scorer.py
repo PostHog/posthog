@@ -23,7 +23,7 @@ from posthog.llm.forecast_client import (
 )
 from posthog.tasks.alerts.detector import FORECAST_DETECTOR_MAX_HISTORY, FORECAST_DETECTOR_MIN_HISTORY
 
-from products.alerts.backend.forecast.access import forecast_detector_access_error
+from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE, forecast_detector_access_error
 from products.alerts.backend.forecast.rules import (
     ForecastComparison,
     ForecastRule,
@@ -123,6 +123,8 @@ def _forecast(
 ) -> dict[str, SeriesForecast]:
     """Ask the gateway for each series' forecast. A forecast that fails raises an ``LLMDetectorError``
     subclass, never an empty result."""
+    if attribution.user is None:
+        raise ForecastDetectorMisconfiguredError(FORECAST_DETECTOR_NO_CREATOR_MESSAGE)
     # Checked on every call, so withdrawing the rollout or AI data processing approval stops the calls.
     access_error = forecast_detector_access_error(
         distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization

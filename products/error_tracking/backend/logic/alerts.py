@@ -95,7 +95,7 @@ def create_alert(
     # Canonicalize up front so validation, the stored row, and the scoped read
     # paths (for_team) all agree on the same team id for child environments.
     team_id = resolve_effective_team_id(team_id)
-    compiled_filters = _compile_filters(team_id, filters)
+    compiled_filters = compile_alert_filters(team_id, filters)
     _validate_destination_count(destinations)
     _reject_duplicate_destinations(destinations)
     for destination in destinations:
@@ -164,7 +164,7 @@ def update_alert(
             alert.triggers = triggers
         if filters is not None:
             # Validate against the stored (canonical) team id, not the raw caller id.
-            alert.filters = _compile_filters(alert.team_id, filters)
+            alert.filters = compile_alert_filters(alert.team_id, filters)
         if throttle_seconds is not None:
             alert.throttle_seconds = throttle_seconds
         if destinations is not None:
@@ -240,7 +240,7 @@ def _validate_filter_surface(filters: dict[str, Any], subject: str = "Alert") ->
                 )
 
 
-def _compile_filters(team_id: int, filters: dict[str, Any], subject: str = "Alert") -> dict[str, Any]:
+def compile_alert_filters(team_id: int, filters: dict[str, Any], subject: str = "Alert") -> dict[str, Any]:
     if not isinstance(filters, dict):
         raise AlertValidationError(f"{subject} filters must be an object.")
     _validate_filter_surface(filters, subject)
@@ -268,7 +268,7 @@ def compile_signal_source_filters(team_id: int, filters: dict[str, Any]) -> dict
     unsupported_keys = sorted(set(filters) - _SIGNAL_SOURCE_FILTER_KEYS)
     if unsupported_keys:
         raise AlertValidationError(f"Inbox filters do not support {', '.join(unsupported_keys)}.")
-    return _compile_filters(team_id, {"properties": filters.get("properties") or []}, subject="Inbox")
+    return compile_alert_filters(team_id, {"properties": filters.get("properties") or []}, subject="Inbox")
 
 
 def _reject_duplicate_destinations(destinations: list[dict[str, Any]]) -> None:

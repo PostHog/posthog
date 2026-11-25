@@ -7,7 +7,8 @@ import type {
     TraceSentimentApi,
 } from '../../../generated/api.schemas'
 import { PartialTotal } from '../../shared/components/PartialTotal'
-import { formatCostUsd, formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
+import { formatCostUsd } from '../../shared/formatCost'
+import { formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
 import { ShortTimestamp } from '../../trace/components/ShortTimestamp'
 import type { TraceCellLoad, TraceCellStatus } from '../types'
 import { TraceCellValue } from './TraceCellValue'
@@ -103,10 +104,10 @@ export function tracesTableColumns({
             title: 'Latency',
             key: 'latency',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
+            render: (_, { totals, costAndLatencyPartial }) => (
                 <TotalValue
                     value={totals.latencyMs !== null ? formatLatencyMs(totals.latencyMs) : null}
-                    partial={totalsPartial}
+                    partial={costAndLatencyPartial}
                 />
             ),
         },
@@ -125,10 +126,10 @@ export function tracesTableColumns({
             title: 'Cost',
             key: 'cost',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
+            render: (_, { totals, costAndLatencyPartial }) => (
                 <TotalValue
                     value={totals.costUsd !== null ? formatCostUsd(totals.costUsd) : null}
-                    partial={totalsPartial}
+                    partial={costAndLatencyPartial}
                 />
             ),
         },

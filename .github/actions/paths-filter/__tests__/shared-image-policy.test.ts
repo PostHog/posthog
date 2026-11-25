@@ -121,15 +121,15 @@ describe('shared-image policy and legacy projection', () => {
     expect(new Filter(projected).match(files)).toEqual(new Filter(yaml.dump({...yaml.load(inline) as object, ...policy.filters})).match(files))
   })
 
-  test('the metadata channel filter and the broader active warehouse rule stay distinct', () => {
+  test('the metadata and data warehouse worker channel filters stay distinct', () => {
     const filter = new Filter(projectLegacyFilters(productionPolicy(), '{}'))
     const files = [
       {filename: 'products/data_modeling/backend/views.py', status: ChangeStatus.Modified},
-      {filename: 'products/warehouse_sources_queue/consumer.py', status: ChangeStatus.Modified},
+      {filename: 'products/warehouse_sources_queue/backend/core/jobs_db.py', status: ChangeStatus.Modified},
       {filename: 'Dockerfile', status: ChangeStatus.Modified}
     ]
     const result = filter.match(files)
     expect(result.dataWarehouseMetadata).toEqual([files[0], files[2]])
-    expect(result.dataWarehouse).toEqual([files[1], files[2]])
+    expect(result.dataWarehouseWorker).toEqual([files[1], files[2]])
   })
 })

@@ -65,7 +65,8 @@ class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
 You can generate an API key in your Attio workspace settings. Check out [this guide](https://attio.com/help/apps/other-apps/generating-an-api-key) for more details.
 
 **Required API scopes:**
-- `object_configuration:read` - To read object configurations
+- `object_configuration:read` - To read objects and their attributes, select options, and statuses
+- `list_configuration:read` - To read lists and their attributes, select options, and statuses
 - `record_permission:read` - To read record permissions
 - `record:read` - To read records (companies, people, deals, users, workspaces)
 - `list_entry:read` - To read list entries

@@ -4,7 +4,6 @@ Pure: no database, no DNS lookup, no network.
 """
 
 import re
-import json
 import math
 import ipaddress
 from collections.abc import Callable, Iterable, Iterator
@@ -21,7 +20,7 @@ from posthog.schema_enums import ParserMode
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.security.url_validation import canonicalize_host, internal_host_name
 
-from products.cdp.backend.abuse.classifier import MAX_STATE_CHARS, HogFunctionContent
+from products.cdp.backend.abuse.classifier import HogFunctionContent
 from products.ml_inference.backend.facade.contracts import JsonValue
 
 from common.hogvm.python.stl import STL
@@ -34,19 +33,16 @@ class Rule(StrEnum):
     # Any other internal URL, such as a transformation that drops events from `http://localhost:3000`.
     INTERNAL_HOST_REFERENCE = "internal_host_reference"
     REQUEST_CATCHER = "request_catcher"
-    OVERSIZED_INPUT = "oversized_input"
+    SECURITY_CALLBACK = "security_callback"
     INTERNAL_FUNCTION = "internal_function"
     HUGE_RANGE = "huge_range"
     # `replaceAll(s, '', t)` inserts `t` before every character of `s`, so the string grows with each call.
     REPLACE_AMPLIFICATION = "replace_amplification"
 
 
-# Every rule alerts. Customers test destinations against request catchers, send large inputs and filter out
-# local traffic, so only a request to our own network is certain enough to block.
+# Every rule alerts. Customers test destinations against request catchers and filter out local traffic, so only a
+# request to our own network is certain enough to block.
 BLOCKING_RULES = frozenset({Rule.INTERNAL_HOST})
-
-# Jev reads at most this much state, so an input longer than that can never be shown to it whole.
-OVERSIZED_INPUT_CHARS = MAX_STATE_CHARS
 
 # Async functions that back a hidden workflow, customer analytics or warehouse-webhook template, so code a customer
 # wrote rarely has a reason to call one. Functions meant for customer code, such as the ticket functions, stay out.
@@ -92,7 +88,7 @@ _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "rep
 # below the Liquid and Hog memory limits, so a larger range probes those limits instead of building a payload.
 MAX_RANGE_SIZE = 10_000
 
-# Request inspection and tunnel services. The out-of-band interaction domains in `oob_domains.json` count too.
+# Request inspection and tunnel services.
 _REQUEST_CATCHER_DOMAINS = frozenset(
     {
         "webhook.site",
@@ -108,6 +104,10 @@ _REQUEST_CATCHER_DOMAINS = frozenset(
         "ngrok-free.dev",
     }
 )
+
+# Not in `oob_domains.json`, because its other readers refuse every host on it and this rule only alerts.
+_SECURITY_CALLBACK_DOMAINS = frozenset({"bxss.me", "canarytokens.com", "canarytokens.org", "requestrepo.com", "xss.ht"})
+_SECURITY_CALLBACK_TOOL_NAME = re.compile(r"(?:^|[.-])(?:xsshunter|xss-hunter|interactsh)(?:$|[.-])")
 
 # The runtime URL parser skips every slash and backslash after the scheme, so `http:////127.0.0.1` reaches loopback.
 _SCHEME = re.compile(r"https?:[/\\]+", re.IGNORECASE)
@@ -163,8 +163,8 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
         matched.add(Rule.INTERNAL_HOST_REFERENCE)
     if any(_is_request_catcher(host) for host in hosts):
         matched.add(Rule.REQUEST_CATCHER)
-    if any(_encoded_length(value) > OVERSIZED_INPUT_CHARS for value in _input_values(content)):
-        matched.add(Rule.OVERSIZED_INPUT)
+    if any(_is_security_callback(host) for host in hosts):
+        matched.add(Rule.SECURITY_CALLBACK)
     if any(_has_huge_liquid_range(text) for text in _liquid_templates(content)):
         matched.add(Rule.HUGE_RANGE)
     # Unedited template code is PostHog's, such as the hidden workflow templates that call internal functions.
@@ -776,12 +776,6 @@ def _base_name(node: ast.Expr) -> str | None:
     return None
 
 
-def _input_values(content: HogFunctionContent) -> Iterator[JsonValue]:
-    for entry in _all_inputs(content):
-        if isinstance(entry, dict):
-            yield entry.get("value")
-
-
 def _request_targets(content: HogFunctionContent, url_inputs: frozenset[str] | None) -> Iterator[str]:
     """The strings a destination sends a request to. A transformation runs without network access."""
     if content.type != "destination":
@@ -879,12 +873,17 @@ def _ipv4_number(part: str) -> int | None:
 
 
 def _is_request_catcher(host: str) -> bool:
+    return _in_domains(canonicalize_host(host), _REQUEST_CATCHER_DOMAINS)
+
+
+def _is_security_callback(host: str) -> bool:
     canonical = canonicalize_host(host)
-    in_catcher_domain = any(
-        canonical == domain or canonical.endswith(f".{domain}") for domain in _REQUEST_CATCHER_DOMAINS
+    return (
+        _in_domains(canonical, _SECURITY_CALLBACK_DOMAINS)
+        or matched_oob_domain(canonical) is not None
+        or _SECURITY_CALLBACK_TOOL_NAME.search(canonical) is not None
     )
-    return in_catcher_domain or matched_oob_domain(canonical) is not None
 
 
-def _encoded_length(value: JsonValue) -> int:
-    return len(value) if isinstance(value, str) else len(json.dumps(value, ensure_ascii=False, default=str))
+def _in_domains(canonical_host: str, domains: frozenset[str]) -> bool:
+    return any(canonical_host == domain or canonical_host.endswith(f".{domain}") for domain in domains)

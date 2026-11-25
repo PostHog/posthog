@@ -5,7 +5,7 @@
     "data": {
       "firstName": "Ben"
     },
-    "liquid": "<p>Hello {{ variables.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "liquid": "<p>Hello {{ variables.firstName | join: \",\" }}</p>",
     "expected": "<p>Hello Ben</p>"
   },
   {
@@ -18,7 +18,7 @@
         }
       }
     },
-    "liquid": "<p>{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "liquid": "<p>{{ variables.user.profile.firstName | join: \",\" }}</p>",
     "expected": "<p>Ben</p>"
   },
   {
@@ -27,7 +27,7 @@
     "data": {
       "user": {}
     },
-    "liquid": "[{{ variables.user.profile.firstName | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "liquid": "[{{ variables.user.profile.firstName | join: \",\" }}]",
     "expected": "[]"
   },
   {
@@ -36,7 +36,7 @@
     "data": {
       "markup": "<b>Tom & Ann</b>"
     },
-    "liquid": "{{ variables.markup | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.markup | join: \",\" }}",
     "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
   },
   {
@@ -45,7 +45,7 @@
     "data": {
       "name": "Björk 日本語 🎉"
     },
-    "liquid": "<p>Grüße {{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🦔</p>",
+    "liquid": "<p>Grüße {{ variables.name | join: \",\" }} 🦔</p>",
     "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
   },
   {
@@ -54,7 +54,7 @@
     "data": {
       "count": 0
     },
-    "liquid": "{{ variables.count | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.count | join: \",\" }}",
     "expected": "0"
   },
   {
@@ -63,7 +63,7 @@
     "data": {
       "a": null
     },
-    "liquid": "[{{ variables.a | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "liquid": "[{{ variables.a | join: \",\" }}]",
     "expected": "[]"
   },
   {
@@ -72,7 +72,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n | join: \",\" }}",
     "expected": "{% if x %} 100% y"
   },
   {
@@ -81,7 +81,7 @@
     "data": {
       "n": "y"
     },
-    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n | join: \",\" }}",
     "expected": "{{n}} y"
   },
   {
@@ -90,20 +90,8 @@
     "data": {
       "pre": "Your order 🎉"
     },
-    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p></td></tr></table><p>Body</p>",
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre | join: \",\" }}</p></td></tr></table><p>Body</p>",
     "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
-  },
-  {
-    "name": "array_prints_with_commas",
-    "source": "<p>{{alternate_emails}}</p>",
-    "data": {
-      "alternate_emails": [
-        "a@example.com",
-        "b@example.com"
-      ]
-    },
-    "liquid": "<p>{{ variables.alternate_emails | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
-    "expected": "<p>a@example.com,b@example.com</p>"
   },
   {
     "name": "escaped_backslash_before_a_tag",
@@ -111,17 +99,603 @@
     "data": {
       "n": "N"
     },
-    "liquid": "<p>\\{{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} and {% raw %}{{n}}{% endraw %}</p>",
+    "liquid": "<p>\\{{ variables.n | join: \",\" }} and {% raw %}{{n}}{% endraw %}</p>",
     "expected": "<p>\\N and {{n}}</p>"
   },
   {
-    "name": "subject escapes like html",
-    "source": "Hi {{n}}",
+    "name": "subject prints values as written",
+    "source": "Hi {{{n}}}, {{#if vip}}VIP{{/if}}",
     "data": {
-      "n": "Tom & <Ann> \"q\" =`"
+      "n": "Tom & <Ann> \"q\"",
+      "vip": true
     },
-    "liquid": "Hi {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" }}",
-    "expected": "Hi Tom &amp; &lt;Ann&gt; &quot;q&quot; &#x3D;&#x60;",
-    "text": true
+    "text": true,
+    "liquid": "Hi {{ variables.n | join: \",\" }}, {% if variables.vip != nil and variables.vip != false and variables.vip != 0 and variables.vip.length != 0 or variables.vip != empty %}VIP{% endif %}",
+    "expected": "Hi Tom & <Ann> \"q\", VIP"
+  },
+  {
+    "name": "if and unless read missing like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {},
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read null like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": null
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read false like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": false
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read empty string like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": ""
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read zero like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": 0
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fuz]"
+  },
+  {
+    "name": "if and unless read empty list like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": []
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Fu]"
+  },
+  {
+    "name": "if and unless read text zero like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "0"
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read text false like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "false"
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read one like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": 1
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read text like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": "x"
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read list like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": [
+        1
+      ]
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read object like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": {
+        "k": 1
+      }
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "if and unless read true like Handlebars",
+    "source": "[{{#if v}}T{{else}}F{{/if}}{{#unless v}}u{{/unless}}{{#if v includeZero=true}}z{{/if}}]",
+    "data": {
+      "v": true
+    },
+    "liquid": "[{% if variables.v != nil and variables.v != false and variables.v != 0 and variables.v.length != 0 or variables.v != empty %}T{% else %}F{% endif %}{% if variables.v == nil or variables.v == false or variables.v == 0 or variables.v.length == 0 and variables.v == empty %}u{% endif %}{% if variables.v != nil and variables.v != false and variables.v.length != 0 or variables.v != empty %}z{% endif %}]",
+    "expected": "[Tz]"
+  },
+  {
+    "name": "else if chain",
+    "source": "{{#if a}}A{{else if b}}B{{else}}C{{/if}}|{{#if c}}A{{else if d}}B{{else}}C{{/if}}",
+    "data": {
+      "b": "yes",
+      "c": 0
+    },
+    "liquid": "{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% elsif variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}B{% else %}C{% endif %}|{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}A{% elsif variables.d != nil and variables.d != false and variables.d != 0 and variables.d.length != 0 or variables.d != empty %}B{% else %}C{% endif %}",
+    "expected": "B|C"
+  },
+  {
+    "name": "loop over a list",
+    "source": "<ul>{{#each items}}<li class=\"{{#if @first}}first{{/if}}\">{{@index}} {{this.name}} x{{qty}} {{../currency}}{{#if @last}}.{{/if}}</li>{{/each}}</ul>",
+    "data": {
+      "currency": "EUR",
+      "items": [
+        {
+          "name": "Hedgehog mug ☕",
+          "qty": 2
+        },
+        {
+          "name": "Sticker <b>",
+          "qty": 0
+        }
+      ]
+    },
+    "liquid": "<ul>{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<li class=\"{% if forloop.first %}first{% endif %}\">{{ forloop.index0 | join: \",\" }} {{ item.name | join: \",\" }} x{{ item.qty | join: \",\" }} {{ variables.currency | join: \",\" }}{% if forloop.last %}.{% endif %}</li>{% endfor %}{% endif %}</ul>",
+    "expected": "<ul><li class=\"first\">0 Hedgehog mug ☕ x2 EUR</li><li class=\"\">1 Sticker &lt;b&gt; x0 EUR.</li></ul>"
+  },
+  {
+    "name": "loop over plain values",
+    "source": "{{#each tags}}[{{this}}]{{/each}}",
+    "data": {
+      "tags": [
+        "a",
+        "ünï",
+        "🦔"
+      ]
+    },
+    "liquid": "{% assign values1 = variables.tags | slice: 0, 0 %}{% assign string1 = variables.tags | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.tags != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.tags %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% endfor %}{% endif %}",
+    "expected": "[a][ünï][🦔]"
+  },
+  {
+    "name": "loop else on an empty list",
+    "source": "{{#each items}}x{{else}}none{{/each}}|{{#each missing}}x{{else}}none{{/each}}",
+    "data": {
+      "items": []
+    },
+    "liquid": "{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}none{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}x{% else %}none{% endfor %}{% endif %}|{% assign values2 = variables.missing | slice: 0, 0 %}{% assign string2 = variables.missing | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.missing != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}none{% else %}{% for raw2 in variables.missing %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}x{% else %}none{% endfor %}{% endif %}",
+    "expected": "none|none"
+  },
+  {
+    "name": "nested loops and parent paths",
+    "source": "{{#each orders}}{{id}}:{{#each lines}}{{sku}}@{{../id}}/{{../../shop}};{{/each}}|{{/each}}",
+    "data": {
+      "shop": "S",
+      "orders": [
+        {
+          "id": 1,
+          "lines": [
+            {
+              "sku": "a"
+            },
+            {
+              "sku": "b"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "lines": []
+        }
+      ]
+    },
+    "liquid": "{% assign values1 = variables.orders | slice: 0, 0 %}{% assign string1 = variables.orders | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.orders != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.orders %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}{{ item.id | join: \",\" }}:{% assign values2 = item.lines | slice: 0, 0 %}{% assign string2 = item.lines | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and item.lines != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}{% else %}{% for raw2 in item.lines %}{% if shape2 == \"list\" %}{% assign item2 = raw2 %}{% else %}{% assign item2 = raw2[1] %}{% endif %}{{ item2.sku | join: \",\" }}@{{ item.id | join: \",\" }}/{{ variables.shop | join: \",\" }};{% endfor %}{% endif %}|{% endfor %}{% endif %}",
+    "expected": "1:a@1/S;b@1/S;|2:|"
+  },
+  {
+    "name": "loop block params",
+    "source": "{{#each orders as |order i|}}{{i}}={{order.id}} {{/each}}",
+    "data": {
+      "orders": [
+        {
+          "id": "A"
+        },
+        {
+          "id": "B"
+        }
+      ]
+    },
+    "liquid": "{% assign values1 = variables.orders | slice: 0, 0 %}{% assign string1 = variables.orders | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.orders != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.orders %}{% if shape1 == \"list\" %}{% assign order = raw1 %}{% else %}{% assign order = raw1[1] %}{% endif %}{{ forloop.index0 | join: \",\" }}={{ order.id | join: \",\" }} {% endfor %}{% endif %}",
+    "expected": "0=A 1=B "
+  },
+  {
+    "name": "with block",
+    "source": "{{#with user}}{{name}} in {{address.city}}{{else}}nobody{{/with}}|{{#with missing}}x{{else}}nobody{{/with}}",
+    "data": {
+      "user": {
+        "name": "Ana",
+        "address": {
+          "city": "Zürich"
+        }
+      }
+    },
+    "liquid": "{% if variables.user != nil and variables.user != false and variables.user.length != 0 or variables.user != empty %}{{ variables.user.name | join: \",\" }} in {{ variables.user.address.city | join: \",\" }}{% else %}nobody{% endif %}|{% if variables.missing != nil and variables.missing != false and variables.missing.length != 0 or variables.missing != empty %}x{% else %}nobody{% endif %}",
+    "expected": "Ana in Zürich|nobody"
+  },
+  {
+    "name": "comparison helpers",
+    "source": "{{#equals plan \"pro\"}}P{{else}}F{{/equals}}{{#notEquals plan \"pro\"}}N{{/notEquals}}{{#greaterThan total 100}}G{{/greaterThan}}{{#lessThan total 100}}L{{/lessThan}}{{#and plan total}}&{{/and}}{{#and plan zero}}0{{/and}}",
+    "data": {
+      "plan": "pro",
+      "total": 120,
+      "zero": 0
+    },
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}P{% else %}F{% endif %}{% assign text2 = variables.plan | join: \",\" | append: \"\" %}{% if text2 != \"pro\" %}N{% endif %}{% if variables.total > 100 %}G{% endif %}{% if variables.total < 100 %}L{% endif %}{% assign truthy3 = false %}{% if variables.plan != nil and variables.plan != false and variables.plan != 0 and variables.plan.length != 0 or variables.plan != empty %}{% assign truthy3 = true %}{% endif %}{% assign truthy4 = false %}{% if variables.total != nil and variables.total != false and variables.total != 0 and variables.total.length != 0 or variables.total != empty %}{% assign truthy4 = true %}{% endif %}{% if truthy3 == true and truthy4 == true %}&{% endif %}{% assign truthy5 = false %}{% if variables.plan != nil and variables.plan != false and variables.plan != 0 and variables.plan.length != 0 or variables.plan != empty %}{% assign truthy5 = true %}{% endif %}{% assign truthy6 = false %}{% if variables.zero != nil and variables.zero != false and variables.zero != 0 and variables.zero.length != 0 or variables.zero != empty %}{% assign truthy6 = true %}{% endif %}{% if truthy5 == true and truthy6 == true %}0{% endif %}",
+    "expected": "PG&"
+  },
+  {
+    "name": "equals compares numbers and text as text",
+    "source": "{{#equals count 5}}A{{/equals}}{{#equals code \"5\"}}B{{/equals}}{{#equals plan \"pro\"}}D{{/equals}}",
+    "data": {
+      "count": "5",
+      "code": 5,
+      "plan": "pro"
+    },
+    "liquid": "{% assign text1 = variables.count | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | join: \",\" | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}{% assign text3 = variables.plan | join: \",\" | append: \"\" %}{% if text3 == \"pro\" %}D{% endif %}",
+    "expected": "ABD"
+  },
+  {
+    "name": "length of a missing value or an object is 0",
+    "source": "{{#equals (length missing) 0}}none{{/equals}}{{#greaterThan (length obj) 0}}some{{else}}zero{{/greaterThan}}",
+    "data": {
+      "obj": {
+        "a": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.missing | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.missing == probe1 %}{% assign length1 = variables.missing | size %}{% endif %}{% assign text2 = length1 | join: \",\" | append: \"\" %}{% if text2 == \"0\" %}none{% endif %}{% assign probe3 = variables.obj | slice: 0, 16 %}{% assign length3 = 0 %}{% if probe3 != \"[object Object]\" or variables.obj == probe3 %}{% assign length3 = variables.obj | size %}{% endif %}{% if length3 > 0 %}some{% else %}zero{% endif %}",
+    "expected": "nonezero"
+  },
+  {
+    "name": "length helper",
+    "source": "{{length items}} {{#greaterThan (length items) 1}}many{{else}}few{{/greaterThan}}",
+    "data": {
+      "items": [
+        1,
+        2,
+        3
+      ]
+    },
+    "liquid": "{% assign probe1 = variables.items | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.items == probe1 %}{% assign length1 = variables.items | size %}{% endif %}{{ length1 }} {% assign probe2 = variables.items | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.items == probe2 %}{% assign length2 = variables.items | size %}{% endif %}{% if length2 > 1 %}many{% else %}few{% endif %}",
+    "expected": "3 many"
+  },
+  {
+    "name": "format date",
+    "source": "{{formatDate when \"MMMM D, YYYY h:mm A\"}} | {{formatDate when \"DD/MM/YY HH:mm:ss\"}} | {{formatDate when \"ddd, MMM D\"}} | {{formatDate when \"dddd a\"}}",
+    "data": {
+      "when": "2026-03-08T19:05:09Z"
+    },
+    "liquid": "{{ variables.when | date: \"%B %-d, %Y %-I:%M %p\", \"UTC\" }} | {{ variables.when | date: \"%d/%m/%y %H:%M:%S\", \"UTC\" }} | {{ variables.when | date: \"%a, %b %-d\", \"UTC\" }} | {{ variables.when | date: \"%A %P\", \"UTC\" }}",
+    "expected": "March 8, 2026 7:05 PM | 08/03/26 19:05:09 | Sun, Mar 8 | Sunday pm"
+  },
+  {
+    "name": "insert with a default",
+    "source": "{{insert name \"default=friend\"}}/{{insert missing \"default=friend\"}}/{{insert empty \"default=friend\"}}",
+    "data": {
+      "name": "Zoë",
+      "empty": ""
+    },
+    "liquid": "{{ variables.name | default: \"friend\" | join: \",\" }}/{{ variables.missing | default: \"friend\" | join: \",\" }}/{{ variables.empty | default: \"friend\" | join: \",\" }}",
+    "expected": "Zoë/friend/friend"
+  },
+  {
+    "name": "values that look like markup stay escaped",
+    "source": "<p>{{q}}</p><a href=\"https://example.com/?q={{q}}\" title='{{q}}'>{{{safe}}}</a>",
+    "data": {
+      "q": "\"><script>alert('x')</script>&amp; ü 🦔",
+      "safe": "<b>bold</b>"
+    },
+    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: &quot;,&quot; }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
+    "expected": "<p>&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔</p><a href=\"https://example.com/?q=&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔\" title='&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔'><b>bold</b></a>"
+  },
+  {
+    "name": "a value after raw html can't add an attribute",
+    "source": "{{{prefix}}}{{x}}>",
+    "data": {
+      "prefix": "<a href",
+      "x": "=https://example.com"
+    },
+    "liquid": "{{ variables.prefix | join: \",\" | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}>",
+    "expected": "<a href&#x3D;https://example.com>"
+  },
+  {
+    "name": "loop separators read the index like Handlebars",
+    "source": "{{#each tags}}{{#if @index}}, {{/if}}{{this}}{{/each}}|{{#each tags}}{{#unless @index}}first:{{/unless}}{{this}}{{/each}}",
+    "data": {
+      "tags": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "liquid": "{% assign values1 = variables.tags | slice: 0, 0 %}{% assign string1 = variables.tags | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.tags != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.tags %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}{% if forloop.index0 != 0 %}, {% endif %}{{ item | join: \",\" }}{% endfor %}{% endif %}|{% assign values2 = variables.tags | slice: 0, 0 %}{% assign string2 = variables.tags | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.tags != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}{% else %}{% for raw2 in variables.tags %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}{% if forloop.index0 == 0 %}first:{% endif %}{{ item | join: \",\" }}{% endfor %}{% endif %}",
+    "expected": "a, b, c|first:abc"
+  },
+  {
+    "name": "values in a loop after raw html stay encoded",
+    "source": "{{#each items}}<p>{{name}}</p>{{{html}}}{{/each}}",
+    "data": {
+      "items": [
+        {
+          "name": "a=b",
+          "html": "<i>x</i>"
+        },
+        {
+          "name": "c`d",
+          "html": "<b>y</b>"
+        }
+      ]
+    },
+    "liquid": "{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<p>{{ item.name | join: \",\" | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}</p>{{ item.html | join: \",\" | raw }}{% endfor %}{% endif %}",
+    "expected": "<p>a&#x3D;b</p><i>x</i><p>c&#x60;d</p><b>y</b>"
+  },
+  {
+    "name": "unicode and hyphen names",
+    "source": "{{user-name}} {{naïve}}",
+    "data": {
+      "user-name": "Zoë",
+      "naïve": "日本"
+    },
+    "liquid": "{{ variables.user-name | join: \",\" }} {{ variables.naïve | join: \",\" }}",
+    "expected": "Zoë 日本"
+  },
+  {
+    "name": "nested object in a condition",
+    "source": "{{#if user.address.city}}{{user.address.city}}{{else}}no city{{/if}}",
+    "data": {
+      "user": {
+        "address": {
+          "city": "東京"
+        }
+      }
+    },
+    "liquid": "{% if variables.user.address.city != nil and variables.user.address.city != false and variables.user.address.city != 0 and variables.user.address.city.length != 0 or variables.user.address.city != empty %}{{ variables.user.address.city | join: \",\" }}{% else %}no city{% endif %}",
+    "expected": "東京"
+  },
+  {
+    "name": "block tags alone on a line drop their line",
+    "source": "<ul>\n  {{#each xs}}\n  <li>{{this}}</li>\n  {{/each}}\n</ul>\n{{#if a}}\nA\n{{~/if}}",
+    "data": {
+      "xs": [
+        1,
+        2
+      ],
+      "a": true
+    },
+    "liquid": "<ul>\n{% assign values1 = variables.xs | slice: 0, 0 %}{% assign string1 = variables.xs | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.xs != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.xs %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}  <li>{{ item | join: \",\" }}</li>\n{% endfor %}{% endif %}</ul>\n{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}",
+    "expected": "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\nA"
+  },
+  {
+    "name": "a list prints with commas",
+    "source": "<p>{{tags}}</p>",
+    "data": {
+      "tags": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "<p>{{ variables.tags | join: \",\" }}</p>",
+    "expected": "<p>red,blue</p>"
+  },
+  {
+    "name": "loop index with includeZero",
+    "source": "<p>{{#each xs}}{{#if @index includeZero=true}}Y{{else}}N{{/if}}{{#unless @index includeZero=true}}U{{/unless}}{{/each}}</p>",
+    "data": {
+      "xs": [
+        1,
+        2
+      ]
+    },
+    "liquid": "<p>{% assign values1 = variables.xs | slice: 0, 0 %}{% assign string1 = variables.xs | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.xs != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.xs %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}{% if true %}Y{% else %}N{% endif %}{% if false %}U{% endif %}{% endfor %}{% endif %}</p>",
+    "expected": "<p>YY</p>"
+  },
+  {
+    "name": "a brace before a closing block tag",
+    "source": "{{#if x}}a{ {{~/if}}|{{#if y}}a{{else}}b{ {{~/if}}|{{#each xs}}c{ {{~/each}} {{v}}",
+    "data": {
+      "x": true,
+      "y": false,
+      "xs": [
+        1,
+        2
+      ],
+      "v": "V"
+    },
+    "liquid": "{% if variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or variables.x != empty %}a{{ \"{\" }}{% endif %}|{% if variables.y != nil and variables.y != false and variables.y != 0 and variables.y.length != 0 or variables.y != empty %}a{% else %}b{{ \"{\" }}{% endif %}|{% assign values1 = variables.xs | slice: 0, 0 %}{% assign string1 = variables.xs | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.xs != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.xs %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}c{{ \"{\" }}{% endfor %}{% endif %} {{ variables.v | join: \",\" }}",
+    "expected": "a{|b{|c{c{ V"
+  },
+  {
+    "name": "equals reads a decimal literal as a number",
+    "source": "<p>{{#equals price 5.0}}Y{{else}}N{{/equals}}</p>",
+    "data": {
+      "price": 5
+    },
+    "liquid": "<p>{% assign text1 = variables.price | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}Y{% else %}N{% endif %}</p>",
+    "expected": "<p>Y</p>"
+  },
+  {
+    "name": "comparisons read a list as its items joined by commas",
+    "source": "<p>{{#notEquals status \"banned\"}}A{{else}}B{{/notEquals}}{{#equals zip 12345}}C{{else}}D{{/equals}}</p>",
+    "data": {
+      "status": [
+        "banned"
+      ],
+      "zip": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "liquid": "<p>{% assign text1 = variables.status | join: \",\" | append: \"\" %}{% if text1 != \"banned\" %}A{% else %}B{% endif %}{% assign text2 = variables.zip | join: \",\" | append: \"\" %}{% if text2 == \"12345\" %}C{% else %}D{% endif %}</p>",
+    "expected": "<p>BD</p>"
+  },
+  {
+    "name": "conditions read a string of spaces and an empty object as true",
+    "source": "{{#unless s}}A{{/unless}}{{#if o}}B{{else}}C{{/if}}{{#with o}}D{{else}}E{{/with}}{{#unless e}}F{{/unless}}{{#if l}}G{{else}}H{{/if}}{{#if k}}I{{else}}J{{/if}}",
+    "data": {
+      "s": " ",
+      "o": {},
+      "e": [],
+      "l": {
+        "length": 0
+      },
+      "k": ""
+    },
+    "liquid": "{% if variables.s == nil or variables.s == false or variables.s == 0 or variables.s.length == 0 and variables.s == empty %}A{% endif %}{% if variables.o != nil and variables.o != false and variables.o != 0 and variables.o.length != 0 or variables.o != empty %}B{% else %}C{% endif %}{% if variables.o != nil and variables.o != false and variables.o.length != 0 or variables.o != empty %}D{% else %}E{% endif %}{% if variables.e == nil or variables.e == false or variables.e == 0 or variables.e.length == 0 and variables.e == empty %}F{% endif %}{% if variables.l != nil and variables.l != false and variables.l != 0 and variables.l.length != 0 or variables.l != empty %}G{% else %}H{% endif %}{% if variables.k != nil and variables.k != false and variables.k != 0 and variables.k.length != 0 or variables.k != empty %}I{% else %}J{% endif %}",
+    "expected": "BDFGJ"
+  },
+  {
+    "name": "an escaped tag keeps its entities",
+    "source": "<a title=\"\\{{a&quot; &lt;b}} {{name}}\">x</a>",
+    "data": {
+      "name": "Ann"
+    },
+    "liquid": "<a title=\"{{ &quot;{{&quot; }}a&quot; &lt;b}} {{ variables.name | join: &quot;,&quot; }}\">x</a>",
+    "expected": "<a title=\"{{a&quot; &lt;b}} Ann\">x</a>"
+  },
+  {
+    "name": "and keeps each test whole",
+    "source": "{{#and a b}}Y{{else}}N{{/and}}|{{#and a c}}Y{{else}}N{{/and}}",
+    "data": {
+      "a": " ",
+      "b": "x",
+      "c": 0
+    },
+    "liquid": "{% assign truthy1 = false %}{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}{% assign truthy1 = true %}{% endif %}{% assign truthy2 = false %}{% if variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}{% assign truthy2 = true %}{% endif %}{% if truthy1 == true and truthy2 == true %}Y{% else %}N{% endif %}|{% assign truthy3 = false %}{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}{% assign truthy3 = true %}{% endif %}{% assign truthy4 = false %}{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}{% assign truthy4 = true %}{% endif %}{% if truthy3 == true and truthy4 == true %}Y{% else %}N{% endif %}",
+    "expected": "Y|N"
+  },
+  {
+    "name": "loops follow handlebars over objects and strings",
+    "source": "{{#each order}}{{this}} {{/each}}|{{#each s}}A{{else}}B{{/each}}|{{#each n}}C{{else}}D{{/each}}",
+    "data": {
+      "order": {
+        "k1": 12,
+        "k2": 30
+      },
+      "s": "ab",
+      "n": 5
+    },
+    "liquid": "{% assign values1 = variables.order | slice: 0, 0 %}{% assign string1 = variables.order | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.order != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.order %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}{{ item | join: \",\" }} {% endfor %}{% endif %}|{% assign values2 = variables.s | slice: 0, 0 %}{% assign string2 = variables.s | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.s != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}B{% else %}{% for raw2 in variables.s %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}A{% else %}B{% endfor %}{% endif %}|{% assign values3 = variables.n | slice: 0, 0 %}{% assign string3 = variables.n | slice: 0, 16 %}{% assign shape3 = \"\" %}{% if values3 != \"\" %}{% assign shape3 = \"list\" %}{% elsif string3 == \"[object Object]\" and variables.n != string3 %}{% elsif string3 != \"\" %}{% assign shape3 = \"text\" %}{% endif %}{% if shape3 == \"text\" %}D{% else %}{% for raw3 in variables.n %}{% if shape3 == \"list\" %}{% assign item = raw3 %}{% else %}{% assign item = raw3[1] %}{% endif %}C{% else %}D{% endfor %}{% endif %}",
+    "expected": "12 30 |B|D"
+  },
+  {
+    "name": "a loop reads an object with a length key as an object",
+    "source": "{{#each a}}[{{this}}]{{/each}}|{{#each b}}[{{this}}]{{/each}}|{{#each c}}[{{this}}]{{/each}}",
+    "data": {
+      "a": {
+        "length": 1
+      },
+      "b": {
+        "length": 2,
+        "x": "y"
+      },
+      "c": [
+        null,
+        "z"
+      ]
+    },
+    "liquid": "{% assign values1 = variables.a | slice: 0, 0 %}{% assign string1 = variables.a | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.a != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.a %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% endfor %}{% endif %}|{% assign values2 = variables.b | slice: 0, 0 %}{% assign string2 = variables.b | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.b != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}{% else %}{% for raw2 in variables.b %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}[{{ item | join: \",\" }}]{% endfor %}{% endif %}|{% assign values3 = variables.c | slice: 0, 0 %}{% assign string3 = variables.c | slice: 0, 16 %}{% assign shape3 = \"\" %}{% if values3 != \"\" %}{% assign shape3 = \"list\" %}{% elsif string3 == \"[object Object]\" and variables.c != string3 %}{% elsif string3 != \"\" %}{% assign shape3 = \"text\" %}{% endif %}{% if shape3 == \"text\" %}{% else %}{% for raw3 in variables.c %}{% if shape3 == \"list\" %}{% assign item = raw3 %}{% else %}{% assign item = raw3[1] %}{% endif %}[{{ item | join: \",\" }}]{% endfor %}{% endif %}",
+    "expected": "[1]|[2][y]|[][z]"
+  },
+  {
+    "name": "a loop reads a string that starts with a space as a string",
+    "source": "{{#each a}}[{{this}}]{{else}}none{{/each}}|{{#each b}}[{{this}}]{{else}}none{{/each}}",
+    "data": {
+      "a": " ab",
+      "b": {
+        "first": "a",
+        "length": 2
+      }
+    },
+    "liquid": "{% assign values1 = variables.a | slice: 0, 0 %}{% assign string1 = variables.a | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.a != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}none{% else %}{% for raw1 in variables.a %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}|{% assign values2 = variables.b | slice: 0, 0 %}{% assign string2 = variables.b | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.b != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}none{% else %}{% for raw2 in variables.b %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}",
+    "expected": "none|[a][2]"
+  },
+  {
+    "name": "a loop reads an object with numbered keys and a length as an object",
+    "source": "{{#each a}}[{{this}}]{{else}}none{{/each}}",
+    "data": {
+      "a": {
+        "0": "x",
+        "1": "y",
+        "length": 2
+      }
+    },
+    "liquid": "{% assign values1 = variables.a | slice: 0, 0 %}{% assign string1 = variables.a | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.a != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}none{% else %}{% for raw1 in variables.a %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}",
+    "expected": "[x][y][2]"
+  },
+  {
+    "name": "length counts only a list or a string",
+    "source": "{{length a}}|{{length b}}|{{length c}}|{{#if (length d)}}D{{else}}none{{/if}}|{{#greaterThan (length e) 0}}E{{else}}empty{{/greaterThan}}",
+    "data": {
+      "a": [
+        1,
+        2
+      ],
+      "b": "abc",
+      "c": {
+        "length": 3
+      },
+      "d": {
+        "length": 3
+      },
+      "e": {
+        "0": "x",
+        "length": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.a | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.a == probe1 %}{% assign length1 = variables.a | size %}{% endif %}{{ length1 }}|{% assign probe2 = variables.b | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.b == probe2 %}{% assign length2 = variables.b | size %}{% endif %}{{ length2 }}|{% assign probe3 = variables.c | slice: 0, 16 %}{% assign length3 = 0 %}{% if probe3 != \"[object Object]\" or variables.c == probe3 %}{% assign length3 = variables.c | size %}{% endif %}{{ length3 }}|{% assign probe4 = variables.d | slice: 0, 16 %}{% assign length4 = 0 %}{% if probe4 != \"[object Object]\" or variables.d == probe4 %}{% assign length4 = variables.d | size %}{% endif %}{% if length4 > 0 %}D{% else %}none{% endif %}|{% assign probe5 = variables.e | slice: 0, 16 %}{% assign length5 = 0 %}{% if probe5 != \"[object Object]\" or variables.e == probe5 %}{% assign length5 = variables.e | size %}{% endif %}{% if length5 > 0 %}E{% else %}empty{% endif %}",
+    "expected": "2|3|0|none|empty"
+  },
+  {
+    "name": "a loop reads the text [object Object] as text",
+    "source": "{{#each a}}[{{this}}]{{else}}none{{/each}}|{{#each b}}[{{this}}]{{else}}none{{/each}}",
+    "data": {
+      "a": "[object Object]",
+      "b": {
+        "k": "v"
+      }
+    },
+    "liquid": "{% assign values1 = variables.a | slice: 0, 0 %}{% assign string1 = variables.a | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.a != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}none{% else %}{% for raw1 in variables.a %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}|{% assign values2 = variables.b | slice: 0, 0 %}{% assign string2 = variables.b | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and variables.b != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}none{% else %}{% for raw2 in variables.b %}{% if shape2 == \"list\" %}{% assign item = raw2 %}{% else %}{% assign item = raw2[1] %}{% endif %}[{{ item | join: \",\" }}]{% else %}none{% endfor %}{% endif %}",
+    "expected": "none|[v]"
+  },
+  {
+    "name": "length counts the text [object Object]",
+    "source": "{{length a}}|{{#if (length b)}}B{{else}}none{{/if}}",
+    "data": {
+      "a": "[object Object]",
+      "b": {
+        "k": 1
+      }
+    },
+    "liquid": "{% assign probe1 = variables.a | slice: 0, 16 %}{% assign length1 = 0 %}{% if probe1 != \"[object Object]\" or variables.a == probe1 %}{% assign length1 = variables.a | size %}{% endif %}{{ length1 }}|{% assign probe2 = variables.b | slice: 0, 16 %}{% assign length2 = 0 %}{% if probe2 != \"[object Object]\" or variables.b == probe2 %}{% assign length2 = variables.b | size %}{% endif %}{% if length2 > 0 %}B{% else %}none{% endif %}",
+    "expected": "15|none"
   }
 ]

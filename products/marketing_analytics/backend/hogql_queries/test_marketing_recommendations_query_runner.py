@@ -3,7 +3,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,22 +17,34 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsSource,
 )
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     FlaggedAd,
+    Keyword,
+    OrganicQueryStats,
     PolicyAds,
     PolicyTopic,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _asset_texts,
+    _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 PURCHASE = "customers/1/conversionActions/10"
@@ -240,6 +254,40 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
 
+    def test_keywords_are_the_enabled_ones_that_match_an_organic_query(self) -> None:
+        keywords = self._table(
+            "keyword",
+            {
+                "campaign_id": "Int64",
+                "ad_group_criterion_keyword_text": "String",
+                "ad_group_criterion_status": "String",
+            },
+            "campaign_id,ad_group_criterion_keyword_text,ad_group_criterion_status\n"
+            "1, Funnel Analysis ,ENABLED\n"
+            "2,funnel analysis,PAUSED\n"
+            "4,session replay,ENABLED\n",
+        )
+        # Campaign 1 has no stats rows, so the keyword reads its campaign without depending on spend.
+        campaigns = self._table(
+            "campaign",
+            {"campaign_id": "Int64", "campaign_advertising_channel_type": "String", "campaign_status": "String"},
+            "campaign_id,campaign_advertising_channel_type,campaign_status\n1,SEARCH,ENABLED\n2,SEARCH,ENABLED\n",
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(), team=self.team, user=self.user
+        )
+
+        found = runner._keywords(
+            MarketingAnalyticsRecommendationsSource(
+                sourceType="GoogleAds", keywordTable=keywords, campaignTable=campaigns
+            ),
+            (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=100, position=20),),
+        )
+
+        assert found == [
+            Keyword(text="funnel analysis", campaign_id="1", channel_type="SEARCH", campaign_status="ENABLED")
+        ]
+
     def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
         campaigns = self._table(
             "campaign",
@@ -280,7 +328,12 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "dentist crm,1,11,2026-01-15,10,100,250000000,0,NONE\n"
             "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
             "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
-            "patient records,1,11,2026-01-15,10,100,300000000,0,NONE\n",
+            "patient records,1,11,2026-01-14,5,50,150000000,0,NONE\n"
+            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n"
+            # Another ad group excludes it on the same day that ad group 11 still serves it.
+            "dentist crm,1,12,2026-01-15,0,1,0,0,EXCLUDED\n"
+            # Excluded after the selected dates end.
+            "analytics pricing,1,11,2026-02-05,0,1,0,0,EXCLUDED\n",
         )
         ad_columns = {
             "ad_group_id": "Int64",
@@ -309,7 +362,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             f'101,"{policy_topics}"\n'
             '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
             "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
-            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n",
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n"
+            "12,1,ENABLED,[],[],[],Clinic scheduling,APPROVED,105,[]\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -332,6 +386,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             ("1", ("https://example.com/product",)),
             ("1", ()),
             ("1", ()),
+            ("1", ()),
         ]
         assert runner._policy_ads(source) == [PolicyAds(campaign_id="1", disapproved=1, limited=1)]
         assert runner._flagged_ads(source) == [
@@ -344,7 +399,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             FlaggedAd(campaign_id="1", ad_id="100", headline="Patient records made simple", policy_topics=()),
         ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
-        assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
+        assert [(rec.subject, rec.detectedChange) for rec in wasted] == [
+            ("dentist crm", None),
+            ("analytics pricing", "negative_keyword"),
+            ("patient records", "negative_keyword"),
+        ]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
 
     @parameterized.expand(
@@ -537,7 +596,13 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             else:
                 properties["utm_term"] = "organic"
             _create_event(
-                team=self.team, event="$pageview", distinct_id=f"user{i}", timestamp="2026-01-15", properties=properties
+                team=self.team,
+                # Half the paid sessions have no pageview, so a query that only reads pageviews falls below the
+                # rule's session minimum.
+                event="$pageview" if i % 2 else "$autocapture",
+                distinct_id=f"user{i}",
+                timestamp="2026-01-15",
+                properties=properties,
             )
         flush_persons_and_events()
 
@@ -593,6 +658,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "search_term_stats": True,
                 "search_term_conversion_action_stats": True,
                 "ad": True,
+                "keyword": True,
                 "customer": False,
             },
         )
@@ -613,6 +679,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "searchTermTable": "googleads.acme.search_term_stats",
                 "searchTermConversionActionTable": "googleads.acme.search_term_conversion_action_stats",
                 "adTable": "googleads.acme.ad",
+                "keywordTable": "googleads.acme.keyword",
             },
             {
                 "sourceType": "GoogleSearchConsole",
@@ -621,3 +688,138 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("marketing_analytics", ["marketing_analytics"]),
+            ("warehouse_objects", ["googleads.acme.campaign"]),
+        ]
+    )
+    def test_save_time_access_check_sees_the_product_and_every_source_table(
+        self, denied: str, expected: list[str]
+    ) -> None:
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource=denied,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery().model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == expected
+            assert denied_query_resources(self.user, self.team, [query]) == []
+
+    @parameterized.expand(
+        [
+            ("synced_tables", None),
+            # A table-valued field that fails to compile would make the whole check pass.
+            ("with_a_non_warehouse_table", "events"),
+        ]
+    )
+    def test_save_time_access_check_expands_expressions_on_source_tables(
+        self, _name: str, extra_table: str | None
+    ) -> None:
+        # An expression may add a field the run reads, such as a status column older syncs lack.
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        secret = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="secret_lookup",
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/secret/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        DataWarehouseExpression.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            table_name="googleads.acme.campaign",
+            field_name="campaign_primary_status",
+            expression="(SELECT id FROM secret_lookup LIMIT 1)",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(secret.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery(
+            sources=[
+                MarketingAnalyticsRecommendationsSource(
+                    sourceType="GoogleAds",
+                    campaignTable="googleads.acme.campaign",
+                    campaignStatsTable="googleads.acme.campaign_stats",
+                    adTable=extra_table,
+                )
+            ]
+        ).model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == ["secret_lookup"]
+            assert denied_query_resources(self.user, self.team, [query]) == []
+
+    @parameterized.expand([("fresh", False), ("cached", True)])
+    def test_running_without_marketing_access_is_refused(self, _name: str, cached: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="marketing_analytics",
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery(sources=[])
+        if cached:
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=self.user).run(
+                user=self.user
+            )
+
+        # The check runs before the cache read, so a result someone else cached is refused too.
+        with self.assertRaises(UserAccessControlError):
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=member).run(user=member)
+
+    def test_repeated_query_sources_run_once(self) -> None:
+        source = MarketingAnalyticsRecommendationsSource(sourceType="GoogleAds", campaignTable="campaign")
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(sources=[source] * 25), team=self.team, user=self.user
+        )
+
+        assert runner.sources == [source]
+
+
+class TestAdJson(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
+            (
+                "texts_are_not_text",
+                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
+                ("Acme",),
+            ),
+        ]
+    )
+    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
+        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+
+        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+
+    def test_asset_texts_skip_non_text(self) -> None:
+        assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)

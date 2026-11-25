@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { captureInboxReportTagClicked, InboxReportTagSurface } from '../../inboxAnalytics'
+import { captureInboxReportTagClicked } from '../../inboxAnalytics'
 import { INBOX_TAG_FILTER_MAX, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
 
@@ -15,8 +15,8 @@ export interface ReportTagToggle {
     toggle: (tag: string) => void
 }
 
-/** Toggling a report's tags in and out of the inbox Tags filter, for the tag chips on each surface. */
-export function useReportTagToggle(report: SignalReport, surface: InboxReportTagSurface): ReportTagToggle {
+/** Toggling a report's tags in and out of the inbox Tags filter, for the tag chips on inbox cards. */
+export function useReportTagToggle(report: SignalReport): ReportTagToggle {
     const { tagFilter } = useValues(inboxFiltersLogic)
     const { toggleTag } = useActions(inboxFiltersLogic)
     const tags = report.tags ?? []
@@ -40,7 +40,7 @@ export function useReportTagToggle(report: SignalReport, surface: InboxReportTag
             toggleTag(tag)
             captureInboxReportTagClicked({
                 report,
-                surface,
+                surface: 'card',
                 added,
                 tagFilterCount: tagFilter.length + (added ? 1 : -1),
             })

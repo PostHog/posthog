@@ -31,7 +31,7 @@ WHERE team_id IN %(team_ids)s
 class NoLiveEventsCheck(RollupHealthCheck):
     name = "no_live_events"
     kind = "no_live_events"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     product = Product.WEB_ANALYTICS
     schedule = "30 4 * * *"
     active_since_days = 30

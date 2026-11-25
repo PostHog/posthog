@@ -388,6 +388,40 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(version.saved_query_id)
         self.assertEqual(version.cache_ttl_seconds, expected_freshness)
 
+    def test_response_reports_a_plan_floor_rewrite_until_a_new_freshness_is_saved(self):
+        endpoint = create_endpoint_with_version(
+            name="plan_floor_rewrite", team=self.team, query=self.sample_hogql_query, created_by=self.user
+        )
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/"
+        response = self.client.patch(url, {"is_materialized": True, "data_freshness_seconds": 900}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(response.json()["plan_clamp"])
+        node = Node.objects.get(saved_query=endpoint.get_version().saved_query)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+        with (
+            mock.patch(
+                "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
+            ),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            mock.patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+        ):
+            self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+            rewritten = self.client.get(url).json()
+            resaved = self.client.patch(url, {"data_freshness_seconds": 86400}, format="json")
+
+        self.assertEqual(
+            (rewritten["data_freshness_seconds"], rewritten["plan_clamp"]["previous_data_freshness_seconds"]),
+            (21600, 900),
+        )
+        self.assertEqual(rewritten["plan_clamp"]["plan_floor_seconds"], 21600)
+        self.assertEqual(resaved.status_code, status.HTTP_200_OK, resaved.json())
+        self.assertIsNone(resaved.json()["plan_clamp"])
+
     def test_new_version_inherits_the_node_target(self):
         endpoint = create_endpoint_with_version(
             name="inherited_node_freshness",
