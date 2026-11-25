@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -12,7 +12,6 @@ from requests import Response
 from products.warehouse_sources.sources.checkout_com.checkout_com import (
     PAGE_SIZE,
     CheckoutComResumeConfig,
-    _format_timestamp,
     _hosts,
     checkout_com_source,
     validate_credentials,
@@ -106,20 +105,6 @@ class TestHosts:
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _hosts("evil")
-
-
-class TestFormatTimestamp:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
-        ],
-    )
-    def test_format_values(self, value, expected):
-        assert _format_timestamp(value) == expected
 
 
 class TestValidateCredentials:

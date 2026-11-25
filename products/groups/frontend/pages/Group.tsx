@@ -15,6 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tryDecodeURIComponent } from 'lib/utils/url'
+import { FlagCallsList } from 'scenes/feature-flags/FlagCallsList'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -72,11 +73,15 @@ export function Group(): JSX.Element {
         groupTab,
         groupEventsQuery,
         groupEventsQueryIsDirty,
+        showFlagCallsTab,
+        groupFlagCallsQuery,
+        groupFlagCallsReachPastRetention,
         backTo,
         backNavigation,
     } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
+    const { setGroupEventsQuery, resetGroupEventsQuery, setGroupFlagCallsQuery, editProperty, deleteProperty } =
+        useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
@@ -195,6 +200,23 @@ export function Group(): JSX.Element {
                             <Spinner />
                         ),
                     },
+                    ...(showFlagCallsTab
+                        ? [
+                              {
+                                  key: PersonsTabType.FLAG_CALLS,
+                                  label: <span data-attr="groups-flag-calls-tab">Flag calls</span>,
+                                  content: (
+                                      <FlagCallsList
+                                          uniqueKey="group-flag-calls"
+                                          attachTo={mountedGroupLogic}
+                                          query={groupFlagCallsQuery}
+                                          setQuery={setGroupFlagCallsQuery}
+                                          reachesPastRetention={groupFlagCallsReachPastRetention}
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
                         label: <span data-attr="group-session-recordings-tab">Recordings</span>,

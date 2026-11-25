@@ -1,0 +1,17 @@
+hoglint: no new problems.
+new findings (0)
+advisory rows (6043)
+  public-surface: bin.build-dashboard-widget-types names products.dashboards.backend.constants.WIDGET_DATE_FROM_LABELS, which is not exported to it
+    at bin/build-dashboard-widget-types.py:55  [team-devex]
+  public-surface: products.visual_review.backend.logic.café_probe names products.event_definitions.backend.models.schema.EventSchema, which is not exported to it
+    at products/visual_review/backend/logic/café_probe.py:1  [team-devex]
+  public-surface: products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.event_definition.EventDefinition, which is not exported to it
+    at products/visual_review/backend/logic/shadow_probe.py:1  [team-devex]
+  public-surface: products.visual_review.backend.logic.space probe names products.event_definitions.backend.models.event_property.EventProperty, which is not exported to it
+    at products/visual_review/backend/logic/space probe.py:1  [team-devex]
+unknowns (114)
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:94: signal 'model' did not resolve
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:95: signal 'model' did not resolve
+unknowns attributed against HEAD (tree f5b7c014173c, stored summary): 0 introduced, 0 ambiguous, 114 inherited
+level isolated: 25 pass, 74 fail
+4831 findings accepted by the ledger

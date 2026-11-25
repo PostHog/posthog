@@ -18,7 +18,6 @@ from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
     get_configuration,
-    give_back_ownership,
     record_outcomes,
     reset_broken,
     runtime_by_public_id,
@@ -38,7 +37,6 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
-    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -56,7 +54,7 @@ from products.alerts_platform.backend.facade.grouping import (
 )
 from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY, AlertSnapshot, AlertState
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.logic.platform_alert_events import announcement, history, last_checks
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
@@ -290,71 +288,6 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", "state")
             )
         assert instances == [("api", "firing")]
-
-    @parameterized.expand(
-        [
-            ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
-            (
-                "snoozed_inside_a_firing",
-                {},
-                {"state": "snoozed", "firing_started_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
-                HandbackRefusal.FIRING,
-            ),
-            (
-                "broken_is_never_due",
-                {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC), "check_status": "broken"},
-                {},
-                None,
-            ),
-            (
-                "disabled_while_a_check_runs",
-                {"enabled": False, "next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
-                {},
-                None,
-            ),
-            ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
-            (
-                "calendar_schedule",
-                {"recurrence_unit": "daily", "anchor_time": "09:00"},
-                {},
-                HandbackRefusal.NOT_PORTABLE,
-            ),
-            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
-            (
-                "grouped_with_no_group_open",
-                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
-                {},
-                HandbackRefusal.NOT_PORTABLE,
-            ),
-        ]
-    )
-    def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
-        self,
-        _name: str,
-        configuration_fields: dict[str, Any],
-        alert_fields: dict[str, Any],
-        refusal: HandbackRefusal | None,
-    ) -> None:
-        legacy_id = uuid4()
-        with team_scope(self.team.id):
-            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
-                **{
-                    "legacy_configuration_id": legacy_id,
-                    "owner": "platform",
-                    "next_check_at": self.cutoff + timedelta(minutes=5),
-                    **configuration_fields,
-                }
-            )
-            PlatformAlert.objects.create(team=self.team, configuration=self.configuration, **alert_fields)
-
-        handback = give_back_ownership(team_id=self.team.id, legacy_configuration_id=legacy_id, at=self.cutoff)
-
-        assert (handback if isinstance(handback, HandbackRefusal) else None) == refusal
-        self.configuration.refresh_from_db()
-        assert self.configuration.owner == ("platform" if refusal else "source")
-        if refusal is None:
-            # A check that started before the handback finds the row no longer due and records nothing.
-            assert self.configuration.next_check_at is not None and self.configuration.next_check_at > self.cutoff
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -762,6 +695,43 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             due = PlatformAlertConfiguration.objects.get(id=self.configuration.id).next_check_at
         assert keys == expected_keys
         assert due is not None and due > self.cutoff
+
+    def test_a_grouped_check_that_judges_no_group_still_records_that_it_ran(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",)).to_stored()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(grouping=grouping)
+            # A second alert checked in the same windows writes rows under the same evaluation keys.
+            other = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Web errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                grouping=grouping,
+            )
+        failed_at, first_at, second_at = self.cutoff, self.cutoff + timedelta(hours=1), self.cutoff + timedelta(hours=2)
+        for configuration_id in (self.configuration.id, other.id):
+            self._record(
+                at=failed_at,
+                groups=(),
+                failure=CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=False),
+                configuration_id=configuration_id,
+            )
+            self._record(at=first_at, groups=(), configuration_id=configuration_id)
+            self._record(at=second_at, groups=(), configuration_id=configuration_id)
+
+        ids = [self.configuration.id, other.id]
+        last = last_checks(self.team.id, ids, all_groups=True)
+        changes = history(self.team.id, ids, since=failed_at, until=second_at + timedelta(minutes=1), all_groups=True)
+        for configuration_id in ids:
+            assert last[configuration_id].checked_at == second_at
+            assert [
+                (change.occurred_at, change.state, change.grouping_key)
+                for change in changes[configuration_id].state_changes
+            ] == [
+                (failed_at, PlatformAlertState.ERRORED, ""),
+                (first_at, PlatformAlertState.NOT_FIRING, ""),
+            ]
 
     @parameterized.expand(
         [

@@ -489,6 +489,40 @@ describe("ClaudeAcpAgent session creation", () => {
     });
   });
 
+  it("reads the Django model list for an own-subscription session, ignoring plan locks", async () => {
+    const listModels = vi.fn().mockResolvedValue([
+      {
+        id: "claude-opus-5-5",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: false,
+        restriction_reason: "paid_plan_required",
+      },
+    ]);
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      listModels,
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(listModels).toHaveBeenCalledOnce();
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [expect.not.objectContaining({ _meta: expect.anything() })],
+    });
+  });
+
   it.each([
     {
       start: undefined,
@@ -922,7 +956,7 @@ describe("ClaudeAcpAgent session creation", () => {
     });
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       gatewayModel("claude-opus-5-5", "anthropic"),
-      gatewayModel("moonshotai/kimi-k3", "modal"),
+      gatewayModel("moonshotai/kimi-k3.1-pro", "modal"),
     ]);
     const agent = makeAgent();
     const warnSpy = vi.spyOn(agent.logger, "warn");
@@ -938,7 +972,7 @@ describe("ClaudeAcpAgent session creation", () => {
     await agent.setSessionConfigOption({
       sessionId,
       configId: "model",
-      value: "moonshotai/kimi-k3",
+      value: "moonshotai/kimi-k3.1-pro",
     });
 
     await vi.waitFor(() => {

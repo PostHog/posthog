@@ -49,10 +49,10 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPInt
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
 # auto-recover. Must exceed the compute activity's schedule_to_close budget
-# (400s, covering queue wait + both attempts — see intent_clustering
+# (1300s, covering queue wait + both attempts — see intent_clustering
 # constants); past that, nothing can still legitimately write a final status,
 # so the row is a dead run whose worker never reached _mark_error.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=25)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -1307,7 +1307,7 @@ def _redact_restricted_snapshot_text(
         intent_text_redacted=True,
         clusters=[dataclasses.replace(c, label="", sample_intents=[]) for c in snapshot.clusters],
         long_tail=dataclasses.replace(snapshot.long_tail, sample_intents=[]) if snapshot.long_tail else None,
-        recurring=[dataclasses.replace(r, intent_text="") for r in snapshot.recurring],
+        recurring=[dataclasses.replace(r, intent_text="", sample_variants=[]) for r in snapshot.recurring],
     )
 
 
@@ -1329,6 +1329,8 @@ def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
         call_count=int(item.get("call_count", 0)),
         error_count=int(item.get("error_count", 0)),
         error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        variant_count=int(item.get("variant_count", 1)),
+        sample_variants=[str(s) for s in item.get("sample_variants", []) if isinstance(s, str)],
     )
 
 

@@ -693,6 +693,10 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         ("'sc-domain:example.com", "sc-domain:example.com"),
         ('"https://example.com"', "https://example.com/"),
         ("\u2018sc-domain:example.com\u2019", "sc-domain:example.com"),
+        # Only the closing quote copied, or quotes after the prefix: a domain can't hold one.
+        ("sc-domain:example.com'", "sc-domain:example.com"),
+        ("sc-domain:example.com/\u2019", "sc-domain:example.com"),
+        ("sc-domain:'example.com'", "sc-domain:example.com"),
         # A quote inside a URL path is part of the property, not a wrapper.
         ("https://example.com/blog'", "https://example.com/blog'/"),
         # The full Search Console UI URL — the property lives in resource_id.
@@ -806,16 +810,26 @@ def test_property_listing_separates_quota_from_permission_denial(
 
 
 @pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
-def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name):
-    # `list_sites`/`list_sitemaps` have no inline retry budget, so a bare Google-side 5xx used to
-    # reach `get_non_retryable_errors` as an unmarked HTTPError and get reported as an exception
-    # even though Temporal retries it anyway.
+@pytest.mark.parametrize(
+    "configure_session",
+    [
+        # A bare Google-side 5xx response used to reach `get_non_retryable_errors` as an
+        # unmarked HTTPError and get reported as an exception even though Temporal retries it anyway.
+        lambda session: setattr(session.get, "return_value", _fake_response(500)),
+        # `AuthorizedSession` refreshes the token before `session.get` returns anything, so a
+        # 502 from the token endpoint raised `RefreshError` here with no inline retry budget,
+        # same as the 5xx response case.
+        lambda session: setattr(session.get, "side_effect", RefreshError(_HTML_502_BODY)),
+    ],
+    ids=["5xx_response", "refresh_error_502"],
+)
+def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name, configure_session):
     config = GoogleSearchConsoleSourceConfig(
         site_url="https://example.com/",
         google_search_console_integration_id=1,
     )
     session = mock.MagicMock()
-    session.get.return_value = _fake_response(500)
+    configure_session(session)
     monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
 
     response = google_search_console_source(

@@ -1,10 +1,10 @@
 import pytest
 
-from posthog.management.commands.start_temporal_worker import _task_queue_specs
+from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
 from posthog.temporal.workflow_catalog import CATALOG_PATH, UNKNOWN_PRODUCT, render_catalog, workflow_product
 
 REGISTERED_WORKFLOWS = sorted(
-    {workflow for spec in _task_queue_specs for workflow in spec[1]},
+    {workflow for workflows in WORKFLOWS_DICT.values() for workflow in workflows},
     key=lambda workflow: f"{workflow.__module__}.{workflow.__qualname__}",
 )
 

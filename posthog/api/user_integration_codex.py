@@ -1,4 +1,3 @@
-import posthoganalytics
 from rest_framework import exceptions, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,7 +15,11 @@ from posthog.models.integration.codex import (
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
-from products.tasks.backend.facade.api import CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG
+from products.tasks.backend.facade.access import (
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+    get_posthog_ai_access_decision,
+)
 
 
 class UserCodexAuthTokensSerializer(serializers.Serializer):
@@ -68,6 +71,12 @@ class OpenAIUnavailable(exceptions.APIException):
     default_code = "openai_unavailable"
 
 
+class DesktopAccessUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "desktop_access_unavailable"
+    default_detail = "We couldn't verify PostHog Desktop access. Try again."
+
+
 def serialize_codex_integration(integration: CodexUserIntegration | None) -> dict[str, str | None]:
     if integration is None:
         return {"status": STATUS_NOT_CONNECTED, "plan_type": None, "email": None, "connected_at": None}
@@ -85,20 +94,16 @@ def ensure_not_sandbox_request(request: Request) -> None:
 
 
 def ensure_codex_connect_enabled(user: User) -> None:
-    organization_id = str(user.current_organization_id)
+    organization = user.current_organization
+    if organization is None:
+        raise exceptions.NotFound()
+    if get_posthog_ai_access_decision(user, organization).allowed:
+        return
     try:
-        enabled = posthoganalytics.feature_enabled(
-            CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-            str(user.distinct_id),
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception as error:
-        capture_exception(error)
-        enabled = False
-    if not enabled:
+        desktop_access = get_desktop_access_decision(user, organization)
+    except DesktopAccessResolutionError as error:
+        raise DesktopAccessUnavailable() from error
+    if not desktop_access.allowed:
         raise exceptions.NotFound()
 
 

@@ -83,8 +83,16 @@ jobs:
               # against, so the filter would narrow the hourly run to its last commit. Every
               # output it feeds defaults below, which makes the hourly run test every crate.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: |
+                      Rust Tests Pass
+                      PersonHog e2e gate
+                  reuse-proof-checks: Compute affected Rust crates
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes
@@ -110,6 +118,7 @@ jobs:
                         - 'posthog/security/crosslang/**'
                         # The rust mirror of the AI event limits has a parity test against the shared json.
                         - 'products/ai_observability/shared/crosslang/**'
+                        - 'products/error_tracking/backend/tests/fixtures/issue_change_data.json'
                         # cohort-seeder mirrors the flag_evaluations TTL and has a parity test against the shared json.
                         - 'posthog/models/flag_evaluations/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
@@ -615,18 +624,6 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: |
-                      rust/
-                      proto/
-                      products/
-                      docker/
-                      .github/actions/
-                      bin/ci-wait-for-docker
-                      bin/wait-for-docker
-                      docker-compose.base.yml
-                      docker-compose.dev.yml
-                      docker-compose.profiles.yml
-                  sparse-checkout-cone-mode: false
 
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -901,10 +898,11 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # clippy --all-targets compiles replay-core-v4's tests, which read the encryption vectors the Node writers pin.
+                  # clippy --all-targets compiles tests that embed shared fixtures outside the Rust tree.
                   sparse-checkout: |
                       rust/
                       proto/
+                      products/error_tracking/backend/tests/fixtures/issue_change_data.json
                       .github/actions/setup-protoc/
                       .github/actions/setup-rust/
                       .github/actions/setup-sccache/
@@ -934,9 +932,6 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
-            - name: Check format
-              run: cargo fmt -- --check
-
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
@@ -950,51 +945,27 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
+            - name: Check format
+              run: cargo fmt -- --check
+
             - name: Run clippy
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
 
-            - name: Run cargo check
-              env:
-                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
-                  OPENSSL_NO_VENDOR: '1'
-              run: cargo check --all-features
-
-            - name: Restore cargo-binstall archive
-              id: binstall-cache
-              continue-on-error: true
-              timeout-minutes: 1
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-              with:
-                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
-                  key: cargo-binstall-1.26.2-linux-x64-v1
-
             - name: Install cargo-binstall
               env:
                   BINSTALL_ARCHIVE: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
               run: |
                   set -euo pipefail
-                  checksum=9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5
-                  if ! echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check --status; then
-                      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
-                          -o "$BINSTALL_ARCHIVE" \
-                          https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
-                  fi
-                  echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check
+                  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                      -o "$BINSTALL_ARCHIVE" \
+                      https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
+                  echo "9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5  $BINSTALL_ARCHIVE" | sha256sum --check
                   mkdir -p "$CARGO_HOME/bin"
                   tar -xzf "$BINSTALL_ARCHIVE" -C "$CARGO_HOME/bin" cargo-binstall
                   "$CARGO_HOME/bin/cargo-binstall" -V
-
-            - name: Save cargo-binstall archive
-              if: steps.binstall-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
-              continue-on-error: true
-              timeout-minutes: 1
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-              with:
-                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
-                  key: cargo-binstall-1.26.2-linux-x64-v1
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json

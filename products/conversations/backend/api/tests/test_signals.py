@@ -166,10 +166,16 @@ class TestTicketMessageSignals(BaseTest):
     def test_first_public_human_reply_records_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
-        self._create_team_message(draft)
+        with patch("products.conversations.backend.ai.human_outcome.report_team_action") as mock_report:
+            self._create_team_message(draft)
 
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
+        mock_report.assert_called_once()
+        _, event, properties = mock_report.call_args.args
+        assert event == "support ai draft outcome recorded"
+        assert properties["outcome"] == "used"
+        assert properties["source"] == "reply"
 
     def test_findings_note_without_question_records_no_human_outcome(self, mock_on_commit):
         self._create_ai_message(

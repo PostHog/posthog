@@ -8,11 +8,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
+
 from products.signals.backend.emission.fetch_window import complete_fetch, fetch_records, replay_window_start
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.models import SignalSourceFilterState
-from products.signals.backend.source_filters import FilterStateKey, record_fetch_failure
+from products.signals.backend.source_filters import FilterStateKey, record_fetch_failure, saved_filter_fingerprint
 
 EARLY = datetime(2026, 1, 1, tzinfo=UTC)
 MIDDLE = datetime(2026, 1, 2, tzinfo=UTC)
@@ -79,14 +81,20 @@ class TestFetchRecords(BaseTest):
             fields=("id",),
         )
 
-    def fetch(self, schema_id: UUID, last_synced_at: datetime | None, source_config: object = FILTERED) -> Any:
+    def fetch(
+        self,
+        schema_id: UUID,
+        last_synced_at: datetime | None,
+        source_config: object = FILTERED,
+        team: Team | None = None,
+    ) -> Any:
         context = {
             "table_name": "linear.issues",
             "extra": {},
             "source_config": source_config,
             "last_synced_at": last_synced_at.isoformat() if last_synced_at else None,
         }
-        return fetch_records(self.team, self.config(), context, schema_id=schema_id)
+        return fetch_records(team or self.team, self.config(), context, schema_id=schema_id)
 
     def state(self, schema_id: UUID) -> SignalSourceFilterState:
         return SignalSourceFilterState.objects.for_team(self.team.id).get(schema_id=schema_id)
@@ -108,18 +116,25 @@ class TestFetchRecords(BaseTest):
         fetched = self.fetch(schema_a, LATE)
 
         state = self.state(schema_a)
-        assert (state.pending_window_start, state.last_error_code, state.last_error_message) == (
-            MIDDLE,
-            "query_failed",
-            "RuntimeError",
-        )
+        fingerprint = saved_filter_fingerprint(FILTERED["hogql_filter"])
+        assert (
+            state.pending_window_start,
+            state.last_error_code,
+            state.last_error_message,
+            state.filter_fingerprint,
+        ) == (MIDDLE, "query_failed", "RuntimeError", fingerprint)
         assert self.state(schema_b).pending_window_start is None
 
         complete_fetch(fetched)
 
         assert self.windows == [MIDDLE.isoformat(), MIDDLE.isoformat(), LATE.isoformat(), MIDDLE.isoformat()]
         state.refresh_from_db()
-        assert (state.pending_window_start, state.last_error_code, state.last_malformed_count) == (None, "", 2)
+        assert (
+            state.pending_window_start,
+            state.last_error_code,
+            state.last_malformed_count,
+            state.filter_fingerprint,
+        ) == (None, "", 2, fingerprint)
 
     def test_capped_batch_resumes_where_it_stopped(self) -> None:
         schema_id = uuid4()
@@ -147,12 +162,41 @@ class TestFetchRecords(BaseTest):
         assert self.windows[0] is not None
         assert self.state(schema_id).pending_window_start == datetime.fromisoformat(self.windows[0])
 
+    def test_child_environment_keeps_updating_its_state_row(self) -> None:
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+        schema_id = uuid4()
+        self.outcomes = [0, RuntimeError("query failed"), 1]
+
+        complete_fetch(self.fetch(schema_id, MIDDLE, team=child))
+        with self.assertRaises(RuntimeError):
+            self.fetch(schema_id, LATE, team=child)
+        complete_fetch(self.fetch(schema_id, LATE, team=child))
+
+        state = self.state(schema_id)
+        assert (state.pending_window_start, state.last_error_code, state.last_malformed_count) == (None, "", 1)
+
+    def test_failure_under_a_new_filter_clears_the_old_filters_success(self) -> None:
+        schema_id = uuid4()
+        new_filter = {"hogql_filter": {"expression": "priority = 1", "catalog_version": 1}}
+        self.outcomes = [2, RuntimeError("query failed")]
+
+        complete_fetch(self.fetch(schema_id, MIDDLE))
+        with self.assertRaises(RuntimeError):
+            self.fetch(schema_id, LATE, source_config=new_filter)
+
+        state = self.state(schema_id)
+        assert (state.last_success_at, state.last_malformed_count, state.filter_fingerprint) == (
+            None,
+            0,
+            saved_filter_fingerprint(new_filter["hogql_filter"]),
+        )
+
     def test_completion_keeps_an_earlier_window_stored_after_its_fetch(self) -> None:
         schema_id = uuid4()
         self.outcomes = [0]
         fetched = self.fetch(schema_id, MIDDLE)
         key = FilterStateKey(team_id=self.team.id, source_product="linear", source_type="issue", schema_id=schema_id)
-        record_fetch_failure(key, window_start=EARLY, error=RuntimeError("query failed"))
+        record_fetch_failure(key, window_start=EARLY, error=RuntimeError("query failed"), filter_fingerprint="")
 
         complete_fetch(fetched)
 

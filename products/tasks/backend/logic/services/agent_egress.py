@@ -41,6 +41,24 @@ def _run_actor_matches(run: TaskRun, actor_id: int) -> bool:
     )
 
 
+def _run_sandbox_matches(run: TaskRun, sandbox_id: str | None, execution_id: UUID) -> bool:
+    if not sandbox_id:
+        return False
+    state = run.state or {}
+    if state.get("sandbox_id"):
+        return state["sandbox_id"] == sandbox_id and state.get("sandbox_backend", "modal") == "modal"
+    probe = state.get("agent_egress_probe")
+    return (
+        isinstance(probe, dict)
+        and probe.get("owns_sandbox") is True
+        and probe.get("sandbox_id") == sandbox_id
+        and probe.get("execution_id") == str(execution_id)
+        and probe.get("closed") is False
+        and isinstance(probe.get("expires_at"), (float, int))
+        and probe["expires_at"] > timezone.now().timestamp()
+    )
+
+
 def _validate_binding(authority: str, relay_key_sha256: str, actor_id: int) -> None:
     host, separator, port = authority.partition(":")
     labels = host.split(".")
@@ -105,6 +123,7 @@ class AgentEgressRegistry:
         if (
             registration.task_ownership_version != registration.task_run.ownership_version
             or registration.lease_expires_at <= timezone.now()
+            or not _run_sandbox_matches(registration.task_run, registration.sandbox_id, execution_id)
         ):
             return None
         return registration
@@ -118,13 +137,18 @@ class AgentEgressRegistry:
         actor_id: int,
         authority: str,
         relay_key_sha256: str,
+        sandbox_id: str,
         previous_execution_id: UUID | None = None,
     ) -> AgentEgressRegistration:
         _validate_binding(authority, relay_key_sha256, actor_id)
+        if not sandbox_id or len(sandbox_id) > 255:
+            raise ValueError("Invalid egress sandbox identity")
         with transaction.atomic():
             run = TaskRun.objects.select_for_update().get(id=run_id, team_id=team_id)
             if not _run_actor_matches(run, actor_id):
                 raise ValueError("Task run actor is not authorized")
+            if not _run_sandbox_matches(run, sandbox_id, execution_id):
+                raise ValueError("The egress sandbox does not belong to this execution")
             registrations = AgentEgressRegistration.objects.for_team(team_id).filter(task_run_id=run.id)
             existing = registrations.filter(execution_id=execution_id).first()
             now = timezone.now()
@@ -136,6 +160,7 @@ class AgentEgressRegistry:
                     or existing.actor_id != actor_id
                     or existing.authority != authority
                     or existing.relay_key_sha256 != relay_key_sha256
+                    or existing.sandbox_id != sandbox_id
                     or existing.task_ownership_version != run.ownership_version
                 ):
                     raise ValueError("Execution registration cannot be reused")
@@ -159,6 +184,7 @@ class AgentEgressRegistry:
                 task_ownership_version=run.ownership_version,
                 authority=authority,
                 relay_key_sha256=relay_key_sha256,
+                sandbox_id=sandbox_id,
                 lease_expires_at=now + AGENT_EGRESS_LEASE_DURATION,
                 created_at=now,
             )

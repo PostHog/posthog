@@ -13,7 +13,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { newMetricUrl } from '../common'
 import type { TopicClusterApi, UsageSnapshotApi } from '../generated/api.schemas'
-import { ProposedRow, proposedRowPrefill } from '../proposedRows'
+import { ProposedRow, complexityLabel, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
 import { SourceRow, agentSurfaceLabel } from '../usageRows'
 import { ProposedMetricSources } from './ProposedMetricSources'
@@ -23,7 +23,6 @@ import { TopicCoverageBar } from './TopicCoverageBar'
 // LemonTable keeps its page in the URL under its id, so tables on one page need their own ids to page apart.
 const TOPICS_TABLE_ID = 'usage-topics'
 const SOURCES_TABLE_ID = 'usage-sources'
-const COMPLEXITY_LABELS: Record<number, string> = { 0: 'Unknown', 1: 'Low', 2: 'Medium', 3: 'High' }
 const PROPOSED_TABLE_ID = 'usage-proposed'
 const HALF_TABLE_PAGE_SIZE = 6
 const PROPOSED_PAGE_SIZE = 10
@@ -99,7 +98,11 @@ const TOPIC_COLUMNS: LemonTableColumns<TopicClusterApi> = [
         width: '40%',
         tooltip:
             'The number is how many sessions looked for a metric in the catalog. Each bar splits those sessions by what they found: a metric that fits, a table but no metric, or nothing. Hover a part of the bar to see its sessions. Each session counts once, and a metric comes first.',
-        render: (_, topic) => <TopicCoverageBar coverage={topic.coverage} />,
+        render: (_, topic) => (
+            <div className={SINGLE_LINE_ROW}>
+                <TopicCoverageBar coverage={topic.coverage} />
+            </div>
+        ),
     },
 ]
 
@@ -145,7 +148,7 @@ const PROPOSED_COLUMNS: LemonTableColumns<ProposedRow> = [
         key: 'complexity',
         tooltip:
             'How hard the query is to write by hand. Joins, subqueries, window functions, conditional aggregates and calculations raise it. Complex queries come first, because they most need one shared definition.',
-        render: (_, row) => COMPLEXITY_LABELS[row.complexity] ?? COMPLEXITY_LABELS[0],
+        render: (_, row) => complexityLabel(row.complexity),
     },
     {
         title: 'People',
@@ -220,7 +223,8 @@ function ScanWindow({ scan }: { scan: UsageSnapshotApi }): JSX.Element {
 }
 
 function TopicsSection(): JSX.Element {
-    const { topics, topicSessionsSummary, failureReasons } = useValues(usageLogic)
+    const { topics, topicsEmptyMessage, hiddenTopicsMessage, topicSessionsSummary, failureReasons } =
+        useValues(usageLogic)
     return (
         <section className="flex min-w-0 flex-col gap-2">
             <h3 className="m-0 flex min-h-6 items-center gap-1">
@@ -236,6 +240,9 @@ function TopicsSection(): JSX.Element {
             ) : (
                 <>
                     {failureReasons.adjusted_runs && <LemonBanner type="warning">{AGENT_COUNTS_MISSING}</LemonBanner>}
+                    {topics.length > 0 && hiddenTopicsMessage && (
+                        <LemonBanner type="info">{hiddenTopicsMessage}</LemonBanner>
+                    )}
                     <LemonTable
                         id={TOPICS_TABLE_ID}
                         columns={TOPIC_COLUMNS}
@@ -243,7 +250,7 @@ function TopicsSection(): JSX.Element {
                         rowKey="title"
                         size="small"
                         pagination={{ pageSize: HALF_TABLE_PAGE_SIZE, hideOnSinglePage: true }}
-                        emptyState="No agent session analyzed data in this window."
+                        emptyState={topicsEmptyMessage}
                         data-attr="data-catalog-usage-topics"
                     />
                 </>

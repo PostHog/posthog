@@ -63,6 +63,7 @@ import {
 import type {
     ExternalDataSchemaApi,
     IncrementalFieldTypeEnumApi,
+    SettableSyncFrequencyEnumApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
@@ -377,6 +378,16 @@ function DetailsSection({
                     )}
                 </div>
                 <div className="flex items-center justify-between">
+                    <Tooltip title="When the last successful sync started, including syncs that found no new rows. Last synced can stay the same while the source has nothing new.">
+                        <span className="text-muted">Last checked</span>
+                    </Tooltip>
+                    {schema.last_checked_at ? (
+                        <TZLabel time={schema.last_checked_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                    ) : (
+                        <span className="text-muted">Never</span>
+                    )}
+                </div>
+                <div className="flex items-center justify-between">
                     <span className="text-muted">Row count</span>
                     <span>{schema.table?.row_count?.toLocaleString() ?? '—'}</span>
                 </div>
@@ -522,6 +533,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         incrementalFieldLookbackSeconds?: number | null
     ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
+        // Set only for a migrated table that this save turns on, from the frequency picked in the confirm dialog.
+        let pendingSelfManagedSyncFrequency: DataWarehouseSyncInterval | undefined
 
         const applyUpdate = async ({
             dropHistoryTable = false,
@@ -545,6 +558,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             : null,
                     ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
                         ? { cdc_table_mode: cdcTableMode }
+                        : {}),
+                    // The picker offers only the allowed frequencies.
+                    ...(pendingSelfManagedSyncFrequency
+                        ? { sync_frequency: pendingSelfManagedSyncFrequency as SettableSyncFrequencyEnumApi }
                         : {}),
                     ...(dropHistoryTable ? { drop_history_table: true } : {}),
                     ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
@@ -644,7 +661,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(syncType, (syncFrequency) => {
+                pendingSelfManagedSyncFrequency = syncFrequency
+                askAboutHistoryThenApply()
+            })
             return
         }
 
@@ -1099,16 +1119,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

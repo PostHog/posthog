@@ -1,9 +1,8 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -35,6 +34,7 @@ import {
 } from './constants'
 import { EvaluationConfigurationForm } from './create/EvaluationConfigurationForm'
 import { EvaluationCreatePage } from './create/EvaluationCreatePage'
+import { AI_DATA_PROCESSING_REQUIRED_REASON } from './create/evaluationSummary'
 import {
     evaluationSupportsReportHistory,
     evaluationSupportsReports,
@@ -45,7 +45,6 @@ import { REPORT_RUN_PARAM } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
-import { ReplacedTaggerBanner } from './ReplacedTaggerBanner'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationFixSuggestionBanner } from './suggestions/EvaluationFixSuggestionBanner'
 
@@ -58,7 +57,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isReportableEvaluation,
         evaluationBackTarget,
         evaluationLoading,
-        evaluationFormSubmitting,
         hasUnsavedChanges,
         formValid,
         isNewEvaluation,
@@ -72,12 +70,13 @@ export function AIObservabilityEvaluation(): JSX.Element {
         numericBoundsRequired,
         usesDecisionModel,
     } = useValues(llmEvaluationLogic)
+    const { props: evaluationLogicProps } = useMountedLogic(llmEvaluationLogic)
     const { searchParams } = useValues(router)
-    const { isConfigDirty: reportConfigDirty } = useValues(
+    const { isConfigDirty: reportConfigDirty, dataProcessingAccepted } = useValues(
         evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
     )
     // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
-    const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
+    const unsaved = hasUnsavedChanges || (!isNewEvaluation && dataProcessingAccepted && reportConfigDirty)
     const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
@@ -147,6 +146,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setActiveTab('configuration')
         setFormStep('traffic')
     }
+
+    const generationDisabledReason = !isReportableEvaluation
+        ? 'Add a passing rule to generate new reports.'
+        : !dataProcessingAccepted
+          ? AI_DATA_PROCESSING_REQUIRED_REASON
+          : undefined
 
     const handleSave = (): void => {
         if (basicFieldsValid && percentageUnset) {
@@ -229,12 +234,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {!isNewEvaluation && <ReplacedTaggerBanner evaluationId={evaluation.id} />}
-
             {typeof searchParams.suggestion === 'string' && (
                 <EvaluationFixSuggestionBanner
                     suggestionId={searchParams.suggestion}
-                    evaluationId={evaluation.id}
+                    evaluationLogicProps={evaluationLogicProps}
                     userAccessLevel={evaluation.user_access_level ?? undefined}
                     hasUnsavedChanges={unsaved}
                 />
@@ -365,9 +368,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <EvaluationReportsTab
                                 evaluationId={evaluation.id}
-                                generationDisabledReason={
-                                    isReportableEvaluation ? undefined : 'Add a passing rule to generate new reports.'
-                                }
+                                generationDisabledReason={generationDisabledReason}
                                 userAccessLevel={evaluation.user_access_level ?? undefined}
                                 onConfigureClick={() => setActiveTab('configuration')}
                             />
@@ -392,23 +393,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
-                                <div className="flex justify-end mt-6">
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Evaluation}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    >
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={handleSave}
-                                            disabledReason={saveButtonDisabledReason}
-                                            loading={evaluationFormSubmitting}
-                                            data-attr="llma-evaluation-save-bottom"
-                                        >
-                                            Save changes
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                </div>
                             </div>
                         ),
                     },
@@ -425,9 +409,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             AccessControlLevel.Editor
                         )
                             ? 'You need edit access to this evaluation to generate reports.'
-                            : isReportableEvaluation
-                              ? undefined
-                              : 'Add a passing rule to generate new reports.'
+                            : generationDisabledReason
                     }
                     onOpenTrace={(traceId, eventId) =>
                         router.actions.push(router.values.location.pathname, {

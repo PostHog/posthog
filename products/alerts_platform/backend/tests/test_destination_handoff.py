@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -14,7 +15,11 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.delivery import evaluation, handoff
+from products.alerts_platform.backend.delivery import (
+    destinations as destinations_registry,
+    evaluation,
+    handoff,
+)
 from products.alerts_platform.backend.delivery.handoff import deliver_handoff
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError
@@ -33,7 +38,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.logic import alert_routing, destination_handoff, platform_writes
 from products.alerts_platform.backend.logic.platform_alert_events import insert_events
 from products.alerts_platform.backend.logic.platform_lifecycle import event_row
@@ -107,7 +112,9 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 IncidentAction.TRIGGER: "$x_alert_incident_opened",
                 IncidentAction.RESOLVE: "$x_alert_incident_closed",
             },
-            native=NativeAlertLifecycle(check_interval_minutes=5, remove_destinations=MagicMock()),
+            native=NativeAlertLifecycle(
+                check_interval_minutes=5, platform_destinations=False, remove_destinations=MagicMock()
+            ),
         )
         for patcher in (
             patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=spec),
@@ -133,9 +140,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
             self.configuration_id = platform_writes.create_configuration(
                 team_id=self.team.id, source_kind=SourceKind.LOGS, edit=_edit(), created_by_id=self.user.id
             ).id
-            PlatformAlertConfiguration.objects.filter(id=self.configuration_id).update(
-                labels={"team": "infra"}, destinations_owner=PlatformAlertOwner.PLATFORM
-            )
+            PlatformAlertConfiguration.objects.filter(id=self.configuration_id).update(labels={"team": "infra"})
             configuration = PlatformAlertConfiguration.objects.get(id=self.configuration_id)
             alert, _ = PlatformAlert.objects.update_or_create(
                 team=self.team,
@@ -237,6 +242,20 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
             destinations=[NewAlertDestination(data=_data(kind, "new"), event_kinds=(AlertEventKind.FIRING,))],
         )
 
+    def _live_copy_add(self, kind: str) -> None:
+        self.enterContext(
+            patch.object(destinations_registry, "_live_lookup", lambda **kwargs: frozenset(kwargs["hog_function_ids"]))
+        )
+        platform_api.create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration_id,
+            destinations=[
+                NewAlertDestination(
+                    data=_data(kind, "new"), event_kinds=(AlertEventKind.FIRING,), legacy_hog_function_ids=(uuid4(),)
+                )
+            ],
+        )
+
     _FIRING = AlertEventKind.FIRING
     _TRIGGER_NEW = ("new", IncidentAction.TRIGGER, _FIRING)
     _RESOLVE_OLD = ("old", IncidentAction.RESOLVE, _FIRING)
@@ -248,6 +267,8 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
             ("label_edit_pagerduty", "_label_edit", "pagerduty", [_TRIGGER_NEW, _RESOLVE_OLD]),
             ("label_edit_incident_io", "_label_edit", "incident_io", [_TRIGGER_NEW, _RESOLVE_OLD]),
             ("destination_add_pagerduty", "_destination_add", "pagerduty", [_TRIGGER_NEW]),
+            # The HogFunction the row copies keeps paging, so the row is not paged as well.
+            ("live_copy_add_pagerduty", "_live_copy_add", "pagerduty", []),
             # A message destination keeps no incident, so a move sends it nothing.
             ("label_edit_slack", "_label_edit", "slack", []),
         ]
@@ -407,9 +428,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 configuration_id = platform_writes.create_configuration(
                     team_id=self.team.id, source_kind=SourceKind.LOGS, edit=_edit(), created_by_id=self.user.id
                 ).id
-                PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
-                    labels={"team": "infra"}, destinations_owner=PlatformAlertOwner.PLATFORM
-                )
+                PlatformAlertConfiguration.objects.filter(id=configuration_id).update(labels={"team": "infra"})
                 PlatformAlert.objects.update_or_create(
                     team=self.team,
                     configuration_id=configuration_id,

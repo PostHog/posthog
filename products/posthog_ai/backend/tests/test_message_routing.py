@@ -432,7 +432,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         with (
             patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
-            patch(f"{ROUTING}.object_storage.read", return_value=""),
+            patch("posthog.storage.object_storage.read", return_value=""),
         ):
             self._service().open(
                 {

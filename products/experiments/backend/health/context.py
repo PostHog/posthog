@@ -61,6 +61,7 @@ from products.experiments.backend.models.experiment import (
     live_experiments_for_flag,
 )
 from products.experiments.backend.running_time_target import RunningTimeTarget
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     ConditionsChange,
@@ -70,19 +71,17 @@ from products.feature_flags.backend.facade.edits import (
     parse_percentage,
     parse_variants,
 )
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
     pinned_variant,
     reachable_conditions,
 )
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode, has_active_flags
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_config, has_active_flags
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
 # (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
-# question in `exposure_gate.py`, its row in `inputs_payload.py`, its words in `_described`
-# (`checks/flag_change_findings.py`), and its check.
+# question in `exposure_gate.py`, its words in `_described` (`checks/flag_change_findings.py`), and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
@@ -423,6 +422,8 @@ class MetricCompiles:
     # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
     # is empty.
     exposure_query_fails: bool
+    # The metrics whose statement runs in the customer's warehouse. They have no HogQL to compile.
+    warehouse_native_count: int = 0
 
 
 @frozen
@@ -611,6 +612,8 @@ class ExposureEvents:
     # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
     # activation, which the exposure query reads only next to the flag call events.
     activation: str | None = None
+    # The name of the action that the criteria count. None when they count an event.
+    action: str | None = None
     property_filters: tuple[ExposurePropertyFilter, ...] = ()
     # The filters inside an action's steps are not read.
     cohort_ids: tuple[int, ...] = ()
@@ -678,7 +681,10 @@ class HealthContext:
     # None without a start date.
     daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
-    # None when the stored exposure criteria don't parse.
+    # Whether a warehouse-native query on the customer's warehouse returns the exposures. No event of this project
+    # describes them then, and an experiment with such an exposure reads only warehouse-native metrics.
+    warehouse_native_exposures: bool
+    # None when the stored exposure criteria don't parse, or when `warehouse_native_exposures` is True.
     exposure_events: ExposureEvents | None
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
     # ingestion never writes an event definition for is absent, because its absence proves nothing. So is every name
@@ -1014,10 +1020,10 @@ def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
     # for the teams it copies to flag_evaluations, which this side can't read. Their flags keep no `last_called_at`
     # however often they are called.
-    return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
-        get_organization_flag_evaluations_mode(experiment.team.organization_id)
-        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    )
+    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE == "flag_evaluations":
+        return False
+    config = get_organization_flag_evaluations_config(experiment.team.organization_id)
+    return config.stops_events_writes
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:
@@ -1052,7 +1058,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     # The configs that the exposure query builds from, so the filters read here are the ones it applies.
-    params = get_exposure_config_params_for_builder(criteria, experiment.team, experiment.start_date)
+    params = get_exposure_config_params_for_builder(criteria, experiment.start_date)
     config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
@@ -1067,7 +1073,8 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
-        activation=_activation_name(activation) if activation else None,
+        activation=_event_or_action_name(activation) if activation else None,
+        action=_event_or_action_name(config) if isinstance(config, ActionsNode) else None,
         property_filters=tuple(
             ExposurePropertyFilter.of(prop, source.event if isinstance(source, ExperimentEventExposureConfig) else None)
             for prop, source in filters
@@ -1079,10 +1086,10 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
 
 
-def _activation_name(activation: ExperimentEventExposureConfig | ActionsNode) -> str:
-    if isinstance(activation, ExperimentEventExposureConfig):
-        return activation.event
-    return activation.name or f"action {activation.id}"
+def _event_or_action_name(config: ExperimentEventExposureConfig | ActionsNode) -> str:
+    if isinstance(config, ExperimentEventExposureConfig):
+        return config.event
+    return config.name or f"Action {config.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:
@@ -1336,6 +1343,7 @@ def load_health_context(
         past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
+        warehouse_native_exposures=warehouse_native_exposure_config(experiment.exposure_criteria) is not None,
         exposure_events=exposure_events,
         events_received=events_received,
         exposure_properties_received=properties_received,

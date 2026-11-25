@@ -202,7 +202,10 @@ class LLMSkillViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMSkill, serializer.save())
 
-        props = skill_analytics_props(instance)
+        props = {
+            **skill_analytics_props(instance),
+            "version_description_set": instance.version_description is not None,
+        }
         record_skill_event(
             log_event="llma_skill_created",
             action="llma skill created",

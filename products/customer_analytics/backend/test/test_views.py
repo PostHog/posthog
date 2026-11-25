@@ -2589,6 +2589,82 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
+    @parameterized.expand([("current", False), ("cleared", True)])
+    def test_history_returns_each_distinct_value_oldest_first(self, _name: str, cleared: bool) -> None:
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "enterprise")
+        self._set(self.number_def.id, 5)
+        self.text_def.display_type = DisplayType.NUMBER
+        self.text_def.save()
+        self._set(self.text_def.id, 42)
+        if cleared:
+            self._set(self.text_def.id, None)
+
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        history = response.json()
+        self.assertEqual(
+            [("starter", False), ("enterprise", False), (42, not cleared)],
+            [(e["value"], e["is_current"]) for e in history],
+        )
+        self.assertEqual([e["set_at"] for e in history[1:]], [e["replaced_at"] for e in history[:-1]])
+        self.assertIsNone(history[-1]["replaced_at"])
+        group_def = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", target_type=TargetType.GROUP.value, group_type_index=0
+        )
+        for definition_id in (uuid4(), group_def.id):
+            unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(definition_id)})
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
+
+    @parameterized.expand(
+        [
+            ("value_held_before_since", "2024-01-15", [("enterprise", "2024-01-10"), ("growth", "2024-02-01")]),
+            (
+                "repeated_value_keeps_its_first_set",
+                "2024-01-25",
+                [("enterprise", "2024-01-10"), ("growth", "2024-02-01")],
+            ),
+            ("replacement_exactly_at_since", "2024-02-01", [("growth", "2024-02-01")]),
+            ("current_value_set_before_since", "2024-03-01", [("growth", "2024-02-01")]),
+        ]
+    )
+    def test_history_since_starts_with_the_value_held_on_that_date(
+        self, _name: str, since: str, expected: list[tuple[str, str]]
+    ) -> None:
+        writes = [
+            ("2024-01-01", "starter"),
+            ("2024-01-10", "enterprise"),
+            ("2024-01-20", "enterprise"),
+            ("2024-02-01", "growth"),
+        ]
+        for day, plan in writes:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": since})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        history = response.json()
+        self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in history])
+        self.assertEqual([False] * (len(history) - 1) + [True], [e["is_current"] for e in history])
+
+    def test_history_over_the_limit_asks_for_a_later_since(self) -> None:
+        for day, plan in [("2024-01-01", "starter"), ("2024-01-10", "enterprise"), ("2024-02-01", "growth")]:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        with patch("products.customer_analytics.backend.logic.custom_property_values.HISTORY_ENTRY_LIMIT", 2):
+            full = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+            recent = self.client.get(
+                f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": "2024-01-15"}
+            )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, full.status_code)
+        self.assertEqual("since", full.json()["attr"])
+        self.assertEqual(["enterprise", "growth"], [e["value"] for e in recent.json()])
+
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)
@@ -2697,6 +2773,72 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
+    def test_account_source_rejects_remove_missing_row_behavior(self):
+        response = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+                "missing_row_behavior": "remove",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_patch_rejects_remove_missing_row_behavior_for_account_source(self):
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/", {"missing_row_behavior": "remove"}, format="json"
+        )
+
+        assert patched.status_code == status.HTTP_400_BAD_REQUEST, patched.content
+        assert b"only supported for person properties" in patched.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_patch_rejects_remove_missing_row_behavior_for_group_source(self, _flag):
+        definition = self.client.post(
+            f"/api/projects/{self.team.id}/custom_property_definitions/",
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/", {"missing_row_behavior": "remove"}, format="json"
+        )
+
+        assert patched.status_code == status.HTTP_400_BAD_REQUEST, patched.content
+        assert b"only supported for person properties" in patched.content
+
     def _person_definition_and_schema(self):
         definition = create_custom_property_definition(
             team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value
@@ -2735,6 +2877,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
                 "column_descriptions": {"seats": " Seat count "},
+                "missing_row_behavior": "remove",
             },
             format="json",
         )
@@ -2743,6 +2886,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert patched.json()["id"] == source_id
         assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
         assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+        assert patched.json()["missing_row_behavior"] == "remove"
 
         invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
         assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
@@ -2782,6 +2926,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert create_properties["target_type"] == TargetType.PERSON.value
         assert create_properties["mapped_column_count"] == 2
         assert create_properties["reads_warehouse_table"] is True
+        assert create_properties["missing_row_behavior"] == "keep"
 
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()

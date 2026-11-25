@@ -7,6 +7,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 
 import uuid
 from collections.abc import Collection, Iterable, Iterator
+from copy import copy as shallow_copy
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Literal
@@ -70,12 +71,16 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
+    count_configurations,
     enabled_native_configurations,
+    list_configurations,
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    rows_with_counted_copies,
+    runtime_by_public_id,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -83,8 +88,11 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    live_insight_ids_by_team,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -177,6 +185,121 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     team_ids = set(Insight.objects_including_soft_deleted.filter(id__in=rest).values_list("team_id", flat=True))
     return rows | native_source_config_values(
         team_ids=team_ids, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=rest
+    )
+
+
+def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> list[contracts.CreatedAlert]:
+    """The enabled alerts the user created in these teams on insights that are not deleted, with an
+    insight row or without."""
+    rows = (
+        _insight_owned_rows()
+        .filter(team_id__in=team_ids, created_by_id=user_id, enabled=True, insight__deleted=False)
+        .values_list("id", "team_id", "name", "created_at")
+    )
+    held = enabled_native_configurations(
+        team_ids=team_ids, source_kind=SourceKind.INSIGHT, created_by_id=user_id, owned_copies=True
+    )
+    live = _live_insights(held)
+    return [
+        *(
+            contracts.CreatedAlert(id=alert_id, team_id=team_id, name=name, created_at=created_at)
+            for alert_id, team_id, name, created_at in rows
+        ),
+        *(
+            contracts.CreatedAlert(
+                id=configuration.public_id,
+                team_id=configuration.team_id,
+                name=configuration.name,
+                created_at=configuration.created_at,
+            )
+            for configuration in held
+            if configuration.source_config.get("insight_id") in live.get(configuration.team_id, ())
+        ),
+    ]
+
+
+def _live_insights(configurations: Collection[EnabledNativeConfiguration]) -> dict[int, set[int]]:
+    """The ids of the insights these alerts watch that are not deleted, by team."""
+    insight_ids = {
+        insight_id
+        for configuration in configurations
+        if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
+    }
+    return live_insight_ids_by_team(
+        team_ids={configuration.team_id for configuration in configurations}, insight_ids=insight_ids
+    )
+
+
+def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInventory:
+    """How many insight alerts the team has and how many are enabled, with the newest `recent_limit`,
+    with an insight row or without."""
+    # Deferred: the cutover module imports `posthog.tasks.alerts.utils`, which imports this facade.
+    from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
+
+    team_rows = _insight_owned_rows().filter(team_id=team_id)
+    rows = team_rows.exclude(
+        id__in=rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=list(team_rows.values_list("id", flat=True)),
+        )
+    )
+    enabled_row_ids = set(team_rows.filter(enabled=True).values_list("id", flat=True))
+    enabled_row_ids -= rows_with_counted_copies(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=enabled_row_ids, enabled_only=True
+    )
+    held = list_configurations(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        limit=recent_limit,
+        offset=0,
+        held_only=True,
+    )
+    enabled_held = count_configurations(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, held_only=True, enabled_only=True
+    )
+    runtime = runtime_by_public_id(
+        team_id=team_id, public_ids=[view.destination_alert_id for view in held.configurations]
+    )
+    now = timezone.now()
+    row_summaries = (
+        contracts.AlertSummary(
+            id=alert_id,
+            name=name,
+            enabled=enabled,
+            state=AlertState(state),
+            calculation_interval=calculation_interval,
+            insight_id=insight_id,
+            created_at=created_at,
+        )
+        for alert_id, name, enabled, state, calculation_interval, insight_id, created_at in rows.order_by(
+            "-created_at"
+        ).values_list("id", "name", "enabled", "state", "calculation_interval", "insight_id", "created_at")[
+            :recent_limit
+        ]
+    )
+    held_summaries = (
+        contracts.AlertSummary(
+            id=view.destination_alert_id,
+            name=view.name,
+            enabled=view.enabled,
+            state=insight_state_of_platform(
+                alert_runtime.state if alert_runtime is not None else PlatformAlertState.NOT_FIRING,
+                snoozed_until=view.snooze_until,
+                at=now,
+            ),
+            calculation_interval=interval_of(view.check_interval_minutes),
+            insight_id=insight_id if isinstance(insight_id := view.source_config.get("insight_id"), int) else None,
+            created_at=view.created_at,
+        )
+        for view in held.configurations
+        for alert_runtime in [runtime.get(view.destination_alert_id)]
+    )
+    recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
+    return contracts.AlertInventory(
+        total_count=rows.count() + held.total,
+        enabled_count=len(enabled_row_ids) + enabled_held,
+        recent=tuple(recent[:recent_limit]),
     )
 
 
@@ -306,6 +429,8 @@ def snooze_alert_from_slack(
         except AlertConfiguration.DoesNotExist:
             return "not_found"
 
+        if locked_alert.platform_owned:
+            return _snooze_moved_from_slack(locked_alert, user=user, snoozed_until=snoozed_until)
         if not _is_enabled(locked_alert):
             return "disabled"
 
@@ -313,42 +438,50 @@ def snooze_alert_from_slack(
             state_fields = apply_snooze(locked_alert)
             locked_alert.snoozed_until = snoozed_until
             locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
-            if locked_alert.platform_owned:
-                # The platform's copy mutes delivery, so it takes the snooze under the same lock.
-                from products.alerts.backend.platform_ownership import (  # noqa: PLC0415 - platform_ownership reaches this module back
-                    on_updated,
-                )
-
-                try:
-                    on_updated(locked_alert, snooze_changed=True)
-                except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
-                    # Neither row takes the snooze, so the alert does not mute on one stack only.
-                    capture_exception(error, {"alert_id": str(alert_id)})
-                    transaction.set_rollback(True)
-                    return "not_snoozable"
-            else:
-                AlertCheck.objects.create(
-                    alert_configuration=locked_alert,
-                    calculated_value=None,
-                    condition=locked_alert.condition,
-                    targets_notified={},
-                    state=locked_alert.state,
-                    error=None,
-                )
+            AlertCheck.objects.create(
+                alert_configuration=locked_alert,
+                calculated_value=None,
+                condition=locked_alert.condition,
+                targets_notified={},
+                state=locked_alert.state,
+                error=None,
+            )
 
     return "snoozed"
 
 
+def _snooze_moved_from_slack(alert: AlertConfiguration, *, user: User, snoozed_until: datetime) -> SlackSnoozeOutcome:
+    """Snoozes an alert the platform owns, whose row the caller locked, on its copy alone, which holds
+    whether it is on and mutes its delivery."""
+    # Deferred: platform_ownership reaches this module back.
+    from products.alerts.backend.activity_logging import log_platform_alert_edit  # noqa: PLC0415
+    from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
+
+    if not show_locked_copy(alert):
+        return "not_found"
+    if not alert.enabled:
+        return "disabled"
+    before = shallow_copy(alert)
+    alert.snoozed_until = snoozed_until
+    with ActingUserContext(user):
+        try:
+            on_updated(alert, snooze_changed=True)
+        except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+            capture_exception(error, {"alert_id": str(alert.id)})
+            transaction.set_rollback(True)
+            return "not_snoozable"
+    log_platform_alert_edit(before, alert, user=user, was_impersonated=False)
+    return "snoozed"
+
+
 def _is_enabled(alert: AlertConfiguration) -> bool:
-    """Whether the alert is on. An alert the platform owns needs its copy on as well, because the platform
-    holds whether it is on, and a snooze writes the row's settings to the copy, so a row that is off
-    would switch the copy off."""
-    if not alert.enabled or not alert.platform_owned:
+    """Whether the alert is on. The copy of an alert the platform owns holds whether it is on."""
+    if not alert.platform_owned:
         return alert.enabled
     copy = owned_copies_by_legacy_id(
         team_id=alert.team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert.id]
     ).get(alert.id)
-    return copy is None or copy.enabled
+    return copy is not None and copy.enabled
 
 
 def _can_snooze_from_slack(alert: AlertConfiguration, *, user: User) -> bool:

@@ -18,6 +18,7 @@ class CodecovResponseShape(StrEnum):
     REPORT_FILES = "report_files"  # coverage report object, one row per entry in `files`
     TREE = "tree"  # nested directory tree, one row per node at any depth
     IMPACTED_FILES = "impacted_files"  # comparison object, one row per entry in `files`
+    OBJECT = "object"  # single JSON object, one row
 
 
 @frozen
@@ -264,6 +265,13 @@ CODECOV_ENDPOINTS: dict[str, CodecovEndpointConfig] = {
         path="/users",
         incremental_fields=[],  # Membership state only; no timestamps at all.
         primary_keys=["username"],
+    ),
+    "owner": CodecovEndpointConfig(
+        name="owner",
+        path="/",
+        incremental_fields=[],  # One row of identity fields; no timestamps at all.
+        primary_keys=["service", "username"],
+        response_shape=CodecovResponseShape.OBJECT,
     ),
 }
 

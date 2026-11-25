@@ -54,12 +54,14 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    CANCELLED_METRIC_STATUS,
     failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
@@ -89,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.post_import_job im
     build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    GIVE_UP_AFTER_FAILED_RUNS,
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
     import_retry_budget,
 )
@@ -99,12 +102,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -308,6 +315,24 @@ TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
     "port set for the tunnel; the next sync runs on schedule."
 )
 
+# The SSH server refused a share of the connections that the tables of one source opened at the
+# same time. The schema stays enabled, so the copy names the server setting that sets the limit.
+TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE = (
+    "Your SSH server closed PostHog's connection before the SSH handshake. SSH servers do this when "
+    "too many new connections arrive at the same time, and PostHog opens one for each table it "
+    "syncs. This sync is still enabled and will run again on its next schedule. If this keeps "
+    "happening, raise MaxStartups in the SSH server's sshd_config, and check that the server allows "
+    "PostHog's IP addresses."
+)
+
+# Shown once the server closed before its banner on every run of a full failure streak. A busy server
+# refuses only part of a burst, so that many in a row points at a wrong port or a blocked address.
+SSH_GATEWAY_KEPT_CLOSING_MESSAGE = (
+    "Your SSH server closed PostHog's connection before the SSH handshake on several syncs in a row. "
+    "Check that the SSH host and port point to an SSH server, not the database port, and that the "
+    "server allows PostHog's IP addresses, then re-enable the sync."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -403,6 +428,7 @@ Transient_Error_Messages: dict[str, str] = {
     # one request the vendor mishandles every time, which is not an outage that clears on its own.
     # The host policy's own lookup never answered. Every SQL source reaches it through the shared
     # tunnel layer, so it is mapped here rather than per source.
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR: TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
     TEMPORARY_HOST_RESOLUTION_PREFIX: (
         "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
         "Check that the host name is correct and that its DNS records are answering; the next sync "
@@ -467,10 +493,11 @@ def _customer_facing_error(cause: BaseException | None, activity_type: str | Non
         return CANCELLED_RUN_MESSAGE
     # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
     # connection, or a timeout). Temporal records it as an ApplicationError typed
-    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # `RESTClientRetryableError` (or `RetryableHTTPError` for a source on `vendor_retry`), whose
+    # message is a raw string like "HTTP 503 for <url>". That status
     # code means nothing to a customer, so replace it with a message that names the cause and says the
     # sync retries on its next schedule.
-    if getattr(cause, "type", None) == "RESTClientRetryableError":
+    if getattr(cause, "type", None) in (RESTClientRetryableError.__name__, RetryableHTTPError.__name__):
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
     # timeout"), which names our orchestration rather than anything the customer can act on. Only the
@@ -542,6 +569,24 @@ def _transient_error_message(internal_error: str) -> str | None:
             return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
+
+
+def _ssh_gateway_kept_closing(schema_id: str, team_id: int, job_id: str) -> bool:
+    """Whether the runs before this one also ended with the server closing before its banner.
+
+    The close is retryable because a busy server refuses only part of a burst. A wrong port or a
+    server that blocks PostHog closes on every run, so a full failure streak of it disables the schema.
+    """
+    earlier_runs = GIVE_UP_AFTER_FAILED_RUNS - 1
+    earlier_errors = list(
+        ExternalDataJob.objects.filter(schema_id=schema_id, team_id=team_id)
+        .exclude(id=job_id)
+        .order_by("-created_at")
+        .values_list("latest_error", flat=True)[:earlier_runs]
+    )
+    return len(earlier_errors) == earlier_runs and all(
+        error == TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE for error in earlier_errors
+    )
 
 
 def _fail_stale_running_schema(
@@ -697,6 +742,14 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
+        if (
+            not has_non_retryable_error
+            and not platform_failure
+            and error_message_matches(internal_error_normalized, [SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR])
+            and await database_sync_to_async_pool(_ssh_gateway_kept_closing)(inputs.schema_id, inputs.team_id, job_id)
+        ):
+            has_non_retryable_error = True
+            inputs.latest_error = SSH_GATEWAY_KEPT_CLOSING_MESSAGE
 
         if has_non_retryable_error:
             friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
@@ -906,6 +959,16 @@ def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uui
     return any(str(value) == str(schema_id) for value in scheduled_by)
 
 
+def _reads_complete_table(
+    *, incremental_or_append: bool, scheduled_full_refresh: bool, reset_pipeline: bool, is_resumable_source: bool
+) -> bool:
+    """Whether this run staged the whole table. Incremental and append runs stage only changed rows,
+    and a resumable source can pick a run up part way through."""
+    if is_resumable_source:
+        return False
+    return not incremental_or_append or scheduled_full_refresh or bool(reset_pipeline)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -1022,6 +1085,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         source_type = None
         # The finally block reads it, so it must exist when job creation itself fails.
         failed_runs_in_a_row = 0
+        run_cancelled = False
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1392,6 +1456,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
+                    complete_table_read=_reads_complete_table(
+                        incremental_or_append=incremental_or_append,
+                        scheduled_full_refresh=scheduled_full_refresh,
+                        reset_pipeline=bool(inputs.reset_pipeline),
+                        is_resumable_source=is_resumable_source,
+                    ),
                 )
                 # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
                 # S3 prefix that only its own child consumes. A per-schema id would coalesce a
@@ -1544,6 +1614,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 raise
             else:
                 # Handle other activity errors normally
+                run_cancelled = isinstance(e.cause, exceptions.CancelledError)
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
                 update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
@@ -1563,10 +1634,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             finished_status = update_inputs.status.lower()
+            # A cancelled run is a person or our own teardown stopping it, not the source failing.
+            # The job still records Failed, but counting it as a failure lets one action that
+            # cancels every schema of a source page the failure-rate alert.
+            metric_status = CANCELLED_METRIC_STATUS if run_cancelled else finished_status
             get_data_import_finished_metric(
                 source_type=source_type,
-                status=finished_status,
-                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+                status=metric_status,
+                streak=failure_streak_label(metric_status, failed_runs_in_a_row),
             ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed

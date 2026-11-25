@@ -18,13 +18,19 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import {
+    StateOpener,
+    acceptsPendingWake,
+    encodeJob,
+    encodeStateColumns,
+    v2JobToInvocation,
+} from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
+export { acceptsPendingWake, extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -104,11 +110,12 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
             | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
+            | 'CDP_SEALED_STATE_KEYS'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
-        this.stateOpener = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
     }
 
     public async startAsProducer(): Promise<void> {
@@ -335,6 +342,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return await this.manager.findIdempotencyKey(id)
     }
 
+    public async findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        return await this.manager.findIdempotencyKeys(ids)
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
@@ -375,6 +389,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             await job.reschedule({
                 ...encodeStateColumns(result.invocation),
                 scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                wakeOnPendingWake: acceptsPendingWake(result.invocation),
                 queueName: result.invocation.queue,
                 priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })

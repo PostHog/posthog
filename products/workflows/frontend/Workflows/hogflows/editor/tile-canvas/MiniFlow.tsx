@@ -55,6 +55,7 @@ export function MiniFlow({
             })}
             {spotlightNode && spotlightAction && (
                 <MiniFlowPreview
+                    key={spotlightNode.actionId}
                     at={spotlightNode}
                     action={spotlightAction}
                     workflow={workflow}

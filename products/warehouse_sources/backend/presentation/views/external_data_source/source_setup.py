@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.facade.api import (
     schema_needs_webhook,
     sources_missing_webhook,
     validate_source_prefix,
+    webhook_issues,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -81,6 +83,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    added_table_root,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -97,6 +100,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     source_type_supports_cdc,
     sql_schema_metadata,
+    supports_adding_tables,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
@@ -112,7 +116,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
-    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
+    WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     ExternalDataSchemaSummarySerializer,
@@ -240,6 +244,28 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
     )
+    supports_adding_tables = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether tables can be added to this source by their path with the add_table endpoint. True for "
+            "object storage sources whose files URL names a folder, not one file or a pattern."
+        ),
+    )
+    table_root = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "For object storage sources: the folder that add_table resolves relative paths against, as "
+            "`<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null "
+            "for other sources, for a files URL that names one file or a pattern, or when the URL can't be read."
+        ),
+    )
+    supports_table_discovery = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a "
+            "source that reads tables from anywhere in its bucket. Add tables to such a source by their path."
+        ),
+    )
     file_name = serializers.SerializerMethodField(
         read_only=True,
         help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
@@ -353,6 +379,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -375,6 +404,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -488,6 +520,24 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             capture_exception(e)
             return None
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
+        return self.get_table_root(instance) is not None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_table_root(self, instance: ExternalDataSource) -> str | None:
+        if not supports_adding_tables(instance.source_type):
+            return None
+        try:
+            source_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            return None
+        return added_table_root(instance.source_type, source_inputs)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
+        return not instance.is_self_managed_migration
+
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
 
@@ -563,14 +613,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
-            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
-                source_id: missing
-                for source_id, missing in self._webhook_missing_by_source(instance).items()
-                if source_id == instance.pk
-            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(instance.team_id, schemas)
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def _stored_credential_for_update(
@@ -1152,6 +1198,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
         ),
+    )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )
 
 
@@ -2212,6 +2263,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         detected_primary_keys,
                         incremental_field,
                         normalize=False,
+                        fall_back_to_all_columns=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
@@ -2461,11 +2513,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Syncs every enabled schema, so it needs editor on each - a table locked below the source
         # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
-        self._assert_can_write_schemas(
+        schemas = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .exclude(deleted=True)
             .select_related("source", "table")
         )
+        self._assert_can_write_schemas(schemas)
 
         if is_any_external_data_schema_paused(self.team_id):
             return setup_error_response(
@@ -2473,6 +2526,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
+        request_manual_runs([schema.id for schema in schemas], self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 
@@ -2528,7 +2582,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 

@@ -4,7 +4,6 @@ import { Fragment, useEffect, useState } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { getCookie } from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -12,6 +11,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 
 import { IntegrationType } from '~/types'
+
+import { integrationsEnvironmentMappingPartialUpdate } from 'products/integrations/frontend/generated/api'
 
 type EnvMapping = {
     production: number | null
@@ -101,24 +102,18 @@ function VercelEnvMappingEditor({
     }
 
     const handleSave = async (): Promise<void> => {
+        if (!currentOrganization) {
+            return
+        }
         setSaving(true)
         setError(null)
         try {
-            const res = await fetch(`/api/organizations/@current/integrations/${integration.id}/environment-mapping/`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                },
-                body: JSON.stringify({
-                    production: mapping.production,
-                    preview: mapping.preview || mapping.production,
-                    development: mapping.development || mapping.production,
-                }),
+            const production = mapping.production ?? undefined
+            await integrationsEnvironmentMappingPartialUpdate(currentOrganization.id, String(integration.id), {
+                production,
+                preview: mapping.preview || production,
+                development: mapping.development || production,
             })
-            if (!res.ok) {
-                throw new Error('Failed to save')
-            }
             setDirty(false)
         } catch {
             setError('Failed to save environment mapping')

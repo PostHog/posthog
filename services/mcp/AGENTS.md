@@ -13,20 +13,26 @@ Run these commands from the repository root:
 
 - **Text about one product lives in that product's files.** `[review]` Put a workflow in a skill under `products/<name>/skills/`. Put a note on a tool's result in `agent_note` in the product's `tools.yaml`. Every product shares `src/tools/exec.ts` and `src/templates/sections/`, so keep product text out of them.
 - A redirect for a removed tool is the exception. It goes in `DEPRECATED_TOOL_REDIRECTS` in `src/tools/exec.ts`.
-- If product text must be in the server instructions, agree the change in `#team-context-and-mcp` before you write it.
 
-## Unsolicited elicitation: high risk
+## Shared core: ask team-context-and-mcp first
 
-> [!CAUTION]
-> **Elicitation can spam users and damage trust in the MCP.**
-> It can interrupt an agent mid-task and put advertising or research questions directly in front of the user.
-> The interview recruitment flow is a narrow exception. It does not establish permission to add more prompts.
+The core is the code and text that every customer's agent hits:
+`src/tools/exec.ts`, `src/tools/exec-learn.ts`, `src/hono/instructions.ts`, `src/lib/instructions-formatter.ts`, `src/hono/guidance/`,
+and the `cli-*`, `exec-*`, `basic-functionality`, `compact-instructions`, `skills-first` and `tool-search` sections in `src/templates/sections/`.
 
-- **New unsolicited elicitation requires explicit approval from a human MCP owner before implementation.** `[review]` This includes surveys, recruitment, upsells, promotional questions, and reusing the interview flow for another purpose. A general request to improve the MCP does not authorize these interruptions.
-- **Expanding an existing prompt's reach or frequency, or weakening its opt-out behavior, requires the same approval.** `[review]` Review must justify the interruption's user value, audience, timing, frequency, reliable suppression, and measurement. A feature flag or client capability alone does not justify showing a prompt.
-- Read the [interview recruitment guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md#interview-recruitment-with-url-elicitation) before changing unsolicited elicitation. It documents the existing flow's capability checks, exclusions, warmup, suppression, and analytics. Preserve those protections when fixing or maintaining it.
+- **A change to a core file from outside `team-context-and-mcp` is agreed with the team before you write it.** `[review]` Before you edit a core file, stop and tell the user which file the change touches and why. Then ask them to agree the change in `#team-context-and-mcp`, or to tell you explicitly to continue without it. Do not ask when the user says they are on the team.
+- Stamphog does not approve a core change from an author outside the team, so a human must approve it. Request [`PostHog/team-context-and-mcp`](https://github.com/orgs/PostHog/teams/team-context-and-mcp) as reviewers.
+- In the PR description, include a short **MCP core** note. Say what changes for every agent, and who agreed it, or that the author continued without agreement.
 
-This policy covers unsolicited interruptions. Elicitation needed to complete the user's requested task, such as a necessary clarification or confirmation, remains a separate use case.
+## Unsolicited elicitation
+
+Unsolicited elicitation interrupts an agent mid-task and puts a question in front of the user.
+Used carelessly, it becomes spam and damages trust in the MCP.
+
+- Interview recruitment is the existing path for research invitations. Read the [interview recruitment guide](INTERVIEW_RECRUITMENT.md) before you add a study or change the flow. It documents the capability checks, exclusions, warmup, suppression, and analytics.
+- Check in with the MCP team before you add a new kind of unsolicited prompt (surveys, upsells, promotional questions), or before you widen reach or frequency or weaken suppression or opt-out behavior. `[review]`
+
+Elicitation that the user's requested task needs, such as a clarification or confirmation, is a separate use case.
 
 ## MCP Analytics
 

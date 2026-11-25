@@ -19,7 +19,7 @@ It keeps heavy, memory-hungry work off the video-export fleet, which runs the re
 | App secrets | None. The fleet has no worker secret.                                             |
 
 The worker starts with `start_temporal_worker --task-queue self-driving-task-queue`.
-`WORKFLOWS_DICT` in `posthog/management/commands/start_temporal_worker.py` maps that queue to `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` from `products/signals/backend/temporal/__init__.py`.
+The `TEMPORAL` declaration in `products/signals/backend/facade/temporal.py` binds that queue to `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` from `products/signals/backend/temporal/__init__.py`.
 
 ## What runs on it
 

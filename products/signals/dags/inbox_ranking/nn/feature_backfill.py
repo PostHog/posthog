@@ -9,6 +9,11 @@ team, and only when that value's provenance is one the selection accepts. Any ot
 unknown value, which the set reads as not recorded and never as zero. The provenance stays out of
 the inputs: it is counted in the readiness block, and the network never reads it.
 
+A set that reads the scored facts (`ReportEmbeddingsPriorityScoredFactsFeatureSet`) takes every value
+of a row that has a scored-facts row at its moment from that row, before its snapshot and before the
+batch. The readiness block counts such a row's late groups as `scored_facts`, and counts per head how
+many rows read the scored facts and how many read the snapshot.
+
 The labels, holdout flags and rows stay those of the examples object, apart from the rows of a team
 that no longer allows AI training. Those are dropped for both arms of the comparison, because a
 batch written before an opt-out keeps the team's rows.
@@ -24,8 +29,14 @@ import pandas as pd
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import ALREADY_ADDRESSED_COLUMN, CONTENT_COLUMNS, FeatureSet
-from products.signals.dags.inbox_ranking.common import read_parquet_if_exists
+from products.signals.backend.ranking.features import (
+    ALREADY_ADDRESSED_COLUMN,
+    CONTENT_COLUMNS,
+    Extras,
+    FeatureSet,
+    ReportEmbeddingsPriorityScoredFactsFeatureSet,
+)
+from products.signals.dags.inbox_ranking.common import read_parquet_if_exists, snapshot_bounds
 from products.signals.dags.inbox_ranking.dataset.feature_backfill import (
     ALREADY_ADDRESSED_GROUP,
     CONTENT_GROUP,
@@ -44,6 +55,7 @@ LATE_GROUP_STATE_COLUMNS: Mapping[str, tuple[str, ...]] = {
 }
 # Where a row's late group value came from, beside the accepted `Provenance` values.
 SNAPSHOT_SOURCE = "snapshot"
+SCORED_FACTS_SOURCE = "scored_facts"
 NOT_RECORDED_SOURCE = "not_recorded"
 NOT_ACCEPTED_SUFFIX = "_not_accepted"
 
@@ -171,6 +183,24 @@ def fill_from_backfill(
     )
 
 
+def scored_facts_rows(
+    rows: pd.DataFrame, extras: Extras, feature_set: ReportEmbeddingsPriorityScoredFactsFeatureSet
+) -> np.ndarray:
+    """True for each row of `rows` that has a scored-facts row known at its moment, the end of its
+    snapshot day, as `report_matrix` builds it. `rows` is positioned from zero."""
+    scored = np.zeros(len(rows), dtype=bool)
+    for day, group in rows.groupby("snapshot_date", sort=True):
+        _, moment = snapshot_bounds(birth_day(day).isoformat())
+        known = feature_set.scored_rows(pd.Index(group["report_id"]), extras, moment).index
+        scored[group.index.to_numpy()] = group["report_id"].isin(known).to_numpy()
+    return scored
+
+
+def with_scored_facts_sources(sources: Mapping[str, np.ndarray], scored: np.ndarray) -> dict[str, np.ndarray]:
+    """`sources` with each late group of a row in `scored` read from the scored facts."""
+    return {group: np.where(scored, SCORED_FACTS_SOURCE, group_sources) for group, group_sources in sources.items()}
+
+
 def late_group_fit_stats(
     reports: np.ndarray, fit_rows: np.ndarray, feature_set: FeatureSet
 ) -> dict[str, dict[str, Any]]:
@@ -197,10 +227,16 @@ def _days(table: ExampleTable, rows: np.ndarray) -> dict[str, str | None]:
     }
 
 
+def _counts(values: np.ndarray, rows: np.ndarray) -> dict[str, int]:
+    return dict(sorted(Counter(values[rows].tolist()).items()))
+
+
 def _source_counts(sources: Mapping[str, np.ndarray], rows: np.ndarray) -> dict[str, dict[str, int]]:
-    return {
-        group: dict(sorted(Counter(group_sources[rows].tolist()).items())) for group, group_sources in sources.items()
-    }
+    return {group: _counts(group_sources, rows) for group, group_sources in sources.items()}
+
+
+def _facts_counts(facts_sources: np.ndarray | None, rows: np.ndarray) -> dict[str, Any]:
+    return {} if facts_sources is None else {"facts_sources": _counts(facts_sources, rows)}
 
 
 def readiness_block(
@@ -211,10 +247,12 @@ def readiness_block(
     *,
     batch: BackfillBatchRows | None,
     excluded_no_training_consent_rows: int,
+    facts_sources: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """How ready a late-feature fit is: per head and split, its rows, positives, birth-day range and
     the source of each late group's values, and the same for the network's fit rows with the groups
-    training read and zeroed. Each group's source counts add up to its rows."""
+    training read and zeroed. Each group's source counts add up to its rows. `facts_sources` holds,
+    for a set that reads the scored facts, whether each row read them or its snapshot."""
     fit_rows = table.network_train_rows()
     heads: dict[str, dict[str, Any]] = {}
     for index, name in enumerate(NN_HEAD_NAMES):
@@ -230,6 +268,7 @@ def readiness_block(
                 "positives": int(np.nansum(table.labels[rows, index])),
                 **_days(table, rows),
                 "sources": _source_counts(sources, rows),
+                **_facts_counts(facts_sources, rows),
             }
             for split, rows in splits.items()
         }
@@ -250,6 +289,7 @@ def readiness_block(
             "rows": len(fit_rows),
             **_days(table, fit_rows),
             "sources": _source_counts(sources, fit_rows),
+            **_facts_counts(facts_sources, fit_rows),
             "groups": {group: dict(stats) for group, stats in fit_stats.items()},
         },
         "heads": heads,

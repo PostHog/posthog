@@ -1,6 +1,8 @@
 import { MakeLogicType, connect, events, kea, key, listeners, path, props } from 'kea'
+import type { DeepPartial, FieldName } from 'kea-forms/lib'
 import posthog, { CaptureOptions } from 'posthog-js'
 
+import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import type { HogFlow, HogFlowActionValidationResult } from './hogflows/types'
 import {
     BuilderProgress,
@@ -54,10 +56,10 @@ export interface workflowEditorVisitLogicActions {
         pickerDate: string | null
     } // workflowLogic
     setScheduleState: (
-        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState,
+        scheduleState: ScheduleState,
         source?: 'natural_language' | 'picker' | undefined
     ) => {
-        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState
+        scheduleState: ScheduleState
         source: 'natural_language' | 'picker'
     } // workflowLogic
     setScheduleTimezone: (
@@ -68,14 +70,14 @@ export interface workflowEditorVisitLogicActions {
         timezone: string
     } // workflowLogic
     setWorkflowValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // workflowLogic
-    setWorkflowValues: (values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<HogFlow>
+    setWorkflowValues: (values: DeepPartial<HogFlow>) => {
+        values: DeepPartial<HogFlow>
     } // workflowLogic
     workflowCreated: (workflowId: string) => {
         workflowId: string

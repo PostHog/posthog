@@ -7,6 +7,7 @@ import {
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   isAnthropicModel,
@@ -45,7 +46,7 @@ describe("formatGatewayModelName", () => {
     [model("claude-opus-4-8"), "Claude Opus 4.8"],
     [model("GPT-5.5", "openai"), "GPT-5.5"],
     [model("openai/gpt-5.6-sol", "openai"), "GPT-5.6 Sol"],
-    [model("moonshotai/kimi-k3", "modal"), "Kimi K3"],
+    [model("moonshotai/kimi-k3.1-pro", "modal"), "Kimi K3.1 Pro"],
     [model("@cf/zai-org/glm-5.2", "cloudflare"), "GLM-5.2"],
     [model("zai-org/glm-5.3", "baseten"), "GLM-5.3"],
     [model("zai-org/glm-5.3-flash", "baseten"), "GLM-5.3 Flash"],
@@ -78,6 +79,37 @@ describe("normalizeGatewayModelsResponse", () => {
 
     expect(models[0]?.context_window).toBe(256000);
   });
+});
+
+describe("gatewayModelRowsFromTaskModels", () => {
+  it.each([
+    ["claude", "claude-opus-5-5", true, "claude", true],
+    ["codex", "gpt-6-sol", true, "codex", true],
+    ["claude", "zai-org/glm-5.3", true, "claude", true],
+    ["claude", "claude-opus-5-5", false, "claude", false],
+  ])(
+    "offers a %s model %s (allowed=%s) on the %s picker",
+    (runtimeAdapter, id, allowed, adapter, expectedAllowed) => {
+      const models = normalizeGatewayModelsResponse(
+        gatewayModelRowsFromTaskModels({
+          models: [
+            {
+              runtime_adapter: runtimeAdapter,
+              model: id,
+              context_window: 1000000,
+              allowed,
+            },
+          ],
+        }),
+      );
+
+      const filter =
+        adapter === "codex" ? isCodexAdapterModel : isClaudeAdapterModel;
+      expect(models.filter(filter)).toMatchObject([
+        { id, context_window: 1000000, allowed: expectedAllowed },
+      ]);
+    },
+  );
 });
 
 describe("getClaudeModelRecency", () => {
@@ -130,11 +162,14 @@ describe("model classification", () => {
     expect(isAnthropicModel(gatewayModel)).toBe(false);
   });
 
-  it("recognizes Modal models by owner and id", () => {
-    const gatewayModel = model("moonshotai/kimi-k3", "modal");
-    expect(isModalModel(gatewayModel)).toBe(true);
-    expect(isModalModelId(gatewayModel.id)).toBe(true);
-  });
+  it.each(["moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"])(
+    "recognizes Modal model %s",
+    (id) => {
+      const gatewayModel = model(id, "modal");
+      expect(isModalModel(gatewayModel)).toBe(true);
+      expect(isModalModelId(gatewayModel.id)).toBe(true);
+    },
+  );
 
   it("classifies by the gateway's advertised api shapes when present", () => {
     const messages = ["anthropic-messages", "openai-chat-completions"];
@@ -195,7 +230,7 @@ describe("model classification", () => {
     expect(isClaudeAdapterModel(model("gpt-5.4", "posthog"))).toBe(false);
     expect(isClaudeAdapterModelId("gpt-5.4")).toBe(false);
     expect(isServedModelId("zai-org/glm-5.3")).toBe(true);
-    expect(isServedModelId("moonshotai/kimi-k3")).toBe(true);
+    expect(isServedModelId("moonshotai/kimi-k3.1-pro")).toBe(true);
     expect(isServedModelId("@cf/zai-org/glm-5.2")).toBe(false);
     expect(isServedModelId("anthropic/claude-sonnet-5")).toBe(false);
     expect(isServedModelId("claude-opus-4-8")).toBe(false);
@@ -304,14 +339,14 @@ describe("buildCloudTaskConfigOptions", () => {
 
   it("offers Modal models to Claude sessions", () => {
     const options = buildCloudTaskConfigOptions(
-      [model("moonshotai/kimi-k3", "modal")],
+      [model("moonshotai/kimi-k3.1-pro", "modal")],
       "claude",
     );
 
     expect(options.find((option) => option.id === "model")?.options).toEqual([
       expect.objectContaining({
-        value: "moonshotai/kimi-k3",
-        name: "Kimi K3",
+        value: "moonshotai/kimi-k3.1-pro",
+        name: "Kimi K3.1 Pro",
       }),
     ]);
   });
@@ -370,7 +405,7 @@ describe("adapterForModelId", () => {
     ["openai/gpt-5.5", "codex"],
     ["claude-opus-5", "claude"],
     ["@cf/zai-org/glm-5.2", "claude"],
-    ["moonshotai/kimi-k3", "claude"],
+    ["moonshotai/kimi-k3.1-pro", "claude"],
     ["deepseek-ai/deepseek-v4-flash-0731", "claude"],
   ])("maps %s to the %s harness", (modelId, adapter) => {
     expect(adapterForModelId(modelId)).toBe(adapter);
@@ -382,7 +417,7 @@ describe("buildProviderModelGroups", () => {
     model("gpt-5.6-sol", "openai"),
     model("claude-opus-5", "anthropic"),
     model("claude-opus-4-8", "anthropic", false),
-    model("moonshotai/kimi-k3", "modal"),
+    model("moonshotai/kimi-k3.1-pro", "modal"),
   ];
 
   it.each(["claude", "codex"] as const)(
@@ -430,7 +465,7 @@ describe("buildProviderModelGroups", () => {
         name: "Moonshot AI",
         options: [
           {
-            value: "moonshotai/kimi-k3",
+            value: "moonshotai/kimi-k3.1-pro",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
         ],
@@ -491,17 +526,17 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
       gatewayUrl: "https://gateway.example.com",
     });
     expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
-      "https://gateway.example.com/posthog_code",
+      "https://gateway.example.com",
     );
     expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 
   it("keeps the derived gateway when the custom cloud has none", () => {
     configureCustomCloud({ url: "https://posthog.example.com" });
     expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 
@@ -511,7 +546,7 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
       gatewayUrl: "https://gateway.example.com",
     });
     expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
     );
   });
 });

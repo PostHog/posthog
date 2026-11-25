@@ -144,6 +144,36 @@ def test_single_page_tables(
             [[], [{"email": "viewer@example.com", "completed": True}]],
             [{"email": "viewer@example.com", "completed": True, "flowId": "flow-two"}],
         ),
+        (
+            "flow_play_time",
+            "playTime",
+            [{"avgPlayTimeSeconds": 45.7}, {"avgPlayTimeSeconds": 0}],
+            [{"avgPlayTimeSeconds": 45.7, "flowId": "flow-one"}, {"avgPlayTimeSeconds": 0, "flowId": "flow-two"}],
+        ),
+        (
+            "flow_companies",
+            "companies",
+            [[{"id": "company-one", "playCount": 3}], [{"id": "company-one", "playCount": 1}]],
+            [
+                {"id": "company-one", "playCount": 3, "flowId": "flow-one"},
+                {"id": "company-one", "playCount": 1, "flowId": "flow-two"},
+            ],
+        ),
+        (
+            "custom_link_views",
+            "viewsByCustomLinkId",
+            [[{"customLinkId": "link-one", "viewers": 2}, {"customLinkId": None, "viewers": 8}], []],
+            [
+                {"customLinkId": "link-one", "viewers": 2, "flowId": "flow-one"},
+                {"customLinkId": None, "viewers": 8, "flowId": "flow-one"},
+            ],
+        ),
+        (
+            "custom_link_plays",
+            "playsByCustomLinkId",
+            [[], [{"customLinkId": None, "plays": 5, "completions": 2}]],
+            [{"customLinkId": None, "plays": 5, "completions": 2, "flowId": "flow-two"}],
+        ),
     ],
 )
 @pytest.mark.parametrize("resume_index", [None, 1])

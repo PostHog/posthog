@@ -21,6 +21,14 @@ import { SourceRow, buildSourceRows, describeTopicSessions } from './usageRows'
 const SCAN_POLL_INTERVAL_MS = 30000
 const MAX_POLL_BACKOFF_MS = 5 * 60 * 1000
 
+const NO_TOPICS_MESSAGE = 'No agent session analyzed data in this window.'
+
+function describeHiddenTopics(count: number): string {
+    return count === 1
+        ? "1 topic is hidden because it may use tables you can't view. Ask an admin for access to see it."
+        : `${count} topics are hidden because they may use tables you can't view. Ask an admin for access to see them.`
+}
+
 /** The latest finished scan, `'none'` when no scan has finished, and null until the first load answers. */
 export type LatestScan = UsageSnapshotApi | 'none' | null
 
@@ -33,6 +41,7 @@ export interface usageLogicValues {
     allMetrics: DataCatalogMetricApi[] // metricsLogic
     metricsLoadState: MetricsLoadState // metricsLogic
     failureReasons: Partial<Record<UsageSectionEnumApi, string>>
+    hiddenTopicsMessage: string | null
     history: UsageSnapshotSummaryApi[] | null
     historyLoading: boolean
     latest: LatestScan
@@ -49,6 +58,7 @@ export interface usageLogicValues {
     sourceRows: SourceRow[]
     topicSessionsSummary: string | null
     topics: TopicClusterApi[]
+    topicsEmptyMessage: string
     usageUnavailable: boolean
 }
 
@@ -118,6 +128,8 @@ export interface usageLogicMeta {
             metricsLoadState: MetricsLoadState
         ) => SourceRow[]
         topics: (latest: LatestScan) => TopicClusterApi[]
+        hiddenTopicsMessage: (latest: LatestScan) => string | null
+        topicsEmptyMessage: (hiddenTopicsMessage: string | null) => string
         metricsById: (allMetrics: DataCatalogMetricApi[]) => Record<string, DataCatalogMetricApi>
         proposedRows: (latest: LatestScan) => ProposedRow[]
         topicSessionsSummary: (latest: LatestScan) => string | null
@@ -220,6 +232,17 @@ export const usageLogic = kea<usageLogicType>([
             (s) => [s.latest],
             (latest: LatestScan): TopicClusterApi[] =>
                 latest && latest !== 'none' ? (latest.payload.topics ?? []) : [],
+        ],
+        hiddenTopicsMessage: [
+            (s) => [s.latest],
+            (latest: LatestScan): string | null =>
+                latest && latest !== 'none' && latest.hidden_topics > 0
+                    ? describeHiddenTopics(latest.hidden_topics)
+                    : null,
+        ],
+        topicsEmptyMessage: [
+            (s) => [s.hiddenTopicsMessage],
+            (hiddenTopicsMessage: string | null): string => hiddenTopicsMessage ?? NO_TOPICS_MESSAGE,
         ],
         metricsById: [
             (s) => [s.allMetrics],

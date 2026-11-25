@@ -4,14 +4,14 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { Region } from '~/types'
-
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
+import { QuillCIMDVerificationTokens } from './QuillCIMDVerificationTokens'
 
 export function CIMDVerificationTokens(): JSX.Element {
     const {
@@ -40,9 +40,35 @@ export function CIMDVerificationTokens(): JSX.Element {
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
     const { preflight } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasUnboundToken = tokens.some((token) => !token.cimd_url)
-    // One metadata document serves both regions and carries one token, so every token comes from PostHog US.
-    const tokensLiveElsewhere = preflight?.region === Region.EU
+    // One metadata document serves every region and carries one token, so one instance issues every token.
+    const tokenIssuerUrl = preflight?.cimd_verification_token_issuer_url
+    const tokenIssuerHost = tokenIssuerUrl ? new URL(tokenIssuerUrl).host : null
+
+    const confirmRevokeToken = (row: CIMDVerificationToken): void =>
+        LemonDialog.open({
+            title: `Revoke token "${row.label}"?`,
+            description:
+                'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
+            primaryButton: {
+                children: 'Revoke',
+                status: 'danger',
+                onClick: () => deleteToken(row),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return (
+            <QuillCIMDVerificationTokens
+                hasUnboundToken={hasUnboundToken}
+                tokenIssuerUrl={tokenIssuerUrl}
+                tokenIssuerHost={tokenIssuerHost}
+                onRevoke={confirmRevokeToken}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -60,11 +86,12 @@ export function CIMDVerificationTokens(): JSX.Element {
                 for the metadata format.
             </p>
 
-            {tokensLiveElsewhere && (
+            {tokenIssuerHost && (
                 <LemonBanner type="warning">
-                    Verification tokens are created in PostHog US. Create the token from your organization at{' '}
-                    <Link to="https://us.posthog.com/settings/organization-cimd-verification-tokens" target="_blank">
-                        us.posthog.com
+                    Verification tokens are created in another PostHog region. Create the token from your organization
+                    at{' '}
+                    <Link to={`${tokenIssuerUrl}/settings/organization-cimd-verification-tokens`} target="_blank">
+                        {tokenIssuerHost}
                     </Link>
                     . Your metadata document carries one token for every region.
                 </LemonBanner>
@@ -75,7 +102,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                     type="primary"
                     onClick={showCreateDialog}
                     data-attr="create-cimd-verification-token"
-                    disabledReason={tokensLiveElsewhere ? 'Create verification tokens in PostHog US' : undefined}
+                    disabledReason={tokenIssuerUrl ? `Create verification tokens at ${tokenIssuerHost}` : undefined}
                 >
                     Create verification token
                 </LemonButton>
@@ -93,8 +120,8 @@ export function CIMDVerificationTokens(): JSX.Element {
                     <IconKey className="text-4xl text-secondary mx-auto mb-3" />
                     <h3 className="text-base font-semibold mb-1">No verification tokens</h3>
                     <p className="text-secondary">
-                        {tokensLiveElsewhere
-                            ? 'Create a token in PostHog US to link a CIMD partner app.'
+                        {tokenIssuerUrl
+                            ? `Create a token at ${tokenIssuerHost} to link a CIMD partner app.`
                             : 'Create one to link a CIMD partner app to this organization.'}
                     </p>
                 </div>
@@ -164,19 +191,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                                         size="small"
                                         status="danger"
                                         tooltip="Revoke token"
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Revoke token "${row.label}"?`,
-                                                description:
-                                                    'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
-                                                primaryButton: {
-                                                    children: 'Revoke',
-                                                    status: 'danger',
-                                                    onClick: () => deleteToken(row),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
+                                        onClick={() => confirmRevokeToken(row)}
                                     />
                                 </div>
                             ),

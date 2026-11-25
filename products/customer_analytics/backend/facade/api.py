@@ -113,6 +113,7 @@ from products.customer_analytics.backend.facade.enums import (
     AccountRelationshipSource,
     AccountViewVisibility,
     TaskDigestCadence,
+    WarehousePersonPropertyMissingRowBehavior,
 )
 from products.customer_analytics.backend.logic import (
     account_automations as _account_automations_logic,
@@ -1378,6 +1379,10 @@ def get_account_view(
     )
 
 
+def authorize_account_view_content(content: dict[str, Any], *, team: Team, user: "User", can_query: bool) -> None:
+    _account_views_logic.authorize_account_view_content(content, team=team, user=user, can_query=can_query)
+
+
 def create_account_view(
     *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
 ) -> contracts.AccountView:
@@ -1441,15 +1446,11 @@ InvalidPinnedAccountProperties = contracts.InvalidPinnedAccountProperties
 def _to_user_customer_analytics_config(
     config: UserCustomerAnalyticsConfigModel,
 ) -> contracts.UserCustomerAnalyticsConfig:
-    raw_references = _user_customer_analytics_config_logic.read_pinned_properties(config)
+    resolved_pins = _user_customer_analytics_config_logic.read_pinned_properties(config)
     return contracts.UserCustomerAnalyticsConfig(
-        pinned_properties=[
-            contracts.PinnedAccountProperty(
-                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
-                id=str(reference["id"]),
-            )
-            for reference in raw_references
-        ],
+        pinned_properties=resolved_pins.pinned_properties,
+        pinned_properties_source=resolved_pins.source,
+        available_default_pinned_properties=resolved_pins.available_defaults,
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
         account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
@@ -1467,6 +1468,19 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def follow_user_default_pinned_properties(
+    *,
+    team_id: int,
+    user_id: int,
+    kind: contracts.DefaultPinnedAccountPropertiesSourceKindValue,
+    role_id: UUID | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.follow_default_pinned_properties(
+        team_id=team_id, user_id=user_id, kind=kind, role_id=role_id
     )
     return _to_user_customer_analytics_config(config)
 
@@ -1881,6 +1895,7 @@ def _to_sync_run_view(
         changed=run.changed,
         existing=run.existing,
         produced=run.produced,
+        removed=run.removed,
         skipped_missing_person=run.skipped_missing_person,
         error=run.error,
         created_at=run.created_at,
@@ -2053,6 +2068,7 @@ def _to_custom_property_source_view(
         key_column=source.key_column,
         column_property_map=source.column_property_map,
         column_descriptions=source.column_descriptions if warehouse_status_visible else {},
+        missing_row_behavior=source.missing_row_behavior,
         is_enabled=source.is_enabled,
         consecutive_failures=source.consecutive_failures if warehouse_status_visible else 0,
         last_synced_at=source.last_synced_at if warehouse_status_visible else None,
@@ -2217,6 +2233,13 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
             raise CustomPropertySourceValidationError("column_descriptions values must be strings.")
         cleaned[column] = description.strip()
     return cleaned
+
+
+def _validate_missing_row_behavior(*, target_type: str, behavior: str) -> None:
+    if behavior not in WarehousePersonPropertyMissingRowBehavior.values:
+        raise CustomPropertySourceValidationError("Unknown missing-row behavior.")
+    if target_type != TargetType.PERSON.value and behavior != WarehousePersonPropertyMissingRowBehavior.KEEP.value:
+        raise CustomPropertySourceValidationError("Removing missing rows is only supported for person properties.")
 
 
 def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
@@ -2610,11 +2633,13 @@ def create_custom_property_source(
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
     column_descriptions: dict | None = None,
+    missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
+    _validate_missing_row_behavior(target_type=definition.target_type, behavior=missing_row_behavior)
 
     # The definition's target decides which binding is valid: an account source reads one saved-query
     # column; a person/group source maps columns from either an imported schema's table or a
@@ -2639,6 +2664,7 @@ def create_custom_property_source(
         create_kwargs["column_descriptions"] = _validate_column_descriptions(
             column_descriptions, set(validated_map.keys())
         )
+        create_kwargs["missing_row_behavior"] = missing_row_behavior
         if saved_query_id is not None:
             # An unmaterialized view has no table to read, so the source could never sync — reject it
             # here rather than creating a mapping that stays silently empty.
@@ -2699,10 +2725,14 @@ def update_custom_property_source(
     if source is None:
         return None
     fields = dict(fields)
-    profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
+    profile_mapping_fields = {"column_property_map", "column_descriptions", "missing_row_behavior"}.intersection(fields)
     if profile_mapping_fields:
         if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
-            if any(fields[field] is not None for field in profile_mapping_fields):
+            if "missing_row_behavior" in fields:
+                _validate_missing_row_behavior(
+                    target_type=source.definition.target_type, behavior=fields["missing_row_behavior"]
+                )
+            if any(fields[field] is not None for field in profile_mapping_fields - {"missing_row_behavior"}):
                 raise CustomPropertySourceValidationError(
                     "An account property source uses saved_query + source_column, not external_data_schema."
                 )
@@ -2712,6 +2742,10 @@ def update_custom_property_source(
                 fields.pop(field)
             profile_mapping_fields.clear()
         else:
+            _validate_missing_row_behavior(
+                target_type=source.definition.target_type,
+                behavior=fields.get("missing_row_behavior", source.missing_row_behavior),
+            )
             validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
             if "column_property_map" in fields:
                 fields["column_property_map"] = validated_map
@@ -2736,6 +2770,8 @@ def update_custom_property_source(
     # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
+    if fields.get("missing_row_behavior") == source.missing_row_behavior:
+        profile_mapping_fields.discard("missing_row_behavior")
     if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
@@ -5290,9 +5326,10 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
 
 # --- Custom property values ---
 
-# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# Re-exported from logic so the presentation layer can catch them — hoglint forbids
 # presentation importing logic directly, so these errors are part of the facade's surface.
 CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
+CustomPropertyValueHistoryTooLong = _custom_property_values_logic.CustomPropertyValueHistoryTooLong
 CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueConflict
 InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
 
@@ -5389,6 +5426,29 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+def list_custom_property_value_history(
+    team_id: int, account_id: str | UUID, definition_id: str | UUID, since: date | None = None
+) -> list[contracts.CustomPropertyValueHistoryEntry]:
+    """Every value the account has held for the property, oldest first, from the start of `since`
+    in UTC when given. Raises `CustomPropertyDefinitionNotFound` for a definition outside the team."""
+    history = _custom_property_values_logic.list_custom_property_value_history(
+        team_id=team_id,
+        account_id=account_id,
+        definition_id=definition_id,
+        since=datetime.combine(since, time.min, tzinfo=UTC) if since else None,
+    )
+    return [
+        contracts.CustomPropertyValueHistoryEntry(
+            value=_custom_property_values_logic.stored_value_of(entry.row),
+            set_at=entry.row.created_at,
+            set_by_id=entry.row.created_by_id,
+            replaced_at=entry.replaced_at,
+            is_current=entry.is_current,
+        )
+        for entry in history
+    ]
 
 
 # --- Account relationships ---
@@ -5679,6 +5739,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
         can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
 

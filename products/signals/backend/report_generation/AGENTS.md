@@ -12,11 +12,13 @@ It is exercised locally via management commands, and it is also used by the prod
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
+    A selection a person wrote (`created_by` set) is never replaced by an agent stage: a run that reused it unchanged writes no copy, and `_refresh_inferred_repository` leaves it alone.
   - On re-promotion, the activity reuses the previous artefact only when the team's GitHub installation still reaches it and current source-visibility rules allow it. Data-only research preserves a saved target only while the visibility rules allow it; implementation dispatch rechecks them too. Expired visibility requires refresh; a failed refresh cannot confirm privacy. Implementation dispatch also blocks a repository the installation no longer reaches. An installation whose repository cache was never synced counts as reaching it.
   - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
   - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
   The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
+  `source_issue_urls` lists the issues a report was filed from: GitHub issue signals and `source_issue` artefacts. Research and actionability prompts exempt these issues, and their assignees, from the in-flight check, in both prompt variants. A link that another source quotes exempts nothing.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
@@ -79,7 +81,7 @@ It is exercised locally via management commands, and it is also used by the prod
   lightly validate old findings before reusing them
   fully research only new or stale signals
   show previous actionability, priority, title, and summary as context
-  the agent confirms still-correct findings/assessments (via the `*Update` wrapper schemas) instead of regenerating them — `ReportResearchOutput` splits its findings/assessments into `old_artefacts` (confirmed unchanged, already persisted) and `new_artefacts` (produced this run), and the caller activity persists the new ones unconditionally; read the report's effective state via the `effective_*` accessors
+  the agent confirms still-correct findings/assessments (via the `*Update` wrapper schemas) instead of regenerating them — `ReportResearchOutput` splits its findings/assessments into `old_artefacts` (confirmed unchanged, already persisted) and `new_artefacts` (produced this run), and the caller activity persists the new ones, except a decision a person holds: a person's actionability stands (the activity returns it as the run's choice, so the workflow moves the report on it), and a priority a person changed mid-run is kept; read the report's effective state via the `effective_*` accessors
 
 When a signal matches a resolved or fixed-dismissed report, the grouping pipeline can create a new report for the recurrence.
 It writes a directed `recurrence_of` report link from the new report to its parent.
@@ -148,6 +150,15 @@ The presentation step can also return `tags`, the report's whole slug tag set. T
 
 - **A bad tag never fails the run.** `ReportPresentationOutput` coerces `tags` through `report_tags.coerce_report_tags`: it drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning. A value that is not a list reads as omitted.
 - **Each pass replaces the whole set, atomically with the prose.** The ready and pending-input transitions write `tags` with the title and summary. `None` (an omitted field, the no-repo branch, or an older workflow history) keeps the stored set.
+
+### Suggested prompts
+
+The presentation step can also return up to three `suggested_prompts`, the follow-ups the inbox offers above the report's Ask AI box. The authoring guidance is `report_prompts.suggested_prompts_guidance`, shared with the scout report tools. The prompt shows the report's stored prompts, including ones a scout wrote, so a run can keep the ones that still fit.
+
+- **Judged with the report text before they are stored.** The pipeline judges input signals before research runs, so research-written text and prompts need their own pass. A reader's click sends a prompt to an agent run that reads the report. `_judge_research_output` normalizes the set, checks its bounds, and sends it with the title and summary as one signal through `report_safety_judge.judge_suggested_prompts`. A safe verdict covers both.
+- **Unsafe text fails the report, and unsafe prompts only drop.** When the prompt verdict is unsafe or missing, `judge_report_prose` judges the text alone. Unsafe text, a refusal, or a judge error sets `unsafe_prose_explanation`, and the summary workflow fails the report with `research_safety_judge_rejected`. Otherwise the run stores `[]` and logs why.
+- **Never raises.** A raise would make Temporal retry the activity and repeat the whole research.
+- **Each pass replaces the whole set, atomically with the prose.** The run always returns a list, because stored prompts describe the summary the run replaces. The no-repo branch keeps the prose, so it keeps the prompts.
 
 ### Fleet steering
 

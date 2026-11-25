@@ -231,7 +231,7 @@ def _create_worker(activity_environment: WorkflowEnvironment, activity_executor:
             DuckLakeRegisterDataImportsWorkflow,
             PostImportWorkflow,
         ],
-        activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
+        activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,
         workflow_runner=UnsandboxedWorkflowRunner(),
         activity_executor=activity_executor,
         max_concurrent_activities=50,

@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
+    IMPLEMENT = "implement", "Implement"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -84,10 +85,12 @@ class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
     # `MERGE` writes the `duplicate_of` link when the merge endpoint folds a report into another.
+    # `PLAN_EDIT` writes the `part_of` and `depends_on` links of a person's or agent's plan edit.
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
     MERGE = "merge"
+    PLAN_EDIT = "plan_edit"
 
 
 class SignalSourceProduct(StrEnum):
@@ -111,6 +114,9 @@ class SignalSourceProduct(StrEnum):
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     ANALYTICS = "analytics"
+    # Slack channels synced to the data warehouse. Only scouts use it so far: a Slack channel scout records the Slack
+    # warehouse source it reads as its owner (`slack_channel_scouts.py`).
+    SLACK = "slack"
     # Tier-1 data-warehouse inbox sources (support / issue trackers / error tracking)
     FRESHDESK = "freshdesk"
     FRESHSERVICE = "freshservice"
@@ -337,6 +343,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.ANALYTICS: "Product analytics",
+    SignalSourceProduct.SLACK: "Slack",
     SignalSourceProduct.FRESHDESK: "Freshdesk",
     SignalSourceProduct.FRESHSERVICE: "Freshservice",
     SignalSourceProduct.FRONT: "Front",

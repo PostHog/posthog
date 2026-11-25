@@ -43,7 +43,7 @@ SUGGESTIONS_MODULE = "products.ai_observability.backend.logic.eval_suggestions.s
 BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
 
 CHECK_DRAFT = {
-    "name": "Turns that end on a failed call",
+    "name": "Tool or model calls that never succeed",
     "description": "Finds failed calls nobody retried",
     "evaluation_type": "hog",
     "evaluation_config": {"source": "return true"},
@@ -426,6 +426,20 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert self.client.get(f"{self.url}/{fix.id}/").json()["applies"] is applies
 
+    @parameterized.expand(
+        [
+            ("no_runs", EvalSuggestionKind.FIX_EVAL, "fix:e1:no_runs", "no_runs"),
+            ("one_outcome", EvalSuggestionKind.FIX_EVAL, "fix:e1:one_outcome", "one_outcome"),
+            ("other_kind", EvalSuggestionKind.NEW_HOG, "check:no_runs", None),
+        ]
+    )
+    def test_retrieve_names_the_problem_a_fix_found(
+        self, _name: str, kind: str, dedupe_key: str, problem: str | None
+    ) -> None:
+        suggestion = self._suggestion(kind, dedupe_key=dedupe_key)
+
+        assert self.client.get(f"{self.url}/{suggestion.id}/").json()["fix_problem"] == problem
+
     @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     def test_applied_fix_is_tracked_as_an_evaluation_update(self, report: MagicMock) -> None:
         target = _evaluation(self.team)
@@ -469,6 +483,27 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert (first["pending"], second["pending"]) == (first_pending, later_pending)
         assert start.await_count == starts
+
+    def test_a_project_that_turns_suggestions_off_sees_none_until_it_turns_them_back_on(self) -> None:
+        self._suggestion()
+        with patch(
+            "products.ai_observability.backend.facade.eval_suggestions.start_first_visit_run", new=AsyncMock()
+        ) as start:
+            turned_off = self.client.patch(f"{self.url}/settings/", {"enabled": False}, format="json")
+            empty_patch = self.client.patch(f"{self.url}/settings/", {}, format="json").json()
+            listed_while_off = self.client.get(f"{self.url}/").json()
+            # A project with no run yet must not start one either.
+            self.suggestion_run.delete()
+            self.client.get(f"{self.url}/")
+            settings_while_off = self.client.get(f"{self.url}/settings/").json()
+            self.client.patch(f"{self.url}/settings/", {"enabled": True}, format="json")
+            listed_when_back_on = self.client.get(f"{self.url}/").json()
+
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
+        assert (listed_while_off["results"], listed_while_off["pending"]) == ([], False)
+        assert settings_while_off == empty_patch == {"enabled": False}
+        assert listed_when_back_on["pending"] is True
+        assert start.await_count == 1
 
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismissing_a_card_also_dismisses_its_replacement(self, _flag: MagicMock) -> None:

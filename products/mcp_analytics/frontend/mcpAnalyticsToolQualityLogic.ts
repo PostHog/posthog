@@ -176,7 +176,7 @@ function isDefaultSort(sort: SortState): boolean {
 }
 
 // pinned: `sort` and `sort_direction` URL params. The dashboard's slowest-tools card links to them.
-function sortSearchParams(sort: SortState): Record<string, string> {
+export function sortSearchParams(sort: SortState): Record<string, string> {
     return isDefaultSort(sort) ? {} : { sort: sort.column, sort_direction: sort.direction }
 }
 

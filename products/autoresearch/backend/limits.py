@@ -8,8 +8,14 @@ limit without a deploy:
 
     {
         "default_team_config": {"max_training_runs_per_day": 3, "max_iterations_per_run": 10, "max_live_pipelines": 3},
-        "team_configs": {"2": {"max_training_runs_per_day": 20, "max_live_pipelines": 10}}
+        "team_configs": {"2": {"max_training_runs_per_day": 20, "max_live_pipelines": 10, "max_training_spend_usd_per_month": 500}}
     }
+
+`max_training_spend_usd_per_month` is whole US dollars. The month's spend is the token cost plus
+the compute cost that Tasks records for the project's `autoresearch` task runs created since the
+start of the current UTC calendar month. A run whose token cost is not recorded counts as 0. The
+budget refuses a new run at or above the limit and never stops a run in progress, so a month can
+end above it by the runs that were in progress when it was reached.
 
 `autoresearch-limits` holds only the payload and must stay 100% on. The payload is read for a
 synthetic distinct id, so a flag with release conditions on people evaluates to false for it,
@@ -19,7 +25,7 @@ serves no payload, and every project silently gets the code constants.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.db import connection, models
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -31,6 +37,9 @@ import posthoganalytics
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+
+from products.tasks.backend.facade.api import TaskOriginProduct, origin_run_ids_since
+from products.tasks.backend.facade.billing import get_task_runs_spend
 
 from .access import AUTORESEARCH_FLAG
 from .models import AutoresearchPipeline, AutoresearchTrainingRun
@@ -45,10 +54,12 @@ _PAYLOAD_DISTINCT_ID = "internal_autoresearch_team_limits"
 DEFAULT_MAX_TRAINING_RUNS_PER_DAY = 3
 DEFAULT_MAX_ITERATIONS_PER_RUN = 10
 DEFAULT_MAX_LIVE_PIPELINES = 3
+DEFAULT_MAX_TRAINING_SPEND_USD_PER_MONTH = 100
 
 TEAM_CONFIG_MAX_TRAINING_RUNS_PER_DAY = "max_training_runs_per_day"
 TEAM_CONFIG_MAX_ITERATIONS_PER_RUN = "max_iterations_per_run"
 TEAM_CONFIG_MAX_LIVE_PIPELINES = "max_live_pipelines"
+TEAM_CONFIG_MAX_TRAINING_SPEND_USD_PER_MONTH = "max_training_spend_usd_per_month"
 
 # Each of these adds scoring, shadow scoring and validation to the daily sweep, and competes for
 # the project's training runs. Paused, draft and archived pipelines do none of that.
@@ -79,6 +90,7 @@ class LimitSources:
     max_training_runs_per_day: LimitSource = LimitSource.CODE
     max_iterations_per_run: LimitSource = LimitSource.CODE
     max_live_pipelines: LimitSource = LimitSource.CODE
+    max_training_spend_usd_per_month: LimitSource = LimitSource.CODE
 
 
 @frozen
@@ -88,6 +100,8 @@ class TeamLimits:
     max_iterations_per_run: int
     # 0 stops every pipeline from going live.
     max_live_pipelines: int
+    # Whole US dollars. 0 stops every sandbox training run for the project.
+    max_training_spend_usd_per_month: int = DEFAULT_MAX_TRAINING_SPEND_USD_PER_MONTH
     # The payload layer each limit came from.
     sources: LimitSources = LimitSources()
 
@@ -115,6 +129,22 @@ class LiveCapReached:
     limit: int
 
 
+@frozen
+class TrainingSpend:
+    # Token plus compute cost of this month's sandbox training runs, in US dollars.
+    spent_usd: float
+    limit_usd: int
+    # The start of the next UTC calendar month.
+    resets_at: datetime
+
+
+@frozen
+class TrainingBudgetReached:
+    spent_usd: float
+    limit_usd: int
+    resets_at: datetime
+
+
 def limits_for_team(team_id: int) -> TeamLimits:
     """The project's effective limits. A missing or unreadable payload resolves to the code constants."""
     payload = _read_limits_payload()
@@ -127,14 +157,23 @@ def limits_for_team(team_id: int) -> TeamLimits:
     live_pipelines, live_pipelines_source = _resolve_int(
         payload, team_id, TEAM_CONFIG_MAX_LIVE_PIPELINES, DEFAULT_MAX_LIVE_PIPELINES, minimum=0
     )
+    spend, spend_source = _resolve_int(
+        payload,
+        team_id,
+        TEAM_CONFIG_MAX_TRAINING_SPEND_USD_PER_MONTH,
+        DEFAULT_MAX_TRAINING_SPEND_USD_PER_MONTH,
+        minimum=0,
+    )
     return TeamLimits(
         max_training_runs_per_day=training_runs,
         max_iterations_per_run=iterations,
         max_live_pipelines=live_pipelines,
+        max_training_spend_usd_per_month=spend,
         sources=LimitSources(
             max_training_runs_per_day=training_runs_source,
             max_iterations_per_run=iterations_source,
             max_live_pipelines=live_pipelines_source,
+            max_training_spend_usd_per_month=spend_source,
         ),
     )
 
@@ -167,6 +206,44 @@ def training_run_usage(team_id: int, limits: TeamLimits) -> TrainingRunUsage:
     at_limit = limit > 0 and len(created) >= limit
     next_slot_at = created[len(created) - limit] + TRAINING_RUN_WINDOW if at_limit else None
     return TrainingRunUsage(used=len(created), limit=limit, next_slot_at=next_slot_at)
+
+
+def check_training_budget(team_id: int, limits: TeamLimits) -> TrainingBudgetReached | None:
+    """Whether the project has used its monthly training budget, or None when a run can start.
+
+    Call after ``check_training_run_cap()``, inside the same transaction, so its advisory lock
+    serializes two starts of one team.
+    """
+    spend = training_spend(team_id, limits)
+    if spend.spent_usd < spend.limit_usd:
+        return None
+    logger.info(
+        "autoresearch_training_budget_reached", team_id=team_id, spent_usd=spend.spent_usd, limit_usd=spend.limit_usd
+    )
+    return TrainingBudgetReached(spent_usd=spend.spent_usd, limit_usd=spend.limit_usd, resets_at=spend.resets_at)
+
+
+def training_spend(team_id: int, limits: TeamLimits) -> TrainingSpend:
+    """This month's spend on the project's sandbox training runs, a run in progress included."""
+    month_start = timezone.now().astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    resets_at = (month_start + timedelta(days=32)).replace(day=1)
+    # Read from Tasks, not from the training run rows, because deleting a pipeline deletes its
+    # training runs and would take their spend out of the month.
+    run_ids = origin_run_ids_since(team_id=team_id, origin_product=TaskOriginProduct.AUTORESEARCH, since=month_start)
+    spends = get_task_runs_spend(team_id=team_id, run_ids=run_ids) if run_ids else []
+    spent_microusd = sum((spend.cost_microusd or 0) + spend.compute_cost_microusd for spend in spends)
+    # A run that has not reached the gateway yet, or whose sandbox did not route through it, has no
+    # token cost, so a month of these would read as no spend at all.
+    unrecorded = len(run_ids) - sum(1 for spend in spends if spend.cost_microusd is not None)
+    if unrecorded:
+        logger.info(
+            "autoresearch_training_spend_unrecorded", team_id=team_id, unrecorded_runs=unrecorded, runs=len(run_ids)
+        )
+    return TrainingSpend(
+        spent_usd=round(spent_microusd / 1_000_000, 2),
+        limit_usd=limits.max_training_spend_usd_per_month,
+        resets_at=resets_at,
+    )
 
 
 def check_live_pipeline_cap(team_id: int, limits: TeamLimits) -> LiveCapReached | None:

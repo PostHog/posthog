@@ -2504,6 +2504,8 @@ export interface TaskCommentEntryApi {
     content: string
     /** Whether this comment body has more content. */
     content_truncated: boolean
+    /** Byte offset where this body chunk starts. */
+    content_offset: number
     /**
      * Byte offset for the next body chunk, or null when complete.
      * @nullable
@@ -3548,6 +3550,7 @@ export const RunStatusEnumApi = {
  * * `upstream_connection_error` - upstream_connection_error
  * * `upstream_timeout` - upstream_timeout
  * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_rate_limited` - upstream_rate_limited
  * * `upstream_request_rejected` - upstream_request_rejected
  * * `content_block_rejection` - content_block_rejection
  * * `turn_ended_without_response` - turn_ended_without_response
@@ -3569,6 +3572,7 @@ export const ErrorTypeEnumApi = {
     UpstreamConnectionError: 'upstream_connection_error',
     UpstreamTimeout: 'upstream_timeout',
     UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRateLimited: 'upstream_rate_limited',
     UpstreamRequestRejected: 'upstream_request_rejected',
     ContentBlockRejection: 'content_block_rejection',
     TurnEndedWithoutResponse: 'turn_ended_without_response',
@@ -3623,6 +3627,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
      * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_rate_limited` - upstream_rate_limited
      * * `upstream_request_rejected` - upstream_request_rejected
      * * `content_block_rejection` - content_block_rejection
      * * `turn_ended_without_response` - turn_ended_without_response
@@ -4850,10 +4855,14 @@ export interface ModelChoiceApi {
      * @nullable
      */
     cost_multiplier?: string | null
+    /** Largest context window the model accepts, in tokens. */
+    context_window?: number
+    /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
+    allowed?: boolean
 }
 
 export interface ModelCatalogueResponseApi {
-    /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+    /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
     models: ModelChoiceApi[]
 }
 

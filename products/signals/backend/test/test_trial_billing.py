@@ -18,6 +18,7 @@ from products.signals.backend.trial.billing import (
     trial_billing_status,
 )
 
+from ee.billing.quota_limiting import QuotaResource
 from ee.models import License
 
 
@@ -52,6 +53,8 @@ class TestTrialBilling(SimpleTestCase):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=license),
             patch("ee.billing.billing_manager.get_cached_instance_license", return_value=license),
+            # The billing token reads the partner lock from Postgres, and this test class has no database.
+            patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None),
             patch("ee.billing.billing_manager.http_session.get", side_effect=responses) as get,
         ):
             assert not paid_trial_continuation_authorized(team)
@@ -87,6 +90,33 @@ class TestTrialBilling(SimpleTestCase):
             billing.return_value = TrialBillingStatus(ready=True, continuation=TrialContinuation.PAID)
             assert paid_trial_continuation_authorized(Team(organization=Organization(name="Other organization")))
             assert billing.call_count == 4
+
+    @parameterized.expand(
+        [
+            (QuotaResource.SIGNALS_SPEND_CREDITS, TrialContinuation.LIMIT),
+            (QuotaResource.SIGNALS_CREDITS, TrialContinuation.PAID),
+        ]
+    )
+    def test_paid_admission_checks_the_spend_quota_when_the_stored_usage_lacks_the_start_date(
+        self, limited_resource: QuotaResource, continuation: TrialContinuation
+    ) -> None:
+        team = Team(organization=Organization(name="Trial billing test", usage=None), api_token="synthetic-token")
+        billing = {
+            "usage_summary": {"signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}},
+            "has_active_subscription": True,
+            "products": [
+                {"type": "inbox_usage", "usage_key": "signals_spend_credits", "subscribed": True, "usage_limit": None}
+            ],
+        }
+        with (
+            patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
+            patch(
+                "products.signals.backend.trial.billing.is_team_limited",
+                side_effect=lambda _api_token, resource, _cache_key: resource == limited_resource,
+            ),
+        ):
+            assert trial_billing_status(team).continuation == continuation
 
     @parameterized.expand(
         [
@@ -140,7 +170,7 @@ class TestTrialBilling(SimpleTestCase):
         }
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
-            patch("products.signals.backend.trial.billing.BillingManager.get_billing", return_value=billing),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
         ):
             assert TrialBilling(organization).status() == TrialBillingStatus(ready=ready, continuation=continuation)
 
@@ -176,7 +206,7 @@ class TestTrialBilling(SimpleTestCase):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
             patch(
-                "products.signals.backend.trial.billing.BillingManager.get_billing",
+                "products.signals.backend.trial.billing.BillingManager.get_billing_read_only",
                 return_value={
                     "usage_summary": {
                         "signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}
@@ -203,7 +233,7 @@ class TestTrialBilling(SimpleTestCase):
     def test_missing_billing_status_does_not_authorize_work(self, billing: dict[str, object]) -> None:
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
-            patch("products.signals.backend.trial.billing.BillingManager.get_billing", return_value=billing),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
         ):
             status = TrialBilling(Organization(name="Trial billing test")).status()
         assert not status.ready

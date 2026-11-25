@@ -30,9 +30,10 @@ interface QueryPaneProps {
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton, insightLoading, suggestionPayload } = useValues(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, insightLoading, suggestionPayload, viewUpdateInProgress } =
+        useValues(sqlEditorLogic)
     const queryLoading = insightLoading && !props.queryInput
-    const readOnly = queryLoading || !!suggestionPayload?.readOnly
+    const readOnly = queryLoading || viewUpdateInProgress || !!suggestionPayload?.readOnly
     const editorOptions = useMemo<CodeEditorProps['options']>(
         () => ({
             minimap: {

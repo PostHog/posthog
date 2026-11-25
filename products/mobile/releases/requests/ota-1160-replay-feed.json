@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-replay-feed",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-navigation-and-date-ranges",
+    "notes": "Open Views → Sessions to play a sample recording in demo mode. With the replay feed enabled, check Moment and Full recording playback and browse recordings with Play all."
+}

@@ -12,6 +12,13 @@
 # justification. If you are not _certain_ there is _no other way_
 # to manage the risk you're thinking about, do not add an entry.
 
+# team-security's required reviews are not in this file. The `master` branch ruleset requires
+# them (Settings > Rules > Rulesets > master), so an edit to this file cannot remove them. They
+# cover the CI security scans, the pull_request_target workflows and their scripts, the
+# authentication code, the Content Security Policy and the dev sandbox.
+
+/.github/CODEOWNERS @PostHog/team-devex
+
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
@@ -24,23 +31,7 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # ...and documentation, which does not change HogQL behavior
 posthog/hogql/**/*.md
 
-# Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
-# so we have to be extra careful with changes here. Let's have the security team own these checks.
-.github/workflows/ci-security.yaml @PostHog/team-security
-# The composite action ci-security.yaml runs its blocking scans through — same ownership, or the scans could be weakened without security review.
-.github/actions/semgrep-ci/ @PostHog/team-security
-.github/workflows/codeql.yml @PostHog/team-security
-
-# This workflow runs on the `pull_request_target` event so that it can run without needing a GitHub org member to explicitly approve it.
-# We must be careful to only execute code from this repo's default branch, and never execute code from the PR's branch.
-.github/workflows/auto-assign-reviewers.yml @PostHog/team-security
-.github/scripts/assign-reviewers.js @PostHog/team-security
-# The auto-labeler runs on the same event with a write token, so the same rule applies.
-.github/workflows/auto-assign-labels.yml @PostHog/team-security
-.github/scripts/label-pr-from-title.js @PostHog/team-security
-# The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
-.github/scripts/codeowners.js @PostHog/team-security
-# The distributed-ownership resolver the auto-assigner executes on that same
+# The distributed-ownership resolver that the auto-assign-reviewers workflow executes on its
 # pull_request_target event (via `python -m owners_yaml`), with packages/owners-yaml
 # as the privileged sys.path root. Anything importable placed in that tree can
 # shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
@@ -49,57 +40,19 @@ posthog/hogql/**/*.md
 # DevEx maintains the resolver and reviews it with that risk in mind.
 packages/owners-yaml/** @PostHog/team-devex
 
-# And of course modifying this file can bring us problems so let's have the security team own it.
-# This does not affect the distributed owners.yaml files, which drive non-required reviewer
-# assignment and are much safer to change.
-CODEOWNERS @PostHog/team-security
+# Migration safety exceptions disable blocking checks and need independent DevEx approval.
+/posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt @PostHog/team-devex
+/posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt @PostHog/team-devex
+/.github/scripts/migration-deletion-allowlist.txt @PostHog/team-devex
 
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
-
-# Critical authentication logic
-ee/api/authentication.py @PostHog/team-security
-posthog/api/sso.py @PostHog/team-security
-posthog/api/authentication.py @PostHog/team-security
-posthog/auth.py @PostHog/team-security
-posthog/api/scim/auth.py @PostHog/team-security
-
-# The Content Security Policy every app and admin page carries. A browser refuses a resource the
-# policy does not name and shows the user no error, so a policy mistake breaks a feature with no
-# signal, and a widened directive removes a control the same way. Neither shows up in a test or a
-# stack trace, which is why review is the control. The semgrep rule stops a view from setting the
-# header outside this file, and each exception it carries names the policy it allows, so a fourth
-# document needs this team too.
-posthog/csp_middleware.py @PostHog/team-security
-posthog/test/test_csp_middleware.py @PostHog/team-security
-.semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
-
-# Dev sandbox provides important protection in local dev
-bin/dev-sandbox* @PostHog/team-security
 
 # The MCP store catalog is a fleet-wide trust decision, not ordinary code: a merged entry
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
 products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
-
-# MCP guidance rules write text into the context of every customer's agent mid-session, steering
-# what it calls next, so review is the gate on what we tell agents.
-services/mcp/src/hono/guidance/ @PostHog/team-context-and-mcp
-
-# The exec tool and the server instructions are the same kind of gate. The instructions are the
-# text every customer's agent reads before its first call, and exec parses and rejects every call
-# those agents make, including the error text that tells them how to retry.
-services/mcp/src/tools/exec.ts @PostHog/team-context-and-mcp
-services/mcp/src/tools/exec-learn.ts @PostHog/team-context-and-mcp
-services/mcp/src/hono/instructions.ts @PostHog/team-context-and-mcp
-services/mcp/src/lib/instructions-formatter.ts @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/cli-*.md @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/exec-*.md @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/basic-functionality.md @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/compact-instructions.md @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/skills-first.md @PostHog/team-context-and-mcp
-services/mcp/src/templates/sections/tool-search.md @PostHog/team-context-and-mcp
 
 # Adding a line here exempts a product from isolation, so the full Django backend suite
 # keeps running on every change it makes — a cost paid by everyone, not just its team.
@@ -125,17 +78,16 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex
 
-# The mobile owner reviews app changes and the workflows that build and release it.
-products/mobile/** @cvolzer3
-# Documentation, tests, and local development tools do not need required app review.
-products/mobile/docs/**
-products/mobile/**/*.md
-products/mobile/**/*.test.*
-products/mobile/.argent/**
-products/mobile/jest.config.js
-products/mobile/jest.setup.ts
-products/mobile/biome.json
-products/mobile/.gitignore
-products/mobile/app/** @cvolzer3
-products/desktop/apps/mobile/** @cvolzer3
-.github/workflows/*mobile*.yml @cvolzer3
+# DevEx owns the CI acknowledgement because it gates merges for native build changes.
+.github/workflows/pr-housekeeping.yml @PostHog/team-devex
+.github/workflows/pr-native-rebuild.yml @PostHog/team-devex
+.github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
+.github/scripts/mobile-rebuild.mjs @PostHog/team-devex
+.github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex
+
+# The hog release approver check decides who may approve a release of the signed hog CLI, and the
+# release workflow is what runs it. The workflow runs the checker as the last release tag has it, so a
+# weakened copy merged here would govern every later release. Both files need a review from the team
+# that owns hog.
+hog/release/check-approvers.sh @PostHog/team-growth
+.github/workflows/release-hog.yml @PostHog/team-growth

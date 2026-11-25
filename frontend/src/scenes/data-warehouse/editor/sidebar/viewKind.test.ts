@@ -14,7 +14,12 @@ describe('viewKind', () => {
                 'materialized view',
             ],
             ['a managed view keeps its badge', { type: 'managed-view' }, 'managed view'],
-            ['an endpoint keeps its badge', { type: 'endpoint' }, 'materialized endpoint'],
+            ['a materialized endpoint has no badge', { type: 'endpoint' }, null],
+            [
+                'an endpoint nested under a table keeps its badge',
+                { type: 'view-table', traversedFieldType: 'endpoint' },
+                'materialized endpoint',
+            ],
             ['a join keeps its badge', { type: 'lazy-table' }, 'join'],
             [
                 'a batch export table keeps its badge',

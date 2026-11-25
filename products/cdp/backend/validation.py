@@ -361,14 +361,22 @@ def _is_unlayer_render_of(html: str, block_html: str) -> bool:
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
     if not design:
         return True
+    # The new email editor stores the html it rendered with its document. Once the html has moved on, the design next
+    # to that document shows an older email, so it's replaced by the current html.
+    document = design.get("emailDocument") if isinstance(design, dict) else None
+    if isinstance(document, dict) and isinstance(document.get("html"), str):
+        return document["html"] != html
     try:
         wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
     except (KeyError, IndexError, TypeError):
         return False
+    # The new email editor stores its document next to the wrap. When the html has moved on, that document is stale,
+    # and the refresh below drops it along with the old wrap.
+    design_without_document = {key: value for key, value in design.items() if key != "emailDocument"}
     return (
         isinstance(wrapped_html, str)
         and wrapped_html != html
-        and design == build_html_wrap_design(wrapped_html)
+        and design_without_document == build_html_wrap_design(wrapped_html)
         and not _is_unlayer_render_of(html, wrapped_html)
     )
 
@@ -964,6 +972,13 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
+        elif item_type == "integration_field":
+            # The pickers and the destination templates read this value as a string ID. API and MCP
+            # callers often send an account ID as a JSON number, so store it as a string instead of
+            # rejecting a request that worked before.
+            if isinstance(value, int) and not isinstance(value, bool):
+                value = str(value)
+                attrs["value"] = value
         elif item_type == "task_repository":
             repositories = [value] if isinstance(value, str) else value
             if (
@@ -1666,11 +1681,6 @@ def compile_hog(
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
-        elif hog_type == "tagger":
-            # Taggers classify; they must not perform side effects, so we deliberately exclude
-            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
-            # Stated explicitly so a future refactor can't silently widen the surface.
-            supported_functions = set()
         elif hog_type == "transformation_log":
             # Log transformations run synchronously per log record in the logs ingestion
             # hot path — no async functions (fetch, postHogCapture) can ever be allowed.

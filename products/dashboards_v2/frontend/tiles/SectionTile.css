@@ -1,0 +1,47 @@
+.SectionTile {
+    /* The same space at the sides, under the header and below the tiles (GRID.sectionInsetPx). */
+    --section-inset: 11px;
+
+    /* The header and body set the section's spacing themselves, so it adds up to whole grid rows. */
+    gap: 0;
+    width: 100%;
+    height: 100%;
+    padding-block: 0;
+}
+
+/* A closed section's card is taller than its header, so the header sits in the middle of it. */
+.SectionTile--collapsed {
+    justify-content: center;
+}
+
+/* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
+.SectionTile__header {
+    /* A quill card header's height, fixed so the header and padding make three grid rows (GRID.sectionChromeRows). */
+    box-sizing: border-box;
+    align-content: center;
+    align-items: center;
+    height: 44px;
+    padding-block: 0;
+
+    > .quill-card__action {
+        place-self: center end;
+    }
+}
+
+.SectionTile__body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    padding: var(--section-inset);
+}
+
+.SectionTile__empty {
+    position: absolute;
+    inset: var(--section-inset);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    border: 1px dashed var(--color-border-primary);
+    border-radius: var(--radius);
+}

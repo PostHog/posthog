@@ -14,6 +14,7 @@ import type {
     AddInsightToDashboardRequestApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CachedTilesResponseApi,
     CopyDashboardGroupRequestApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
@@ -31,6 +32,7 @@ import type {
     DashboardsActivitySummaryRetrieveParams,
     DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
+    DashboardsCachedTilesRetrieveParams,
     DashboardsCopyGroupCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -65,6 +67,7 @@ import type {
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
     PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
+    QueryBatchRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -232,6 +235,26 @@ export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, op
     return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDashboardV2QueryBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/query_batch/`
+}
+
+/**
+ * Run many panels' queries in one request and stream each result back as it is ready. Every query is read as the requesting user, keyed by its content, and cached hits come first.
+ */
+export const dashboardV2QueryBatchCreate = async (
+    projectId: string,
+    queryBatchRequestApi: QueryBatchRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardV2QueryBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(queryBatchRequestApi),
     })
 }
 
@@ -487,6 +510,42 @@ export const dashboardsAddInsightCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addInsightToDashboardRequestApi),
+    })
+}
+
+export const getDashboardsCachedTilesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsCachedTilesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/cached_tiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/cached_tiles/`
+}
+
+/**
+ * Read the cached results of several insight tiles in one request. Never runs a query: a tile with
+ * nothing cached comes back as a miss, to be loaded through the insight endpoint.
+ */
+export const dashboardsCachedTilesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsCachedTilesRetrieveParams,
+    options?: RequestInit
+): Promise<CachedTilesResponseApi> => {
+    return apiMutator<CachedTilesResponseApi>(getDashboardsCachedTilesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

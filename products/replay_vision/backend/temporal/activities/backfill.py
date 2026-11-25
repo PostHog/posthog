@@ -40,6 +40,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
+from products.replay_vision.backend.scope.load import scope_for
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
     count_in_flight_rows,
@@ -107,6 +108,10 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
 
     quota = quota_state(backfill.team.organization_id)
+    if quota.awaiting_billing_sync:
+        # Its zero credits are a placeholder; pausing on them would hold the backfill until someone resumes it.
+        record_backfill_tick_outcome("skipped_awaiting_billing_sync")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
     if quota.would_exceed(backfill.credits_per_observation):
         # Filtered so a concurrent cancel wins over the pause.
         ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(
@@ -184,15 +189,22 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
-    query = apply_experiment_targeting(query, snapshot.experiment_scope())
+    # Read through `scope_for`, so a backfill of a scanner narrowed only by the `scope` column is
+    # filtered the same as the live sweep. Reading the legacy store here would return None and
+    # backfill every session in the window.
+    snapshot_scope = scope_for(snapshot)
+    query = (
+        snapshot_scope.recordings_filter(query)
+        if snapshot_scope is not None
+        else apply_experiment_targeting(query, None)
+    )
 
     # Live exposure counts against the frozen scope, matching the sweep: the same salted hash plus
     # the same rates keep sampling decisions stable between a live sweep and a backfill of the
     # same range.
     variant_plan = variant_sampling_plan_for_scope(
         backfill.team,
-        scanner_type=snapshot.scanner_type,
-        scope=snapshot.experiment_scope(),
+        scope=snapshot_scope,
         scanner_config=snapshot.scanner_config,
         sampling_rate=snapshot.sampling_rate,
         user=backfill.created_by,

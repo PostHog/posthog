@@ -54,6 +54,7 @@ __all__ = [
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
     "persisted_repo_selection",
+    "repo_selection_set_by_person",
     "resolve_team_github_integration",
     "saved_repository_connected",
     "select_repository_for_report",
@@ -75,6 +76,14 @@ def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     if artefact is None:
         return None
     return RepoSelectionResult.model_validate_json(artefact.content)
+
+
+def repo_selection_set_by_person(team_id: int, report_id: str) -> bool:
+    """Whether a person wrote the report's latest ``repo_selection``, so no agent stage may replace it."""
+    return (
+        SignalReportArtefact.latest_person_content(team_id=team_id, report_id=report_id, model=RepoSelectionResult)
+        is not None
+    )
 
 
 def saved_repository_connected(team_id: int, repository: str) -> bool:

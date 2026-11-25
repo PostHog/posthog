@@ -53,6 +53,7 @@ from products.signals.backend.activity_summary.prompt import (
     user_message,
 )
 from products.signals.backend.activity_summary.queue import (
+    TRIGGERS,
     ActivitySummaryPair,
     ActivitySummaryTierStats,
     DailyUsage,
@@ -156,6 +157,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 2,
             "rebuild_budget_share": 2,
             "inbox_visit_budget_share": 0,
+            "overdue_budget_share": 2,
             "outdated_rebuild_after_days": 0,
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
@@ -194,6 +196,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "target_interval_days_free": 7,
             "max_org_share": 0.3,
             "inbox_visit_budget_share": 0.5,
+            "overdue_budget_share": 0,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
             "min_score": 4.5,
@@ -223,6 +226,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             target_interval_days_free=7.0,
             max_org_share=0.3,
             inbox_visit_budget_share=0.5,
+            overdue_budget_share=0.0,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
             source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
@@ -550,6 +554,41 @@ class TestActivitySummaryQueue(BaseTest):
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
+
+    @parameterized.expand(
+        [
+            ("every overdue pair fits the share", 0.2, ["older", "old", "busy"], 2),
+            ("the share caps the overdue pairs", 0.1, ["older", "busy"], 2),
+            ("a zero share makes no overdue pair due", 0, ["busy"], 0),
+        ]
+    )
+    def test_an_overdue_summary_is_due_with_new_rows_below_min_score(
+        self, _name: str, share: float, expected: list[str], due_overdue: int
+    ) -> None:
+        users = {name: self._user(f"{name}@example.com") for name in ("older", "old", "quiet", "recent", "busy")}
+        for name, days, new_rows in (
+            ("older", 13, 1),
+            ("old", 11, 1),
+            ("quiet", 11, 0),
+            ("recent", 2, 1),
+            ("busy", 1, 3),
+        ):
+            summarized = NOW - datetime.timedelta(days=days)
+            self._summary(users[name], generated_at=summarized, input_watermark=summarized)
+            self._changes(users[name], 1, days_ago=15)
+            self._changes(users[name], new_rows, days_ago=0.5)
+        config = self._config(overdue_budget_share=share, max_org_share=1)
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 10)
+
+        triggers = {"older": "overdue", "old": "overdue", "busy": "activity"}
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [
+            (users[name].id, triggers[name]) for name in expected
+        ]
+        assert selection.due_by_trigger["overdue"] == due_overdue
+        [free] = [tier for tier in selection.tiers if tier.tier == "free"]
+        assert (free.due_overdue, free.fresh_share, free.recent_share) == (due_overdue, 3 / 5, 2 / 5)
 
     @parameterized.expand(
         [
@@ -1057,10 +1096,7 @@ class TestActivitySummaryQueue(BaseTest):
         selection = select_pairs(config, NOW, 10)
 
         assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
-        assert selection.due_by_trigger == {
-            name: int(name == trigger)
-            for name in ("activity", "views", "cold_start_views", "stale", "mcp", "inbox_visit")
-        }
+        assert selection.due_by_trigger == {name: int(name == trigger) for name in TRIGGERS}
 
     @parameterized.expand(
         [

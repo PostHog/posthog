@@ -352,10 +352,10 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_exporter_task.assert_called_once()
 
-    @patch("products.exports.backend.tasks.image_exporter._export_to_png")
+    @patch("products.exports.backend.tasks.image_exporter._export_rendered_asset")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_rendered_asset) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
@@ -429,7 +429,9 @@ class TestExports(APIBaseTest):
 
             # Should warm up the cache
             export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
+            mock_export_rendered_asset.assert_called_once_with(
+                exported_asset, max_height_pixels=None, insight_cache_keys=ANY
+            )
 
             mock_calculate.assert_called_once()
 
@@ -473,10 +475,10 @@ class TestExports(APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail["name"], self.dashboard.name)
 
-    @patch("products.exports.backend.tasks.image_exporter._export_to_png")
+    @patch("products.exports.backend.tasks.image_exporter._export_rendered_asset")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_insight_export_does_not_create_duplicate_exported_asset_activity(
-        self, _mock_exporter_task, _mock_export_to_png
+        self, _mock_exporter_task, _mock_export_rendered_asset
     ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",

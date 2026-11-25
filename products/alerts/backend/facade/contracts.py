@@ -159,6 +159,32 @@ class EnabledAlert:
 
 
 @frozen
+class CreatedAlert:
+    id: UUID
+    team_id: int
+    name: str
+    created_at: datetime
+
+
+@frozen
+class AlertSummary:
+    id: UUID
+    name: str
+    enabled: bool
+    state: AlertState
+    calculation_interval: str | None
+    insight_id: int | None
+    created_at: datetime
+
+
+@frozen
+class AlertInventory:
+    total_count: int
+    enabled_count: int
+    recent: tuple[AlertSummary, ...]
+
+
+@frozen
 class ErroredAlert:
     id: UUID
     name: str
@@ -255,6 +281,8 @@ class MovedAlertSettings:
     fields: Mapping[str, Any]
     threshold: dict[str, Any] | None
     schedule_start_time: str | None
+    created_by_id: int | None = None
+    threshold_name: str | None = None
 
 
 class PlatformCannotOwn(ValueError):

@@ -65,6 +65,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         notableSessions,
         toolRows,
         failedLoads,
+        loadedSections,
         loadingSections,
         canShowFeedback,
         feedbackContextKey,
@@ -169,6 +170,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     intentClusterCount={intentClusterCount}
                     kpisLoading={!!loadingSections.kpis}
                     usersLoading={!!loadingSections.periodTotals}
+                    kpisLoaded={!!loadedSections.kpis}
+                    usersLoaded={!!loadedSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
                     onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
@@ -316,6 +319,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
                         onToolClick={openToolReport}
+                        action={
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'error_rate_pct',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-error-rate-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
                     />
                     <ToolLatencyChart
                         rows={rankToolsByP95(toolRows)}

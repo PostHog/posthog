@@ -40,14 +40,17 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
+    ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationExternalProjectLinkApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
     SharingConfigurationApi,
     TeamFeatureFlagPolicyConfigApi,
     TeamRealtimeCohortsApi,
+    TeamWorkflowsConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -107,6 +110,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointPlanClampApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -301,13 +305,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
@@ -326,6 +331,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    Canvas = 'canvas',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
     DataCatalog = 'data_catalog',
@@ -337,7 +343,6 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Evaluation = 'evaluation',
-    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
@@ -650,6 +655,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
@@ -668,7 +674,7 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
+    external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationDomainType {
@@ -756,7 +762,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
@@ -769,9 +775,6 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
-    secret_api_token: string | null
-    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -780,7 +783,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
@@ -951,32 +955,13 @@ export interface TeamType extends TeamBasicType {
     flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
+    available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
-    workflows_config: WorkflowsConfig
+    workflows_config: TeamWorkflowsConfigApi
     // Optional so cached team objects from before this field shipped still typecheck.
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
-}
-
-export interface WorkflowsConfig {
-    capture_workflows_engagement_events: boolean
-    // Optional so cached team objects from before this field shipped still typecheck.
-    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
-    // Null uses the product default.
-    workflow_task_rate_limit_per_day?: number | null
-    workflow_task_team_rate_limit_per_day?: number | null
-    // Optional so cached team objects from before these fields shipped still typecheck.
-    email_utm_tags_enabled?: boolean
-    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
-    replay_vision_scan_rate_limit_per_day?: number | null
-    replay_vision_scan_team_rate_limit_per_day?: number | null
-    default_email_integration_id?: number | null
-    // Null on either disables the marketing frequency cap.
-    marketing_frequency_cap_max_messages?: number | null
-    marketing_frequency_cap_window_days?: number | null
-    // Null skips a capped marketing message at once instead of holding it for a free slot.
-    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
@@ -1166,6 +1151,7 @@ export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
     Yours = 'yours',
+    Anomalies = 'anomalies',
     History = 'history',
     Alerts = 'alerts',
     Notifications = 'notifications',
@@ -1198,6 +1184,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
@@ -1984,6 +1971,8 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     PROFILE = 'profile',
     EVENTS = 'events',
+    // pinned: the value is the activeTab URL hash param. Renaming it breaks saved links.
+    FLAG_CALLS = 'flagCalls',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
@@ -2747,6 +2736,7 @@ export interface EndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     data_freshness_seconds: number
     plan_refresh_floor_seconds: number | null
+    plan_clamp: EndpointPlanClampApi | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -3567,6 +3557,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -4846,6 +4840,10 @@ export interface PreflightStatus {
     cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
+    /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
+    cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5327,6 +5325,8 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    /** Origin of `UPLOADED_MEDIA_PUBLIC_URL` when uploaded media is served from its own host. */
+    uploaded_media_origin?: string | null
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
@@ -5336,8 +5336,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6213,6 +6224,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6348,6 +6361,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set while a plan floor rewrite of the cadence stands. Single fetches only */
+    plan_clamp?: DataWarehouseSavedQueryApi['plan_clamp']
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6526,6 +6541,12 @@ export interface ExternalDataSource {
     /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
     webhook_not_registered?: boolean
     supports_column_selection?: boolean
+    /** Whether tables can be added by path, which object storage sources support. */
+    supports_adding_tables?: boolean
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
+    /** Where relative paths for a new table start, such as `my-bucket/exports/`. Null for other sources. */
+    table_root?: string | null
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     connection_warning?: string | null
@@ -6684,6 +6705,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
      *  wizard defaults it to `full_refresh` even though incremental or append is available. */
     prefers_full_refresh?: boolean
+    /** True when the source reads the table's key from the table's definition (e.g. a Custom source
+     *  manifest), so a table without `detected_primary_keys` has no key even though it lists no columns. */
+    declares_primary_keys?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -6721,6 +6745,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */
@@ -6751,6 +6776,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
@@ -6794,6 +6820,8 @@ export interface ExternalDataSchemaSourceSummary {
     api_version?: string | null
     /** Vendor API versions the source type supports — the schema override picker's options */
     supported_api_versions?: string[]
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

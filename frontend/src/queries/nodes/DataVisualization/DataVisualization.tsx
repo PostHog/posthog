@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconGear } from '@posthog/icons'
@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
+import { ChartAxisControls } from 'lib/charts/ChartAxisControls'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
@@ -36,7 +37,6 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
-import { BIChartAxisControls } from 'products/business_intelligence/frontend/BIChartAxisControls'
 import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
@@ -134,6 +134,7 @@ export function DataTableVisualization({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        captureQueryTelemetry: context?.dataTableCaptureQueryTelemetry,
         loadQueue: context?.loadQueue,
         key: vizKey,
         query,
@@ -152,6 +153,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        captureQueryTelemetry: context?.dataTableCaptureQueryTelemetry,
         loadQueue: context?.loadQueue,
         query: getBIVisualizationSource(query),
         retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
@@ -339,6 +341,13 @@ function DataTableVisualizationContent({
         presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
 
+    const onLoadingChange = props.context?.onLoadingChange
+    const loading = !responseError && (responseLoading || !response)
+    useEffect(() => {
+        onLoadingChange?.(loading)
+        return () => onLoadingChange?.(false)
+    }, [onLoadingChange, loading])
+
     const { isDarkModeOn } = useValues(themeLogic)
     const columnTypes = useMemo(() => new Map(columns.map((column) => [column.name, column.type.name])), [columns])
 
@@ -520,9 +529,9 @@ function DataTableVisualizationContent({
                 />
             </div>
         )
-    } else if (!response || responseLoading) {
+    } else if (!response || (responseLoading && !props.context?.externalLoadingIndicator)) {
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-        component = (
+        component = props.context?.externalLoadingIndicator ? null : (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
@@ -578,7 +587,8 @@ function DataTableVisualizationContent({
                         column,
                         columnTypes.get(column) ?? 'UNKNOWN',
                         record[column],
-                        isDarkModeOn
+                        isDarkModeOn,
+                        props.context?.dataTableCaptureQueryTelemetry !== false
                     )
                 }
             />
@@ -618,6 +628,7 @@ function DataTableVisualizationContent({
                 <SqlChart
                     className="p-3"
                     {...sqlChartData}
+                    chartInputFilters={props.context?.chartInputFilters}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}
@@ -651,7 +662,7 @@ function DataTableVisualizationContent({
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
                     {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
-                        <BIChartAxisControls onEdit={props.context.onEditBIAxis} />
+                        <ChartAxisControls onEdit={props.context.onEditBIAxis} />
                     )}
                 </SqlChart>
             </BindLogic>

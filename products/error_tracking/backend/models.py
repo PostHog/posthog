@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -570,6 +570,38 @@ class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
         db_table = "posthog_errortrackingseverityrule"
 
 
+def _issue_tag_rule_key() -> str:
+    return f"rule_{uuid4().hex}"
+
+
+class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
+    """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event, and to
+    another issue when the daily sweep finds a matching event of the past day."""
+
+    # The unique constraint leads with team, so it serves the per-team rules read without a separate team index.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+", db_index=False
+    )
+    key = models.CharField(max_length=64, default=_issue_tag_rule_key)
+    label = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default="")
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    # Stored on each answer as question_version, so an edit can tell old answers from new ones.
+    version = models.PositiveSmallIntegerField(default=1)
+    # The order of the rules in settings. A rule applies its own label, so the order never decides between rules.
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissuetagrule"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="et_issue_tag_rule_team_key_unique"),
+        ]
+
+
 # A custom grouping rule works as follows:
 # - Events are run against the filter code
 # - If an event matches, the fingerprint of the event is set as "custom-rule:<rule_id>"
@@ -946,6 +978,7 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    ai_issue_summaries_enabled = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
@@ -1232,6 +1265,7 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Manual"
+        RULE = "rule", "Rule"
         JEV = "jev", "Jev"
 
     # db_constraint=False keeps inserts lock-free on hot tables (posthog_team / posthog_user);

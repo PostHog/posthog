@@ -31,6 +31,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.workflow import ChildWorkflowCancellationType, ParentClosePolicy
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
@@ -54,8 +55,6 @@ from products.tasks.backend.temporal.process_task.activities import (
     GetSandboxForRepositoryOutput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryOutput,
-    SendPermissionDenialGuidanceInput,
-    SendPermissionResponseToSandboxInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     TaskProcessingContext,
@@ -71,15 +70,13 @@ from products.tasks.backend.temporal.process_task.activities import (
     invalidate_resume_snapshot,
     launch_agent_server,
     mark_repo_ready,
-    post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
 from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
@@ -103,7 +100,6 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
 from products.tasks.backend.temporal.process_task.workflow import (
     AGENT_LOST_ERROR_MESSAGE,
     PendingFollowup,
-    PendingPermissionResponse,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
@@ -725,14 +721,41 @@ class TestSandboxRotation:
         assert refresh_old in cancelled
         spawn_refresh.assert_called_once_with("sb-new")
 
-    async def test_successful_rotation_repoints_the_run_and_drops_the_old_sandbox(self, monkeypatch):
+    @pytest.mark.parametrize("maintain, patched", [(False, True), (True, True), (True, False)])
+    async def test_successful_rotation_repoints_the_run_and_drops_the_old_sandbox(self, monkeypatch, maintain, patched):
         wf = self._workflow(monkeypatch)
+        now = datetime(2030, 1, 1, tzinfo=UTC)
+        old_deadline = now + timedelta(minutes=5)
+        new_deadline = now + timedelta(hours=6)
+        wf._sandbox_ttl_expires_at = old_deadline
+        wf.context.agent_egress_enrollment_enabled = True
+        wf.context.agent_egress_maintain_for_run = maintain
+        wf.context.agent_egress_observation_config = "/run/egress/enrollment.json"
+        observed: list[AgentEgressProbeInput] = []
+        admitted = asyncio.Event()
+
+        async def child_workflow(_workflow: object, input: AgentEgressProbeInput, **kwargs: object) -> dict[int, int]:
+            assert cleanup.await_count == 1
+            observed.append(input)
+            admitted.set()
+            return {}
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: now)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: patched)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
         resume_flags_at_provision = {}
+        egress_at_provision: list[bool] = []
 
         async def provision_replacement():
             state = wf.context.state or {}
             resume_flags_at_provision["value"] = (state.get("same_run_resume"), state.get("same_run_resume_idle"))
+            egress_at_provision.append(wf.context.agent_egress_observation_config is not None)
+            wf._sandbox_ttl_expires_at = new_deadline
             return self._replacement()
 
         monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement)
@@ -756,6 +779,16 @@ class TestSandboxRotation:
         assert wf._sandbox_id_for_cleanup == "sb-new"
         assert resume_flags_at_provision["value"] == (True, True)
         cleanup.assert_awaited_once_with("sb-old", complete_stream=False)
+        assert egress_at_provision == [maintain and patched]
+        if maintain and patched:
+            await asyncio.wait_for(admitted.wait(), timeout=5)
+            assert len(observed) == 1
+            assert observed[0].sandbox_id == "sb-new"
+            assert observed[0].sandbox_expires_at == new_deadline.timestamp()
+            assert observed[0].enrollment is True
+        else:
+            assert wf._agent_egress_observation_task is None
+            assert observed == []
 
     async def test_the_replacement_is_built_from_the_snapshot_just_taken(self, monkeypatch):
         wf = self._workflow(monkeypatch)
@@ -920,9 +953,29 @@ class TestSandboxRotation:
         assert rotation.sandbox_id is None
         assert rotation.snapshot_saved is expected_saved
 
-    async def test_an_abandoned_rotation_puts_the_live_sandbox_back_on_the_clock_it_had(self, monkeypatch):
+    @pytest.mark.parametrize("routing_restored, run_completed", [(True, False), (False, False), (True, True)])
+    async def test_an_abandoned_rotation_puts_the_live_sandbox_back_on_the_clock_it_had(
+        self, monkeypatch, routing_restored, run_completed
+    ):
         wf = self._workflow(monkeypatch)
         old_deadline = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+        wf.context.agent_egress_enrollment_enabled = True
+        wf.context.agent_egress_maintain_for_run = True
+        wf.context.agent_egress_observation_config = "/run/egress/enrollment.json"
+        wf._task_completed = run_completed
+        requests: list[AgentEgressProbeInput] = []
+
+        async def child_workflow(_workflow: object, input: AgentEgressProbeInput, **kwargs: object) -> dict[int, int]:
+            requests.append(input)
+            return {}
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: old_deadline - timedelta(minutes=5))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         wf._sandbox_ttl_expires_at = old_deadline
         wf._sandbox_ttl_snapshot_taken = True
         monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
@@ -939,7 +992,7 @@ class TestSandboxRotation:
         monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
         monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
         monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
-        restore = AsyncMock(return_value=True)
+        restore = AsyncMock(return_value=routing_restored)
         monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
 
         await wf._rotate_sandbox_before_deadline("sb-old", None, None)
@@ -948,6 +1001,15 @@ class TestSandboxRotation:
         assert wf._sandbox_ttl_expires_at == old_deadline
         assert wf._sandbox_ttl_snapshot_taken is True
         restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
+        if routing_restored and not run_completed:
+            assert wf._agent_egress_observation_task is not None
+            await wf._agent_egress_observation_task
+            assert len(requests) == 1
+            assert requests[0].sandbox_id == "sb-old"
+            assert requests[0].sandbox_expires_at == old_deadline.timestamp()
+        else:
+            assert wf._agent_egress_observation_task is None
+            assert requests == []
 
     async def test_a_snapshot_that_did_not_happen_leaves_the_run_where_it_is(self, monkeypatch):
         wf = self._workflow(monkeypatch)
@@ -1992,19 +2054,122 @@ class TestProcessTaskWorkflowUnit:
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
-        cleanup_inputs: list[CleanupSandboxInput] = []
+    @pytest.mark.parametrize(
+        "enrollment, patched, remaining_seconds, timeout_seconds",
+        [
+            (True, True, 3600, 3660),
+            (True, True, -1, 60),
+            (True, True, None, 900),
+            (True, False, 3600, 900),
+            (False, True, 3600, 900),
+        ],
+    )
+    async def test_egress_child_deadline_matches_its_sandbox(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        enrollment: bool,
+        patched: bool,
+        remaining_seconds: int | None,
+        timeout_seconds: int,
+    ) -> None:
+        now = datetime(2030, 1, 1, tzinfo=UTC)
+        deadline = None if remaining_seconds is None else now + timedelta(seconds=remaining_seconds)
+        requests: list[tuple[AgentEgressProbeInput, timedelta]] = []
 
-        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
-            assert activity_fn is cleanup_sandbox
-            cleanup_inputs.append(activity_input)
+        async def child_workflow(workflow_fn: object, input: AgentEgressProbeInput, **kwargs: object) -> dict[int, int]:
+            timeout = kwargs["execution_timeout"]
+            assert isinstance(timeout, timedelta)
+            requests.append((input, timeout))
+            return {}
 
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger(__name__))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: now)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: patched)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
+        workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+        workflow._context.agent_egress_enrollment_enabled = enrollment
+        workflow._sandbox_ttl_expires_at = deadline
 
+        await workflow._observe_egress("sandbox-123")
+
+        assert requests == [
+            (
+                AgentEgressProbeInput(
+                    config_path="/run/egress/observation.json",
+                    team_id=1,
+                    run_id="run-id",
+                    sandbox_id="sandbox-123",
+                    enrollment=enrollment,
+                    sandbox_expires_at=deadline.timestamp()
+                    if deadline is not None and enrollment and patched
+                    else None,
+                ),
+                timedelta(seconds=timeout_seconds),
+            )
+        ]
+
+    @pytest.mark.parametrize("mode", ["disabled", "observation", "enrollment"])
+    @pytest.mark.parametrize("terminal_status", [None, "completed", "cancelled", "failed"])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(
+        self, monkeypatch, mode: str, terminal_status: str | None
+    ):
+        cleanup_inputs: list[CleanupSandboxInput] = []
+        events: list[str] = []
+        observing = asyncio.Event()
+
+        async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
+            assert input == AgentEgressProbeInput(
+                config_path="/run/egress/observation.json",
+                team_id=1,
+                run_id="run-id",
+                sandbox_id="sandbox-123",
+                enrollment=mode == "enrollment",
+            )
+            assert kwargs["cancellation_type"] == ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
+            assert kwargs["parent_close_policy"] == ParentClosePolicy.REQUEST_CANCEL
+            observing.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("revoke")
+
+        async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            if activity_fn is update_task_run_status:
+                assert mode == "disabled" or "revoke" in events
+                events.append("terminal")
+                return
+            assert activity_fn is cleanup_sandbox
+            cleanup_inputs.append(activity_input)
+            events.append("destroy")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        if mode != "disabled":
+            workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+            workflow._context.agent_egress_enrollment_enabled = mode == "enrollment"
+            workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
+            await asyncio.wait_for(observing.wait(), timeout=5)
+
+        if terminal_status:
+            await workflow._update_task_run_status(terminal_status)
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
+        assert events == (["revoke"] if mode != "disabled" else []) + (["terminal"] if terminal_status else []) + [
+            "destroy"
+        ]
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",
@@ -2078,183 +2243,6 @@ class TestProcessTaskWorkflowUnit:
             },
         )
         assert logger.info.call_count == 3
-
-    async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
-        logger = Mock()
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
-        workflow = ProcessTaskWorkflow()
-
-        await workflow.send_permission_response(
-            {
-                "request_id": "perm-1",
-                "option_id": "allow",
-                "actor_user_id": 42,
-                "actor_slack_user_id": "U123",
-                "broker_reason": "destructive_policy_auto_allow",
-            }
-        )
-
-        assert workflow._pending_permission_responses == [
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="allow",
-                actor_user_id=42,
-                actor_slack_user_id="U123",
-                broker_reason="destructive_policy_auto_allow",
-            )
-        ]
-        logger.info.assert_called_once_with(
-            "permission_response_signal_received",
-            extra={
-                "run_id": None,
-                "request_id": "perm-1",
-                "option_id": "allow",
-                "actor_user_id": 42,
-                "is_denial": False,
-            },
-        )
-
-    async def test_denial_schedules_guidance_before_permission_response(self, monkeypatch):
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[tuple[object, object]] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            activity_calls.append((activity_fn, activity_input))
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="reject",
-                actor_user_id=42,
-                actor_slack_user_id="U123",
-                is_denial=True,
-                denial_message="Please choose another path.",
-                broker_reason="slack_human_response",
-            )
-        )
-
-        assert [call[0] for call in activity_calls] == [
-            send_permission_denial_guidance,
-            send_permission_response_to_sandbox,
-        ]
-        assert activity_calls[0][1] == SendPermissionDenialGuidanceInput(
-            run_id="run-id",
-            request_id="perm-1",
-            actor_user_id=42,
-            denial_message="Please choose another path.",
-        )
-        assert activity_calls[1][1] == SendPermissionResponseToSandboxInput(
-            run_id="run-id",
-            request_id="perm-1",
-            option_id="reject",
-            actor_user_id=42,
-            actor_slack_user_id="U123",
-            is_denial=True,
-            broker_reason="slack_human_response",
-        )
-
-    async def test_denial_guidance_failure_still_delivers_permission_response(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            if activity_fn is send_permission_denial_guidance:
-                raise RuntimeError("sandbox unavailable")
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="reject",
-                actor_user_id=42,
-                is_denial=True,
-                denial_message="Please choose another path.",
-            )
-        )
-
-        assert activity_calls == [send_permission_denial_guidance, send_permission_response_to_sandbox]
-
-    async def test_approval_skips_denial_guidance_activity(self, monkeypatch):
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="allow",
-                actor_user_id=42,
-                broker_reason="slack_human_response",
-            )
-        )
-
-        assert activity_calls == [send_permission_response_to_sandbox]
-
-    async def test_delivery_failure_does_not_raise_and_posts_thread_notice(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        workflow._slack_thread_context = {"channel": "C1", "thread_ts": "1.0"}
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            if activity_fn is send_permission_response_to_sandbox:
-                raise RuntimeError("sandbox unavailable")
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42)
-        )
-
-        assert activity_calls == [send_permission_response_to_sandbox, post_permission_delivery_failure_notice]
-
-    async def test_pending_responses_are_drained_before_drainer_exits_on_completion(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=None))
-
-        async def fake_wait_condition(condition):
-            assert condition()
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
-
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        workflow._task_completed = True
-        workflow._pending_permission_responses = [
-            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42),
-            PendingPermissionResponse(request_id="perm-2", option_id="reject", actor_user_id=42),
-        ]
-        delivered: list[str] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            if activity_fn is send_permission_response_to_sandbox:
-                delivered.append(activity_input.request_id)
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._deliver_pending_permission_responses()
-
-        assert delivered == ["perm-1", "perm-2"]
-        assert workflow._pending_permission_responses == []
 
     @pytest.mark.parametrize(
         "state, expected",
@@ -3035,13 +3023,6 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
 
-        # run() awaits the permission-response drainer on the completion path; outside a
-        # Temporal event loop the real workflow.wait_condition raises immediately.
-        async def fake_wait_condition(condition):
-            while not condition():
-                await asyncio.sleep(0)
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("temporalio.workflow"))
 
         async def finish_spend(activity_fn, run_id, **kwargs):
@@ -3996,14 +3977,19 @@ class TestProcessTaskWorkflowUnit:
         assert mark_repo_ready not in calls
 
     @pytest.mark.parametrize(
-        "custom_image_name, expected_image_source, expected_image_source_label",
+        "custom_image_name, expected_image_source, expected_image_source_label, resume_error_type",
         [
-            (None, "base_image", "published sandbox base image"),
-            ("sandbox-custom-abc", "custom_image", "custom base image sandbox-custom-abc"),
+            (None, "base_image", "published sandbox base image", "SandboxNotRunningError"),
+            (
+                "sandbox-custom-abc",
+                "custom_image",
+                "custom base image sandbox-custom-abc",
+                "ResumeSnapshotCredentialScrubError",
+            ),
         ],
     )
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
-        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
+        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label, resume_error_type
     ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
@@ -4050,7 +4036,7 @@ class TestProcessTaskWorkflowUnit:
                 create_inputs.append(args[0])
                 return created_dead if len(create_inputs) == 1 else created_fresh
             if activity_fn is inject_fresh_tokens_on_resume:
-                raise ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+                raise ApplicationError("Resume could not safely reuse the sandbox.", type=resume_error_type)
             if activity_fn is invalidate_resume_snapshot:
                 invalidate_inputs.append(args[0])
                 return None
@@ -4484,6 +4470,7 @@ class TestContinueAsNew:
         wf._posthog_mcp_scopes = "full"
         wf._agent_memory_persist_enabled = True
         wf._agent_memory_last_actor_user_id = 99
+        wf.context.agent_egress_maintain_for_run = True
 
         resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
 
@@ -4494,6 +4481,7 @@ class TestContinueAsNew:
         assert rs is not None
         assert (rs.sandbox_id, rs.sandbox_url, rs.connect_token) == ("sb-1", "https://sandbox.example", "tok")
         assert rs.sandbox_backend == "hogland"
+        assert rs.agent_egress_maintain_for_run is True
 
         restored = ProcessTaskWorkflow()
         restored._context = dataclasses.replace(wf.context)
@@ -4550,12 +4538,6 @@ class TestContinueAsNew:
             (
                 "pending_followups",
                 lambda wf: wf._pending_followups.append(PendingFollowup(message="m", artifact_ids=[])),
-            ),
-            (
-                "pending_permission",
-                lambda wf: wf._pending_permission_responses.append(
-                    PendingPermissionResponse(request_id="r", option_id="o", actor_user_id=1)
-                ),
             ),
             ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
             ("client_activity_pending", lambda wf: setattr(wf, "_client_activity_received", True)),

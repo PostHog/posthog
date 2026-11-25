@@ -4,12 +4,14 @@ import { IconBolt, IconPlus, IconPlusSmall, IconX } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
+import { QuillDefaultEvaluationContexts } from './QuillDefaultEvaluationContexts'
 
 export function DefaultEvaluationContexts(): JSX.Element {
     const { contexts, isEnabled, canAddMoreContexts, newContextInput, defaultEvaluationContextsLoading, isAdding } =
@@ -20,6 +22,7 @@ export function DefaultEvaluationContexts(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleAddContext = (): void => {
         const trimmed = newContextInput.trim().toLowerCase()
@@ -35,6 +38,38 @@ export function DefaultEvaluationContexts(): JSX.Element {
             setIsAdding(false)
             setNewContextInput('')
         }
+    }
+
+    const handleCancelAdding = (): void => {
+        setIsAdding(false)
+        setNewContextInput('')
+    }
+
+    const handleRemoveContext = (name: string): void => {
+        if (!restrictedReason) {
+            removeContext(name)
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillDefaultEvaluationContexts
+                contexts={contexts}
+                isEnabled={isEnabled}
+                canAddMoreContexts={canAddMoreContexts}
+                newContextInput={newContextInput}
+                loading={defaultEvaluationContextsLoading}
+                isAdding={isAdding}
+                restrictedReason={restrictedReason}
+                onToggleEnabled={toggleEnabled}
+                onNewContextInputChange={setNewContextInput}
+                onKeyDown={handleKeyDown}
+                onAdd={handleAddContext}
+                onStartAdding={() => setIsAdding(true)}
+                onCancelAdding={handleCancelAdding}
+                onRemove={handleRemoveContext}
+            />
+        )
     }
 
     return (
@@ -59,11 +94,7 @@ export function DefaultEvaluationContexts(): JSX.Element {
                                 icon={<IconBolt />}
                                 closable
                                 disabledReason={restrictedReason}
-                                onClose={() => {
-                                    if (!restrictedReason) {
-                                        removeContext(ctx.name)
-                                    }
-                                }}
+                                onClose={() => handleRemoveContext(ctx.name)}
                             >
                                 {ctx.name}
                             </LemonTag>
@@ -91,10 +122,7 @@ export function DefaultEvaluationContexts(): JSX.Element {
                                 />
                                 <LemonButton
                                     size="small"
-                                    onClick={() => {
-                                        setIsAdding(false)
-                                        setNewContextInput('')
-                                    }}
+                                    onClick={handleCancelAdding}
                                     icon={<IconX />}
                                     disabledReason={restrictedReason}
                                 />

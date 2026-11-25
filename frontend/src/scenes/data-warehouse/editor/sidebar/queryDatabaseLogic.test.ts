@@ -829,7 +829,8 @@ describe('queryDatabaseLogic', () => {
         const logic = queryDatabaseLogic()
         logic.mount()
 
-        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        const loadingMetrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(loadingMetrics.children!.map((item) => item.type)).toEqual(Array(3).fill('loading-indicator'))
         await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
 
         const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!

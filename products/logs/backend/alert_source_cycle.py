@@ -686,22 +686,26 @@ def _as_configured_now(
     A copy whose logs alert is gone or disabled stops: the logs stack runs no check for it, so it
     switches itself off, and the next backfill turns it back on if the alert is enabled again.
 
-    A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
-    platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
-    a child environment has its logs there, and the query would read the project's instead.
-
-    An alert the platform created without a logs row is evaluated as stored. It is always on a
-    project, because a create refuses an environment.
+    An alert the platform owns is not a seed: every edit reaches it directly, from the logs API or the
+    platform's, so it is evaluated as stored, and its logs row is not read.
     """
-    legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
-    alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
+    seed_ids = [
+        check.legacy_configuration_id
+        for check in checks
+        if not check.owned_by_platform and check.legacy_configuration_id is not None
+    ]
+    alerts = (
+        {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=seed_ids)}
+        if seed_ids
+        else {}
+    )
     current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []
     for check in checks:
-        alert = alerts.get(check.legacy_configuration_id)
-        if check.owned_by_platform and (check.legacy_configuration_id is None or alert is not None):
+        if check.owned_by_platform:
             current.append(check)
             continue
+        alert = alerts.get(check.legacy_configuration_id)
         if alert is None or not alert.enabled:
             stopped.append(_stopped(check, now=now))
             continue

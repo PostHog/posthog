@@ -4,9 +4,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 export interface TraceCopyButtonProps {
     loading: boolean
     onCopy: () => void
+    disabledReason?: string
 }
 
-export function TraceCopyButton({ loading, onCopy }: TraceCopyButtonProps): JSX.Element {
+export function TraceCopyButton({ loading, onCopy, disabledReason }: TraceCopyButtonProps): JSX.Element {
     return (
         <LemonButton
             size="small"
@@ -14,6 +15,7 @@ export function TraceCopyButton({ loading, onCopy }: TraceCopyButtonProps): JSX.
             icon={<IconCopy />}
             loading={loading}
             onClick={onCopy}
+            disabledReason={disabledReason}
             tooltip="Copy this trace as JSON"
             data-attr="trace-view-copy"
         />

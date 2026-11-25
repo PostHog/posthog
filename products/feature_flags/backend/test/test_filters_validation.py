@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 from typing import Any
 
+from posthog.test.base import BaseTest
+
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -534,6 +537,8 @@ class TestReservedVariantKey(SimpleTestCase):
                 for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
             ),
             *((f"{key or 'empty'}_added_on_update", key, set(), ["control"]) for key in ("null", "")),
+            ("true_on_create", "true", set(), None),
+            ("false_added_on_update", "false", set(), ["control"]),
             *(
                 (f"{sentinel}_kept_on_update", sentinel, set(), ["control", sentinel])
                 for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
@@ -547,7 +552,12 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = _new_variant_serializer(key, stored_keys)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-        assert (key or "can't be empty") in str(serializer.errors["filters"][0])
+        expected = (
+            "Variant keys can't be empty. Enter a key for each variant."
+            if key == ""
+            else f'The variant key "{key}" is reserved. Choose another key.'
+        )
+        assert str(serializer.errors["filters"][0]) == expected
 
     @parameterized.expand(
         [
@@ -577,3 +587,116 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "structural.multivariate.variants[].key.invalid"
+
+
+class TestStringVariantKeyOnModelWrites(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "number",
+                {"multivariate": {"variants": [{"key": "control"}, {"key": 1}]}},
+                "multivariate.variants[1]",
+                "save",
+            ),
+            (
+                "missing",
+                {"multivariate": {"variants": [{"rollout_percentage": 100}]}},
+                "multivariate.variants[0]",
+                "save",
+            ),
+            ("bare_string_variant", {"multivariate": {"variants": ["control"]}}, "multivariate.variants[0]", "save"),
+            ("tuple_of_variants", {"multivariate": {"variants": ({"key": None},)}}, "multivariate.variants[0]", "save"),
+            (
+                "tuple_of_v2_rules",
+                {"version": 2, "rules": ({"variants": ({"key": 1},)},)},
+                "rules[0].variants[0]",
+                "save",
+            ),
+            (
+                "v2_experiment_rule",
+                {"version": 2, "rules": [{"variants": [{"key": "a"}]}, {"variants": [{"key": None}]}]},
+                "rules[1].variants[0]",
+                "save",
+            ),
+            ("clean", {"multivariate": {"variants": [{"key": True}]}}, "multivariate.variants[0]", "clean"),
+        ]
+    )
+    def test_non_string_variant_key_is_refused(self, _name: str, filters: Any, path: str, method: str) -> None:
+        flag = FeatureFlag(key="flag", filters=filters)
+        with self.assertRaises(ValidationError) as caught:
+            getattr(flag, method)()
+        assert caught.exception.message_dict == {"filters": [f"{path}.key must be a string."]}
+
+    def test_a_v1_flag_ignores_a_stray_rules_list(self) -> None:
+        FeatureFlag(key="flag", filters={"groups": [], "rules": [{"variants": [{"key": 1}]}]}).clean()
+
+
+KEYLESS_VARIANT = {"rollout_percentage": 50}
+
+
+class TestStringVariantKeyHeldByStoredFlag(BaseTest):
+    def _stored_flag(self, held_variant: dict[str, Any] = KEYLESS_VARIANT) -> FeatureFlag:
+        flag = FeatureFlag.objects.create(team=self.team, key="held")
+        FeatureFlag.objects.filter(pk=flag.pk).update(
+            filters={"multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}, held_variant]}}
+        )
+        flag.refresh_from_db()
+        return flag
+
+    def test_a_save_that_keeps_the_stored_variant_succeeds(self) -> None:
+        flag = self._stored_flag()
+        flag.active = False
+        flag.filters = {**flag.filters, "groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters["multivariate"]["variants"][1]) == (False, KEYLESS_VARIANT)
+
+    def test_restoring_a_soft_deleted_flag_that_holds_the_variant_succeeds(self) -> None:
+        flag = self._stored_flag()
+        FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(deleted=True)
+        flag.refresh_from_db()
+        flag.deleted = False
+        flag.save()
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.filters["multivariate"]["variants"][1]) == (False, KEYLESS_VARIANT)
+
+    def test_a_save_with_update_fields_as_an_iterator_writes_those_fields(self) -> None:
+        flag = self._stored_flag()
+        flag.active = False
+        flag.save(update_fields=iter(["active"]))
+        flag.refresh_from_db()
+        assert flag.active is False
+
+    @parameterized.expand(
+        [
+            ("new_number_key", KEYLESS_VARIANT, [KEYLESS_VARIANT, {"key": 5, "rollout_percentage": 0}], {}),
+            (
+                "new_number_key_filters_only_save",
+                KEYLESS_VARIANT,
+                [KEYLESS_VARIANT, {"key": 5, "rollout_percentage": 0}],
+                {"update_fields": ["filters"]},
+            ),
+            ("second_copy_of_the_held_variant", KEYLESS_VARIANT, [KEYLESS_VARIANT, KEYLESS_VARIANT], {}),
+            (
+                "boolean_for_a_held_number",
+                {"key": 1, "rollout_percentage": 50},
+                [{"key": True, "rollout_percentage": 50}],
+                {},
+            ),
+            (
+                "float_for_a_held_integer",
+                {"key": 1, "rollout_percentage": 50},
+                [{"key": 1.0, "rollout_percentage": 50}],
+                {},
+            ),
+        ]
+    )
+    def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(
+        self, _name: str, held_variant: dict[str, Any], written: list[dict[str, Any]], save_kwargs: dict[str, Any]
+    ) -> None:
+        flag = self._stored_flag(held_variant)
+        flag.filters["multivariate"]["variants"] = [{"key": "control", "rollout_percentage": 50}, *written]
+        with self.assertRaises(ValidationError) as caught:
+            flag.save(**save_kwargs)
+        refused = f"multivariate.variants[{len(written)}].key must be a string."
+        assert caught.exception.message_dict == {"filters": [refused]}

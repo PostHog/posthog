@@ -77,7 +77,7 @@ test.describe('Dashboards', () => {
             await insight.editName(updatedName)
             await expect(insight.topBarName).toContainText(updatedName)
             await expect(insight.saveButton).toBeEnabled()
-            await insight.save()
+            await insight.save({ returnsTo: dashboardUrl })
         })
 
         await test.step('navigate to dashboard and verify the updated insight', async () => {
@@ -240,7 +240,11 @@ test.describe('Dashboard compact cards and inline editing', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {

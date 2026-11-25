@@ -1,5 +1,10 @@
 [
   {
+    "temporal_workflow_type": "MonitorPRWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "MonitoringAssessmentWorkflow",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
@@ -58,11 +63,6 @@
     "temporal_workflow_type": "ai-observability-trace-summary",
     "product": "ai_observability",
     "task_queues": "LLMA_TASK_QUEUE"
-  },
-  {
-    "temporal_workflow_type": "ai-sync-vectors",
-    "product": "temporal/ai",
-    "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "alerts-platform-deliver",
@@ -320,11 +320,6 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "copy-recordings",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "count-all-playlists",
     "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
@@ -545,6 +540,11 @@
     "task_queues": "DUCKLAKE_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "ducklake-register.data-imports-landing-sweep",
+    "product": "managed_warehouse",
+    "task_queues": "DUCKLAKE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "dwh-cdp-producer-job",
     "product": "warehouse_sources",
     "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
@@ -590,12 +590,22 @@
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "entitlement-reactions",
+    "product": "temporal/entitlement_reactions",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-alert-delivery",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "error-tracking-built-in-filters-refresh",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-issue-change-cleanup",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
@@ -626,6 +636,11 @@
   },
   {
     "temporal_workflow_type": "error-tracking-symbol-set-cleanup",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-tag-rule-sweep",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
@@ -683,6 +698,11 @@
     "temporal_workflow_type": "export-asset",
     "product": "temporal/exports",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "export-recordings",
+    "product": "replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "external-data-job",
@@ -810,6 +830,11 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "knowledge-writer-pull-request",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "knowledge-writer-start-held-requests",
     "product": "knowledge_writer",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
@@ -923,6 +948,16 @@
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
     "product": "temporal/mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-wrapped-coordinator",
+    "product": "mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "messaging-provider-contacts-import",
+    "product": "messaging",
+    "task_queues": "MESSAGING_IMPORT_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "messaging-provider-import",
@@ -1060,6 +1095,11 @@
     "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "repair-entitlement-reactions",
+    "product": "temporal/entitlement_reactions",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "replay-count-metrics",
     "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
@@ -1195,11 +1235,6 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "run-tagger",
-    "product": "temporal/ai_observability",
-    "task_queues": "LLMA_EVALS_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "run-trace-evaluation",
     "product": "temporal/ai_observability",
     "task_queues": "LLMA_EVALS_TASK_QUEUE"
@@ -1286,6 +1321,11 @@
   },
   {
     "temporal_workflow_type": "signal-report-summary",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-spend-cleanup",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },

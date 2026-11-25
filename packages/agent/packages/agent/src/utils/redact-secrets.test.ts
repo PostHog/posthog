@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import {
   redactSecrets,
   SecretEventRedactor,
@@ -8,17 +9,55 @@ import { SECRET_HEADERS, TOKEN_RULES, type TokenRule } from "./secret-rules";
 
 const CHUNK_KINDS = ["agent_message_chunk", "agent_thought_chunk"];
 
-// A shaped rule (the JWT) matches a complete string only in its full shape.
+const SAMPLE_BODY = "AAAA1111AAAA1111";
+
+// A shaped rule matches a complete string only in its full shape.
 function sampleToken(rule: TokenRule): string {
-  return rule.shape ? `${rule.prefix}aaaa.1111` : `${rule.prefix}aaaa1111`;
+  return rule.shape
+    ? `${rule.prefix}aaaa.1111`
+    : `${rule.prefix}${SAMPLE_BODY}`;
 }
+
+const awsKeyBody = "B2".repeat(8);
+
+const awsCases: [string, string, string][] = [
+  ["bare ASIA", "ASIA", "ASIA"],
+  ["ASIAN MARKETS", "ASIAN MARKETS", "ASIAN MARKETS"],
+  ["ASIAPAC", "ASIAPAC", "ASIAPAC"],
+  ["ASIA_PACIFIC", "ASIA_PACIFIC", "ASIA_PACIFIC"],
+  ["ASIA in a sentence", "see ASIA today", "see ASIA today"],
+  ["AKIRA", "AKIRA Kurosawa", "AKIRA Kurosawa"],
+  ["bare AKIA", "AKIA", "AKIA"],
+  ...["AKIA", "ASIA"].flatMap((prefix): [string, string, string][] => {
+    const key = `${prefix}${awsKeyBody}`;
+    return [
+      [
+        `a ${prefix} key id mid-sentence`,
+        `use ${key} now`,
+        "use [REDACTED] now",
+      ],
+      [`a ${prefix} key id ending the stream`, `id ${key}`, "id [REDACTED]"],
+      [
+        `a ${prefix} key id followed by capitals`,
+        `${key}EXTRA`,
+        "[REDACTED]EXTRA",
+      ],
+      [
+        `a ${prefix} key id with a short body`,
+        `${key.slice(0, -1)} end`,
+        `${key.slice(0, -1)} end`,
+      ],
+      [`a ${prefix} key id inside a word`, `x${key}`, `x${key}`],
+    ];
+  }),
+];
 
 const chunkCases: [string, string, string, string][] = TOKEN_RULES.flatMap(
   (rule) =>
     CHUNK_KINDS.map((sessionUpdate): [string, string, string, string] => [
       rule.label,
       sessionUpdate,
-      `${rule.prefix}aaaa1111`,
+      `${rule.prefix}${SAMPLE_BODY}`,
       rule.prefix,
     ]),
 );
@@ -91,7 +130,7 @@ describe("redactSecrets", () => {
             })
             .join("");
           expect(result).toBe(text.replaceAll(token, "[REDACTED]"));
-          expect(JSON.stringify(events)).not.toContain("aaaa1111");
+          expect(JSON.stringify(events)).not.toContain(SAMPLE_BODY);
         }
       }
     },
@@ -180,6 +219,159 @@ describe("redactSecrets", () => {
     expect(streamText(["see alpha_blend here"])).toBe("see alpha_blend here");
   });
 
+  it.each([
+    ["gho_", 36],
+    ["ghu_", 36],
+    ["ghr_", 36],
+    ["sk-proj-", 48],
+    ["AKIA", 16],
+    ["ASIA", 16],
+    ["xoxb-", 30],
+    ["xoxp-", 30],
+    ["xoxa-", 30],
+    ["xoxr-", 30],
+    ["xoxs-", 30],
+    ["xoxe-1-", 30],
+    ["glpat-", 20],
+  ])(
+    "redacts a %s token whole and at every chunk split, not inside a word",
+    (prefix, length) => {
+      const token = prefix + "A".repeat(length);
+      const text = `KEY=${token} end`;
+      expect(redactSecrets(text)).toBe("KEY=[REDACTED] end");
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+          "KEY=[REDACTED] end",
+        );
+      }
+      expect(redactSecrets(`x${token}`)).toBe(`x${token}`);
+    },
+  );
+
+  it.each([
+    ["a github oauth token", "ghost_story and gho"],
+    ["a github user-to-server token", "ghulam_khan and ghu"],
+    ["a github refresh token", "ghrelin_level and ghr"],
+    ["an openai project api key", "sk-projects-list and sk-pro"],
+    ["an aws access key id", "AKIRA Kurosawa and AKI"],
+    ["an aws temporary access key id", "ASIAN markets and ASI"],
+    ["a slack bot token", "xoxo-hugs and xoxb"],
+    ["a slack user token", "xoxo-hugs and xoxp"],
+    ["a slack legacy workspace token", "xoxo-hugs and xoxa"],
+    ["a slack refresh token", "xoxo-hugs and xoxr"],
+    ["a slack legacy session token", "xoxo-hugs and xoxs"],
+    ["a slack rotation refresh token", "xoxo-hugs and xoxe"],
+    ["a gitlab personal access token", "glpa-style and glpat"],
+  ])("keeps a lookalike of %s intact at every chunk split", (_label, text) => {
+    expect(redactSecrets(text)).toBe(text);
+    for (let cut = 1; cut < text.length; cut++) {
+      expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(text);
+    }
+  });
+
+  it.each(["xoxp-", "xoxb-"])(
+    "redacts the secret part of a rotated slack %s access token",
+    (prefix) => {
+      const text = `KEY=xoxe.${prefix}1-${"A".repeat(30)} end`;
+      expect(redactSecrets(text)).toBe("KEY=xoxe.[REDACTED] end");
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+          "KEY=xoxe.[REDACTED] end",
+        );
+      }
+    },
+  );
+
+  it.each(awsCases)(
+    "treats %s the same whole and streamed",
+    (_label, input, expected) => {
+      expect(redactSecrets(input)).toBe(expected);
+      expect(streamText([input])).toBe(expected);
+      for (let cut = 1; cut < input.length; cut++) {
+        expect(streamText([input.slice(0, cut), input.slice(cut)])).toBe(
+          expected,
+        );
+      }
+    },
+  );
+
+  it.each([
+    ["an AKIA key id", "", `id AKIA${awsKeyBody} end`, "id [REDACTED] end"],
+    ["an ASIA key id", "", `id ASIA${awsKeyBody} end`, "id [REDACTED] end"],
+    [
+      "a key id that ends like the GitLab credential starts",
+      `2${"a".repeat(63)}`,
+      `id ASIA${awsKeyBody}`,
+      "id [REDACTED]",
+    ],
+    [
+      "a token prefix that ends like the GitLab credential starts",
+      `_${"a".repeat(19)}`,
+      `id ghp_${SAMPLE_BODY} end`,
+      "id [REDACTED] end",
+    ],
+  ])(
+    "redacts %s split over three chunks",
+    (_label, gitlabToken, text, expected) => {
+      vi.stubEnv("GITLAB_TOKEN", gitlabToken);
+      try {
+        for (let first = 1; first < text.length; first++) {
+          for (let second = first + 1; second < text.length; second++) {
+            expect(
+              streamText([
+                text.slice(0, first),
+                text.slice(first, second),
+                text.slice(second),
+              ]),
+            ).toBe(expected);
+          }
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it.each([
+    ["a token", `tok ghp_${SAMPLE_BODY} end`, "tok [REDACTED] end"],
+    ["a key id", `id AKIA${awsKeyBody} end`, "id [REDACTED] end"],
+  ])(
+    "redacts %s split by a log line at every point",
+    (_label, text, expected) => {
+      const logLine = {
+        event: {
+          type: "notification",
+          notification: {
+            method: POSTHOG_NOTIFICATIONS.CONSOLE,
+            params: { level: "debug", message: "tick" },
+          },
+        },
+      };
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), logLine, text.slice(cut)])).toBe(
+          expected,
+        );
+      }
+    },
+  );
+
+  it("keeps the text that follows a token and a tool call", () => {
+    const toolCall = {
+      event: {
+        type: "notification",
+        notification: {
+          method: "session/update",
+          params: {
+            update: { sessionUpdate: "tool_call", toolCallId: "call" },
+          },
+        },
+      },
+    };
+    expect(streamText([`tok ghp_${SAMPLE_BODY}`, toolCall, "Done"])).toBe(
+      "tok [REDACTED]Done",
+    );
+  });
+
   it("keeps a prefix-bearing word intact across every chunk split", () => {
     const text = "see alpha_blend graphe_x here";
     for (let cut = 1; cut < text.length; cut++) {
@@ -191,18 +383,18 @@ describe("redactSecrets", () => {
     "redacts an escaped %s token split at every point",
     (prefix) => {
       for (const text of [
-        `x%3D${prefix}aaaa1111 end`,
-        `x\\n${prefix}aaaa1111 end`,
-        `x\u001b[1;32m${prefix}aaaa1111 end`,
-        `x\\u001b[32m${prefix}aaaa1111 end`,
-        `x\\u00e9${prefix}aaaa1111 end`,
-        `x\\xe9${prefix}aaaa1111 end`,
-        `x\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
-        `x\\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
+        `x%3D${prefix}${SAMPLE_BODY} end`,
+        `x\\n${prefix}${SAMPLE_BODY} end`,
+        `x\u001b[1;32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u001b[32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u00e9${prefix}${SAMPLE_BODY} end`,
+        `x\\xe9${prefix}${SAMPLE_BODY} end`,
+        `x\u001b[${"1;".repeat(40)}32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u001b[${"1;".repeat(40)}32m${prefix}${SAMPLE_BODY} end`,
       ]) {
         for (let cut = 1; cut < text.length; cut++) {
           const out = streamText([text.slice(0, cut), text.slice(cut)]);
-          expect(out).not.toContain("aaaa1111");
+          expect(out).not.toContain(SAMPLE_BODY);
         }
       }
     },
@@ -210,8 +402,8 @@ describe("redactSecrets", () => {
 
   it("keeps a long colour code's opener when a partial prefix is held", () => {
     const colour = `\u001b[${"1;".repeat(40)}32m`;
-    const out = streamText(["x p", `${colour}ph`, "a_aaaa1111 end"]);
-    expect(out).not.toContain("aaaa1111");
+    const out = streamText(["x p", `${colour}ph`, `a_${SAMPLE_BODY} end`]);
+    expect(out).not.toContain(SAMPLE_BODY);
   });
 
   it("keeps the word check across a held prefix released with new text", () => {
@@ -304,35 +496,41 @@ describe("redactSecrets", () => {
   });
 });
 
-type StreamPart = string | { kind: string; text: string };
+type StreamPart =
+  | string
+  | { kind: string; text: string }
+  | { event: Record<string, unknown> };
 
-function streamText(parts: StreamPart[]): string {
-  const redactor = new SecretEventRedactor();
-  const events = parts.flatMap((part) =>
-    redactor.redact({
-      type: "notification",
-      notification: {
-        method: "session/update",
-        params: {
-          update: {
-            sessionUpdate:
-              typeof part === "string" ? "agent_message_chunk" : part.kind,
-            content: {
-              type: "text",
-              text: typeof part === "string" ? part : part.text,
-            },
+function streamEvent(part: StreamPart): Record<string, unknown> {
+  if (typeof part === "object" && "event" in part) return part.event;
+  return {
+    type: "notification",
+    notification: {
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate:
+            typeof part === "string" ? "agent_message_chunk" : part.kind,
+          content: {
+            type: "text",
+            text: typeof part === "string" ? part : part.text,
           },
         },
       },
-    }),
-  );
+    },
+  };
+}
+
+function streamText(parts: StreamPart[]): string {
+  const redactor = new SecretEventRedactor();
+  const events = parts.flatMap((part) => redactor.redact(streamEvent(part)));
   events.push(...redactor.redact({ type: "done" }));
   return events
     .map((event) => {
       const notification = event.notification as
-        | { params: { update: { content: { text: string } } } }
+        | { params?: { update?: { content?: { text?: string } } } }
         | undefined;
-      return notification?.params.update.content.text ?? "";
+      return notification?.params?.update?.content?.text ?? "";
     })
     .join("");
 }

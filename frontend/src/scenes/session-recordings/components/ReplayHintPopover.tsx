@@ -46,7 +46,11 @@ export function ReplayHintPopover({
                 container={container ?? undefined}
                 initialFocus={false}
                 finalFocus={false}
-                className={cn(compact ? 'w-56 flex-row items-start gap-1 p-2 text-xs' : 'w-72 gap-2 text-sm')}
+                // Base UI flags the positioner when the anchor is scrolled out of view.
+                className={cn(
+                    '[[data-anchor-hidden]_&]:invisible',
+                    compact ? 'w-56 flex-row items-start gap-1 p-2 text-xs' : 'w-72 gap-2 text-sm'
+                )}
                 data-attr={dataAttr}
             >
                 <div className="flex-1">{children}</div>

@@ -1,7 +1,7 @@
 /**
- * The text badge a sidebar row shows after its name. Saved views and materialized views have none: their
- * icon carries the kind, and a badge would take space from the name. Rows nested under a table are the
- * exception, because they have no kind icon.
+ * The text badge a sidebar row shows after its name. Saved views, materialized views and materialized
+ * endpoints have none: their icon carries the kind, and a badge would take space from the name. Rows
+ * nested under a table are the exception, because they have no kind icon.
  */
 export function getTableKindLabel(record: Record<string, any> | undefined): string | null {
     if (!record) {
@@ -18,7 +18,7 @@ export function getTableKindLabel(record: Record<string, any> | undefined): stri
         case 'managed-view':
             return 'managed view'
         case 'endpoint':
-            return 'materialized endpoint'
+            return record.type === 'endpoint' ? null : 'materialized endpoint'
         case 'view':
         case 'view-table':
             return record.type === 'view-table' ? 'view' : null

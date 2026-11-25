@@ -1,4 +1,4 @@
-"""How much the knowledge base is used, read from the citations support agent runs record."""
+"""How much the knowledge base is used: the billable meters, and the citations support agent runs record."""
 
 import datetime
 from collections.abc import Sequence
@@ -12,7 +12,8 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from .models import KnowledgeRunCitation, KnowledgeSource
+from . import billing
+from .models import KnowledgeRunCitation, KnowledgeSource, KnowledgeUsageKey
 
 USAGE_DEFAULT_DAYS = 30
 USAGE_MAX_DAYS = 90
@@ -20,9 +21,17 @@ USAGE_TOP_SOURCES = 10
 
 
 @frozen
-class DailyCitedRuns:
+class DailyUsage:
     date: datetime.date
     cited_run_count: int
+    chunks_ingested: int
+    query_count: int
+
+
+@frozen
+class SurfaceUsage:
+    surface: str
+    total: int
 
 
 @frozen
@@ -41,7 +50,11 @@ class KnowledgeUsage:
     learned_cited_run_count: int
     source_count: int
     cited_source_count: int
-    daily: list[DailyCitedRuns]
+    chunks_ingested: int
+    query_count: int
+    chunks_by_surface: list[SurfaceUsage]
+    queries_by_surface: list[SurfaceUsage]
+    daily: list[DailyUsage]
     top_sources: list[SourceUsage]
 
 
@@ -70,6 +83,9 @@ def _knowledge_usage(team_id: int, *, days: int) -> KnowledgeUsage:
         .annotate(runs=Count("run_id", distinct=True), last_cited_at=Max("created_at"))
         .order_by("-runs", "-last_cited_at", "source_id")[:USAGE_TOP_SOURCES]
     )
+    meters = billing.usage_for_team(team_id, since)
+    chunks = meters[KnowledgeUsageKey.CHUNKS]
+    queries = meters[KnowledgeUsageKey.QUERIES]
     top_sources_by_id = {
         source.id: source
         for source in sources.filter(id__in=[row["source_id"] for row in top]).only("id", "name", "is_generated")
@@ -83,8 +99,17 @@ def _knowledge_usage(team_id: int, *, days: int) -> KnowledgeUsage:
         ),
         source_count=sources.count(),
         cited_source_count=citations.values("source_id").distinct().count(),
+        chunks_ingested=chunks.total,
+        query_count=queries.total,
+        chunks_by_surface=[SurfaceUsage(surface=surface, total=total) for surface, total in chunks.by_surface],
+        queries_by_surface=[SurfaceUsage(surface=surface, total=total) for surface, total in queries.by_surface],
         daily=[
-            DailyCitedRuns(date=day, cited_run_count=runs_by_day.get(day, 0))
+            DailyUsage(
+                date=day,
+                cited_run_count=runs_by_day.get(day, 0),
+                chunks_ingested=chunks.by_day.get(day, 0),
+                query_count=queries.by_day.get(day, 0),
+            )
             for day in (first_day + datetime.timedelta(days=offset) for offset in range(days))
         ],
         top_sources=[

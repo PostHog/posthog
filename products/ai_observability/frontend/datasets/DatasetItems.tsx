@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { UserBasicType } from '~/types'
 
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { useTraceDrawerTable } from '../redesign/trace/TraceDrawerRowsHost'
@@ -151,10 +152,14 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             title: 'Created by',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
-                const { created_by } = item
+                const { created_by, created_by_project_key_id } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
+                        {created_by ? (
+                            <ProfilePicture user={created_by as UserBasicType} size="md" showName />
+                        ) : (
+                            created_by_project_key_id && <ProjectKeyLabel id={created_by_project_key_id} />
+                        )}
                     </div>
                 )
             },

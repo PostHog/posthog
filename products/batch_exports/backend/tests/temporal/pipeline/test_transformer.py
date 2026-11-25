@@ -12,6 +12,7 @@ import pytest
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from structlog.testing import capture_logs
 
 from products.batch_exports.backend.temporal.pipeline.table import (
     Field,
@@ -152,6 +153,22 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert "_inserted_at" not in row
         expected_row = [str(v) for k, v in TEST_RECORDS[index].items() if k != "_inserted_at"]
         assert row == expected_row
+
+
+def test_csv_stream_transformer_distinguishes_single_column_null_from_empty_string() -> None:
+    transformer = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_STRINGS, single_null_as_blank_line=True)
+    batch = pa.record_batch({"value": ["first", None, ""]})
+
+    assert transformer.write_record_batch(batch) == b'"first"\n\n""\n'
+
+
+def test_csv_stream_transformer_single_null_as_blank_line_is_opt_in() -> None:
+    batch = pa.record_batch({"value": [None]})
+    default = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_MINIMAL)
+    opted_in = CSVStreamTransformer(field_names=["value"], quoting=csv.QUOTE_MINIMAL, single_null_as_blank_line=True)
+
+    assert default.write_record_batch(batch) == b'""\n'
+    assert opted_in.write_record_batch(batch) == b"\n"
 
 
 async def iterate_record_batches(
@@ -448,6 +465,27 @@ async def test_schema_transformer(
     assert len(transformed_record_batches) == 1
     assert transformed_record_batches[0][record_batch[0]._name].type == target_type  # type: ignore[attr-defined]
     assert transformed_record_batches[0].to_pylist() == expected_pylist
+
+
+async def test_schema_transformer_warns_once_per_distinct_issue() -> None:
+    field = FakeField("quantity", pa.binary())
+    field.alias = "units"
+    table = Table("inventory", [field])
+
+    async def batches() -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        for value, extra in [(3, "label"), (5, "label"), ("seven", "note")]:
+            yield pa.RecordBatch.from_pylist([{"units": value, extra: ""}])
+
+    with capture_logs() as logs:
+        result = [batch.to_pylist() async for batch in SchemaTransformer(table).iter(batches())]
+
+    assert result == [[{"quantity": 3}], [{"quantity": 5}], [{"quantity": "seven"}]]
+    assert [log["alias"] for log in logs if log["event"] == "Field aliased"] == ["units"]
+    assert [log["name"] for log in logs if log["event"] == "Field missing in target"] == ["label", "note"]
+    assert [log["source_type"] for log in logs if log["event"] == "Detected incompatible types"] == [
+        pa.int64(),
+        pa.string(),
+    ]
 
 
 @pytest.mark.parametrize(

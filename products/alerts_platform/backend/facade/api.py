@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -24,9 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
-    HandbackRefusal,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
+    LegacyAlertHistory,
+    LegacyHistoryCopyRun,
+    LegacyRowSwitchOffRun,
     NativeConfigurationMatch,
     NewAlertDestination,
     OwnedCopyKey,
@@ -46,7 +48,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckPage,
     PlatformControlChangePage,
     PlatformControlHistory,
-    PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceDestination,
@@ -70,6 +71,8 @@ from products.alerts_platform.backend.logic import (
     delivery_holds,
     destination_handoff,
     destination_sends,
+    legacy_history_copy,
+    legacy_row_switch_off,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -168,14 +171,12 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
-    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
-    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -186,18 +187,6 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     return platform_lifecycle.take_ownership(handover)
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it."""
-    return platform_lifecycle.give_back_ownership(
-        team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
-        at=at,
-        source_runs_calendar_schedules=source_runs_calendar_schedules,
-    )
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
@@ -223,10 +212,12 @@ def list_configurations(
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
+    held_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
-    With `created_by_uuid`, only the ones that user created."""
+    With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
+    settings the platform holds: those with no source row, and the copies it owns."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -235,6 +226,7 @@ def list_configurations(
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
         created_by_uuid=created_by_uuid,
+        held_only=held_only,
     )
 
 
@@ -274,6 +266,27 @@ def owned_copies(
     shows such an alert's settings from its copy. Each view carries no instances."""
     return platform_reads.owned_copies(
         team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
+def rows_with_counted_copies(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    legacy_configuration_ids: Collection[UUID],
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> frozenset[UUID]:
+    """Which of these source rows have a copy the platform owns that `count_configurations(held_only=True)`
+    with the same filters counts. A source that adds its own rows to that count drops these rows, so an
+    alert whose row says the source owns it and whose copy says the platform does counts once. Such a
+    row still counts when its copy does not match the filters."""
+    return platform_reads.rows_with_counted_copies(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        legacy_configuration_ids=legacy_configuration_ids,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
     )
 
 
@@ -400,26 +413,28 @@ def count_configurations(
     *,
     team_id: int,
     source_kind: SourceKind,
-    native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
+    held_only: bool = False,
 ) -> int:
     """How many alerts of a kind a team has on the platform. For a source's admission. With
-    `exclude_id`, the alert an edit is checked for is left out.
+    `exclude_id`, the alert an edit is checked for is left out. With `held_only`, only the ones whose
+    settings the platform holds: those with no source row, and the copies it owns.
 
-    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
-    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    A source that keeps rows counts the rows it owns and adds `held_only`. That counts a moved alert
+    once, from its copy, also after its row is deleted. A copy its row owns stands for that row, and a
+    copy left by a delete from before copies went with their row counts nothing.
     """
     return platform_reads.count_configurations(
         team_id=team_id,
         source_kind=source_kind.value,
-        native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
         exclude_id=exclude_id,
         source_config_contains=source_config_contains,
+        held_only=held_only,
     )
 
 
@@ -511,14 +526,17 @@ def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> di
 
 
 def notable_checks_by_public_id(
-    *, team_id: int, public_id: UUID, since: datetime, limit: int
+    *, team_id: int, public_id: UUID, since: datetime, limit: int, copies_before: bool = False
 ) -> PlatformCheckEventPage | None:
     """The newest `limit` checks since `since` that moved a named alert's state or failed, with
-    their total, or None when the platform does not own the alert.
+    their total, or None when the platform does not own the alert. With `copies_before`, the checks
+    copied from the source's own history are read from before `since` too.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
+    return platform_reads.notable_checks_by_public_id(
+        team_id=team_id, public_id=public_id, since=since, limit=limit, copies_before=copies_before
+    )
 
 
 def control_changes_by_public_id(
@@ -549,6 +567,45 @@ def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit
     """A configuration's notable checks across every group and its control-plane changes since `since`,
     each newest first. Raises when ClickHouse fails."""
     return platform_reads.alert_events(team_id=team_id, configuration_id=configuration_id, since=since, limit=limit)
+
+
+def copy_legacy_histories(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    alert_ids: Callable[[int], Iterable[UUID]],
+    legacy_history: Callable[[int, UUID], LegacyAlertHistory],
+    apply: bool,
+) -> LegacyHistoryCopyRun:
+    """Copies a source's own history of each alert `alert_ids` names into the platform's history,
+    skipping what an earlier run copied and what the platform recorded itself. Writes nothing unless
+    `apply`. Every team with a copy of the source's alerts when `team_ids` is None."""
+    return legacy_history_copy.copy_team_histories(
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        alert_ids=alert_ids,
+        legacy_history=legacy_history,
+        apply=apply,
+    )
+
+
+def switch_off_legacy_rows(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    switch_off: Callable[[int, Sequence[UUID], bool], int],
+    batch_size: int,
+    apply: bool,
+) -> LegacyRowSwitchOffRun:
+    """Hands `switch_off` each team's platform-owned alerts of the source, `batch_size` source row ids at
+    a time, for it to switch off the rows that are on. Writes nothing unless `apply`. Every team with a
+    copy of the source's alerts when `team_ids` is None."""
+    return legacy_row_switch_off.switch_off_team_rows(
+        source_kind=source_kind.value,
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        switch_off=switch_off,
+        batch_size=batch_size,
+        apply=apply,
+    )
 
 
 def control_history_by_public_id(
@@ -674,12 +731,14 @@ def update_owned_copy(
     rescheduled: bool = False,
     at: datetime | None = None,
     first_enabled_at: datetime | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
     next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
     it wrote any history row of its own, so the platform's row of the same change is no later.
     `first_enabled_at` is when the source row was first turned on, which the copy takes.
+    `created_by_id` is the row's creator, which the copy's checks run as.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -693,6 +752,7 @@ def update_owned_copy(
         rescheduled=rescheduled,
         at=at,
         first_enabled_at=first_enabled_at,
+        created_by_id=created_by_id,
     )
 
 
@@ -814,11 +874,13 @@ def record_source_destination(
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
     keeps_legacy_webhook_body: bool = False,
+    only_while_platform_owned: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
     None when the platform has no alert under `public_id`. With `keeps_legacy_webhook_body`, a webhook row
-    sends its source's legacy body whatever the team's webhook body flags say."""
+    sends its source's legacy body whatever the team's webhook body flags say. With `only_while_platform_owned`,
+    also None unless the platform evaluates the alert, checked under the lock a handback takes."""
     return alert_destinations.record_source_destination(
         team_id=team_id,
         public_id=public_id,
@@ -828,7 +890,15 @@ def record_source_destination(
         hog_function_groups=hog_function_groups,
         enabled=enabled,
         keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+        only_while_platform_owned=only_while_platform_owned,
     )
+
+
+def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, int]:
+    """How many enabled destination rows of each alert no live HogFunction stands behind, by public id,
+    leaving out subscribers. A source adds its live HogFunction destinations to count each destination once.
+    An alert with none is missing from the result."""
+    return alert_destinations.standalone_destination_counts(team_id=team_id, public_ids=public_ids)
 
 
 def list_source_destinations(
@@ -923,11 +993,11 @@ def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
     return alert_destinations.has_firing_instance(team_id=team_id, public_id=public_id)
 
 
-def take_source_destination_row(
+def lock_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:
-    """Deletes one of the alert's rows and returns what it held. None when another request took it first."""
-    return alert_destinations.take_source_destination_row(
+    """One of the alert's rows, locked in the caller's transaction. None when it is gone or not the alert's."""
+    return alert_destinations.lock_source_destination_row(
         team_id=team_id, public_id=public_id, destination_id=destination_id
     )
 
@@ -942,8 +1012,9 @@ def restore_source_destination(
     retired_hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> StoredAlertDestination:
-    """Adds the row that sends a destination's standard message once the caller has retired its
-    HogFunctions. Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    """Makes the destination's row send its standard message once the caller has retired its HogFunctions,
+    keeping the row's id, or adds a row when it has none. Raises `AlertDestinationValidationError` when the
+    platform does not evaluate the alert."""
     return alert_destinations.restore_source_destination(
         team_id=team_id,
         public_id=public_id,
@@ -952,6 +1023,32 @@ def restore_source_destination(
         enabled=enabled,
         retired_hog_function_ids=retired_hog_function_ids,
         hog_function_groups=hog_function_groups,
+    )
+
+
+def refresh_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool,
+    keeps_legacy_webhook_body: bool,
+) -> StoredAlertDestination | None:
+    """Rewrites the one row that copies `hog_function_ids` from their live settings, keeping its id, in the
+    caller's transaction. None when no row or more than one row copies them. Raises
+    `AlertDestinationValidationError` when the alert already sends there through another destination."""
+    return alert_destinations.refresh_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        hog_function_ids=hog_function_ids,
+        hog_function_groups=hog_function_groups,
+        enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
     )
 
 

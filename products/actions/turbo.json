@@ -10,7 +10,11 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/apps.py",
-                "backend/activity_logging.py"
+                "backend/activity_log_config.py",
+                "backend/activity_logging.py",
+                "backend/logic/actions.py",
+                "backend/logic/details.py",
+                "backend/logic/saved_handlers.py"
             ],
             "outputs": [],
             "cache": true

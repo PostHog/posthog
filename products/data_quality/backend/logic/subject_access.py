@@ -21,6 +21,8 @@ from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
+from opentelemetry import trace
+
 from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
 from posthog.hogql.database.schema.system import SystemTables
@@ -28,6 +30,7 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_catalog.backend.facade.contracts import MetricSummary
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -36,8 +39,10 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
 from . import posthog_tables
+from .access import can_access, can_edit_organization
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
+from .errors import CheckConfigError
 from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
@@ -47,6 +52,8 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+tracer = trace.get_tracer(__name__)
 
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
@@ -75,7 +82,7 @@ def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> 
     """
     return (
         user_access_control is not None
-        and not user_access_control.is_organization_admin
+        and not can_edit_organization(user_access_control)
         and user_access_control.access_controls_supported
     )
 
@@ -161,9 +168,11 @@ class DenialContext:
     database: DeferredDatabase
     metadata: "SubjectMetadata"
     matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
+    readable_names: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
+        object.__setattr__(self, "readable_names", _readable_subject_names(self.readable, self.metadata))
 
 
 @frozen
@@ -254,7 +263,7 @@ def reference_gate(
 def readable_posthog_table_ids(
     user_access_control: "UserAccessControl", matcher: DeniedTableMatcher
 ) -> frozenset[UUID]:
-    if not user_access_control.check_access_level_for_resource(posthog_tables.RESOURCE, "viewer"):
+    if not can_access(user_access_control, ResourceType(posthog_tables.RESOURCE), Action.VIEW):
         return frozenset()
     return frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name]))
 
@@ -266,6 +275,7 @@ class SubjectMetadata:
     table_names: dict[UUID, str]
     table_keys: dict[UUID, str]
     view_names: dict[UUID, str]
+    hogql_referenceable_view_ids: frozenset[UUID]
     metrics: tuple[MetricSummary, ...]
 
 
@@ -279,8 +289,24 @@ def subject_metadata(team_id: int) -> SubjectMetadata:
         view_names={
             UUID(view_id): name for view_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
         },
+        hogql_referenceable_view_ids=data_modeling_facade.hogql_referenceable_saved_query_ids(team_id),
         metrics=tuple(data_catalog_facade.live_metric_summaries(team_id)),
     )
+
+
+def _readable_subject_names(readable: ReadableSubjects, metadata: SubjectMetadata) -> frozenset[str]:
+    table_names = {
+        spelling
+        for table_id in readable.table_ids
+        if (name := metadata.table_names.get(table_id)) is not None
+        for spelling in (name, metadata.table_keys.get(table_id, name))
+    }
+    view_names = {
+        name
+        for view_id in readable.view_ids & metadata.hogql_referenceable_view_ids
+        if (name := metadata.view_names.get(view_id)) is not None
+    }
+    return frozenset(table_names | view_names)
 
 
 def readable_subjects(
@@ -343,7 +369,7 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
     metadata = metadata if metadata is not None else subject_metadata(team_id)
     access = database.user_access_control
     denied = set(database._denied_tables) | unreachable_subject_names(team_id, access, metadata)
-    can_read_catalog = access is not None and access.check_access_level_for_resource("data_catalog", "viewer")
+    can_read_catalog = access is not None and can_access(access, ResourceType.DATA_CATALOG, Action.VIEW)
     return DenialContext(
         readable=readable_subjects(
             team_id,
@@ -357,6 +383,7 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
     )
 
 
+@tracer.start_as_current_span("data_quality.caller_denial_context")
 def caller_denial_context(
     team: "Team",
     user: "User",
@@ -377,7 +404,7 @@ def caller_denial_context(
         readable = readable_subjects(
             team.id,
             denied,
-            can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+            can_read_catalog=can_access(user_access_control, ResourceType.DATA_CATALOG, Action.VIEW),
             metadata=metadata,
         )
     except Exception as err:
@@ -516,6 +543,7 @@ def readable_check_subjects(
     )
 
 
+@tracer.start_as_current_span("data_quality.visible_check_queryset")
 def visible_check_queryset(
     team_id: int, queryset: QuerySet[DataQualityCheck], context: DenialContext
 ) -> QuerySet[DataQualityCheck]:
@@ -553,6 +581,8 @@ def definition_reads_unreadable_subject(
         return False
     try:
         refs = referenced_subjects(team_id, check_type, config, subject=subject)
+    except CheckConfigError:
+        return True
     except Exception as err:
         capture_exception(err)
         return True
@@ -564,7 +594,10 @@ def definition_reads_unreadable_subject(
         return False
     if context.matcher.matches(refs.names):
         return True
-    return bool(unconfirmable_subject_names(refs.names, context.database.get()))
+    names_outside_the_warehouse = tuple(name for name in refs.names if name not in context.readable_names)
+    if not names_outside_the_warehouse:
+        return False
+    return bool(unconfirmable_subject_names(names_outside_the_warehouse, context.database.get()))
 
 
 def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> set[str]:
@@ -678,6 +711,8 @@ def pin_referenced_subjects(
         pinned = list(_pin_names(team_id, references.names).values())
         if references.related_subject is not None:
             pinned.append(references.related_subject)
+    except CheckConfigError:
+        return None
     except Exception as err:
         capture_exception(err)
         return None

@@ -226,6 +226,9 @@ class TestCustomizeSourceDestination(BaseTest):
         assert customized.created is True
         assert len(customized.hog_function_ids) == 2
         assert self._senders() == [f"hog_functions:{destination_type}"]
+        assert [
+            row.id for row in list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
+        ] == [row_id]
         (group,) = self._groups()
         assert group.data == {
             key: value for key, value in self.data[destination_type].items() if key != "slack_channel_name"
@@ -235,7 +238,7 @@ class TestCustomizeSourceDestination(BaseTest):
 
         assert self._senders() == [f"row:{destination_type}"]
         (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
-        assert row.id == reset.destination_id and row.legacy_hog_function_ids == ()
+        assert (row.id, reset.destination_id, row.legacy_hog_function_ids) == (row_id, row_id, ())
         assert not HogFunction.objects.filter(id__in=customized.hog_function_ids, deleted=False).exists()
 
     def test_customize_keeps_the_hog_functions_a_row_copies_and_writes_none(self) -> None:
@@ -247,7 +250,8 @@ class TestCustomizeSourceDestination(BaseTest):
 
         assert (customized.created, set(customized.hog_function_ids)) == (False, set(hog_function_ids))
         assert self._senders() == ["hog_functions:slack"]
-        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+        (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
+        assert (row.id, set(row.legacy_hog_function_ids)) == (row_id, set(hog_function_ids))
         assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(hog_function_ids)
 
     def test_customize_keeps_the_rows_event_kinds_and_its_credentials_encrypted(self) -> None:
@@ -372,18 +376,19 @@ class TestCustomizeSourceDestination(BaseTest):
             HogFunction.objects.filter(id__in=customized.hog_function_ids).values_list("enabled", flat=True)
         ) == {False}
 
-    def test_a_second_customize_of_the_same_row_is_refused(self) -> None:
+    def test_a_second_customize_of_the_same_row_writes_no_more_hog_functions(self) -> None:
         row_id = self._row(DestinationType.SLACK)
-        self._customize(destination_id=row_id)
+        first = self._customize(destination_id=row_id)
 
-        with self.assertRaises(AlertDestinationValidationError):
-            self._customize(destination_id=row_id)
+        second = self._customize(destination_id=row_id)
 
+        assert (second.created, set(second.hog_function_ids)) == (False, set(first.hog_function_ids))
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(first.hog_function_ids)
         assert self._senders() == ["hog_functions:slack"]
 
     def test_the_reset_row_outlives_a_later_delete_of_the_retired_hog_functions(self) -> None:
         hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
-        self._row(DestinationType.WEBHOOK, copies=hog_function_ids)
+        row_id = self._row(DestinationType.WEBHOOK, copies=hog_function_ids)
 
         reset = self._reset(hog_function_ids)
         # A delete through the generic HogFunction API saves the function, which runs the receiver that
@@ -393,7 +398,7 @@ class TestCustomizeSourceDestination(BaseTest):
             hog_function.save(update_fields=["deleted"])
 
         (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
-        assert row.id == reset.destination_id
+        assert row.id == reset.destination_id == row_id
         assert self._senders() == ["row:webhook"]
 
     def test_reset_is_refused_and_changes_nothing_while_the_source_evaluates_the_alert(self) -> None:

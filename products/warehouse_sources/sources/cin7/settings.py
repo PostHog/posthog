@@ -25,7 +25,8 @@ class Cin7Endpoint:
     name: str
     path: str
     data_selector: str
-    primary_keys: list[str] = field(default_factory=lambda: ["ID"])
+    # None for endpoints whose rows have no unique identifier. These stay on full refresh.
+    primary_keys: Optional[list[str]] = field(default_factory=lambda: ["ID"])
     # The query parameter that filters rows changed after a date. None means full refresh only.
     incremental_filter_param: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -138,6 +139,42 @@ _ENDPOINT_LIST: list[Cin7Endpoint] = [
         primary_keys=["Code"],
         paginated=False,
     ),
+    Cin7Endpoint(
+        name="production_orders",
+        path="/production/orderList",
+        data_selector="ProductionOrderListItems",
+        primary_keys=["TaskID"],
+    ),
+    # Without ShowUsedCredits the API leaves fully used credits out, so they would drop from the table.
+    Cin7Endpoint(
+        name="customer_credits",
+        path="/ref/customer/credits",
+        data_selector="CustomerCredits",
+        primary_keys=["CreditID"],
+        params={"ShowUsedCredits": "true"},
+    ),
+    # Without ShowUsedDeposits the API leaves fully used deposits out, so they would drop from the table.
+    Cin7Endpoint(
+        name="supplier_deposits",
+        path="/ref/supplier/deposits",
+        data_selector="SupplierDeposits",
+        primary_keys=["DepositID"],
+        params={"ShowUsedDeposits": "true"},
+    ),
+    # Leads and opportunities accept ModifiedSince, but their rows carry no modified time to use as a watermark.
+    Cin7Endpoint(name="leads", path="/crm/lead", data_selector="LeadList"),
+    # The opportunity list answers under a key that starts with a lowercase letter.
+    Cin7Endpoint(name="opportunities", path="/crm/opportunity", data_selector="opportunityList"),
+    Cin7Endpoint(
+        name="inventory_write_offs",
+        path="/inventoryWriteOffList",
+        data_selector="InventoryWriteOffs",
+        primary_keys=["TaskID"],
+    ),
+    Cin7Endpoint(name="journals", path="/journal", data_selector="Journals", primary_keys=["TaskID"]),
+    # One task posts many ledger lines and the rows carry no line ID. FromDate filters on
+    # EffectiveDate, not on a change time, so back-dated postings would be missed incrementally.
+    Cin7Endpoint(name="transactions", path="/transactions", data_selector="Transactions", primary_keys=None),
 ]
 
 CIN7_ENDPOINTS: dict[str, Cin7Endpoint] = {endpoint.name: endpoint for endpoint in _ENDPOINT_LIST}
