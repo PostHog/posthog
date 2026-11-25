@@ -8,7 +8,6 @@ import { InboxGithubAccessReasons } from './InboxGithubAccessReasons'
 import { InboxSetupGithubConnect } from './InboxSetupGithubConnect'
 
 interface InboxSetupGithubSkipDialogProps {
-    /** False for a person who has to request GitHub access. They request it from the step behind this dialog. */
     canConnectGithub: boolean
 }
 
