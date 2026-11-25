@@ -10,6 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     CustomChannelCondition,
     CustomChannelField,
@@ -41,6 +42,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -501,6 +503,51 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert not opted_in_runner.used_preaggregated_tables
         assert opted_in == live
         assert self._counts(opted_in) == expected_counts
+
+    @parameterized.expand([("test_account_filters",), ("cohort_filter",), ("property_access_rules",)])
+    def test_guarded_query_stays_live(self, name):
+        properties: list = []
+        filter_test_accounts = False
+        access_rules = False
+        if name == "test_account_filters":
+            self.team.test_account_filters = [
+                {"key": "$host", "value": ["blog.example.com"], "operator": "is_not", "type": "event"}
+            ]
+            self.team.save()
+            filter_test_accounts = True
+        elif name == "cohort_filter":
+            cohort = Cohort.objects.create(team=self.team, is_static=True, name="user_a only")
+            cohort.insert_users_by_list(["user_a"])
+            properties = [CohortPropertyFilter(value=cohort.pk)]
+        else:
+            access_rules = True
+
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=properties,
+                    breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                    filterTestAccounts=filter_test_accounts,
+                    includeBounceRate=True,
+                    limit=100,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            return runner, self._sort_results(runner.calculate().results)
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.team_has_property_access_rules",
+            return_value=access_rules,
+        ):
+            opted_in_runner, opted_in = run(OPT_IN)
+        _live_runner, live = run(OPT_OUT)
+
+        assert not opted_in_runner.query_strategy().startswith("stats_table_dimensional")
+        assert opted_in == live
+        if name != "property_access_rules":
+            assert live != self._run_live(WebStatsBreakdown.DEVICE_TYPE, include_bounce_rate=True)
 
     @parameterized.expand(
         [
