@@ -17,8 +17,6 @@ from products.managed_warehouse.backend.facade.api import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
-FEATURE_FLAG = DATA_MODELING_SHADOW_FLAG
-
 
 def is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
     if is_dev_mode():
@@ -29,7 +27,7 @@ def is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
 
     try:
         return feature_enabled_or_false(
-            FEATURE_FLAG,
+            DATA_MODELING_SHADOW_FLAG,
             str(team.pk),
             groups={
                 "organization": str(team.organization_id),
