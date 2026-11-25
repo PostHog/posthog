@@ -98,12 +98,21 @@ describe('untilMigrated', () => {
         const migrate = (sql: string): Promise<unknown> => withPostgres((client) => client.query(sql), URL)
         await migrate(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}`)
 
-        try {
-            await expect(
-                untilMigrated([{ url: URL, table: `${schema}.jobs` }], 60_000, 60_000, NEVER, () =>
-                    migrate(`CREATE TABLE IF NOT EXISTS ${schema}.jobs (id int)`).then(() => undefined)
+        const created = (): Promise<boolean> =>
+            withPostgres(async (client) => {
+                const { rows } = await client.query<{ present: boolean }>(
+                    'SELECT to_regclass($1) IS NOT NULL AS present',
+                    [`${schema}.jobs`]
                 )
-            ).resolves.toBeUndefined()
+                return rows[0].present
+            }, URL)
+
+        try {
+            await untilMigrated([{ url: URL, table: `${schema}.jobs` }], 60_000, 60_000, NEVER, () =>
+                migrate(`CREATE TABLE IF NOT EXISTS ${schema}.jobs (id int)`).then(() => undefined)
+            )
+
+            expect(await created()).toBe(true)
         } finally {
             await migrate(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
         }
