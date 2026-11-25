@@ -777,6 +777,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # Real Chromium always ends its WebKit token with "Safari/537.36"; a trailing "Safari/537.3"
     # is the truncation left by scraped fake user agent lists that dropped the final digit.
     r"Safari/537\.3$": BotDefinition("Truncated WebKit UA", "headless_browser", "Automation", "Unknown"),
+    # Every WebKit and Blink browser follows "AppleWebKit/537.36" with a "(KHTML, like Gecko)" clause
+    # and an engine token, so a UA that stops right after it was cut short by a scraper.
+    r"AppleWebKit/537\.36$": BotDefinition("Truncated WebKit UA", "headless_browser", "Automation", "Unknown"),
     # No browser emits a leading or trailing whitespace character in the user agent header.
     r"(^\s|\s$)": BotDefinition("Whitespace-padded UA", "headless_browser", "Automation", "Unknown"),
     # A bare "Mozilla/5.0" with no platform or engine token is a lazy scraper default.
