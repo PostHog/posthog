@@ -1080,17 +1080,21 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("move", "post", "move/", {"new_path": "Archive/Email templates"}),
-            ("rename", "patch", "", {"path": "Archive/Email templates"}),
-            ("delete", "delete", "", None),
-            ("recursive_delete", "delete", "?recursive=true", None),
-            ("link", "post", "link/", {"new_path": "Archive/Email templates"}),
+            ("move", "Unfiled/Email templates", "post", "move/", {"new_path": "Archive/Email templates"}),
+            ("rename", "Unfiled/Email templates", "patch", "", {"path": "Archive/Email templates"}),
+            ("delete", "Unfiled/Email templates", "delete", "", None),
+            ("recursive_delete", "Unfiled/Email templates", "delete", "?recursive=true", None),
+            ("link", "Unfiled/Email templates", "post", "link/", {"new_path": "Archive/Email templates"}),
+            ("count", "Unfiled/Email templates", "post", "count/", None),
+            ("root_move", "Unfiled", "post", "move/", {"new_path": "Archive"}),
+            ("root_recursive_delete", "Unfiled", "delete", "?recursive=true", None),
+            ("root_count", "Unfiled", "post", "count/", None),
         ]
     )
     def test_writes_with_the_flag_off_cannot_reach_an_unfiled_folder_of_only_workflow_files(
-        self, _name: str, method: str, suffix: str, payload: dict | None
+        self, _name: str, target: str, method: str, suffix: str, payload: dict | None
     ) -> None:
-        folder = self._file_a_template_in_unfiled_folders()["Unfiled/Email templates"]
+        folder = self._file_a_template_in_unfiled_folders()[target]
         tree_before = sorted(FileSystem.objects.filter(team=self.team).values_list("path", "type"))
         with patch("posthoganalytics.feature_enabled", return_value=False):
             response = getattr(self.client, method)(
@@ -1099,6 +1103,22 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual(response.status_code, 404, response.content)
         self.assertEqual(sorted(FileSystem.objects.filter(team=self.team).values_list("path", "type")), tree_before)
+
+    def test_a_flag_off_delete_of_a_mixed_unfiled_folder_removes_what_its_preview_lists(self) -> None:
+        unfiled = self._file_a_template_in_unfiled_folders()["Unfiled"]
+        FileSystem.objects.create(team=self.team, path="Unfiled/Mine", depth=2, type="folder")
+        url = f"/api/projects/{self.team.id}/file_system/{unfiled.id}/"
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            preview = self.client.post(f"{url}count/")
+            deleted = self.client.delete(f"{url}?recursive=true")
+
+        self.assertEqual(preview.status_code, 200, preview.content)
+        self.assertEqual([entry["path"] for entry in preview.json()["entries"]], ["Unfiled/Mine"])
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertEqual(
+            sorted(FileSystem.objects.filter(team=self.team).values_list("path", flat=True)),
+            ["Unfiled", "Unfiled/Email templates", "Unfiled/Email templates/Synthetic email"],
+        )
 
     def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
         self.client.post(

@@ -116,7 +116,7 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 
 UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
 
-FOLDER_WRITE_ACTIONS = frozenset({"update", "partial_update", "destroy", "move", "link"})
+FOLDER_CHANGE_ACTIONS = frozenset({"update", "partial_update", "destroy", "move", "link", "count", "count_by_path"})
 
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
 TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
@@ -964,7 +964,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self._workflow_files_enabled:
             return queryset
         queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
-        if self.action in FOLDER_WRITE_ACTIONS:
+        if self.action in FOLDER_CHANGE_ACTIONS:
             # A write to such a folder would carry stars away from its hidden files or orphan them.
             queryset = queryset.exclude(self._only_workflow_files_folders())
         return queryset
