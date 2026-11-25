@@ -60,4 +60,25 @@ describe("auto-published security fixes", () => {
       );
     },
   );
+
+  it.each([
+    ["github", "https://github.com/example/repo/pull/1"],
+    ["gitlab", "https://gitlab.com/example/repo/-/merge_requests/1"],
+  ] as const)(
+    "keeps the rule in the %s follow-up override",
+    (gitProvider, prUrl) => {
+      const context = new CloudTaskPrompt({
+        apiUrl: "https://example.com",
+        projectId: 1,
+        taskId: "task",
+        taskRepositories: [],
+        hasGithubToken: true,
+        repositoryAttached: true,
+        shouldAutoPublish: true,
+        gitProvider,
+        storeSkills: [] as never,
+      }).buildDetectedPrContext(prUrl);
+      expect(context).toContain("Except for a security fix");
+    },
+  );
 });

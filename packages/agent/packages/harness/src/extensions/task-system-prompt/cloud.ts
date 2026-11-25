@@ -10,6 +10,10 @@ import {
   type StoreSkillsListing,
 } from "../skills-store";
 import {
+  SECURITY_FIX_PUBLISH_EXCEPTION,
+  SECURITY_FIX_PUBLISH_REMINDER,
+} from "./security-fix";
+import {
   buildTaskSummaryInstructions,
   TASK_SUMMARY_TOOL_NAME,
 } from "./task-summary";
@@ -29,8 +33,6 @@ export interface CloudTaskPromptOptions {
   taskId: string;
   taskRepositories: string[];
 }
-
-const SECURITY_FIX_PUBLISH_EXCEPTION = `- **Security fixes are the exception to publishing without asking.** A change is a security fix when it closes a weakness that may be exploitable now: for example exposure of credentials or secrets, access to another account's data, an authentication or access-control bypass, or code execution. Treat the request as one when its context says so, such as a Slack channel named for an incident or a thread about an exploit, even if the request itself reads like a routine change. For a security fix, do NOT push a branch, commit to a remote branch, or open a pull request or merge request, not even as a draft: a draft in a public repository is public, and so is a branch. Make the change locally, then tell the user it looks like a security fix, which repository you would publish it to and why, and wait for their answer. When the repository has its own guidance on routing security fixes (for example in \`AGENTS.md\`, \`.agents/security.md\` or \`SECURITY.md\`), follow it. A request to fix the weakness does not answer the question of where to publish it. If you are unsure whether a change is a security fix, ask.`;
 
 export class CloudTaskPrompt {
   constructor(private readonly options: CloudTaskPromptOptions) {}
@@ -68,7 +70,8 @@ export class CloudTaskPrompt {
       `Unless the user explicitly asks for a new branch or separate PR, you MUST:\n` +
       `1. ${this.buildExistingPrCheckoutInstruction(prUrl)}\n` +
       `2. Make changes, commit, and push to that branch\n` +
-      `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.`
+      `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.` +
+      `\n${SECURITY_FIX_PUBLISH_REMINDER}`
     );
   }
 
@@ -90,7 +93,8 @@ export class CloudTaskPrompt {
       "Unless the user explicitly asks for a new branch or separate merge request, you MUST:\n" +
       `1. ${this.buildExistingPrCheckoutInstruction(mrUrl)}\n` +
       "2. Make changes, commit, and push to that branch\n" +
-      "Do not create a new branch, close the existing merge request, or create a new one unless the user explicitly asks."
+      "Do not create a new branch, close the existing merge request, or create a new one unless the user explicitly asks." +
+      `\n${SECURITY_FIX_PUBLISH_REMINDER}`
     );
   }
 

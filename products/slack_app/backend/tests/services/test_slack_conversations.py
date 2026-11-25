@@ -97,6 +97,15 @@ class TestResolveChannelName:
     def test_names_channels_only(self, channel_id: str, slack: MagicMock, expected: str | None) -> None:
         assert resolve_channel_name(slack, channel_id) == expected
 
+    def test_reuses_the_privacy_lookup_instead_of_asking_slack_again(self) -> None:
+        slack = _slack({"is_private": False, "name": "inc-example"})
+
+        resolve_conversation_type(slack, {"type": "app_mention"}, "C123")
+        name = resolve_channel_name(slack, "C123")
+
+        assert name == "inc-example"
+        assert slack.client.conversations_info.call_count == 1
+
 
 class TestChannelIsExtShared:
     @pytest.mark.parametrize(

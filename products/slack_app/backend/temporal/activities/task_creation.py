@@ -67,6 +67,10 @@ _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
+_SECURITY_FIX_PUBLISH_REMINDER = (
+    "Except for a security fix: then do not commit or push. Ask the user where to publish it first, "
+    "as your system prompt says."
+)
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 
@@ -829,6 +833,7 @@ def create_posthog_code_task_for_repo_activity(
         )
 
     fork_channel, fork_thread_ts = inputs.fork_source_channel, inputs.fork_source_thread_ts
+    conversation_type = resolve_conversation_type(slack, event, channel)
     is_fork = bool(fork_channel and fork_thread_ts)
     if fork_channel and fork_thread_ts:
         source_task_id = inputs.fork_source_task_id
@@ -920,8 +925,6 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts,
         *(m.ts for m in thread_messages),
     )
-    conversation_type = resolve_conversation_type(slack, event, channel)
-
     if inputs.report_implementation_message_ts and signal_report_id is None:
         return False
 
@@ -1945,7 +1948,8 @@ def _resume_task_with_new_run(
             f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"
             f"Check out the existing PR branch with `gh pr checkout {previous_pr_url}`, "
             "make your changes, commit, and push to that branch. "
-            "Do NOT create a new branch or PR.]\n\n" + initial_prompt_override
+            "Do NOT create a new branch or PR. "
+            f"{_SECURITY_FIX_PUBLISH_REMINDER}]\n\n" + initial_prompt_override
         )
 
     extra_state["initial_prompt_override"] = initial_prompt_override
