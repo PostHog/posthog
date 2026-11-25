@@ -1944,11 +1944,12 @@ def get_query_runner(
     if kind == "TraceSpansAggregationQuery":
         from posthog.schema import TraceSpansAggregationQuery
 
-        from products.tracing.backend.logic import aggregation_query_runner
+        from products.tracing.backend.logic import DEFAULT_AGGREGATION_ROW_LIMIT, aggregation_query_runner
 
         return aggregation_query_runner(
             cast(TraceSpansAggregationQuery | dict[str, Any], query),
             team=team,
+            limit=DEFAULT_AGGREGATION_ROW_LIMIT,
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,

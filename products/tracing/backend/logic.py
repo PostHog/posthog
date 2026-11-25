@@ -43,13 +43,16 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.dashboard_v2_batch_scope import in_dashboard_v2_batch
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.tracing.backend.facade.contracts import TRACING_QUERY_STATUS_LABEL
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
     from .aggregation_query_runner import TraceSpansAggregationQueryRunner
 
@@ -571,20 +574,27 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
         return response.results
 
 
-def assert_tracing_viewer(user: "User", team: "Team") -> bool:
-    """Gate a span runner's generic-query access.
+def assert_tracing_viewer(user: "User", team: "Team", user_access_control: "UserAccessControl | None" = None) -> bool:
+    """The check the tracing API's permission class makes, so `/query` and dashboard batches gate spans the same way.
 
-    `/query` refuses span kinds for everyone: the tracing team decides whether they become a public query API. Only a
-    dashboards v2 query batch opts in, and inside it the user needs the viewer access the tracing API asks for.
+    Pass the runner's `user_access_control` so a batch of tiles reads the team's rules once, not once per tile.
     """
-    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
-        UserAccessControl,
-        UserAccessControlError,
-    )
+    from products.access_control.backend.facade.user_access_control import UserAccessControlError  # noqa: PLC0415
+    from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
 
-    if not in_dashboard_v2_batch():
+    with authorization.authorization_session():
+        if user_access_control is not None:
+            authorization.reuse_current_rules(user_access_control)
+        allowed = authorization.check(
+            resource=Resource(type=ResourceType.TRACING, project_id=team.pk),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.pk),
+        )
+    if not allowed:
         raise UserAccessControlError("tracing", "viewer")
-    return UserAccessControl(user=user, team=team).assert_access_level_for_resource("tracing", "viewer")
+    return True
 
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
@@ -599,7 +609,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             self.query.limit = DEFAULT_SPAN_LIST_LIMIT
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        return assert_tracing_viewer(user, self.team)
+        return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status asks for the check again.
+        return [TRACING_QUERY_STATUS_LABEL]
 
     def _calculate(self) -> TraceSpansQueryResponse:
         flat = self._flat_spans
