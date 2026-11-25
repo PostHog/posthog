@@ -776,7 +776,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "litellm", specifier = "==1.93.2" },
     { name = "orjson", specifier = ">=3.10.0" },
-    { name = "posthoganalytics", specifier = ">=8.2.2" },
+    { name = "posthoganalytics", specifier = ">=8.2.7" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
@@ -984,16 +984,16 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "8.2.2"
+version = "8.2.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distro" },
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/66/e6/9a0f206d83ccc968a2f088b63807faa8d9952998571285646ae7977cace8/posthoganalytics-8.2.2.tar.gz", hash = "sha256:601081e72580783d1c975d4152fb0526307214e29d873ee30b4e7322da7f41eb", size = 1048510, upload-time = "2026-11-24T17:53:45.611Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/6f/91254dca43d37e3393ff8991810b14f25fb28d7ba2dd85a85013d5956492/posthoganalytics-8.2.7.tar.gz", hash = "sha256:9719a6f4c782775249a6b72d34511aca37f5ab1db7012a19769c3a85431a3f64", size = 1052404, upload-time = "2026-11-25T15:18:07.591Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/97/be773280f37bb00267e22951a92a02c6222afc5adef0881f22265e00636e/posthoganalytics-8.2.2-py3-none-any.whl", hash = "sha256:b35709864db74d109c4008954e63e5b80ae1bf40c99c8586b839d8ea024c5ea6", size = 1207780, upload-time = "2026-11-24T17:53:43.776Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/c8/8c6b471db98435e5aa495abd973409f9cec4ce739f1ad7ad0d5fcf9a35dd/posthoganalytics-8.2.7-py3-none-any.whl", hash = "sha256:0ac1da101f9193203b25b4dca0ec9cf4a7e65b247863a7b7f2428faf653f7535", size = 1211514, upload-time = "2026-11-25T15:18:05.607Z" },
 ]
 
 [[package]]
