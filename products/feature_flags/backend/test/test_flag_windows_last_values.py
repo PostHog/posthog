@@ -22,7 +22,10 @@ from posthog.exceptions import (
 from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import reads_flag_calls_without_events_fallback
+from products.feature_flags.backend.facade.flags import (
+    get_organization_flag_evaluations_mode,
+    reads_flag_calls_without_events_fallback,
+)
 from products.feature_flags.backend.flag_windows import query as flag_window_query
 from products.feature_flags.backend.flag_windows.last_values import LOOKBACK, LastValueCounts, last_values_by_bucket
 from products.feature_flags.backend.flag_windows.query import WatchedEdit
@@ -97,6 +100,10 @@ NOBODY = counts(people=0)
 
 
 class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
+    @property
+    def _calls_only_in_flag_evaluations(self) -> bool:
+        return reads_flag_calls_without_events_fallback(self.team)
+
     def _send(self, sent: list[Sent]) -> None:
         # HogQL hides the group of an event sent before the group type existed.
         create_group_type_mapping(
@@ -110,10 +117,12 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
             distinct_id: create_person(team=self.team, distinct_ids=[distinct_id])
             for distinct_id in dict.fromkeys(item.distinct_id for item in sent)
         }
-        calls_outside_events = reads_flag_calls_without_events_fallback(self.team)
+        mode = get_organization_flag_evaluations_mode(self.organization.id)
         for item in sent:
             timestamp = EDITED_AT + timedelta(minutes=item.minutes)
-            if item.event == "$feature_flag_called" and calls_outside_events:
+            if item.event == "$feature_flag_called" and (
+                mode != FlagEvaluationsMode.EVENTS or self._calls_only_in_flag_evaluations
+            ):
                 response = item.properties["$feature_flag_response"]
                 _create_flag_evaluations(
                     self.team.pk,
@@ -124,6 +133,7 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
                     response=response,
                     properties=item.properties,
                 )
+            if item.event == "$feature_flag_called" and self._calls_only_in_flag_evaluations:
                 continue
             _create_event(
                 team=self.team,
@@ -136,9 +146,12 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
 
     def _since_edit(
         self, edits: list[WatchedEdit], start: datetime = EDITED_AT, buckets: int = 1
-    ) -> dict[str, LastValueCounts]:
+    ) -> dict[str, LastValueCounts | None]:
         counted = last_values_by_bucket(self.team, edits, start, start + buckets * BUCKET, BUCKET)
-        return {edit_id: rows[-1].since_edit if rows else NOBODY for edit_id, rows in counted.items()}
+        return {
+            edit_id: None if rows is None else rows[-1].since_edit if rows else NOBODY
+            for edit_id, rows in counted.items()
+        }
 
     @parameterized.expand(
         [
@@ -149,17 +162,27 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
             param("call_after_the_only_error", [error(1), call(2, True)], counts(exposed=1)),
             param("call_from_before_the_edit", [call(-60, False), error(2)], counts(unexposed=1, errors=(0, 1))),
             param("call_without_an_event_after_the_edit", [call(-60, False), pageview(-5)], NOBODY),
+            param(
+                "call_days_before_the_edit",
+                [call(-3 * 24 * 60, False), error(2)],
+                counts(unexposed=1, errors=(0, 1)),
+            ),
+            param(
+                "call_at_the_lookback",
+                [call(-LOOKBACK_MINUTES, False), error(2)],
+                counts(unexposed=1, errors=(0, 1)),
+            ),
             param("call_from_before_the_lookback", [call(-LOOKBACK_MINUTES - 1, False), error(2)], NOBODY),
             param("event_from_before_the_edit", [pageview(-60, True), error(2)], NOBODY),
             param(
                 "value_changes_between_two_errors",
                 [call(-60, False), error(2), call(5, True), error(8)],
-                counts(exposed=1, unexposed=1, errors=(1, 1)),
+                counts(exposed=1, errors=(1, 0)),
             ),
             param(
                 "value_changes_before_the_only_error",
                 [call(-60, False), pageview(2), call(5, True), error(8)],
-                counts(exposed=1, unexposed=1, errors=(1, 0)),
+                counts(exposed=1, errors=(1, 0)),
             ),
             param(
                 "value_changes_at_the_first_event",
@@ -169,17 +192,38 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
             param(
                 "event_after_a_call_wins",
                 [call(1, True), pageview(2, False), error(3)],
-                counts(exposed=1, unexposed=1, errors=(0, 1)),
+                counts(exposed=1),
             ),
             param(
                 "call_after_an_event_wins",
                 [pageview(1, False), call(2, True), error(3)],
-                counts(exposed=1, unexposed=1, errors=(1, 0)),
+                counts(exposed=1, errors=(1, 0)),
+            ),
+            param(
+                "exposed_wins_a_tie",
+                [call(1, True), pageview(1, False), error(2)],
+                counts(exposed=1, errors=(1, 0)),
             ),
             param(
                 "value_on_the_error_wins",
                 [call(1, True), error(2, False)],
-                counts(exposed=1, unexposed=1, errors=(0, 1)),
+                counts(exposed=1),
+            ),
+            param(
+                "same_value_before_and_after_the_error",
+                [pageview(1, True), error(2), pageview(3, True)],
+                counts(exposed=1, errors=(1, 0)),
+            ),
+            param(
+                "value_that_comes_back_before_the_error",
+                [pageview(1, True), pageview(2, False), pageview(3, True), error(4)],
+                counts(exposed=1, errors=(1, 0)),
+            ),
+            param(
+                "loaded_flags_without_this_one_after_the_only_error",
+                [error(1), pageview(2, properties=LOADED_OTHER_FLAGS)],
+                counts(unexposed=1),
+                ENABLED,
             ),
             param("variant", [call(1, "test"), error(2)], counts(exposed=1, errors=(1, 0)), MULTIVARIATE),
             param(
@@ -212,7 +256,7 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
             param(
                 "loaded_flags_without_this_one_before_a_call",
                 [pageview(1, properties=LOADED_OTHER_FLAGS), call(2, True), error(3)],
-                counts(exposed=1, unexposed=1, errors=(1, 0)),
+                counts(exposed=1, errors=(1, 0)),
                 ENABLED,
             ),
         ]
@@ -228,7 +272,8 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
         self._send(
             [
                 call(1, False),
-                # No event in the second bucket.
+                # Nobody with a value has an event in the second bucket.
+                pageview(40, distinct_id="without-a-value"),
                 error(65),
                 call(95, True),
                 error(125),
@@ -240,12 +285,12 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
         buckets = last_values_by_bucket(self.team, [BOOLEAN], EDITED_AT, EDITED_AT + 5 * BUCKET, BUCKET)
 
         self.assertEqual(
-            [(bucket.start, bucket.in_bucket, bucket.since_edit) for bucket in buckets["boolean"]],
+            [(bucket.start, bucket.in_bucket, bucket.since_edit) for bucket in buckets["boolean"] or []],
             [
                 (EDITED_AT, counts(1, 1, people=2), counts(1, 1, people=2)),
                 (EDITED_AT + 2 * BUCKET, counts(1, 1, (1, 1), people=2), counts(1, 1, (1, 1), people=2)),
-                (EDITED_AT + 3 * BUCKET, counts(1, 0), counts(2, 1, (1, 1), people=2)),
-                (EDITED_AT + 4 * BUCKET, counts(1, 0, (1, 0)), counts(2, 1, (2, 1), people=2)),
+                (EDITED_AT + 3 * BUCKET, counts(1, 0), counts(2, 0, (1, 0), people=2)),
+                (EDITED_AT + 4 * BUCKET, counts(1, 0, (1, 0)), counts(2, 0, (2, 0), people=2)),
             ],
         )
 
@@ -256,11 +301,14 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
                 error(40, distinct_id="called"),
                 pageview(5, True, distinct_id="carried"),
                 error(40, distinct_id="carried"),
+                # The value at the first event in the range is the new one.
+                call(5, True, distinct_id="changed"),
+                pageview(40, False, distinct_id="changed"),
             ]
         )
 
         self.assertEqual(
-            self._since_edit([BOOLEAN], start=EDITED_AT + BUCKET), {"boolean": counts(exposed=1, errors=(1, 0))}
+            self._since_edit([BOOLEAN], start=EDITED_AT + BUCKET), {"boolean": counts(1, 1, (1, 0), people=2)}
         )
 
     def test_an_edit_that_enables_reads_later_buckets_and_calls_from_before_the_range(self) -> None:
@@ -288,6 +336,12 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
                 # Between the two edits, so only the earlier one counts the pageview.
                 pageview(-10, True, distinct_id="person-1"),
                 error(-5, distinct_id="person-1"),
+                # The value from before the later edit doesn't hold after it.
+                error(5, distinct_id="person-1"),
+                # Events only between the two edits, so only the earlier one counts their values.
+                call(-25, False, distinct_id="person-6"),
+                error(-5, distinct_id="person-6"),
+                pageview(-10, distinct_id="person-7", properties=LOADED_OTHER_FLAGS),
                 call(1, True, flag_key="other-flag", distinct_id="person-2"),
                 error(2, distinct_id="person-2"),
                 # Another person of the same group gives the group's value.
@@ -300,19 +354,26 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
         other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag")
 
         self.assertEqual(
-            self._since_edit([BOOLEAN, earlier, other, GROUP], start=EDITED_AT - BUCKET, buckets=2),
+            self._since_edit([BOOLEAN, earlier, other, GROUP, ENABLED], start=EDITED_AT - BUCKET, buckets=2),
             {
                 "boolean": NOBODY,
-                "earlier": counts(exposed=1, errors=(1, 0)),
+                "earlier": counts(1, 1, (1, 1), people=2),
                 "other": counts(exposed=1, errors=(1, 0)),
                 "group": counts(exposed=1, errors=(1, 0)),
+                "enabled": NOBODY,
             },
         )
 
-    def test_reads_calls_that_are_only_in_flag_evaluations(self) -> None:
+    @parameterized.expand(
+        [
+            # Ingestion writes every flag call to events and to flag_evaluations, and HogQL can read either.
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_reads_the_calls_where_the_mode_keeps_them(self, _name: str, mode: FlagEvaluationsMode) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         self._send(
             [
@@ -322,19 +383,25 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
                 call(1, "test", distinct_id="person-3"),
                 error(2, distinct_id="person-3"),
                 call(1, None, distinct_id="person-4"),
-                # A call of another watched flag is no event of this one.
+                # A call of another watched flag is an event of this one only in the events table.
+                pageview(-5, distinct_id="person-5"),
                 call(-60, False, distinct_id="person-5"),
+                call(1, True, flag_key="other-flag", distinct_id="person-5"),
                 call(1, True, flag_key="org-beta", distinct_id="person-5", properties={"$group_0": "org-a"}),
                 error(2, distinct_id="person-6", properties={"$group_0": "org-a"}),
             ]
         )
 
+        other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag")
+        active_by_other_call = 0 if self._calls_only_in_flag_evaluations else 1
+
         self.assertEqual(
-            self._since_edit([BOOLEAN, MULTIVARIATE, GROUP]),
+            self._since_edit([BOOLEAN, MULTIVARIATE, other, GROUP], start=EDITED_AT - BUCKET, buckets=2),
             {
                 # A boolean flag serves no variant.
-                "boolean": counts(1, 2, (0, 2), people=3),
-                "multivariate": counts(2, 1, (1, 1), people=3),
+                "boolean": counts(1, 2 + active_by_other_call, (0, 2), people=3 + active_by_other_call),
+                "multivariate": counts(2, 1 + active_by_other_call, (1, 1), people=3 + active_by_other_call),
+                "other": counts(exposed=1),
                 "group": counts(1, 0, (1, 0)),
             },
         )
@@ -346,7 +413,7 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
             ("estimated_too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong),
         ]
     )
-    def test_a_query_that_runs_out_leaves_out_only_its_edits(self, _name: str, raised: type[Exception]) -> None:
+    def test_a_query_that_runs_out_gives_none_for_only_its_edits(self, _name: str, raised: type[Exception]) -> None:
         run_query = flag_window_query.execute_hogql_query
         results = iter([raised(), None])
 
@@ -357,4 +424,4 @@ class TestLastValuesByBucket(ClickhouseTestMixin, BaseTest):
 
         # One query per kind of actor, so the group edit keeps its counts.
         with patch.object(flag_window_query, "execute_hogql_query", side_effect=fail_first):
-            self.assertEqual(self._since_edit([BOOLEAN, GROUP]), {"group": NOBODY})
+            self.assertEqual(self._since_edit([BOOLEAN, GROUP]), {"boolean": None, "group": NOBODY})

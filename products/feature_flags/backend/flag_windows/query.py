@@ -33,8 +33,8 @@ people per bucket and since the edit.
     static cohort, leaves its edit without counts by properties. A value that ClickHouse rejects when the query runs,
     such as text compared with a number, leaves every edit without them.
 
-`flag_windows/last_values.py` counts people by the last value they had, so it also sees the people whose events don't
-carry the flag.
+`flag_windows/last_values.py` counts people by the last value they had, so the first rule doesn't hold there: it also
+sees the people whose events don't carry the flag. It runs one query per kind of actor.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
@@ -507,7 +507,7 @@ def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> lis
                 max_execution_time=QUERY_TIMEOUT_SECONDS,
                 max_threads=QUERY_MAX_THREADS,
                 timeout_overflow_mode="throw",
-                # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk
+                # The reason joins and the last values group by actor. On a large team the aggregation goes to disk
                 # instead of failing the counts of every edit.
                 max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
             ),

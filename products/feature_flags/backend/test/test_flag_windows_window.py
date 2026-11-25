@@ -76,8 +76,9 @@ EDIT = WatchedEdit(
 )
 
 
-def _window(state: WindowState = OPEN) -> ObservationWindow:
-    return ObservationWindow(edit=EDIT, config_before=BEFORE, config_after=AFTER, state=state)
+def _window(state: WindowState = OPEN, enables: bool = False) -> ObservationWindow:
+    edit = dataclasses.replace(EDIT, enables=enables)
+    return ObservationWindow(edit=edit, config_before=BEFORE, config_after=AFTER, state=state)
 
 
 def _exposure(
@@ -104,16 +105,16 @@ def _exposure(
     ]
 
 
-def _last_values(exposure: Sequence[ExposureBucket]) -> list[LastValueBucket]:
-    """The same people as in `exposure`, with no errors."""
+def _last_values(exposure: Sequence[ExposureBucket], errors: tuple[int, int] = (0, 0)) -> list[LastValueBucket]:
+    """The same people as in `exposure`, with the exposed and the unexposed errors."""
 
     def counts(carried: ExposureCounts) -> LastValueCounts:
         return LastValueCounts(
             with_flag=carried.with_flag,
             exposed=carried.exposed,
             unexposed=carried.unexposed,
-            exposed_with_errors=0,
-            unexposed_with_errors=0,
+            exposed_with_errors=errors[0],
+            unexposed_with_errors=errors[1],
         )
 
     return [
@@ -295,6 +296,37 @@ class TestAdvanceWindow(SimpleTestCase):
                 scored=True,
             ),
             param(
+                "edit_that_enables_has_the_reach_of_the_flag_beside_people_who_only_loaded_flags",
+                hours_since_edit=12,
+                exposure=_exposure(
+                    [0.0] * 12,
+                    exposed=0,
+                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=50, exposed=0, unexposed=50)},
+                ),
+                last_values=_last_values(_exposure(_rising_then_flat(12))),
+                condition_match=ConditionMatch.REASON,
+                enables=True,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "exposed_earlier_but_not_in_the_latest_hour_has_reach",
+                hours_since_edit=12,
+                exposure=[],
+                last_values=_last_values(_exposure([*_rising_then_flat(11), 0.0])),
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "errors_by_last_value_make_the_window_suspicious",
+                exposure=[],
+                last_values=_last_values(RISING_EXPOSURE, errors=(50, 10)),
+                # No error event carries the flag.
+                errors=dataclasses.replace(SUSPICIOUS_ERRORS, exposed_with_errors=0, unexposed_with_errors=0),
+                expected=_stays(SUSPICIOUS),
+                scored=True,
+            ),
+            param(
                 "reach_by_last_value_wins_over_the_events",
                 hours_since_edit=12,
                 exposure=NOBODY_EXPOSED,
@@ -392,6 +424,7 @@ class TestAdvanceWindow(SimpleTestCase):
         condition_match: ConditionMatch | None = None,
         last_values: Sequence[LastValueBucket] | None = None,
         has_last_values: bool = True,
+        enables: bool = False,
         parameters: WindowParameters = PARAMETERS,
         scored: bool = False,
     ) -> None:
@@ -399,7 +432,7 @@ class TestAdvanceWindow(SimpleTestCase):
             last_values = _last_values(exposure)
 
         outcome = advance_window(
-            _window(state),
+            _window(state, enables),
             flag=flag,
             now=EDITED_AT + timedelta(hours=hours_since_edit),
             exposure=exposure,

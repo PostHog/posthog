@@ -16,8 +16,8 @@ applies:
    each tick computes the score again from those counts.
 4. Expired: `max_duration` passed since the edit.
 5. A suspicious window waits for the verdict of the judgment, and asks for the judgment again on each tick.
-6. No reach: nobody is exposed `no_reach_after` the edit. This check and check 8 need the counts by last value, so a
-   tick without them doesn't close the window.
+6. No reach: nobody is exposed `no_reach_after` the edit. This check and check 8 need the counts by last value, so
+   neither closes the window on a tick without them.
 7. The score: a suspicious score makes the window suspicious and asks for the judgment.
 8. No regression: the exposure share of the complete hours became stable, and `post_stable` passed since then.
 
@@ -178,7 +178,7 @@ def advance_window(
     if (
         last_values is not None
         and now >= edited_at + parameters.no_reach_after
-        and not _exposed_since_edit(exposure, last_values, condition_match)
+        and not _exposed_since_edit(window.edit, exposure, last_values, condition_match)
     ):
         return _closed(CloseReason.NO_REACH)
 
@@ -212,13 +212,17 @@ def _closed(
 
 
 def _exposed_since_edit(
+    edit: WatchedEdit,
     exposure: Sequence[ExposureBucket],
     last_values: Sequence[LastValueBucket],
     condition_match: ConditionMatch | None,
 ) -> int:
     """The number of people (or groups) exposed since the edit in the watched conditions, or in the whole flag when
-    those count nobody, for example because no event carries the flag."""
-    if exposure and condition_match is not None:
+    those count nobody. That also happens when no event carries the flag, or when a server SDK evaluates it locally and
+    sends no condition, so it doesn't mean that the edit reached nobody."""
+    # Nobody is exposed before an edit that enables the flag, so the whole flag shows its reach. In the conditions, an
+    # event that only loaded flags counts as unexposed, so a flag that only a backend evaluates would show none.
+    if exposure and condition_match is not None and not edit.enables:
         in_condition = exposure[-1].since_edit.in_condition.get(condition_match)
         if in_condition is not None and in_condition.with_flag:
             return in_condition.exposed

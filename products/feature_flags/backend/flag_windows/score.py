@@ -33,7 +33,6 @@ from products.feature_flags.backend.flag_windows.exposure import (
     ConditionExposure,
     ExposureBucket,
     ExposureCounts,
-    exposure_curve,
     exposure_share,
 )
 from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
@@ -141,8 +140,8 @@ def score_window(
     baseline: Sequence[BaselineHour],
     parameters: ScoreParameters = WEB_PARAMETERS,
     *,
+    last_values: Sequence[LastValueBucket] | None,
     condition_match: ConditionMatch | None = None,
-    last_values: Sequence[LastValueBucket] | None = None,
 ) -> WindowScore:
     """Scores the window from the one-hour exposure buckets of the edit so far, oldest first, and the errors from the
     edit to the latest bucket. `last_values` holds the one-hour buckets by last value, or None when their query ran out
@@ -151,7 +150,7 @@ def score_window(
     `condition_match` is how the exposure and error queries found the watched conditions. For an edit with watched
     conditions, level 1 compares only the people in them, so it needs the match. For an edit without them, level 1
     compares everyone with the flag."""
-    curve = exposure_curve(exposure, last_values)
+    curve: Sequence[ExposureBucket | LastValueBucket] = exposure if last_values is None else last_values
     for start in [*(bucket.start for bucket in (*exposure, *curve)), *hours]:
         # Queries return times in the team's time zone, which can be a half hour off UTC.
         if start != _utc_hour(start):
@@ -272,9 +271,7 @@ def _split_people(
 ) -> _Split | None:
     if exposed <= 0 or unexposed <= 0:
         return None
-    # A person whose value changed is in both groups, each with the errors of that value, which hides a difference
-    # rather than inventing one. Separate `uniq` estimates can put the errors above the people, and the test raises on
-    # that.
+    # Separate `uniq` estimates can put the errors above the people, and the test raises on that.
     return _Split(
         exposed=Proportion(trials=exposed, successes=min(exposed_with_errors, exposed)),
         unexposed=Proportion(trials=unexposed, successes=min(unexposed_with_errors, unexposed)),

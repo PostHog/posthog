@@ -19,7 +19,7 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
+from products.feature_flags.backend.flag_windows.last_values import LastValueCounts
 from products.feature_flags.backend.flag_windows.query import (
     ConditionMatch,
     EditCounts,
@@ -63,14 +63,6 @@ class ExposureBucket:
     in_bucket: ExposureCounts
     # From the edit, or from the range start when it is later, to the end of this bucket. Each person counts once.
     since_edit: ExposureCounts
-
-
-def exposure_curve(
-    exposure: Sequence[ExposureBucket], last_values: Sequence[LastValueBucket] | None
-) -> Sequence[ExposureBucket | LastValueBucket]:
-    """The buckets that the score reads the exposure curve from. `last_values` is None when its query ran out of time or
-    memory."""
-    return exposure if last_values is None else last_values
 
 
 def exposure_by_bucket(

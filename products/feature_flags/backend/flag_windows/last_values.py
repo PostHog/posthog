@@ -9,20 +9,27 @@ A person has, at any event, the value of their latest `$feature/<key>` or flag c
 the errors use that same rule in one query, so that a person with an error under a value always counts in the exposure
 under it, and the two counts fail together when the query runs out of time or memory.
 
+- A person who had an exposed value counts only as exposed, also for the time before it. Most of the people that an edit
+  moves have the old value for seconds, with no time to hit an error. As unexposed people they would lower that error
+  rate, and a healthy rollout would look like a regression. So the unexposed people never had an exposed value.
 - A flag call is read from `LOOKBACK` before the range, also from before the edit, because an SDK sends no new call
   while the value stays the same. A call of the flag counts as an event of the person, so that a service that sends
   only calls and errors has exposure. `$feature/<key>` is read only from the range start and the edit on, because
   reading it for days means reading every event of those days.
-- An edit that enables the flag ignores a true from before it, because the flag was disabled since then.
+- An edit that enables the flag ignores an exposed value from before it, because the flag was disabled since then.
 - An event that loaded flags without this one, which an edit that enables the flag reads as unexposed, gives a value
-  only to a person without another one. A flag that only a backend evaluates is in no client's flags, so the next
-  pageview would otherwise replace the value of the flag call.
-- A person counts in a bucket under every value that they had at one of their events in it. The errors that carry no
-  value count under the values at the first and at the last of them in the bucket.
+  only to a person without another one. A flag that only the server runtime evaluates is in no client's flags, so the
+  next pageview would otherwise replace the value of the flag call.
+- The errors that carry no value count under the values at the first and at the last of them in the bucket.
 - The query keeps the first and the last time of each value per person and bucket, not each event. A value that changes
   back and forth within a bucket can give an error in between the other value.
 - Most server SDKs remember the values they sent for a person and don't send one again. A person whose value goes from
   true to false and back to true, without a restart of the SDK, has the value false.
+- For the same reason, in a service that sends only calls and errors, a person who keeps their value has no event after
+  the edit except their errors. Only those with an error count, so the error rate of the people who keep the old value
+  comes out near 1, and level 2 is 0.
+- The counts depend on the range start, because `$feature/<key>` and the loaded flags are read only from it. Counts to
+  compare, such as those of the backtest and of the tick, need the same ranges.
 - A person without a value in the lookback counts under no value.
 - When the calls are not in the events table, a call of another flag is no event of the person, and a call from before
   the range counts only for a person with an event in the events table.
@@ -73,10 +80,13 @@ IN_BUCKETS_SO_FAR = "OVER (PARTITION BY actor ORDER BY bucket ROWS BETWEEN UNBOU
 class LastValueCounts:
     # The people (or groups) with an event and a value.
     with_flag: int
-    # A person whose value changed counts in both, here and in the errors.
+    # With an exposed value at one of their events.
     exposed: int
+    # The rest of `with_flag`.
     unexposed: int
+    # With an error under an exposed value.
     exposed_with_errors: int
+    # The unexposed people with an error.
     unexposed_with_errors: int
 
 
@@ -90,12 +100,12 @@ class LastValueBucket:
 
 def last_values_by_bucket(
     team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, bucket: timedelta
-) -> dict[str, list[LastValueBucket]]:
+) -> dict[str, list[LastValueBucket] | None]:
     """The counts of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
-    nobody had a value after the edit has no entry. An edit has no entry when its query runs out of time or memory."""
+    nobody had a value after the edit has no entry. None when the query of the edit runs out of time or memory."""
     bucket_range = BucketRange(start=start, end=end, bucket=bucket)
     check_edit_ids(edits)
-    counts: dict[str, list[LastValueBucket]] = {}
+    counts: dict[str, list[LastValueBucket] | None] = {}
     for group_type_index, watched in edits_by_actor(edits).items():
         query = _LastValueQuery(
             team=team,
@@ -110,7 +120,13 @@ def last_values_by_bucket(
             ClickHouseQueryMemoryLimitExceeded,
             ClickHouseEstimatedQueryExecutionTimeTooLong,
         ) as error:
-            logger.warning("flag_window_last_values_failed", team_id=team.pk, error_type=type(error).__name__)
+            logger.warning(
+                "flag_window_last_values_failed",
+                team_id=team.pk,
+                group_type_index=group_type_index,
+                error_type=type(error).__name__,
+            )
+            counts |= {edit.id: None for _, edit in watched}
             continue
         for edit_id, buckets in rows.items():
             counts[edit_id] = _buckets(buckets)
@@ -126,13 +142,15 @@ def _buckets(rows: Sequence[BucketCounts]) -> list[LastValueBucket]:
 
 
 def _counts(values: Sequence[int]) -> LastValueCounts:
-    with_flag, exposed, unexposed, exposed_with_errors, unexposed_with_errors = values
+    with_flag, exposed, exposed_with_errors, exposed_or_with_errors = values
+    # The counts are separate `uniq` estimates, so a part can come out above the whole.
+    unexposed = max(0, with_flag - exposed)
     return LastValueCounts(
         with_flag=with_flag,
         exposed=exposed,
         unexposed=unexposed,
         exposed_with_errors=exposed_with_errors,
-        unexposed_with_errors=unexposed_with_errors,
+        unexposed_with_errors=min(unexposed, max(0, exposed_or_with_errors - exposed)),
     )
 
 
@@ -181,7 +199,7 @@ class _EditColumns:
             "unexposed": "{carries} AND NOT {exposed} AND timestamp >= {counts_from}",
         }
         if self.edit.enables:
-            templates["loaded"] = "{with_flag} AND NOT {carries} AND timestamp >= {counts_from}"
+            templates["loaded"] = "timestamp >= {counts_from} AND NOT {carries} AND {with_flag}"
         return self.columns(
             templates, {"carries": read.carries_flag, "exposed": read.exposed, "with_flag": read.with_flag}
         )
@@ -197,7 +215,7 @@ class _EditColumns:
             "unexposed": f"{tells_value} AND NOT ({exposed})",
         }
         if self.edit.enables:
-            # The flag was disabled since a true from before the edit.
+            # The flag was disabled since an exposed value from before the edit.
             templates["exposed"] += " AND timestamp >= {edited_at}"
             templates["loaded"] = "false"
         return self.columns(
@@ -210,84 +228,99 @@ class _EditColumns:
         )
 
     def per_bucket(self) -> list[ast.Expr]:
-        carries_no_value = "error AND NOT {exposed} AND NOT {unexposed}"
-        templates = {
-            "first": "min(if({active}, timestamp, {end}))",
-            "first_error": f"min(if({carries_no_value} AND timestamp >= {{counts_from}}, timestamp, {{end}}))",
-            "last_error": f"max(if({carries_no_value} AND timestamp >= {{counts_from}}, timestamp, {{never}}))",
-        }
+        rows: dict[str, ast.Expr] = {column: self.field(column) for column in ("active", "exposed", "unexposed")}
+        rows["is_error"] = parse_expr("error AND NOT {exposed} AND NOT {unexposed} AND {active}", placeholders=rows)
+        columns = self.columns(
+            {
+                "first": "min(if({active}, timestamp, {end}))",
+                "first_error": "min(if({is_error}, timestamp, {end}))",
+                "last_error": "max(if({is_error}, timestamp, {never}))",
+            },
+            rows,
+        )
         for value in ("exposed", "unexposed"):
-            templates |= {
-                f"first_{value}": f"min(if({{{value}}} AND timestamp >= {{counts_from}}, timestamp, {{end}}))",
-                f"last_{value}": f"max(if({{{value}}} AND timestamp >= {{counts_from}}, timestamp, {{never}}))",
-                f"before_{value}": f"max(if({{{value}}} AND timestamp < {{counts_from}}, timestamp, {{never}}))",
-                f"{value}_error": f"max(error AND {{{value}}})",
-            }
-        values: dict[str, ast.Expr] = {column: self.field(column) for column in ("active", "exposed", "unexposed")}
+            columns += self.columns(
+                {
+                    f"first_{value}": "min(if({has_value} AND timestamp >= {counts_from}, timestamp, {end}))",
+                    f"last_{value}": "max(if({has_value} AND timestamp >= {counts_from}, timestamp, {never}))",
+                    f"before_{value}": "max(if({has_value} AND timestamp < {counts_from}, timestamp, {never}))",
+                    f"{value}_error": "max(error AND {has_value})",
+                },
+                {"has_value": rows[value]},
+            )
         if self.edit.enables:
-            templates["first_loaded"] = "min(if({loaded}, timestamp, {end}))"
-            values["loaded"] = self.field("loaded")
-        return self.columns(templates, values)
+            columns += self.columns(
+                {"first_loaded": "min(if({loaded}, timestamp, {end}))"}, {"loaded": self.field("loaded")}
+            )
+        return columns
 
     def from_earlier_buckets(self) -> list[ast.Expr]:
         """The latest time of each value before the bucket or the edit, and the earliest time that the actor loaded
         flags."""
-        templates: dict[str, str] = {}
-        values: dict[str, ast.Expr] = {}
+        columns: list[ast.Expr] = []
         for value in ("exposed", "unexposed"):
-            before, last = f"before_{value}", f"last_{value}"
-            templates[f"earlier_{value}"] = (
-                f"greatest({{{before}}}, max(greatest({{{before}}}, {{{last}}})) {IN_EARLIER_BUCKETS})"
+            columns += self.columns(
+                {
+                    # The frame of the first bucket is empty and gives the epoch, which `before` lifts to `never`.
+                    f"earlier_{value}": "greatest({before}, max(greatest({before}, {last})) " + IN_EARLIER_BUCKETS + ")"
+                },
+                {"before": self.field(f"before_{value}"), "last": self.field(f"last_{value}")},
             )
-            values |= {before: self.field(before), last: self.field(last)}
         if self.edit.enables:
-            templates["loaded"] = f"min({{first_loaded}}) {IN_BUCKETS_SO_FAR}"
-            values["first_loaded"] = self.field("first_loaded")
-        return self.columns(templates, values)
+            columns += self.columns(
+                {"loaded_at": "min({first_loaded}) " + IN_BUCKETS_SO_FAR},
+                {"first_loaded": self.field("first_loaded")},
+            )
+        return columns
 
     def _latest_at(self, value: str, moment: str) -> ast.Expr:
         return self.expr(
-            "greatest({earlier}, if({first} <= {moment}, {first}, {never}), if({last} <= {moment}, {last}, {never}))",
+            """
+            greatest(
+                {earlier},
+                if({first_value} <= {moment}, {first_value}, {never}),
+                if({last_value} <= {moment}, {last_value}, {never})
+            )
+            """,
             {
                 "earlier": self.field(f"earlier_{value}"),
-                "first": self.field(f"first_{value}"),
-                "last": self.field(f"last_{value}"),
+                "first_value": self.field(f"first_{value}"),
+                "last_value": self.field(f"last_{value}"),
                 "moment": self.field(moment),
             },
         )
 
     def _had_at(self, value: str, moment: str) -> ast.Expr:
         """The actor had `value` at the time in the column `moment`. Of two values with the same time, exposed wins."""
-        template = "{exposed} > {never} AND {exposed} >= {unexposed}"
+        template = "{exposed_at} > {never} AND {exposed_at} >= {unexposed_at}"
         if value == "unexposed":
-            template = "{unexposed} > {exposed}"
+            template = "{unexposed_at} > {exposed_at}"
             if self.edit.enables:
-                template += (
-                    " OR ({exposed} = {never} AND {unexposed} = {never} AND {loaded} < {end} AND {loaded} <= {moment})"
-                )
+                template += " OR ({exposed_at} = {never} AND {unexposed_at} = {never} AND {loaded_at} <= {moment})"
         return self.expr(
-            f"{{moment}} > {{never}} AND {{moment}} < {{end}} AND ({template})",
+            "{moment} > {never} AND {moment} < {end} AND (" + template + ")",
             {
-                "exposed": self._latest_at("exposed", moment),
-                "unexposed": self._latest_at("unexposed", moment),
+                "exposed_at": self._latest_at("exposed", moment),
+                "unexposed_at": self._latest_at("unexposed", moment),
                 "moment": self.field(moment),
-                "loaded": self.field("loaded"),
+                "loaded_at": self.field("loaded_at"),
             },
         )
 
     def states(self) -> list[ast.Alias]:
-        counts = {}
+        had_value: dict[str, ast.Expr] = {}
+        had_error: dict[str, ast.Expr] = {}
         for value in ("exposed", "unexposed"):
             moments = ["first"]
             if value == "unexposed" and self.edit.enables:
                 moments.append("first_loaded")
-            counts[value] = ast.Or(
+            had_value[value] = ast.Or(
                 exprs=[
-                    self.expr("{first} < {end}", {"first": self.field(f"first_{value}")}),
+                    self.expr("{first_value} < {end}", {"first_value": self.field(f"first_{value}")}),
                     *[self._had_at(value, moment) for moment in moments],
                 ]
             )
-            counts[f"{value}_with_errors"] = ast.Or(
+            had_error[value] = ast.Or(
                 exprs=[
                     self.field(f"{value}_error"),
                     *[self._had_at(value, moment) for moment in ("first_error", "last_error")],
@@ -299,11 +332,12 @@ class _EditColumns:
                 expr=parse_expr("uniqState(if({count}, actor, NULL))", placeholders={"count": count}),
             )
             for name, count in (
-                ("people_with_flag", ast.Or(exprs=[counts["exposed"], counts["unexposed"]])),
-                ("people_exposed", counts["exposed"]),
-                ("people_unexposed", counts["unexposed"]),
-                ("people_exposed_with_errors", counts["exposed_with_errors"]),
-                ("people_unexposed_with_errors", counts["unexposed_with_errors"]),
+                ("people_with_flag", ast.Or(exprs=list(had_value.values()))),
+                ("people_exposed", had_value["exposed"]),
+                ("people_exposed_with_errors", had_error["exposed"]),
+                # Without the exposed people, these are the people with errors who never had an exposed value. A state
+                # of one bucket can't leave out the people who are exposed in another.
+                ("people_exposed_or_with_errors", ast.Or(exprs=[had_value["exposed"], had_error["unexposed"]])),
             )
         ]
 
@@ -411,6 +445,8 @@ class _LastValueQuery:
     def _active_actors(self) -> ast.SelectQuery:
         actor = actor_of(self.group_type_index)
         return ast.SelectQuery(
+            # HogQL prints GLOBAL IN, which doesn't deduplicate the set that it sends to each shard.
+            distinct=True,
             select=[actor.expr],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._has_event_in_range(actor),
