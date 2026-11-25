@@ -85,6 +85,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "numberOfMembers": "Total number of suppressed email addresses in the list.",
         },
     },
+    "templates": {
+        "description": "A saved email template that campaigns can be built from.",
+        "docs_url": "https://docs.tinyrelay.com/docs/tiny-email/list-templates",
+        "columns": {
+            "id": "Unique identifier for the template.",
+            "name": "Name of the template.",
+            "subject": "Default subject line of emails built from the template.",
+            "previewText": "Default preview text shown after the subject line in inboxes.",
+            "html": "HTML body of the template.",
+            "css": "CSS styles of the template.",
+            "editorType": "Editor the template opens in: DRAG_AND_DROP or HTML.",
+            "createdAt": "When the template was created, as epoch milliseconds.",
+            "updatedAt": "When the template was last updated, as epoch milliseconds.",
+        },
+    },
     "campaign_domain_stats": {
         "description": "Delivery and engagement metrics for one campaign, broken down by recipient email domain.",
         "docs_url": "https://docs.tinyrelay.com/docs/tiny-email/get-campaign-domain-statistics",

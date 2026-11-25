@@ -1,5 +1,5 @@
 use crate::config::TeamIdCollection;
-use crate::team::request_blocklist::{self, BlockReason, BlockedHosts, BlockedIps};
+use crate::team::request_lists::{BlockReason, CallerHost, HostList, IpList, RequestLists};
 use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::de::{value, IntoDeserializer};
@@ -116,13 +116,20 @@ pub struct Team {
     #[serde(default)]
     pub property_matching_version: PropertyMatchingVersion,
     // Sourced from the customer-editable TeamFeatureFlagPolicyConfig extension. Cache entries
-    // written before these fields existed deserialize to empty lists, which block nothing.
+    // written before these fields existed deserialize to empty lists, which block nothing
+    // and allow every caller.
     #[serde(default)]
     #[sqlx(try_from = "Vec<String>")]
-    pub flags_blocked_hosts: BlockedHosts,
+    pub flags_blocked_hosts: HostList,
     #[serde(default)]
     #[sqlx(try_from = "Vec<String>")]
-    pub flags_blocked_ips: BlockedIps,
+    pub flags_blocked_ips: IpList,
+    #[serde(default)]
+    #[sqlx(try_from = "Vec<String>")]
+    pub flags_allowed_hosts: HostList,
+    #[serde(default)]
+    #[sqlx(try_from = "Vec<String>")]
+    pub flags_allowed_ips: IpList,
     // Sourced from the cohorts product's team access row. Cache entries written before this field
     // existed read `Off`, which leaves the team to REALTIME_COHORT_EVALUATION_TEAM_IDS.
     #[serde(default)]
@@ -137,19 +144,19 @@ impl Team {
         rollout.includes_team(self.id) || self.realtime_cohort_level.serves()
     }
 
-    /// The reason this team's request blocklist refuses a caller with this host and these
-    /// client IPs, or `None` when the caller is allowed.
     pub fn request_block_reason(
         &self,
-        origin_host: Option<&str>,
+        host: CallerHost<'_>,
         client_ips: impl IntoIterator<Item = IpAddr>,
+        edge_ip: Option<IpAddr>,
     ) -> Option<BlockReason> {
-        request_blocklist::check(
-            &self.flags_blocked_hosts,
-            &self.flags_blocked_ips,
-            origin_host,
-            client_ips,
-        )
+        RequestLists {
+            blocked_hosts: &self.flags_blocked_hosts,
+            blocked_ips: &self.flags_blocked_ips,
+            allowed_hosts: &self.flags_allowed_hosts,
+            allowed_ips: &self.flags_allowed_ips,
+        }
+        .check(host, client_ips, edge_ip)
     }
 }
 
@@ -211,7 +218,7 @@ mod tests {
             PropertyMatchingVersion::LEGACY
         );
         assert_eq!(
-            team.request_block_reason(Some("example.com"), ["203.0.113.7".parse().unwrap()]),
+            team.request_block_reason(CallerHost::Opaque, ["203.0.113.7".parse().unwrap()], None),
             None
         );
         assert_eq!(team.realtime_cohort_level, RealtimeCohortLevel::Off);
@@ -271,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blocklist_survives_a_cache_round_trip() {
+    fn test_request_lists_survive_a_cache_round_trip() {
         let cached = serde_json::json!({
             "id": 1,
             "name": "test team",
@@ -279,6 +286,8 @@ mod tests {
             "uuid": Uuid::new_v4().to_string(),
             "flags_blocked_hosts": ["example.com"],
             "flags_blocked_ips": ["203.0.113.0/24", "not-an-ip"],
+            "flags_allowed_hosts": ["example.org"],
+            "flags_allowed_ips": ["198.51.100.0/24"],
         });
 
         let team: Team = serde_json::from_value(cached).expect("cache blob must deserialize");
@@ -286,14 +295,36 @@ mod tests {
             serde_json::from_value(serde_json::to_value(&team).unwrap()).unwrap();
 
         assert_eq!(reserialized.flags_blocked_ips, team.flags_blocked_ips);
-        assert_eq!(
-            reserialized
-                .request_block_reason(Some("app.example.com"), ["198.51.100.1".parse().unwrap()]),
-            Some(BlockReason::Host)
-        );
-        assert_eq!(
-            reserialized.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
-            Some(BlockReason::Ip)
-        );
+        let allowed_ip = Some("198.51.100.1".parse().unwrap());
+        let cases = [
+            (
+                CallerHost::Named("app.example.com"),
+                allowed_ip,
+                Some(BlockReason::Host),
+            ),
+            (
+                CallerHost::Absent,
+                Some("203.0.113.9".parse().unwrap()),
+                Some(BlockReason::Ip),
+            ),
+            (
+                CallerHost::Named("example.net"),
+                allowed_ip,
+                Some(BlockReason::HostNotAllowed),
+            ),
+            (
+                CallerHost::Absent,
+                Some("192.0.2.1".parse().unwrap()),
+                Some(BlockReason::IpNotAllowed),
+            ),
+            (CallerHost::Named("app.example.org"), allowed_ip, None),
+        ];
+        for (host, caller_ip, expected) in cases {
+            assert_eq!(
+                reserialized.request_block_reason(host, caller_ip, caller_ip),
+                expected,
+                "{host:?} from {caller_ip:?}"
+            );
+        }
     }
 }

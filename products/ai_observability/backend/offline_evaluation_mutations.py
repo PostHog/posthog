@@ -212,7 +212,7 @@ def mutate_offline_evaluation(
     target: Target,
     expected_revision: int,
     changes: dict[str, JSONValue] | None,
-    access: UserAccessControl,
+    access: UserAccessControl | None,
 ) -> int:
     experiment = _locked_experiment(team_id=team_id, experiment_id=experiment_id)
     results = OfflineEvaluationResult.objects.for_team(team_id).filter(item__experiment_id=experiment_id)
@@ -242,7 +242,7 @@ def mutate_offline_evaluation(
             affected = results.filter(Q(id=owner.id) | Q(id__in=dependents.values("id")))
     elif target == "item" and changes is None:
         affected = results.filter(item_id=owner.id)
-    if isinstance(owner, OfflineEvaluationResult) or (target == "item" and changes is None):
+    if access is not None and (isinstance(owner, OfflineEvaluationResult) or (target == "item" and changes is None)):
         definitions = access.filter_queryset_by_access_level(
             ScoreDefinition.objects.filter(team_id=team_id), include_all_if_admin=True, resource="llm_analytics"
         )

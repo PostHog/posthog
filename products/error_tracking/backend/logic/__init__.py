@@ -10,6 +10,7 @@ from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.utils import UUIDT
 
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -289,7 +290,7 @@ def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> Error
 
 def list_spike_events(
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
@@ -321,7 +322,10 @@ def stack_frame_queryset(team_id: int) -> QuerySet[ErrorTrackingStackFrame]:
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> ErrorTrackingStackFrame | None:
-    return stack_frame_queryset(team_id).filter(id=frame_id).first()
+    parsed_id = parse_uuid(frame_id)
+    if parsed_id is None:
+        return None
+    return stack_frame_queryset(team_id).filter(id=parsed_id).first()
 
 
 def batch_get_stack_frames(
@@ -344,7 +348,10 @@ def list_releases(team_id: int) -> QuerySet[ErrorTrackingRelease]:
 
 
 def get_release(team_id: int, release_id: str) -> ErrorTrackingRelease | None:
-    return ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
+    parsed_id = parse_uuid(release_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingRelease.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def get_release_by_hash(team_id: int, hash_id: str) -> ErrorTrackingRelease | None:
@@ -447,5 +454,8 @@ def update_release(
 
 
 def delete_release(team_id: int, release_id: str) -> bool:
-    deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).delete()
+    parsed_id = parse_uuid(release_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0

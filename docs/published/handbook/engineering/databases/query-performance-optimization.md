@@ -182,6 +182,10 @@ Need more granular access to queries than these dashboards provide? Take a look 
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
 
+### Query scan structure findings
+
+Query scan can report repeated non-materialized CTE references, CROSS JOIN equality filters, and date arrays built during breakdown ranking. These are potential costs identified from the compiled tree. They do not estimate intermediate row counts or memory, and they do not offer automatic query edits. Explicit materialization and inner joins remove their corresponding structural findings. The existing query-scan flag controls when findings are collected and displayed.
+
 ### Trends breakdown plan rollout
 
 Ranking breakdowns before building date arrays can reduce memory and latency when many breakdown values are combined into "Other". The window functions can also add overhead, so correctness eligibility alone does not justify enabling this plan.
@@ -196,7 +200,7 @@ Monitor duration, bytes read, memory, and errors after rollout: data distributio
 
 ### HogQL cross joins
 
-The `hogql-optimize-cross-joins` project feature flag enables the `optimizeCrossJoins` modifier for queries whose modifier is unset. The compiler can move direct equality conditions between two sources from `WHERE` into an `ALL INNER JOIN` before resolving lazy person joins. This preserves duplicate matches and corrected person identities without editing saved HogQL. Nullable keys keep the existing path because HogQL equality in `WHERE` matches two nulls, whereas join equality does not. Keys of different types, such as a float and an integer, also keep the existing path, because ClickHouse can reject a join between them. Ambiguous join chains, predicates inside `OR` or `NOT`, sampling, and subqueries in result or filter expressions also keep their existing paths. Set the modifier to `false` to disable the transform for one query or project. The feature flag defaults off.
+The `hogql-optimize-cross-joins` project feature flag enables the `optimizeCrossJoins` modifier for queries whose modifier is unset. The compiler can move direct equality conditions between two sources from `WHERE` into an `ALL INNER JOIN` before resolving lazy person joins. This preserves duplicate matches and corrected person identities without editing saved HogQL. When the joined side is a plain table such as `events`, the compiler reads it in a subquery that applies its team filter and its own date and value filters. Without that subquery, ClickHouse builds the join's hash table from every row of the table. Nullable keys keep the existing path because HogQL equality in `WHERE` matches two nulls, whereas join equality does not. Keys of different types, such as a float and an integer, also keep the existing path, because ClickHouse can reject a join between them. Ambiguous join chains, predicates inside `OR` or `NOT`, sampling, and subqueries in result or filter expressions also keep their existing paths. Set the modifier to `false` to disable the transform for one query or project. The feature flag defaults off.
 
 ### Repeated HogQL CTEs
 

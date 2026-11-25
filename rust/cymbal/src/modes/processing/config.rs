@@ -102,6 +102,11 @@ pub struct ProcessingConfig {
     #[envconfig(default = "128")]
     pub process_max_in_flight_requests: usize,
 
+    /// Bounds the results a request that asks for per-event results can make cymbal build,
+    /// because each event of such a request gets a result even when it does not parse.
+    #[envconfig(default = "10000")]
+    pub process_max_events_per_request: usize,
+
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,
 

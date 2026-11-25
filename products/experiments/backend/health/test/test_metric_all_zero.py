@@ -45,6 +45,15 @@ NO_QUERIES = ExperimentHealthReaderAccess(
 LAST_ARRIVED = datetime(2026, 10, 1, 9, 30, tzinfo=UTC)
 MEAN = {"metric_type": "mean"}
 BOUNDED = {"metric_type": "mean", "upper_bound_percentile": 0.99}
+WAREHOUSE_NATIVE_SOURCE: dict[str, Any] = {
+    "kind": "ExperimentWarehouseNativeNode",
+    "connection_id": "00000000-0000-0000-0000-000000000000",
+    "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+    "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+    "math": "sum",
+    "math_property": "amount",
+}
+WAREHOUSE_NATIVE_MEAN = {"metric_type": "mean", "source": WAREHOUSE_NATIVE_SOURCE}
 RETENTION_FROM_DAY_2 = {
     "metric_type": "retention",
     "retention_window_start": 2,
@@ -178,6 +187,12 @@ class TestMetricAllZero(TestCase):
                 _metric(events=(), warehouse_tables=("charges",)),
                 {},
                 (None, WARNING, "counts a warehouse row only for the person or group that was exposed"),
+            ),
+            (
+                "a_warehouse_native_query",
+                _metric(events=(), definition=WAREHOUSE_NATIVE_MEAN),
+                {},
+                (None, WARNING, "Check that the metric query returns the same entity_id values as the exposure query"),
             ),
             (
                 "after_the_end_nobody_can_add_events",

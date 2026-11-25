@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import base64
 import hashlib
 import importlib
@@ -262,6 +263,30 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
+    @parameterized.expand(
+        [
+            ("stale_session_allows", "stale", True, status.HTTP_403_FORBIDDEN),
+            ("step_up_session_allows", "step_up", True, status.HTTP_403_FORBIDDEN),
+            ("stale_session_declines", "stale", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_consent_needs_a_recent_sign_in_only_to_allow(self, _name, session_state, allow, expected_status):
+        if session_state == "step_up":
+            session = self.client.session
+            session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+            session.save()
+        age = settings.SESSION_SENSITIVE_ACTIONS_AGE + 10 if session_state == "stale" else 0
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=age), tick=False):
+            response = self.client.post(
+                "/oauth/authorize/", {**self.base_authorization_post_body, "allow": allow}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+            self.assertFalse(OAuthGrant.objects.filter(application=self.confidential_application).exists())
 
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
@@ -4158,6 +4183,45 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
 
+    @parameterized.expand([("first_party",), ("auto_approval",)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_skipped_consent_waits_for_a_recent_sign_in_then_completes_on_reload(self, grant_path):
+        self.client.force_login(self.user)
+        url = f"{self.base_authorization_url}&state=request-state-123"
+        if grant_path == "first_party":
+            self.confidential_application.is_first_party = True
+            self.confidential_application.save()
+        else:
+            self._set_scope_split(["experiment:read"], [])
+            OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token="at_auto_approval_stale_session",
+                expires=timezone.now() + timedelta(days=1),
+                scope="experiment:read",
+                scoped_teams=[self.team.id],
+                scoped_organizations=None,
+            )
+            url += "&scope=experiment:read&approval_prompt=auto"
+
+        with time_machine.travel(
+            timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
+        ):
+            stale_response = self.client.get(url)
+
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+            session.save()
+            reloaded_response = self.client.get(url)
+
+        self.assertEqual(stale_response.status_code, status.HTTP_200_OK)
+        self.assertIs(stale_response.context["posthog_app_context"]["oauth_reauthentication_required"], True)
+
+        self.assertEqual(reloaded_response.status_code, status.HTTP_302_FOUND)
+        query = parse_qs(urlparse(reloaded_response["Location"]).query)
+        self.assertEqual(query["state"], ["request-state-123"])
+        self.assertEqual(OAuthGrant.objects.get(code=query["code"][0]).code_challenge, self.code_challenge)
+
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
         # An existing token covering the (optional-only) request must not auto-approve
@@ -5387,6 +5451,69 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
+
+    @parameterized.expand([("narrowed_to_one_team", True), ("emptied", False)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_dcr_non_rotating_refresh_reads_teams_changed_while_waiting_for_the_lock(
+        self, _name: str, keeps_a_team: bool
+    ):
+        # The request reads the refresh token in autocommit, then a resource removal narrows its
+        # teams while the request waits for the connection lock. Narrowing the row from inside the
+        # lock call stands in for that commit. The new access token must carry the narrowed teams.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        refresh_token = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        ).json()["refresh_token"]
+        OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=[self.team.id, other_team.id])
+
+        remaining_teams = [other_team.id] if keeps_a_team else []
+
+        def remove_the_team(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=remaining_teams)
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=remove_the_team):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+
+        if keeps_a_team:
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            new_access_token = OAuthAccessToken.objects.get(token=refresh_response.json()["access_token"])
+            self.assertEqual(new_access_token.scoped_teams, [other_team.id])
+        else:
+            self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(refresh_response.json()["error"], "invalid_grant")
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):

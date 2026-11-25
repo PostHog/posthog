@@ -105,19 +105,19 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const custom = getCustomCloud();
 
   if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
-    gatewayBaseUrl = custom.gatewayUrl;
+    gatewayBaseUrl = custom.gatewayUrl.replace(/\/+$/, "");
   } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-    gatewayBaseUrl = `${url.protocol}//localhost:3308`;
+    gatewayBaseUrl = `${url.protocol}//localhost:8080`;
   } else if (url.hostname === "host.docker.internal") {
-    gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
+    gatewayBaseUrl = `${url.protocol}//host.docker.internal:8080`;
   } else if (url.hostname === "app.dev.posthog.dev") {
-    gatewayBaseUrl = "https://gateway.dev.posthog.dev";
+    gatewayBaseUrl = "https://ai-gateway.dev.posthog.dev";
   } else {
     const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1] ?? "us";
-    gatewayBaseUrl = `https://gateway.${region}.posthog.com`;
+    gatewayBaseUrl = `https://ai-gateway.${region}.posthog.com`;
   }
 
-  return `${gatewayBaseUrl}/posthog_code`;
+  return gatewayBaseUrl;
 }
 
 function isGatewayModel(value: unknown): value is Partial<GatewayModel> & {
@@ -159,6 +159,73 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
           }
         : {}),
     }));
+}
+
+export type GatewayModelRow = Pick<
+  GatewayModel,
+  | "id"
+  | "owned_by"
+  | "context_window"
+  | "allowed"
+  | "restriction_reason"
+  | "api_shapes"
+>;
+
+interface TaskModelChoice {
+  runtime_adapter?: unknown;
+  model?: unknown;
+  context_window?: unknown;
+  allowed?: unknown;
+}
+
+export const TASK_MODELS_FETCH_TIMEOUT_MS = 10_000;
+
+export function taskModelsUrl(apiHost: string, projectId: number): string {
+  return `${apiHost.replace(/\/+$/, "")}/api/projects/${projectId}/tasks/models/`;
+}
+
+function taskModelRow(choice: TaskModelChoice): GatewayModelRow | null {
+  if (typeof choice.model !== "string") return null;
+  const id = choice.model;
+  const runtimeAdapter =
+    choice.runtime_adapter === "codex" ? "codex" : "claude";
+  const served = isServedModelId(id);
+  const allowed = choice.allowed !== false;
+  return {
+    id,
+    owned_by: served
+      ? "posthog"
+      : runtimeAdapter === "codex"
+        ? "openai"
+        : "anthropic",
+    context_window:
+      typeof choice.context_window === "number" ? choice.context_window : 0,
+    allowed,
+    restriction_reason: allowed ? null : PAID_PLAN_REQUIRED_REASON,
+    ...(served
+      ? {}
+      : {
+          api_shapes: [
+            runtimeAdapter === "codex"
+              ? OPENAI_RESPONSES_SHAPE
+              : ANTHROPIC_MESSAGES_SHAPE,
+          ],
+        }),
+  };
+}
+
+export function gatewayModelRowsFromTaskModels(
+  value: unknown,
+): GatewayModelRow[] {
+  const models = (value as { models?: unknown } | null)?.models;
+  if (!Array.isArray(models)) return [];
+  return models
+    .filter(
+      (choice): choice is TaskModelChoice =>
+        typeof choice === "object" && choice !== null,
+    )
+    .map(taskModelRow)
+    .filter((row): row is GatewayModelRow => row !== null);
 }
 
 export function isAnthropicModel(model: GatewayModel): boolean {

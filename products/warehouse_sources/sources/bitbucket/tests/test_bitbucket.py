@@ -308,6 +308,8 @@ def test_validate_credentials_status_mapping(status, expected_valid, expected_me
             "activity_date",
         ),
         ("pull_request_comments", ["repository_uuid", "pull_request_id", "id"], "desc", "created_on"),
+        # One commit can sit on several pull requests
+        ("pull_request_commits", ["repository_uuid", "pull_request_id", "hash"], "desc", "date"),
         ("pipeline_steps", ["repository_uuid", "pipeline_uuid", "uuid"], "desc", "pipeline_created_on"),
         ("commit_statuses", ["repository_uuid", "commit_hash", "key"], "desc", "commit_date"),
         ("branches", ["repository_uuid", "name"], "desc", None),
@@ -372,6 +374,7 @@ def test_pull_request_fan_out_walks_every_pull_request_and_injects_context():
     ]
 
 
+@pytest.mark.parametrize("endpoint", ["pull_request_comments", "pull_request_commits"])
 @pytest.mark.parametrize(
     "should_use_incremental,last_value,expected_q",
     [
@@ -382,9 +385,9 @@ def test_pull_request_fan_out_walks_every_pull_request_and_injects_context():
         (False, CUTOFF, None),
     ],
 )
-def test_pull_request_fan_out_bounds_the_parent_walk(should_use_incremental, last_value, expected_q):
+def test_pull_request_fan_out_bounds_the_parent_walk(endpoint, should_use_incremental, last_value, expected_q):
     result = _driver().run(
-        "pull_request_comments",
+        endpoint,
         [_page({"values": [REPO_PAGE["values"][0]]}), _page({"values": []})],
         should_use_incremental_field=should_use_incremental,
         db_incremental_field_last_value=last_value,
@@ -513,13 +516,19 @@ def test_fan_out_parent_walk_stops_at_the_cap_and_warns():
             "/commit/abc123/statuses",
             {"commit_hash": "abc123", "commit_date": "2024-07-01T00:00:00+00:00"},
         ),
+        (
+            "pull_request_commits",
+            {"id": 11, "updated_on": "2024-07-01T00:00:00+00:00"},
+            "/pullrequests/11/commits",
+            {"pull_request_id": 11, "pull_request_updated_on": "2024-07-01T00:00:00+00:00"},
+        ),
     ],
 )
 def test_second_level_fan_out_injects_the_parent_the_child_row_cannot_name(
     endpoint, parent, expected_path, expected_injected
 ):
-    # Neither a step nor a status carries a reference back to its parent, and both the
-    # primary key and the partition key read only the injected columns
+    # No child row carries a reference back to its parent, and the primary key and the
+    # incremental cursor read the injected columns
     result = _driver().run(
         endpoint,
         [

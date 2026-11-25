@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -28,6 +28,6 @@ class TestAuthorizedSubjectTypes(SimpleTestCase):
         self, _name: str, scopes: list[str] | None, write: bool, expected: set[SubjectType]
     ) -> None:
         access = MagicMock(team=None)
-        access.check_access_level_for_resource.return_value = True
 
-        assert authorized_subject_types(access, scopes, write=write) == frozenset(expected)
+        with patch("products.data_quality.backend.logic.permissions.can_access", return_value=True):
+            assert authorized_subject_types(access, scopes, write=write) == frozenset(expected)

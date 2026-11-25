@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { IconBolt, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
@@ -16,6 +18,22 @@ const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
     scanning: 'Reading past events',
     checking: 'Checking who matches',
 }
+
+const OTHER_CHANGE_IN_FLIGHT = 'Wait for the current change to finish'
+
+function inFlightProps(
+    switching: boolean,
+    switchingTo: boolean | null,
+    enabled: boolean
+): { loading: boolean; disabledReason: string | undefined } {
+    return {
+        loading: switching && switchingTo === enabled,
+        disabledReason: switching && switchingTo !== enabled ? OTHER_CHANGE_IN_FLIGHT : undefined,
+    }
+}
+
+const canRetry = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
+    realtime?.state === 'needs_attention' && realtime.reason === null
 
 type RowContent = { label: JSX.Element; tooltip: JSX.Element }
 
@@ -84,7 +102,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     <div>
                         {realtime.reason === 'too_large_to_build'
                             ? "Feature flags can't target this cohort yet. The events in its criteria happen too often for PostHog to prepare it automatically. Contact support to have it prepared."
-                            : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
+                            : 'Feature flags can\'t target this cohort yet because PostHog hasn\'t prepared it. Select "Try again" to have PostHog prepare it, and contact support if it stays unavailable.'}
                     </div>
                 ),
             }
@@ -155,6 +173,8 @@ export function CohortRealtimeStatus({
     switching: boolean
     onSwitch: (enabled: boolean) => void
 }): JSX.Element | null {
+    // "Try again" and "Turn off realtime" share one request, so only the clicked one shows the spinner.
+    const [switchingTo, setSwitchingTo] = useState<boolean | null>(null)
     const content = realtime ? rowContent(realtime) : null
     if (!content) {
         return null
@@ -181,11 +201,26 @@ export function CohortRealtimeStatus({
                         Turn on realtime
                     </LemonButton>
                 )}
+                {canRetry(realtime) && switchAction !== null && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        {...inFlightProps(switching, switchingTo, true)}
+                        onClick={() => {
+                            setSwitchingTo(true)
+                            onSwitch(true)
+                        }}
+                        // pinned: data-attr, because autocapture insights find the click by it
+                        data-attr="cohort-realtime-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                )}
                 {switchAction === 'turn_off' && (
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
-                        loading={switching}
+                        {...inFlightProps(switching, switchingTo, false)}
                         onClick={() =>
                             LemonDialog.open({
                                 title: 'Turn off realtime for this cohort?',
@@ -196,7 +231,10 @@ export function CohortRealtimeStatus({
                                 primaryButton: {
                                     children: 'Turn off',
                                     status: 'danger',
-                                    onClick: () => onSwitch(false),
+                                    onClick: () => {
+                                        setSwitchingTo(false)
+                                        onSwitch(false)
+                                    },
                                     'data-attr': 'cohort-realtime-turn-off-confirm',
                                 },
                                 secondaryButton: { children: 'Cancel' },

@@ -43,6 +43,8 @@ from posthog.email import (
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
+from posthog.models.user import UserType
+from posthog.service_accounts.emails import generated_service_account_email
 from posthog.test.persons import (
     add_distinct_id as add_test_distinct_id,
     create_person as create_test_person,
@@ -199,6 +201,31 @@ class TestEmail(BaseTest):
 
         self.assertEqual(len(mail.outbox), 1)
         self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="capture_down").sent_at)
+
+    @parameterized.expand(
+        [
+            ("with_a_person", ["person@example.com"], ["person@example.com"]),
+            ("alone", [], []),
+        ]
+    )
+    def test_generated_service_account_address_gets_no_email(
+        self, _name: str, other_recipients: list[str], expected_recipients: list[str]
+    ) -> None:
+        service_account = User.objects.create(type=UserType.SERVICE_ACCOUNT, first_name="Deploy bot")
+        service_account.email = generated_service_account_email(service_account.uuid)
+        service_account.save()
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="service_account_skip", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_user_recipient(service_account)
+            for email in other_recipients:
+                message.add_recipient(email)
+            undeliverable = message.send(send_async=False)
+
+        self.assertEqual(undeliverable, [])
+        self.assertEqual([recipient for sent in mail.outbox for recipient in sent.to], expected_recipients)
 
     def test_smtp_send_captures_the_send_with_the_instance_region(self) -> None:
         events: list[dict[str, Any]] = []

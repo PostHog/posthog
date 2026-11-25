@@ -177,6 +177,18 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub stub_create_max_queued_calls: usize,
 
+    /// Worker tasks that run attach statements (0 = each call on its own task).
+    #[envconfig(default = "0")]
+    pub attach_workers: usize,
+
+    /// Distinct ids one coalesced attach statement writes (0 acts as 1).
+    #[envconfig(default = "50")]
+    pub attach_max_batch_distinct_ids: usize,
+
+    /// Calls that wait for an attach worker before new calls fail (0 acts as 1).
+    #[envconfig(default = "1000")]
+    pub attach_max_queued_calls: usize,
+
     /// Leader calls in flight per lifecycle saga step (0 acts as 1).
     #[envconfig(default = "8")]
     pub lifecycle_leader_call_concurrency: usize,
