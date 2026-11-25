@@ -2105,7 +2105,7 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(fakeSes.deliveries).toHaveLength(1)
             expect(fakeSes.deliveries[0].html).toContain('href=https://example.com/reset/token/')
-            expect(fakeSes.deliveries[0].html).not.toContain(sesEndpoint + '/CL0')
+            expect(fakeSes.deliveries[0].html).not.toContain(`${sesEndpoint}/L0/`)
         })
     })
     describe('native email sending with ses', () => {

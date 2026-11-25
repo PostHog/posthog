@@ -47,10 +47,16 @@ const restoreSavedEmailGuards = (
         savedState.clickTrackingEnabled === undefined &&
         hogFunction.metadata?.sensitive !== true &&
         send?.tracking.clicks === undefined
-    if (savedState.sensitive || savedState.clickTrackingEnabled === false || preDeploySensitiveEscalation) {
+    if (
+        savedState.sensitive ||
+        savedState.trackingEnabled === false ||
+        savedState.clickTrackingEnabled === false ||
+        preDeploySensitiveEscalation
+    ) {
         hogFunction.metadata = {
             ...hogFunction.metadata,
             ...(savedState.sensitive ? { sensitive: true } : {}),
+            ...(savedState.trackingEnabled === false ? { tracking_enabled: false } : {}),
             ...(savedState.clickTrackingEnabled === false || preDeploySensitiveEscalation
                 ? { click_tracking_enabled: false }
                 : {}),
@@ -303,15 +309,19 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         if (!functionResult.finished) {
-            const clickTrackingStopped =
-                action.type === 'function_email' &&
-                (functionResult.invocation.hogFunction.metadata?.tracking_enabled === false ||
-                    !isClickTrackingEnabled(functionResult.invocation))
+            const masterTrackingOff = functionResult.invocation.hogFunction?.metadata?.tracking_enabled === false
+            const emailClickTrackingState =
+                action.type === 'function_email'
+                    ? {
+                          ...(masterTrackingOff ? { trackingEnabled: false } : {}),
+                          clickTrackingEnabled: !masterTrackingOff && isClickTrackingEnabled(functionResult.invocation),
+                      }
+                    : {}
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = {
                 ...functionResult.invocation.state,
                 ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
-                ...(clickTrackingStopped ? { clickTrackingEnabled: false } : {}),
+                ...emailClickTrackingState,
             }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
