@@ -9,6 +9,7 @@ NO_IMPORTABLE_FILES_ERROR = "No importable files were found"
 NO_TABLE_FILES_ERROR = "No files are available for table"
 TOO_MANY_FILES_ERROR = "The table has more files than PostHog can import"
 FILE_PARSE_ERROR = "Couldn't parse the file"
+FILE_REMOVED_ERROR = "A listed file was removed from the bucket before it could be read"
 DELTA_UNSUPPORTED_ERROR = "The Delta table uses features PostHog can't read"
 DELTA_READ_ERROR = "Couldn't read the Delta table"
 

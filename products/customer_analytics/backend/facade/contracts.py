@@ -23,6 +23,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
+
 if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
@@ -154,8 +156,40 @@ class AccountDetailTabsConfig:
 
 
 @dataclass(frozen=True)
+class PinnedAccountPropertiesRole:
+    id: UUID
+    name: str
+
+
+PinnedAccountPropertiesSourceKindValue = Literal["personal", "role", "project"]
+
+
+@dataclass(frozen=True)
+class PinnedAccountPropertiesSource:
+    kind: PinnedAccountPropertiesSourceKindValue = "personal"
+    roles: list[PinnedAccountPropertiesRole] = field(default_factory=list)
+
+
+DefaultPinnedAccountPropertiesSourceKindValue = Literal["project", "role"]
+
+
+@dataclass(frozen=True)
+class DefaultPinnedAccountPropertiesSource:
+    kind: DefaultPinnedAccountPropertiesSourceKindValue
+    role: PinnedAccountPropertiesRole | None = None
+
+
+@dataclass(frozen=True)
+class AvailableDefaultPinnedAccountProperties:
+    source: DefaultPinnedAccountPropertiesSource
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    pinned_properties_source: PinnedAccountPropertiesSource = field(default_factory=PinnedAccountPropertiesSource)
+    available_default_pinned_properties: list[AvailableDefaultPinnedAccountProperties] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
     account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
@@ -1218,6 +1252,7 @@ class CustomPropertySourceView:
     key_column: str = ""
     column_property_map: dict | None = None
     column_descriptions: dict | None = None
+    missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -1261,6 +1296,7 @@ class CustomPropertySyncRunView:
     changed: int = 0
     existing: int = 0
     produced: int = 0
+    removed: int = 0
     skipped_missing_person: int = 0
     error: str | None = None
     created_at: datetime | None = None

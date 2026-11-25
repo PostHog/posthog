@@ -24,13 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
-    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
-    PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
     source_condition,
@@ -1025,18 +1023,14 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A copy the platform owns gets nothing, because every edit already writes both of its rows.
+    A copy the platform owns gets nothing, because the platform holds its settings.
     Otherwise a team runs a source here while any of its parallel-run copies of that source is
     enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
-
-    `admit_new_teams` is for a source whose parallel run covers every team. It also admits a team with
-    no enabled copy, such as one whose first alert this is, while the source runs for another team and
-    no operator switched this team off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -1046,23 +1040,10 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admi
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
             return
-        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists() or (
-            admit_new_teams and _admits_new_team(team_copies, upsert.source_kind.value)
-        )
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
         switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
-
-
-def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
-    if team_copies.filter(switched_off_at__isnull=False).exists():
-        return False
-    # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
-    return (
-        PlatformAlertConfiguration.objects.unscoped()
-        .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
-        .exists()
-    )
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
@@ -1251,57 +1232,6 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             alert.last_notified_at = handover.last_notified_at
             alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it.
-
-    A source that runs calendar schedules itself takes back an alert on one. Any other source gets
-    only interval cadences back.
-
-    The caller holds the source's row lock and writes the source's owner and state in the same
-    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
-    and `ValueError` when the platform does not own it, because both owners change together.
-    """
-    with transaction.atomic():
-        configurations = PlatformAlertConfiguration.objects.for_team(team_id).select_for_update()
-        configuration = configurations.get(legacy_configuration_id=legacy_configuration_id)
-        if configuration.owner != PlatformAlertOwner.PLATFORM:
-            raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
-        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
-        calendar = configuration.recurrence_unit is not None and not source_runs_calendar_schedules
-        # A grouped copy with no group open yet still splits its results, which its source cannot do.
-        if (
-            calendar
-            or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
-            or any(alert.grouping_key for alert in alerts)
-        ):
-            return HandbackRefusal.NOT_PORTABLE
-        alert = alerts[0] if alerts else None
-        if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):
-            return HandbackRefusal.FIRING
-        # The same rule discovery reads, so an alert discovery skips is never waited on. A check
-        # advances `next_check_at` when it records, so a row not due under this lock has no
-        # platform check between reading the alert and recording it.
-        if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
-            return HandbackRefusal.CHECK_DUE
-
-        handback = PlatformHandback(
-            state=PlatformAlertState(_composed(configuration, alert).state),
-            last_notified_at=alert.last_notified_at if alert is not None else None,
-            consecutive_failures=configuration.consecutive_failures,
-            next_check_at=configuration.next_check_at,
-            enabled=configuration.enabled,
-        )
-        configuration.owner = PlatformAlertOwner.SOURCE
-        configuration.owner_changed_at = at
-        # A check can still be running for a copy that is disabled or not due, and it records only
-        # rows still due, so this keeps it from recording and delivering after the handback.
-        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
-        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
-        return handback
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:

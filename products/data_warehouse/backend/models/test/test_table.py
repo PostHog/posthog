@@ -8,6 +8,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import _preload_active_external_data_schemas
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
@@ -134,6 +135,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectPostgresTable)
@@ -244,6 +246,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectMySQLTable)
@@ -305,6 +308,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectSnowflakeTable)

@@ -43,16 +43,20 @@ export {
  */
 export type RecordingApiAuthConfig = {
     RECORDING_API_JWT_SECRET: string
+    // Verifies the read-only tokens staff mint on toolbox pods. It never signs or verifies a delete or write token.
+    RECORDING_API_STAFF_JWT_SECRET: string
 }
 
 // Local defaults that match the Django and Temporal minters. They are public in this repo, so a cloud process never accepts them.
 export const DEV_RECORDING_API_JWT_SECRET = 'dev-recording-api-jwt-secret'
 export const DEV_RECORDING_API_BLOCKS_JWT_SECRET = 'dev-recording-api-blocks-jwt-secret'
+export const DEV_RECORDING_API_STAFF_JWT_SECRET = 'dev-recording-api-staff-jwt-secret'
 
 export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
     return {
         // Dev/test default matches the Django/Temporal minters so local end-to-end calls validate.
         RECORDING_API_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_JWT_SECRET,
+        RECORDING_API_STAFF_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_STAFF_JWT_SECRET,
     }
 }
 

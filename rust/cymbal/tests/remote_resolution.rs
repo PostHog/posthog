@@ -452,16 +452,24 @@ async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
         delay: Duration::from_millis(400),
     })
     .await;
-    let ctx = make_ctx(&[slow_addr], 1, Duration::from_millis(100)).await;
-    let evt = build_event(1);
+    for max_retries in [1, 0] {
+        let ctx = make_ctx(&[slow_addr], max_retries, Duration::from_millis(100)).await;
+        let evt = build_event(1);
 
-    let err = process_one(remote_stage(ctx), evt)
-        .await
-        .expect_err("shared item deadline must surface");
-    assert!(
-        format!("{err}").contains("deadline"),
-        "expected deadline error, got: {err}"
-    );
+        let err = process_one(remote_stage(ctx), evt)
+            .await
+            .expect_err("shared item deadline must surface");
+        assert!(
+            matches!(
+                err,
+                UnhandledError::ResolutionIncomplete {
+                    code: "deadline_exceeded",
+                    ..
+                }
+            ),
+            "expected deadline error with {max_retries} retries, got: {err}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -34,12 +34,28 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     const records: TruthRecord[] = []
     const seen = new Set<string>()
     let readAt = -Infinity
+    let failure: unknown
     // A caller that bounds its wait, the live log, reads the last answer, so the judge owns each query and its errors.
     const refresh = async (read?: TruthRead): Promise<void> => {
-        if (read?.timeoutMs !== undefined || now() - readAt < QUERY_EVERY_MS) {
+        if (read?.timeoutMs !== undefined) {
+            return
+        }
+        if (now() - readAt < QUERY_EVERY_MS) {
+            if (failure !== undefined) {
+                throw failure
+            }
             return
         }
         readAt = now()
+        try {
+            await query()
+            failure = undefined
+        } catch (error) {
+            failure = error
+            throw error
+        }
+    }
+    const query = async (): Promise<void> => {
         const { results } = (await devFetch(
             `${config.host}/api/projects/${config.receiptsTeamId}/query/`,
             {

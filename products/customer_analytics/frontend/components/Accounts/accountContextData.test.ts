@@ -1,7 +1,8 @@
 import { accountContextResponse } from '../../__mocks__/accountContextResponse'
-import { parseAccountContext, parseContextSource, summarizeContext } from './accountContextData'
+import { parseAccountContext, parseContextSource } from './accountContextData'
 
 const PLAN_FACT = 'The team plans a dashboard review next quarter.'
+const SAMPLING_FACT = 'Recording sampling dropped to a quarter.'
 
 const RESPONSE = accountContextResponse([
     { section: 'meta', id: 'contract', expired_facts: 2 },
@@ -19,7 +20,7 @@ const RESPONSE = accountContextResponse([
         section: 'fact',
         id: 'fact-sampling',
         author: 'bo@example.com',
-        fact_text: 'Recording sampling dropped to a quarter.',
+        fact_text: SAMPLING_FACT,
         confidence: 'inferred',
         review_due: 1,
         fact_source: 'gong',
@@ -57,6 +58,14 @@ const RESPONSE = accountContextResponse([
         arr_at_stake: 62000,
     },
     {
+        section: 'signal',
+        id: 'signal-renewal',
+        signal_type: 'renewal_window',
+        direction: 'down',
+        signal_state: 'open',
+        onset: '2026-08-01',
+    },
+    {
         section: 'slack',
         id: 'https://example.slack.com/archives/C1/p1',
         summary: 'Asked about flag limits',
@@ -70,6 +79,8 @@ const RESPONSE = accountContextResponse([
     { section: 'link', id: 'signal-drop', to_id: 'product:replay', relation: 'on' },
     { section: 'link', id: 'signal-usage', to_id: 'fact-sampling', relation: 'explains', link_source: 'explain' },
     { section: 'link', id: 'signal-usage', to_id: 'fact-plan', relation: 'explains', link_source: 'distiller' },
+    { section: 'link', id: 'signal-usage', to_id: 'fact-plan', relation: 'acts_on', link_source: 'distiller' },
+    { section: 'link', id: 'signal-spend', to_id: 'fact-sampling', relation: 'acts_on', link_source: 'distiller' },
 ])
 
 describe('accountContextData', () => {
@@ -83,30 +94,34 @@ describe('accountContextData', () => {
             topics: ['Session replay', 'Engagement'],
         })
         expect(context.facts[0]).toMatchObject({ source: 'Gong call', capturedOn: '2026-11-03', needsRecheck: true })
-        expect(context.signals.map((signal) => signal.id)).toEqual(['signal-usage', 'signal-spend', 'signal-drop'])
+        expect(context.signals.map((signal) => signal.id)).toEqual([
+            'signal-usage',
+            'signal-spend',
+            'signal-drop',
+            'signal-renewal',
+        ])
         expect(context.signals[0]).toMatchObject({
             title: 'Session replay usage up 61%',
             open: true,
+            openDays: null,
             reason: { text: PLAN_FACT, likely: false },
+            notes: [],
         })
-        expect(context.signals[1]).toMatchObject({ title: 'Spend up 20x', open: false, reason: null })
-        expect(context.signals[2].title).toBe('Session replay usage down 100%')
+        expect(context.signals[1]).toMatchObject({
+            title: 'Spend up 20x',
+            open: false,
+            openDays: 49,
+            reason: null,
+            notes: [SAMPLING_FACT],
+        })
+        expect(context.signals[2]).toMatchObject({ title: 'Session replay usage down 100%', openDays: 5 })
+        expect(context.signals.map((signal) => signal.scheduled)).toEqual([false, false, false, true])
         expect(context.threads[0].url).toBe('https://example.slack.com/archives/C1/p1')
         expect(context.expiredFacts).toBe(2)
         expect([context.truncated, parseAccountContext({ ...RESPONSE, hasMore: true }).truncated]).toEqual([
             false,
             true,
         ])
-
-        expect(summarizeContext(context)).toEqual({
-            factCount: 2,
-            inferredCount: 1,
-            lastCapturedOn: '2026-11-03',
-            writerCount: 2,
-            openSignalCount: 1,
-            unexplainedSignalCount: 0,
-            recheckCount: 1,
-        })
     })
 
     it('accepts a context source only when every field is present', () => {

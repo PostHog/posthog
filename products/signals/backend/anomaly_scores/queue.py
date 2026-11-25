@@ -65,7 +65,7 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout, judges_team
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
@@ -261,6 +261,8 @@ class Selection:
     # Eligible teams, and their organizations.
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Eligible teams that score with `default-v2`.
+    ai_judge_teams: int = 0
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
     # Insights in a cooldown after a train pick with no series.
@@ -763,6 +765,16 @@ def reserve_queries(
     return False
 
 
+def charge_queries(team_id: int, queries: int, now: datetime.datetime, kind: ScoringRun) -> None:
+    """Charge ``queries`` that a pick sent past its plan to both hourly budgets of ``kind``.
+
+    The pick has already sent them, so the charge can pass a cap. Later plans then have that much less budget.
+    """
+    for key in (_fleet_budget_key(now, kind), _project_budget_key(team_id, now, kind)):
+        cache.add(key, 0, timeout=int(_BUDGET_TTL.total_seconds()))
+        cache.incr(key, queries)
+
+
 def within_budget(
     order: list[int],
     team_ids: dict[int, int],
@@ -819,7 +831,7 @@ def _run_plans(
     team: Team, insight_ids: list[int], config: AnomalyScoringConfig, now: datetime.datetime
 ) -> dict[int, RunPlan]:
     insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
-    states = load_states(team, insights) if config.train_score_split else {}
+    states = load_states(team, insights, config.ai_judge) if config.train_score_split else {}
     plans = {insight.id: plan_run(insight, team, states.get(insight.id), config, now) for insight in insights}
     # An insight that no longer exists sends no query, but one query is the safe charge.
     missing = RunPlan(queries=1, run=ScoringRun.TRAIN if config.train_score_split else None)
@@ -1093,6 +1105,7 @@ def select_insights(
         teams_skipped=len(teams_with_insights) - len(loaded_teams),
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
+        ai_judge_teams=sum(judges_team(config.ai_judge, team) for team in teams.values()),
         long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
         empty_backoff=sum(insight_id in empty_train for insight_id in cooling),
         due_insights=None if due_list is None else len(due_list.insights),

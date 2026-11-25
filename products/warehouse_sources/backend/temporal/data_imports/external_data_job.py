@@ -912,6 +912,16 @@ def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uui
     return any(str(value) == str(schema_id) for value in scheduled_by)
 
 
+def _reads_complete_table(
+    *, incremental_or_append: bool, scheduled_full_refresh: bool, reset_pipeline: bool, is_resumable_source: bool
+) -> bool:
+    """Whether this run staged the whole table. Incremental and append runs stage only changed rows,
+    and a resumable source can pick a run up part way through."""
+    if is_resumable_source:
+        return False
+    return not incremental_or_append or scheduled_full_refresh or bool(reset_pipeline)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -1399,6 +1409,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
+                    complete_table_read=_reads_complete_table(
+                        incremental_or_append=incremental_or_append,
+                        scheduled_full_refresh=scheduled_full_refresh,
+                        reset_pipeline=bool(inputs.reset_pipeline),
+                        is_resumable_source=is_resumable_source,
+                    ),
                 )
                 # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
                 # S3 prefix that only its own child consumes. A per-schema id would coalesce a

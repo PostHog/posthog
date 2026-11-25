@@ -173,6 +173,64 @@ describe('hog endpoints', () => {
         expect(result.files['/work/endpoints/weekly.yaml']).toBeUndefined()
     })
 
+    const ENDPOINTS_DIR_CONFIG = {
+        '/work/posthog.json': JSON.stringify({ endpoints: { dir: 'endpoints' } }),
+        '/work/endpoints/README.md': '',
+    }
+    test.each([
+        ['the working folder', [], { '/work/README.md': '' }, '/work/weekly.yaml', '/home/ana/.bashrc'],
+        [
+            'the endpoints.dir from posthog.json',
+            [],
+            ENDPOINTS_DIR_CONFIG,
+            '/work/endpoints/weekly.yaml',
+            '/home/ana/.bashrc',
+        ],
+        [
+            'the endpoints.dir from posthog.json, to a project file',
+            [],
+            ENDPOINTS_DIR_CONFIG,
+            '/work/endpoints/weekly.yaml',
+            '/work/settings.yaml',
+        ],
+        [
+            'a --to folder',
+            ['--to', 'endpoints'],
+            { '/work/endpoints/README.md': '' },
+            '/work/endpoints/weekly.yaml',
+            '/home/ana/.bashrc',
+        ],
+    ])('pull leaves alone a file in %s that links out of it', async (_name, args, files, planted, linked) => {
+        const result = await runHog(['endpoints', 'pull', 'weekly', '--yes', '-o', 'json', ...args], {
+            env: AGENT,
+            files: { ...files, [linked]: 'keep' },
+            links: { [planted]: linked },
+            respond: server([TRENDS]),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.stdout).toContain('points outside')
+        expect(result.files[linked]).toBe('keep')
+        expect(result.files[planted]).toBeUndefined()
+    })
+
+    test.each([
+        ['an absolute folder', '/home/ana'],
+        ['a folder that climbs out of the project', '../outside'],
+    ])('pull refuses an endpoints.dir in posthog.json that is %s', async (_name, dir) => {
+        const config = JSON.stringify({ endpoints: { dir } })
+
+        const result = await runHog(['endpoints', 'pull', '--all', '--yes'], {
+            env: AGENT,
+            files: { '/work/posthog.json': config },
+            respond: server([TRENDS]),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_endpoints_dir' })
+        expect(Object.keys(result.files)).toEqual(['/work/posthog.json'])
+    })
+
     test('pull takes variable types from the values when the key cannot read project variables', async () => {
         const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
             env: AGENT,

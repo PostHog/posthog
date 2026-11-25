@@ -35,7 +35,7 @@ export function HeatmapsForbiddenURL(): JSX.Element {
         ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.TOOLBAR_URLS,
     })
-    const { authorizedUrls } = useValues(logic)
+    const { authorizedUrls, writeDisabledReason } = useValues(logic)
     const { addUrl } = useActions(logic)
 
     const { urlToAuthorize, validationError } = useMemo(() => {
@@ -63,6 +63,7 @@ export function HeatmapsForbiddenURL(): JSX.Element {
                                   addUrl(urlToAuthorize)
                                   lemonToast.success(`Authorized ${urlToAuthorize}`)
                               },
+                              disabledReason: writeDisabledReason,
                               'data-attr': 'heatmaps-authorize-url',
                           }
                         : undefined

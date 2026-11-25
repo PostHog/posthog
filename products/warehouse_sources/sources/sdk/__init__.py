@@ -1,7 +1,7 @@
 """The only import surface for a vendor directory under `products/warehouse_sources/sources/`.
 
 A vendor imports shared code from this module (or from `products.warehouse_sources.sources.sdk.testing` in tests), and its own
-directory as `products.warehouse_sources.sources.<vendor>`. tach (`products.warehouse_sources.sources.*` in `tach.toml`) forbids every other first-party import.
+directory as `products.warehouse_sources.sources.<vendor>`. hoglint (`sources-vendors-use-sdk` in `tools/hoglint/presets/posthog.toml`) forbids every other first-party import.
 
 This module only re-exports. `gen_sdk.py` in the layer 2 scripts wrote it from the imports the vendors
 had. To add a name, import it here from its origin module and add it to `__all__`. The goal is that

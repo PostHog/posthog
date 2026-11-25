@@ -51,6 +51,12 @@ export interface RateLimitsRecommendationMeta {
 
 export type RateLimitsRecommendation = RecommendationWithMeta<'rate_limits', RateLimitsRecommendationMeta>
 
+export interface IssueSummariesRecommendationMeta {
+    enabled: boolean
+}
+
+export type IssueSummariesRecommendation = RecommendationWithMeta<'issue_summaries', IssueSummariesRecommendationMeta>
+
 /** Fills "alerts for ___ issues" in the alerts banner title. */
 export const ALERT_TRIGGER_ADJECTIVES: Partial<Record<HogFunctionSubTemplateIdType, string>> = {
     'error-tracking-issue-created': 'new',
