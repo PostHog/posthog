@@ -384,6 +384,28 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
     )
 
 
+def resolve_personal_default_integration_id(slack_workspace_id: str, slack_user_id: str) -> int | None:
+    """The integration this Slack user's own row routes mentions to. None means the workspace default applies."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("default_integration_id", flat=True)
+        .first()
+    )
+
+
+def set_personal_default_integration(slack_workspace_id: str, slack_user_id: str, integration_id: int | None) -> None:
+    """The caller checks that the person can open the target project."""
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"default_integration_id": integration_id},
+    )
+
+
 def resolve_external_channels_enabled(slack_workspace_id: str) -> bool:
     """Whether PostHog may work in externally shared channels of this workspace.
 
