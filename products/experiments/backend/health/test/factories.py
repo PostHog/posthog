@@ -59,7 +59,6 @@ RUNNING_CONTEXT = HealthContext(
     excluded_variant_keys=frozenset(),
     metric_compiles=None,
     latest_calculation=None,
-    can_read_results=True,
     exposure_filters_without_column=None,
 )
 

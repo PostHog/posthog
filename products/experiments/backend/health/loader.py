@@ -37,7 +37,6 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.warehouse_native_sources import user_may_read_warehouse_native_results
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
@@ -206,21 +205,17 @@ def _health_context(
         can_read_flag_calls=flag_calls_readable(reader_access),
     )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
-    can_read_results = user_may_read_warehouse_native_results(
-        experiment.team, experiment.exposure_criteria, user.pk if user is not None else None
-    )
-    latest_calculation = load_latest_calculation(experiment, team_config=team_config) if can_read_results else None
+    latest_calculation = load_latest_calculation(experiment, team_config=team_config)
     return replace(
         context,
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
-        primary_metric=load_primary_metric(experiment, team_config=team_config) if can_read_results else None,
+        primary_metric=load_primary_metric(experiment, team_config=team_config),
         primary_metric_windows=load_primary_metric_windows(
             experiment, can_read_flag_history=reader_access.can_read_flag_history
         ),
         metric_compiles=load_metric_compiles(experiment, team_config=team_config, user=user),
         latest_calculation=latest_calculation,
-        can_read_results=can_read_results,
         exposure_filters_without_column=load_filters_without_column(experiment)
         if latest_calculation is not None
         and not latest_calculation.completed_count

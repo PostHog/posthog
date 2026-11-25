@@ -25,7 +25,6 @@ from products.experiments.backend.health.checks.change_wording import duration
 from products.experiments.backend.health.checks.events_received import joined, quoted
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
 from products.experiments.backend.health.skips import (
-    NO_WAREHOUSE_RESULTS_ACCESS,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
@@ -92,8 +91,6 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NOT_ON_ARCHIVED)
     if not ctx.is_launched:
         return not_applicable(RUNS_AFTER_LAUNCH)
-    if not ctx.can_read_results:
-        return not_checked(NO_WAREHOUSE_RESULTS_ACCESS)
     calculation = ctx.latest_calculation
     if calculation is None:
         return not_checked("Couldn't check because the latest calculation couldn't be read")

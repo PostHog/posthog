@@ -718,11 +718,6 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
-    # False when the reader may not read the stored results, which `primary_metric` and `latest_calculation` come
-    # from. A warehouse-native experiment stores totals read from the customer's warehouse, so reading those totals
-    # needs the connection access that the results endpoints check. `primary_metric` and `latest_calculation` are None
-    # then.
-    can_read_results: bool
     # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
     # calculation completed and a failed query read the events.
     exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
@@ -1363,6 +1358,5 @@ def load_health_context(
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
-        can_read_results=True,
         exposure_filters_without_column=None,
     )

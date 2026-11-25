@@ -4,22 +4,16 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest import TestCase
-from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
-from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
-    ExperimentHealthCheckKey,
-    ExperimentHealthCheckStatus,
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
@@ -32,21 +26,14 @@ from products.experiments.backend.health.checks.metric_all_zero import (
     metric_all_zero_rows,
 )
 from products.experiments.backend.health.context import HealthContext, LatestCalculation, ZeroMetric
-from products.experiments.backend.health.skips import (
-    NO_WAREHOUSE_RESULTS_ACCESS,
-    CheckOutcome,
-    CheckSkip,
-    not_applicable,
-)
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, not_applicable
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 CODE = ExperimentHealthFindingCode.METRIC_ALL_ZERO
-NOT_CHECKED = ExperimentHealthCheckStatus.NOT_CHECKED
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
@@ -434,7 +421,7 @@ class TestMetricAllZero(TestCase):
 
 
 class TestMetricAllZeroFromStoredRuns(BaseTest):
-    def _experiment(self, metrics: list[dict[str, Any]], *, started_days_ago: int = 5, **fields: Any) -> Experiment:
+    def _experiment(self, metrics: list[dict[str, Any]], *, started_days_ago: int = 5) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="checkout-test",
@@ -455,7 +442,6 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
             feature_flag=flag,
             start_date=timezone.now() - timedelta(days=started_days_ago),
             metrics=metrics,
-            **fields,
         )
 
     def _store(
@@ -639,50 +625,3 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
         [finding] = self._findings(experiment)
 
         self.assertEqual(finding.subcode, "blank_event")
-
-    @parameterized.expand([("with_access_to_the_connection", True), ("without_access_to_the_connection", False)])
-    def test_reads_warehouse_totals_only_for_a_reader_with_access_to_the_connection(
-        self, _name: str, has_access: bool
-    ) -> None:
-        connection = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="bigquery",
-            source_type="BigQuery",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            job_inputs={},
-        )
-        unit = {"unit_type": "customer", "id_namespace": "billing_customer_id"}
-        experiment = self._experiment(
-            [self._mean("primary", source={**WAREHOUSE_NATIVE_SOURCE, "connection_id": str(connection.id)})],
-            exposure_criteria={
-                "exposure_config": {
-                    "kind": "ExperimentWarehouseNativeExposureConfig",
-                    "connection_id": str(connection.id),
-                    "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
-                    "unit": unit,
-                }
-            },
-        )
-        self._store(experiment, {"primary": _result(samples=1000, total=0)})
-        if not has_access:
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-            ]
-            self.organization.save()
-            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-                level=OrganizationMembership.Level.MEMBER
-            )
-            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
-
-        with patch(
-            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
-        ):
-            health = get_experiment_health(
-                team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
-            )
-
-        check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.METRIC_ALL_ZERO)
-        if has_access:
-            self.assertEqual(check.rows[0][ExperimentHealthValueKey.SAMPLE_COUNT], 2000)
-        else:
-            self.assertEqual((check.status, check.reason, check.rows), (NOT_CHECKED, NO_WAREHOUSE_RESULTS_ACCESS, ()))
