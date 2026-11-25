@@ -750,6 +750,12 @@ class TestFlagCallMemoryCap(BaseTest):
                 "properties AS p, p AS q",
             ),
             (
+                "qualified_read_when_an_alias_reuses_the_column_name",
+                "e.properties['$feature/new-checkout'] = 'true'",
+                True,
+                "e.timestamp AS properties",
+            ),
+            (
                 "alias_of_another_expression",
                 "JSONExtractString(p, '$feature/new-checkout') = 'true'",
                 False,
