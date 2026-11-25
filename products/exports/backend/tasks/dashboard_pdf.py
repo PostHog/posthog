@@ -1,6 +1,6 @@
 from playwright.sync_api import Page
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.tasks.failure_handler import InvalidExportContext
 
 PDF_PAGE_WIDTH = 1122
@@ -9,13 +9,13 @@ MAX_PDF_TILES = 20
 MAX_PDF_LAYOUT_HEIGHT = 50
 
 
-def validate_dashboard_pdf(dashboard: Dashboard) -> None:
-    layouts = list(dashboard.tiles.values_list("layouts", flat=True)[: MAX_PDF_TILES + 1])
+def validate_dashboard_pdf(dashboard_id: int) -> None:
+    layouts = dashboards_api.live_tile_layouts(dashboard_id, limit=MAX_PDF_TILES + 1)
     if len(layouts) > MAX_PDF_TILES:
         raise InvalidExportContext(f"PDF exports support up to {MAX_PDF_TILES} tiles. Export a smaller dashboard.")
     for tile_layouts in layouts:
-        for layout in (tile_layouts or {}).values():
-            height = layout.get("h", 1)
+        for layout in tile_layouts.values():
+            height = layout.get("h", 1) if isinstance(layout, dict) else None
             if not isinstance(height, (int, float)) or not 0 < height <= MAX_PDF_LAYOUT_HEIGHT:
                 raise InvalidExportContext(
                     "A dashboard tile is too tall to export as PDF. Reduce its height and retry."
