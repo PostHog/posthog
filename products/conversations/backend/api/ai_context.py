@@ -12,13 +12,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.paging import PageRequest
 from posthog.permissions import TeamMemberLightManagementPermission
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.authorization.backend.facade.contracts import Subject
 from products.conversations.backend.ai.ticket_context import ACCOUNT_TARGET_TYPE, MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS
 from products.customer_analytics.backend.facade.api import (
     get_custom_property_definition_target_type,
     list_custom_property_definitions,
 )
+from products.customer_analytics.backend.facade.contracts import CustomPropertyAccess
 
 # One bounded read, not a paging loop: each facade call repeats the count, the workflow
 # reference scan and the source enrichment, so paging a large team costs several full scans
@@ -31,11 +32,11 @@ class AIContextAccountPropertySerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Display name of the account property.")
 
 
-def list_account_property_options(team_id: int, user_access_control: UserAccessControl) -> list[dict[str, object]]:
+def list_account_property_options(team_id: int, subject: Subject) -> list[dict[str, object]]:
     page = list_custom_property_definitions(
         team_id,
         page=PageRequest(limit=MAX_ACCOUNT_PROPERTY_OPTIONS),
-        user_access_control=user_access_control,
+        access=CustomPropertyAccess(subject=subject),
         exclude_group_targets=True,
         target_type=ACCOUNT_TARGET_TYPE,
     )
@@ -59,7 +60,7 @@ class AIContextAccountPropertiesViewSet(TeamAndOrgViewSetMixin, AccessControlVie
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(
-            list_account_property_options(self.team.id, self.user_access_control),
+            list_account_property_options(self.team.id, Subject(user_id=request.user.pk)),
             many=True,
         )
         return Response(serializer.data)

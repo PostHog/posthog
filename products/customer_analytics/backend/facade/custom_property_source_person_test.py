@@ -2,15 +2,19 @@ from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.paging import PageRequest
 
-from products.customer_analytics.backend.facade import api
+from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
+from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition, create_saved_query
@@ -174,53 +178,66 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             self._create(definition_id=self.account_def.id, **overrides)
         assert expected_message in str(ctx.exception)
 
-    @staticmethod
-    def _uac(allowed: bool) -> MagicMock:
-        uac = MagicMock()
-        uac.check_access_level_for_object.return_value = allowed
-        return uac
+    def _access(self, allowed: bool) -> contracts.CustomPropertyAccess:
+        if allowed:
+            return contracts.CustomPropertyAccess(subject=Subject(user_id=self.user.pk))
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        user = User.objects.create_and_join(self.organization, "limited-warehouse@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+        for resource in ("external_data_source", "warehouse_objects"):
+            AccessControl.objects.create(
+                team=self.team, organization_member=membership, resource=resource, access_level="none"
+            )
+        return contracts.CustomPropertyAccess(subject=Subject(user_id=user.pk))
 
     def test_create_person_source_requires_warehouse_source_editor(self):
         # Mapping a warehouse table into person properties drives its billable source, so a caller
         # without external_data_source editor access is refused even with account-scope editor.
         with self.assertRaises(api.ResourceForbiddenError):
-            self._create(user_access_control=self._uac(allowed=False))
+            self._create(access=self._access(allowed=False))
         # The allow path still creates the source.
-        view = self._create(user_access_control=self._uac(allowed=True))
+        view = self._create(access=self._access(allowed=True))
         assert view.external_data_schema == self.schema.id
 
+    @parameterized.expand([("object_denied", False), ("scope_missing", True)])
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
-    def test_trigger_sync_denied_without_warehouse_source_editor(self, _flag):
+    def test_trigger_sync_requires_warehouse_source_write_access(self, _name, scope_missing, _flag):
         source = self._create()
-        with self.assertRaises(api.ResourceForbiddenError):
-            api.trigger_person_property_sync(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+        access = (
+            contracts.CustomPropertyAccess(
+                subject=Subject(user_id=self.user.pk), missing_scopes=frozenset({"external_data_source:write"})
             )
+            if scope_missing
+            else self._access(allowed=False)
+        )
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_sync(team_id=self.team.id, source_id=source.id, access=access)
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_trigger_backfill_denied_without_warehouse_source_editor(self, _flag):
         source = self._create()
         with self.assertRaises(api.ResourceForbiddenError):
             api.trigger_person_property_backfill(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=False)
             )
 
     def test_update_columns_requires_warehouse_source_editor(self):
         # Changing the mapped columns on an enabled person source auto-triggers a warehouse backfill, so
         # it needs external_data_source editor access, not account-scope editor alone — the gate must
         # cover column changes, not just re-enabling.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         with self.assertRaises(api.ResourceForbiddenError):
             api.update_custom_property_source(
                 team_id=self.team.id,
                 source_id=source.id,
                 fields={"key_column": "user_id"},
-                user_access_control=self._uac(allowed=False),
+                access=self._access(allowed=False),
             )
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     def test_update_person_mapping_round_trips_on_the_same_source_and_starts_one_backfill(self, start_backfill):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         start_backfill.reset_mock()
         CustomPropertySource.objects.filter(id=source.id).update(
             consecutive_failures=3, last_sync_error="previous sync failure"
@@ -233,7 +250,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
                 "column_descriptions": {"seats": " Seat count "},
             },
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.id == source.id
@@ -244,14 +261,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     def test_update_person_mapping_noop_does_not_start_a_backfill(self, start_backfill):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         start_backfill.reset_mock()
 
         view = api.update_custom_property_source(
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_property_map": {"plan": "plan_tier"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.id == source.id
@@ -259,9 +276,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     def test_update_person_descriptions_stamps_and_clears_provenance_without_a_backfill(self, start_backfill):
-        source = self._create(
-            column_descriptions={"plan": "Old description"}, user_access_control=self._uac(allowed=True)
-        )
+        source = self._create(column_descriptions={"plan": "Old description"}, access=self._access(allowed=True))
         start_backfill.reset_mock()
         definition = PropertyDefinition.objects.create(
             team=self.team,
@@ -274,7 +289,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_descriptions": {"plan": " Plan tier "}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
@@ -287,7 +302,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_descriptions": None},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert cleared is not None and cleared.column_descriptions == {}
@@ -300,7 +315,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_update_disabled_person_mapping_leaves_provenance_alone(self, start_backfill):
         # Provenance names the source that writes a property. A disabled source writes nothing, so
         # editing its mapping must not make it the owner of a definition it does not feed.
-        source = self._create(is_enabled=False, user_access_control=self._uac(allowed=True))
+        source = self._create(is_enabled=False, access=self._access(allowed=True))
         start_backfill.reset_mock()
         definition = PropertyDefinition.objects.create(
             team=self.team,
@@ -312,7 +327,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_property_map": {"plan": "plan_tier"}, "column_descriptions": {"plan": "Plan tier"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
@@ -322,7 +337,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     def test_update_disabled_person_mapping_requires_editor_without_starting_a_backfill(self, start_backfill):
-        source = self._create(is_enabled=False, user_access_control=self._uac(allowed=True))
+        source = self._create(is_enabled=False, access=self._access(allowed=True))
         start_backfill.reset_mock()
 
         with self.assertRaises(api.ResourceForbiddenError):
@@ -330,14 +345,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 team_id=self.team.id,
                 source_id=source.id,
                 fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
-                user_access_control=self._uac(allowed=False),
+                access=self._access(allowed=False),
             )
 
         view = api.update_custom_property_source(
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.column_property_map == {"plan": "plan_tier", "seats": "seat_count"}
@@ -347,14 +362,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         source = self._create(
             column_property_map={"plan": "plan_tier", "seats": "seat_count"},
             column_descriptions={"plan": "Plan tier", "seats": "Seat count"},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         view = api.update_custom_property_source(
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_property_map": {"plan": "plan_tier"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
@@ -370,7 +385,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_update_person_mapping_rejects_invalid_input_before_persistence_or_backfill(
         self, _name, fields, expected_message, start_backfill
     ):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         start_backfill.reset_mock()
 
         with self.assertRaisesMessage(api.CustomPropertySourceValidationError, expected_message):
@@ -381,13 +396,13 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         start_backfill.assert_not_called()
 
     def test_update_person_source_drops_unmapped_descriptions_like_create(self):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
 
         view = api.update_custom_property_source(
             team_id=self.team.id,
             source_id=source.id,
             fields={"column_descriptions": {"plan": " Plan tier ", "unmapped": "ignored"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
@@ -429,14 +444,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         assert view.column_property_map is None and view.column_descriptions is None
 
     def test_update_person_mapping_is_team_scoped(self):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         other_team = self.organization.teams.create(name="other")
 
         view = api.update_custom_property_source(
             team_id=other_team.id,
             source_id=source.id,
             fields={"column_property_map": {"plan": "other_plan"}},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
 
         assert view is None
@@ -446,35 +461,36 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_delete_person_source_requires_warehouse_source_editor(self):
         # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
         # external_data_source editor access, not account-scope editor alone.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         with self.assertRaises(api.ResourceForbiddenError):
             api.delete_custom_property_source(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=False)
             )
         assert CustomPropertySource.objects.filter(id=source.id).exists()
         assert api.delete_custom_property_source(
-            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
         )
         assert not CustomPropertySource.objects.filter(id=source.id).exists()
 
     def test_disabling_source_does_not_require_warehouse_source_editor(self):
         # Disabling never triggers a backfill, so it must not demand warehouse editor access.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         view = api.update_custom_property_source(
             team_id=self.team.id,
             source_id=source.id,
             fields={"is_enabled": False},
-            user_access_control=self._uac(allowed=False),
+            access=self._access(allowed=False),
         )
         assert view is not None and view.is_enabled is False
 
-    def test_source_view_gates_warehouse_metadata_on_viewer_access(self):
+    @parameterized.expand([("object_denied", False), ("scope_missing", True)])
+    def test_source_view_gates_warehouse_metadata_on_viewer_access(self, _name, scope_missing):
         from datetime import timedelta  # noqa: PLC0415
 
         self.schema.sync_frequency_interval = timedelta(hours=6)
         self.schema.save(update_fields=["sync_frequency_interval"])
         source = self._create(
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
             # Column descriptions come from the warehouse source's information_schema, so they're gated too.
             column_descriptions={"plan": "internal warehouse column note"},
         )
@@ -483,7 +499,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             last_sync_error="boom: internal warehouse detail", consecutive_failures=3
         )
 
-        denied = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=False))
+        denied_access = (
+            contracts.CustomPropertyAccess(
+                subject=Subject(user_id=self.user.pk), missing_scopes=frozenset({"external_data_source:read"})
+            )
+            if scope_missing
+            else self._access(allowed=False)
+        )
+        denied = api.get_custom_property_source(self.team.id, source.id, access=denied_access)
         assert denied is not None
         assert denied.sync_frequency_interval_seconds is None and denied.next_sync_at is None
         # Status fields must be redacted too, not just the schedule — the raw error can leak warehouse detail.
@@ -494,7 +517,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # The binding a link would be built from names a warehouse source the caller can't see.
         assert denied.external_data_source is None and denied.table_name is None
 
-        allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+        allowed = api.get_custom_property_source(self.team.id, source.id, access=self._access(allowed=True))
         assert allowed is not None
         assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
         assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
@@ -513,18 +536,18 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             url_pattern="https://bucket.s3/data/*",
         )
         self.schema.save(update_fields=["table"])
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
 
-        view = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+        view = api.get_custom_property_source(self.team.id, source.id, access=self._access(allowed=True))
 
         assert view is not None
         assert view.table_name == "stripe.users"
 
     def test_list_sync_runs_requires_warehouse_source_viewer(self):
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         with self.assertRaises(api.ResourceForbiddenError):
             api.list_custom_property_sync_runs(
-                self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
+                self.team.id, source.id, page=PageRequest(limit=10), access=self._access(allowed=False)
             )
 
     @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
@@ -532,10 +555,10 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_trigger_sync_opens_a_running_run(self, _flag, _trigger_schema_sync):
         # The sync itself only records a run once it finishes, so without this the history stays blank
         # and the trigger buttons stay clickable for the whole import.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         assert (
             api.trigger_person_property_sync(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
             )
             is True
         )
@@ -552,10 +575,10 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_trigger_sync_fails_its_run_when_the_sync_never_starts(self, _flag, _trigger_schema_sync):
         # Nothing downstream will reconcile a run whose sync never started, so it would sit 'running'
         # and keep the source's buttons disabled.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         with self.assertRaises(RuntimeError):
             api.trigger_person_property_sync(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
             )
 
         run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
@@ -567,11 +590,11 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # so the backfill can't resolve a table. Without failing the placeholder it just created, the run
         # would sit 'running' until the stale-run sweep, and the trigger would report a coalesced run for a
         # table that no longer exists (returning False → 'already_running') instead of an invalid source.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         ExternalDataSchema.objects.filter(id=self.schema.id).update(deleted=True)
 
         result = api.trigger_person_property_backfill(
-            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
         )
 
         assert result is None
@@ -587,7 +610,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     def test_abandoned_running_runs_expire_when_read(self, _name, age, expected_status):
         # A run whose activity died never reaches a terminal state on its own; left alone it reports the
         # source as perpetually syncing and blocks every retry.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         run = CustomPropertySyncRun.objects.create(
             team_id=self.team.id,
             source_id=source.id,
@@ -598,7 +621,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         )
 
         views = api.list_custom_property_sync_runs(
-            self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
+            self.team.id, source.id, page=PageRequest(limit=10), access=self._access(allowed=True)
         ).results
 
         assert views[0].status == expected_status
@@ -609,7 +632,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # The source-list page expires abandoned running runs as it enriches. A caller denied
         # warehouse-source viewer access can't see the source's status, so it must not flip that
         # source's run either — otherwise the list endpoint mutates rows hidden from the caller.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         run = CustomPropertySyncRun.objects.create(
             team_id=self.team.id,
             source_id=source.id,
@@ -619,15 +642,11 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             started_at=timezone.now() - (api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1)),
         )
 
-        api.list_custom_property_sources(
-            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
-        )
+        api.list_custom_property_sources(self.team.id, page=PageRequest(limit=10), access=self._access(allowed=False))
         run.refresh_from_db()
         assert run.status == "running"
 
-        api.list_custom_property_sources(
-            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
-        )
+        api.list_custom_property_sources(self.team.id, page=PageRequest(limit=10), access=self._access(allowed=True))
         run.refresh_from_db()
         assert run.status == "failed"
 
@@ -636,14 +655,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # Two enabled sources can bind the same schema. If this source's own run is already in
         # flight and only a sibling source gets a fresh placeholder, the caller must see the
         # coalesced result (False) for the source it actually asked about, not the sibling's.
-        source = self._create(user_access_control=self._uac(allowed=True))
+        source = self._create(access=self._access(allowed=True))
         sibling_def = create_custom_property_definition(
             team_id=self.team.id, name="Seats", target_type=TargetType.PERSON.value
         )
         sibling = self._create(
             definition_id=sibling_def.id,
             column_property_map={"seats": "seat_count"},
-            user_access_control=self._uac(allowed=True),
+            access=self._access(allowed=True),
         )
         CustomPropertySyncRun.objects.create(
             team_id=self.team.id,
@@ -658,7 +677,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             "products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True
         ):
             result = api.trigger_person_property_backfill(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
             )
 
         assert result is False
@@ -671,13 +690,13 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         source = self._create(is_enabled=False)
         assert (
             api.trigger_person_property_sync(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
             )
             is False
         )
         assert (
             api.trigger_person_property_backfill(
-                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
             )
             is None
         )
@@ -690,7 +709,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         return self._create(**kwargs)
 
     def test_create_view_backed_person_source_round_trips(self):
-        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+        view = self._create_view_source(access=self._access(allowed=True))
 
         assert view.saved_query == self.saved_query.id
         assert view.external_data_schema is None
@@ -720,13 +739,13 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             last_run_at=finished_at,
         )
 
-        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+        view = self._create_view_source(access=self._access(allowed=True))
 
         assert view.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
         assert view.next_sync_at == finished_at + timedelta(hours=6)
 
     def test_view_backed_person_source_has_no_schedule_without_a_dag_node(self):
-        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+        view = self._create_view_source(access=self._access(allowed=True))
 
         assert view.sync_frequency_interval_seconds is None and view.next_sync_at is None
 
@@ -746,13 +765,13 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # Mapping a view into person properties drives real materializations, so it needs editor access
         # on the view, not account-scope editor alone — the same bar a table binding clears.
         with self.assertRaises(api.ResourceForbiddenError):
-            self._create_view_source(user_access_control=self._uac(allowed=False))
+            self._create_view_source(access=self._access(allowed=False))
 
     @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
     @patch("products.customer_analytics.backend.facade.api._send_initial_account_property_sync")
     def test_view_backed_person_source_never_queues_account_sync(self, enqueue_account_sync, _start_backfill):
         with self.captureOnCommitCallbacks(execute=True):
-            source = self._create_view_source(user_access_control=self._uac(allowed=True))
+            source = self._create_view_source(access=self._access(allowed=True))
 
         enqueue_account_sync.assert_not_called()
 
@@ -761,20 +780,20 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 team_id=self.team.id,
                 source_id=source.id,
                 fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
-                user_access_control=self._uac(allowed=True),
+                access=self._access(allowed=True),
             )
 
         enqueue_account_sync.assert_not_called()
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_sync_now_materializes_the_view_and_opens_a_running_run(self, _flag):
-        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        source = self._create_view_source(access=self._access(allowed=True))
         with patch(
             "products.warehouse_sources.backend.facade.temporal.trigger_saved_query_materialization"
         ) as materialize:
             assert (
                 api.trigger_person_property_sync(
-                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                    team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
                 )
                 is True
             )
@@ -791,14 +810,14 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # successful "Sync now" while the properties never update, so it has to surface as an error.
         from products.warehouse_sources.backend.facade.temporal import SavedQueryNotOnV2ScheduleError
 
-        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        source = self._create_view_source(access=self._access(allowed=True))
         with patch(
             "products.warehouse_sources.backend.facade.temporal.trigger_saved_query_materialization",
             side_effect=SavedQueryNotOnV2ScheduleError("older data modeling schedule"),
         ):
             with self.assertRaises(api.ViewNotSyncableError):
                 api.trigger_person_property_sync(
-                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                    team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
                 )
 
         run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
@@ -806,13 +825,13 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_backfill_targets_the_view_binding(self, _flag):
-        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        source = self._create_view_source(access=self._access(allowed=True))
         with patch(
             "products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True
         ) as start:
             assert (
                 api.trigger_person_property_backfill(
-                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                    team_id=self.team.id, source_id=source.id, access=self._access(allowed=True)
                 )
                 is True
             )

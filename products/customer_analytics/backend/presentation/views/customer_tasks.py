@@ -25,6 +25,9 @@ from posthog.paging import Page, PageRequest
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
@@ -387,10 +390,7 @@ class CustomerTaskCanonicalTeamAccessPermission(BasePermission):
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_team_ids and customer_task_view.canonical_team_id not in scoped_team_ids:
             return False
-        membership_level = customer_task_view.user_permissions.team(
-            customer_task_view.canonical_team
-        ).effective_membership_level
-        return membership_level is not None
+        return authorization.check(resource=Resource.project(customer_task_view.canonical_team_id), action=Action.VIEW)
 
 
 class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

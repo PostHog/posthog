@@ -21,7 +21,7 @@ from products.access_control.backend.facade.api import (
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
 )
-from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import OrganizationIdSource, TicketStatus
 from products.conversations.backend.playbook import is_posthog_docs_source
@@ -31,6 +31,7 @@ from products.customer_analytics.backend.facade.api import (
     get_custom_property_definition,
     list_active_custom_property_values,
 )
+from products.customer_analytics.backend.facade.contracts import CustomPropertyAccess
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -331,26 +332,6 @@ def format_account_properties(pairs: Iterable[tuple[str, object]]) -> str:
     return _capped_section("Account properties:", lines, MAX_ACCOUNT_SECTION_CHARS)
 
 
-def _default_subject_access_control(team: Team) -> SubjectAccessControl | None:
-    """The access the team's default rules give every member, with no member or role of their own.
-
-    Reading a definition name needs somebody to read as, and the reply run has no request user.
-    A subject with no member and no role resolves default rules only, and it drops the org-admin
-    bypass, so the answer no longer changes with which membership row the database returns first.
-
-    Definition names still resolve under it, because names are not object-scoped. Only workflow
-    references are, and this path does not read them.
-    """
-    membership = (
-        OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
-        .select_related("user")
-        .first()
-    )
-    if membership is None:
-        return None
-    return SubjectAccessControl(membership.user, team=team, org_membership=membership)
-
-
 def load_account_context(team: Team, organization_id: str | None) -> str:
     selected = selected_account_property_ids(team)
     if not selected or not organization_id:
@@ -362,9 +343,20 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
         # Customer analytics to some of its members keeps that limit instead of losing it here.
         if not every_member_has_resource_access(team_id=team.id, resource="account", required_level="viewer"):
             return ""
-        uac = _default_subject_access_control(team)
-        if uac is None:
+        # The reply has no request user. Pick a stable active member to resolve definition names.
+        reader_id = (
+            OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
+            .order_by("pk")
+            .values_list("user_id", flat=True)
+            .first()
+        )
+        if reader_id is None:
             return ""
+        # Hide workflow references and warehouse metadata, since the reply only needs the definition name.
+        access = CustomPropertyAccess(
+            subject=Subject(user_id=reader_id),
+            missing_scopes=frozenset({"hog_flow:read", "external_data_source:read", "warehouse_view:read"}),
+        )
         account = get_account(team.id, external_id=organization_id)
         if account is None:
             return ""
@@ -380,7 +372,7 @@ def load_account_context(team: Team, organization_id: str | None) -> str:
         for definition_id in selected:
             if definition_id not in value_by_definition:
                 continue
-            view = get_custom_property_definition(team.id, definition_id, user_access_control=uac)
+            view = get_custom_property_definition(team.id, definition_id, access=access)
             if view is None or view.target_type != ACCOUNT_TARGET_TYPE or not view.name:
                 continue
             pairs.append((view.name, value_by_definition[definition_id]))

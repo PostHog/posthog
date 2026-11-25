@@ -113,6 +113,7 @@ from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDD
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
@@ -220,7 +221,7 @@ def _visible_workflows(
     visible_ids = {
         reference.id
         for reference in filter_hog_flow_references_by_access_level(
-            team_id, {"blocking": references}, user_access_control
+            team_id, {"blocking": references}, Subject(user_id=user_access_control.user.pk)
         ).get("blocking", [])
     }
     return [workflow for workflow in workflows if workflow.id in visible_ids]

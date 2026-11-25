@@ -1,6 +1,13 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.facade.testing import create_access_control
+from products.authorization.backend.facade.contracts import Subject
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.services.template_input_usage import (
     HogFlowReference,
@@ -85,12 +92,19 @@ class TestTemplateInputUsage(BaseTest):
     def test_filters_pre_scanned_references_without_loading_actions(self):
         visible = self._create_flow(name="Visible", status="active", actions=[_account_property_action({"def-a": "1"})])
         denied = self._create_flow(name="Denied", status="active", actions=[_account_property_action({"def-a": "1"})])
-        user_access_control = MagicMock()
-        user_access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset.exclude(
-            id=denied.id
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
         )
 
-        with self.assertNumQueries(1) as queries:
+        with CaptureQueriesContext(connection) as queries:
             references = filter_hog_flow_references_by_access_level(
                 self.team.id,
                 {
@@ -101,14 +115,12 @@ class TestTemplateInputUsage(BaseTest):
                         HogFlowReference(id=str(denied.id), name=denied.name or str(denied.id), status=denied.status),
                     ]
                 },
-                user_access_control,
+                Subject(user_id=self.user.pk),
             )
 
         assert references == {
             "def-a": [HogFlowReference(id=str(visible.id), name=visible.name or str(visible.id), status=visible.status)]
         }
-        assert all(
-            '"actions"' not in query["sql"]
-            for context in queries.contexts.values()
-            for query in context.captured_queries
-        )
+        workflow_queries = [query["sql"] for query in queries if f'"{HogFlow._meta.db_table}"' in query["sql"]]
+        assert len(workflow_queries) == 1
+        assert '"actions"' not in workflow_queries[0]

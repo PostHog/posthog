@@ -23,10 +23,27 @@ from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
 
 if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
+
+
+CUSTOM_PROPERTY_ACCESS_SCOPES = {
+    (ResourceType.EXTERNAL_DATA_SOURCE, Action.VIEW): "external_data_source:read",
+    (ResourceType.EXTERNAL_DATA_SOURCE, Action.EDIT): "external_data_source:write",
+    (ResourceType.WAREHOUSE_VIEW, Action.VIEW): "warehouse_view:read",
+    (ResourceType.WAREHOUSE_VIEW, Action.EDIT): "warehouse_view:write",
+    (ResourceType.HOG_FLOW, Action.VIEW): "hog_flow:read",
+}
+
+
+@frozen
+class CustomPropertyAccess:
+    subject: Subject
+    missing_scopes: frozenset[str] = frozenset()
 
 
 class PersonAccount(TypedDict):

@@ -45,7 +45,6 @@ from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -64,14 +63,12 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
-from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    model_to_resource,
-)
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -160,52 +157,11 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
-# Custom-property responses can include metadata from these resources. Token scopes must apply even
-# though the endpoint itself is authorized as an account resource.
-_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view", "hog_flow"})
-
-
-class _ScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so cross-resource reads require the matching token scope.
-
-    Custom-property sources and workflow references resolve through object access checks and queryset
-    filtering. Applying token scopes here keeps those secondary resources from leaking through an
-    account-scoped endpoint. Session auth and ``*`` tokens keep the wrapped access-control behavior.
-    """
-
-    def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
-        self._inner = inner
-        self._token_scopes = token_scopes
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
-
-    def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
-        if self._token_lacks_scope_for_resource(model_to_resource(obj), required_level):
-            return False
-        return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
-
-    def filter_queryset_by_access_level(self, queryset: Any, *args: Any, **kwargs: Any) -> Any:
-        resource = kwargs.get("resource") or model_to_resource(queryset.model)
-        if self._token_lacks_scope_for_resource(resource, "viewer"):
-            return queryset.none()
-        return self._inner.filter_queryset_by_access_level(queryset, *args, **kwargs)
-
-    def _token_lacks_scope_for_resource(self, resource: str | None, required_level: Any) -> bool:
-        scopes = self._token_scopes
-        if "*" in scopes or resource not in _SCOPE_GATED_RESOURCES:
-            return False
-        if f"{resource}:write" in scopes:
-            return False
-        return not (required_level == "viewer" and f"{resource}:read" in scopes)
-
-
-def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, with token scopes applied to secondary resource reads."""
-    scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
-    if scopes is None:
-        return view.user_access_control
-    return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
+def _custom_property_access(request: Request) -> contracts.CustomPropertyAccess:
+    return contracts.CustomPropertyAccess(
+        subject=Subject(user_id=request.user.pk),
+        missing_scopes=frozenset(scopes_caller_lacks(request, contracts.CUSTOM_PROPERTY_ACCESS_SCOPES.values())),
+    )
 
 
 _PARENT_ACCOUNT_ID = PathParameter(type=UUID, description="UUID of the parent account.")
@@ -868,9 +824,6 @@ class CanonicalTeamViewSet(Protocol):
     @property
     def team_id(self) -> int: ...
 
-    @property
-    def user_permissions(self) -> UserPermissions: ...
-
 
 class CanonicalTeamAccessPermission(BasePermission):
     """Data under an environment URL belongs to its parent project, so access must hold on that project too."""
@@ -887,7 +840,7 @@ class CanonicalTeamAccessPermission(BasePermission):
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_team_ids and canonical_team.id not in scoped_team_ids:
             return False
-        return canonical_view.user_permissions.team(canonical_team).effective_membership_level is not None
+        return authorization.check(resource=Resource.project(canonical_team.id), action=Action.VIEW)
 
 
 class AccountViewChangePermission(AccessControlPermission):
@@ -919,6 +872,14 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             organization_id=self.organization_id,
         )
 
+    def _is_project_admin(self) -> bool:
+        return authorization.check(resource=Resource.project(self.canonical_team.id), action=Action.MANAGE_ACCESS)
+
+    def _can_edit_team_views(self) -> bool:
+        return authorization.check(
+            resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
+        )
+
     def dangerously_get_permissions(self) -> list[BasePermission]:
         if self.action not in ("partial_update", "destroy"):
             raise NotImplementedError()
@@ -929,14 +890,6 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             TeamMemberAccessPermission(),
             CanonicalTeamAccessPermission(),
         ]
-
-    def _is_project_admin(self) -> bool:
-        if self.user_access_control.is_organization_admin:
-            return True
-        return bool(self.user_access_control.check_access_level_for_object(self.canonical_team, "admin", explicit=True))
-
-    def _can_edit_team_views(self) -> bool:
-        return self.user_access_control.check_access_level_for_resource("account", "editor")
 
     @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1326,7 +1279,7 @@ class CustomPropertyDefinitionViewSet(
         if _wants_unpaged_list(request):
             definitions = api.list_all_custom_property_definitions(
                 self.team_id,
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
                 exclude_group_targets=exclude_group_targets,
             )
             return _unpaged_response(definitions, CustomPropertyDefinitionSerializer)
@@ -1335,7 +1288,7 @@ class CustomPropertyDefinitionViewSet(
             lambda page: api.list_custom_property_definitions(
                 self.team_id,
                 page=page,
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
                 exclude_group_targets=exclude_group_targets,
             ),
             serializer_class=CustomPropertyDefinitionSerializer,
@@ -1343,7 +1296,7 @@ class CustomPropertyDefinitionViewSet(
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         definition = api.get_custom_property_definition(
-            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+            self.team_id, self.kwargs["pk"], access=_custom_property_access(request)
         )
         # Hide group-target definitions from callers without group read authorization.
         if definition is None or (
@@ -1379,9 +1332,7 @@ class CustomPropertyDefinitionViewSet(
         # Suggestions expose a group-target definition's option labels (and its existence), so gate them
         # on group read authorization just like list/retrieve — an account-scoped caller without group
         # read must not read group property configuration. Unknown keys keep the empty-envelope behavior.
-        definition = api.get_custom_property_definition(
-            self.team_id, key, user_access_control=_warehouse_scoped_uac(self)
-        )
+        definition = api.get_custom_property_definition(self.team_id, key, access=_custom_property_access(request))
         if (
             definition is not None
             and definition.target_type == _GROUP_TARGET_TYPE
@@ -1438,7 +1389,7 @@ class CustomPropertyDefinitionViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -1624,7 +1575,7 @@ class CustomPropertySourceViewSet(
             lambda page: api.list_custom_property_sources(
                 self.team_id,
                 page=page,
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
                 exclude_group_targets=exclude_group_targets,
             ),
             serializer_class=CustomPropertySourceSerializer,
@@ -1632,7 +1583,7 @@ class CustomPropertySourceViewSet(
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         source = api.get_custom_property_source(
-            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+            self.team_id, self.kwargs["pk"], access=_custom_property_access(request)
         )
         # Hide sources feeding a group-target definition from callers without group read authorization.
         if source is None or (
@@ -1645,7 +1596,7 @@ class CustomPropertySourceViewSet(
         if definition_id is None:
             return None
         definition = api.get_custom_property_definition(
-            self.team_id, str(definition_id), user_access_control=self.user_access_control
+            self.team_id, str(definition_id), access=_custom_property_access(self.request)
         )
         return definition.target_type if definition is not None else None
 
@@ -1684,7 +1635,7 @@ class CustomPropertySourceViewSet(
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
@@ -1711,7 +1662,7 @@ class CustomPropertySourceViewSet(
                 team_id=self.team_id,
                 source_id=self.kwargs["pk"],
                 fields=write.validated_data,
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
@@ -1738,7 +1689,7 @@ class CustomPropertySourceViewSet(
             deleted = api.delete_custom_property_source(
                 team_id=self.team_id,
                 source_id=self.kwargs["pk"],
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -1760,7 +1711,7 @@ class CustomPropertySourceViewSet(
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
-                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+                team_id=self.team_id, source_id=self.kwargs["pk"], access=_custom_property_access(request)
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -1787,7 +1738,7 @@ class CustomPropertySourceViewSet(
                 team_id=self.team_id,
                 source_id=self.kwargs["pk"],
                 trigger="manual",
-                user_access_control=_warehouse_scoped_uac(self),
+                access=_custom_property_access(request),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -1828,7 +1779,7 @@ class CustomPropertySourceViewSet(
                     self.team_id,
                     self.kwargs["pk"],
                     page=page,
-                    user_access_control=_warehouse_scoped_uac(self),
+                    access=_custom_property_access(request),
                     include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
                     search=search,
                 ),
@@ -2358,8 +2309,7 @@ class AccountViewSet(
         serializer = AccountSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        membership_level = self.user_permissions.current_team.effective_membership_level
-        allow_matching_updates = membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        allow_matching_updates = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             account = api.update_account_for_view(
                 team_id=self.team_id,
@@ -3172,8 +3122,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="interval")
     def interval(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        if requesting_level is None or requesting_level < OrganizationMembership.Level.ADMIN:
+        if not authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT):
             raise PermissionDenied("Only project admins can change Google account sync intervals.")
         integration_id = request.validated_data["integration_id"]
         interval_minutes = request.validated_data["sync_interval_minutes"]
@@ -3189,8 +3138,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="backfill")
     def backfill(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        has_management_access = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             result = api.trigger_google_account_backfill(
                 self.team_id,
@@ -3226,8 +3174,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="sync_now")
     def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        has_management_access = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             result = api.trigger_calendar_sync(
                 self.team_id,

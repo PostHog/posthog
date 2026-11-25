@@ -48,7 +48,7 @@ from posthog.models import OrganizationMembership, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.facade import api, contracts
@@ -77,6 +77,17 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 class TestAccountsTableQueryRunner(BaseTest):
     def _run(self, query: AccountsTableQuery) -> AccountsTableQueryResponse:
         return AccountsTableQueryRunner(query=query, team=self.team, user=self.user).calculate()
+
+    def test_validate_query_runner_access_denies_members_without_account_access(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+        runner = AccountsTableQueryRunner(query=AccountsTableQuery(columns=[]), team=self.team, user=self.user)
+
+        with pytest.raises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
     def test_resolves_default_columns_and_metadata_without_accounts(self) -> None:
         definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(

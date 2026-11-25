@@ -20,6 +20,7 @@ from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -886,13 +887,13 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         assert result.values is None
 
     def test_get_definition_carries_source(self):
-        uac = UserAccessControl(user=self.user, team=self.team)
-        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        access = contracts.CustomPropertyAccess(subject=Subject(user_id=self.user.pk))
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, access=access)
         assert view is not None
         assert view.source is None
 
         source = self._create()
-        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, access=access)
         assert view is not None
         assert view.source is not None
         assert view.source.id == source.id
