@@ -79,6 +79,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
     build_trace_hog_globals,
     execute_hog_eval_bytecode,
@@ -587,7 +588,16 @@ def build_trace_system_prompt(
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = None) -> str:
+@frozen
+class JudgeTranscript:
+    text: str
+    # The complete transcript did not fit the budget, so the judge saw shortened content.
+    truncated: bool
+
+
+def format_trace_for_judge(
+    trace: LLMTrace, media_marker: MediaMarker | None = None, max_chars: int = JUDGE_TRACE_MAX_CHARS
+) -> JudgeTranscript:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve complete generation outputs before truncating them so the judge does not grade
@@ -601,7 +611,8 @@ def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = N
         "preserve_generation_output": True,
         "include_line_numbers": True,
         "max_length": None,
-        "max_render_length": JUDGE_TRACE_MAX_CHARS,
+        "max_render_length": max_chars,
+        "collapse_repeated_input": True,
     }
     if media_marker is not None:
         options["media_marker"] = media_marker
@@ -609,15 +620,15 @@ def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = N
         options["truncated"] = truncated
         try:
             text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-            return text
+            return JudgeTranscript(text=text, truncated=truncated)
         except RenderBudgetExceeded:
             pass
 
     del options["max_render_length"]
     options["preserve_generation_output"] = False
-    options["max_length"] = JUDGE_TRACE_MAX_CHARS
+    options["max_length"] = max_chars
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-    return text
+    return JudgeTranscript(text=text, truncated=True)
 
 
 def _has_state_content(state: object, *, is_output: bool = False) -> bool:
@@ -702,19 +713,30 @@ def run_trace_llm_judge(
         return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
     trace = outcome.trace
-    user_prompt = format_trace_for_judge(trace)
-    return call_llm_judge(
-        evaluation=evaluation,
-        system_prompt=build_trace_system_prompt(
-            prompt, allows_na, output_type=output_type, output_config=output_config
-        ),
-        user_prompt=user_prompt,
-        allows_na=allows_na,
-        backfill=inputs.backfill_id is not None,
-        attachment_prompt=build_attachment_prompt(
-            evaluation, user_prompt, lambda media_marker: format_trace_for_judge(trace, media_marker)
-        ),
-    )
+    system_prompt = build_trace_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
+
+    def judge(max_chars: int) -> tuple[EvaluationActivityResult, JudgeTranscript]:
+        transcript = format_trace_for_judge(trace, max_chars=max_chars)
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt=system_prompt,
+            user_prompt=transcript.text,
+            allows_na=allows_na,
+            backfill=inputs.backfill_id is not None,
+            attachment_prompt=build_attachment_prompt(
+                evaluation,
+                transcript.text,
+                lambda media_marker: format_trace_for_judge(trace, media_marker, max_chars).text,
+            ),
+        )
+        if transcript.truncated:
+            result["input_truncated"] = True
+        return result, transcript
+
+    result, transcript = judge(JUDGE_TRACE_MAX_CHARS)
+    if result.get("skip_reason") == "context_window_exceeded" and len(transcript.text) > JUDGE_TRACE_FALLBACK_MAX_CHARS:
+        result, _ = judge(JUDGE_TRACE_FALLBACK_MAX_CHARS)
+    return result
 
 
 @temporalio.activity.defn

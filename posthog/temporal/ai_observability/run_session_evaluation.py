@@ -381,6 +381,7 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             "preserve_generation_output": preserve_generation_output,
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
+            "collapse_repeated_input": True,
         }
         if media_marker is not None:
             # One marker for the whole session, so an image repeated across traces is attached once.

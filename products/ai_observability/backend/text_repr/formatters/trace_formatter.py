@@ -16,7 +16,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.dataclasses import frozen
 
-from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
+from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, REPEATED_INPUT_MESSAGES_KEY, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
     FormatterLines,
@@ -394,6 +394,29 @@ def _render_expandable_node_plain(
     return lines
 
 
+def _repeated_prefix_length(previous: list[Any], current: list[Any]) -> int:
+    length = 0
+    for previous_message, message in zip(previous, current):
+        if previous_message != message:
+            break
+        length += 1
+    return length
+
+
+def _with_repeated_input(event: dict[str, Any], generation_inputs: list[list[Any]]) -> dict[str, Any]:
+    """Mark the leading input messages that repeat the previous generation's input.
+
+    Agent loops resend the whole conversation on every call, so a trace with N generations repeats its
+    first prompt N times. Only messages that are exactly equal are marked. A message that differs in any
+    field, even one the formatter does not render, ends the run and renders in full, so no content is lost.
+    """
+    ai_input = event.get("properties", {}).get("$ai_input")
+    messages = ai_input if isinstance(ai_input, list) else []
+    repeated = _repeated_prefix_length(generation_inputs[-1], messages) if generation_inputs else 0
+    generation_inputs.append(messages)
+    return {**event, REPEATED_INPUT_MESSAGES_KEY: repeated} if repeated else event
+
+
 def _render_event_node(
     event: dict[str, Any],
     summary: str,
@@ -403,6 +426,7 @@ def _render_event_node(
     options: FormatterOptions,
     collapsed: bool,
     include_markers: bool,
+    generation_inputs: list[list[Any]] | None = None,
 ) -> list[str]:
     """Render a single event node based on its type and options."""
     event_type = event.get("event", "unknown")
@@ -411,6 +435,9 @@ def _render_event_node(
 
     if collapsed:
         return [_render_collapsed_node(prefix, current_prefix, node_prefix, summary)]
+
+    if event_type == "$ai_generation" and generation_inputs is not None:
+        event = _with_repeated_input(event, generation_inputs)
 
     if not _is_expandable_event(event_type):
         if include_markers:
@@ -438,6 +465,7 @@ def _render_tree(
     is_last: bool = True,
     depth: int = 0,
     owners: list[str | None] | None = None,
+    generation_inputs: list[list[Any]] | None = None,
 ) -> list[str]:
     """Render tree structure with ASCII art.
 
@@ -447,6 +475,9 @@ def _render_tree(
 
     When `owners` is given, one entry per returned line is appended to it: the id of the event whose node
     rendered that line, or None for the max depth marker.
+
+    When `generation_inputs` is given, each rendered generation appends its input messages to it, and a
+    generation whose input starts with the previous generation's messages renders those messages as one line.
     """
     lines = FormatterLines(options)
 
@@ -471,7 +502,7 @@ def _render_tree(
         summary = _get_event_summary(event)
 
         node_lines = _render_event_node(
-            event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers
+            event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers, generation_inputs
         )
         lines.extend(node_lines)
         if owners is not None:
@@ -485,6 +516,7 @@ def _render_tree(
                 is_last=is_last_node,
                 depth=depth + 1,
                 owners=owners,
+                generation_inputs=generation_inputs,
             )
             lines.extend(child_lines)
 
@@ -578,7 +610,8 @@ def format_trace_text_repr_with_line_owners(
         lines.append("")
         lines.append("TRACE HIERARCHY:")
         lines.append("")
-        lines.extend(_render_tree(hierarchy, options=options, owners=tree_owners))
+        generation_inputs: list[list[Any]] | None = [] if options and options.get("collapse_repeated_input") else None
+        lines.extend(_render_tree(hierarchy, options=options, owners=tree_owners, generation_inputs=generation_inputs))
 
     # The tree renders last, so every entry before it is a trace-level line.
     trace_level_owners: list[str | None] = [None] * (len(lines) - len(tree_owners))

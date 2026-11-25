@@ -11,7 +11,7 @@ import json
 from datetime import date, datetime
 from typing import Any
 
-from .constants import SEPARATOR
+from .constants import REPEATED_INPUT_MESSAGES_KEY, SEPARATOR
 from .message_formatter import (
     FormatterLines,
     FormatterOptions,
@@ -114,7 +114,7 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.extend(tools_lines)
 
     # Input messages
-    input_lines = format_input_messages(props.get("$ai_input"), options)
+    input_lines = format_input_messages(props.get("$ai_input"), options, event.get(REPEATED_INPUT_MESSAGES_KEY, 0))
     if input_lines:
         if lines:
             lines.append("")

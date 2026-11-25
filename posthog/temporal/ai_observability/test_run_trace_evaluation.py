@@ -32,11 +32,13 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import restriction_cache_scope
 from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
     build_trace_hog_globals,
     execute_hog_eval_bytecode,
 )
 from products.ai_observability.backend.llm.attachments import AttachmentPart
+from products.ai_observability.backend.llm.errors import ContextWindowExceededError
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -156,7 +158,7 @@ class TestFormatTraceForJudge:
             traceName="math-agent",
         )
 
-        transcript = format_trace_for_judge(trace)
+        transcript = format_trace_for_judge(trace).text
 
         assert "MATH-AGENT" in transcript
         assert "TRACE HIERARCHY" in transcript
@@ -197,8 +199,8 @@ class TestFormatTraceForJudge:
             ]
         )
 
-        plain = format_trace_for_judge(trace)
-        marked = format_trace_for_judge(trace, JudgeAttachments(team_id=1).marker)
+        plain = format_trace_for_judge(trace).text
+        marked = format_trace_for_judge(trace, JudgeAttachments(team_id=1).marker).text
 
         assert "[image 1]" not in plain
         # The message and the tool result repeat one image, and the OTel part adds a second.
@@ -215,14 +217,14 @@ class TestFormatTraceForJudge:
             ]
         )
 
-        transcript = format_trace_for_judge(trace)
+        transcript = format_trace_for_judge(trace).text
 
         assert "search_docs" in transcript
 
     @pytest.mark.parametrize("output_property", ["$ai_output", "$ai_output_choices"])
     @pytest.mark.parametrize(
         "content_length,output_length,should_truncate,should_truncate_output",
-        [(50_000, 4_000, False, False), (200_000, 4_000, True, False), (200_000, 200_000, True, True)],
+        [(50_000, 4_000, False, False), (400_000, 4_000, True, False), (400_000, 400_000, True, True)],
     )
     def test_truncates_long_event_io_only_when_the_trace_exceeds_budget(
         self,
@@ -248,8 +250,10 @@ class TestFormatTraceForJudge:
             ]
         )
 
-        transcript = format_trace_for_judge(trace)
+        rendered = format_trace_for_judge(trace)
+        transcript = rendered.text
 
+        assert rendered.truncated == should_truncate
         assert ("chars truncated" in transcript) == should_truncate
         assert ("critical evidence" in transcript) == (not should_truncate)
         assert ("- Required output evidence." in transcript) == (not should_truncate_output)
@@ -259,13 +263,48 @@ class TestFormatTraceForJudge:
         assert " end" in transcript
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
+    @pytest.mark.parametrize("edit_first_message", [False, True])
+    def test_shows_input_repeated_from_the_previous_generation_once(self, edit_first_message: bool) -> None:
+        prompt = "start " + "x" * 60_000 + " critical evidence " + "y" * 60_000 + " end"
+        first_input = [{"role": "system", "content": prompt}, {"role": "user", "content": "Pick a repo"}]
+        second_input = [
+            {"role": "system", "content": prompt + " (revised)" if edit_first_message else prompt},
+            first_input[1],
+            {"role": "assistant", "content": "Searching repos"},
+            {"role": "user", "content": "first tool result"},
+        ]
+        third_input = [
+            *second_input,
+            {"role": "assistant", "content": "Reading the candidates"},
+            {"role": "user", "content": "second tool result"},
+        ]
+        trace = create_trace(
+            [
+                create_trace_event("$ai_generation", **{"$ai_input": messages, "$ai_output": f"answer {index}"})
+                for index, messages in enumerate([first_input, second_input, third_input])
+            ]
+        )
+
+        rendered = format_trace_for_judge(trace)
+
+        assert not rendered.truncated
+        assert rendered.text.count("critical evidence") == (2 if edit_first_message else 1)
+        assert ("(revised)" in rendered.text) == edit_first_message
+        assert ("[1-2] Same as messages 1-2 of the previous generation's input above" in rendered.text) == (
+            not edit_first_message
+        )
+        assert "[1-4] Same as messages 1-4 of the previous generation's input above" in rendered.text
+        assert "first tool result" in rendered.text
+        assert "[6] USER" in rendered.text
+        assert "second tool result" in rendered.text
+
     def test_bounds_output_to_max_chars(self):
-        # 200 large generations would blow well past the cap without sampling.
+        # 400 large generations would blow well past the cap without sampling.
         events = [
-            create_trace_event("$ai_generation", **{"$ai_input": f"question {i} " + ("x" * 2_000)}) for i in range(200)
+            create_trace_event("$ai_generation", **{"$ai_input": f"question {i} " + ("x" * 2_000)}) for i in range(400)
         ]
 
-        transcript = format_trace_for_judge(create_trace(events))
+        transcript = format_trace_for_judge(create_trace(events)).text
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
         assert "SAMPLED VIEW" in transcript
@@ -294,7 +333,7 @@ class TestFormatTraceForJudge:
 
         tracemalloc.start()
         try:
-            transcript = format_trace_for_judge(trace)
+            transcript = format_trace_for_judge(trace).text
             _, peak_bytes = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
@@ -308,7 +347,7 @@ class TestFormatTraceForJudge:
             [create_trace_event("$ai_generation", **{"$ai_is_error": True, "$ai_error": "rate limited"})]
         )
 
-        transcript = format_trace_for_judge(trace)
+        transcript = format_trace_for_judge(trace).text
 
         assert "rate limited" in transcript
 
@@ -883,6 +922,11 @@ class TestExecuteTraceLLMJudgeActivity:
                 ['get_weather(city="Paris")'],
                 id="root_tool_call_with_whitespace",
             ),
+            pytest.param(
+                create_trace([create_trace_event("$ai_generation", **{"$ai_input": "x" * 400_000, "$ai_output": "4"})]),
+                ["chars truncated"],
+                id="over_budget",
+            ),
         ],
     )
     def test_judges_full_trace_transcript(
@@ -922,6 +966,45 @@ class TestExecuteTraceLLMJudgeActivity:
 
         assert result["verdict"] is True
         assert result["reasoning"] == "Resolved both questions"
+        assert result.get("input_truncated", False) == ("chars truncated" in content)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_retries_with_the_fallback_budget_when_the_judge_context_window_rejects_the_transcript(
+        self, setup_data: dict[str, Any], active_key_config: None
+    ) -> None:
+        content = "start " + "x" * 100_000 + " critical evidence " + "y" * 100_000 + " end"
+        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": content, "$ai_output": "4"})])
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+            return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+        ):
+            with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+                mock_client = MagicMock()
+                mock_client_class.return_value = mock_client
+                mock_response = MagicMock()
+                mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Resolved")
+                mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+                mock_client.complete.side_effect = [
+                    ContextWindowExceededError("prompt is too long: 70000 tokens > 64000 maximum"),
+                    mock_response,
+                ]
+
+                result = execute_trace_llm_judge_activity(
+                    ExecuteTraceEvaluationInputs(
+                        evaluation=evaluation_dict(setup_data),
+                        team_id=setup_data["team"].id,
+                        trace_id="trace-123",
+                        window_start=FROZEN_NOW.isoformat(),
+                    )
+                )
+
+                full, fallback = (call[0][0].messages[0]["content"] for call in mock_client.complete.call_args_list)
+
+        assert "critical evidence" in full
+        assert "critical evidence" not in fallback
+        assert len(fallback) <= JUDGE_TRACE_FALLBACK_MAX_CHARS
+        assert result["verdict"] is True
+        assert result["input_truncated"] is True
 
     @pytest.mark.django_db(transaction=True)
     def test_sends_the_trace_images_to_a_judge_with_images(
@@ -1159,6 +1242,7 @@ class TestEmitTraceEvaluationEventActivity:
             "provider": "openai",
             "input_tokens": 42,
             "output_tokens": 18,
+            "input_truncated": True,
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
@@ -1188,6 +1272,7 @@ class TestEmitTraceEvaluationEventActivity:
                 assert props["$session_id"] == "session-1"
                 assert props["$ai_evaluation_result"] is True
                 assert props["$ai_model"] == "gpt-5-mini"
+                assert props["$ai_evaluation_input_truncated"] is True
                 assert "$ai_target_event_id" not in props
                 assert "$ai_target_event_type" not in props
 
