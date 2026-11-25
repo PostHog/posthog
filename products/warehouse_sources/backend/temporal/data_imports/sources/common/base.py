@@ -153,6 +153,9 @@ UNVERSIONED_API_VERSION = "v1"
 FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
 
 
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+
+
 def _flat_stored_select_fields(
     fields: list[FieldType], flat_stored_selects: Iterable[str]
 ) -> Iterator[tuple[SourceFieldSelectConfig, set[str]]]:
@@ -172,7 +175,7 @@ def nest_flat_select_containers(
     fields: list[FieldType],
     flat_stored_selects: Iterable[str],
     stored: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, JsonValue]:
     """Return a copy of job_inputs with the fields of a select branch held only in the select's container.
 
     A select in `flat_stored_selects` took over fields that older configs and API clients still send at
@@ -210,7 +213,7 @@ def nest_flat_select_containers(
 
 def keep_flat_branch_copies(
     job_inputs: dict[str, Any], fields: list[FieldType], flat_stored_selects: Iterable[str]
-) -> dict[str, Any]:
+) -> dict[str, JsonValue]:
     """Return a copy of job_inputs with the default branch of each `flat_stored_selects` select also at the top level.
 
     Workers and API clients from before the select existed read those fields at the top level only.
