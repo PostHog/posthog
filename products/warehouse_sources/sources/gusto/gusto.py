@@ -52,6 +52,8 @@ class GustoResumeConfig:
     # For fan-out endpoints: index into that company's ordered parent list (employees, or company
     # benefits). The name predates fan-out over other parents and is kept so saved state still loads.
     employee_index: int = 0
+    # For the events endpoint: the last event uuid read in the current company.
+    starting_after_uuid: Optional[str] = None
 
 
 class GustoClient:
@@ -76,6 +78,7 @@ class GustoClient:
         self._refresh_token = refresh_token
         self._logger = logger
         self._token: Optional[str] = None
+        self._system_token: Optional[str] = None
         self._session = make_tracked_session(
             headers={"Accept": "application/json", "X-Gusto-API-Version": api_version},
             redact_values=(client_secret, refresh_token),
@@ -88,43 +91,51 @@ class GustoClient:
     def logger(self) -> Optional[FilteringBoundLogger]:
         return self._logger
 
-    def mint_token(self, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
+    def _exchange(self, grant: dict[str, str], description: str, timeout: int) -> str:
         response = self._session.post(
             f"{self._host}/oauth/token",
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": self._refresh_token,
-                "client_id": self._client_id,
-                "client_secret": self._client_secret,
-            },
+            data={**grant, "client_id": self._client_id, "client_secret": self._client_secret},
             timeout=timeout,
         )
         response.raise_for_status()
         token = response.json().get("access_token")
         if not token:
-            raise ValueError("Gusto did not return an access token for the supplied refresh token")
-        self._token = str(token)
+            raise ValueError(f"Gusto did not return an access token for the supplied {description}")
+        return str(token)
+
+    def mint_token(self, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
+        self._token = self._exchange(
+            {"grant_type": "refresh_token", "refresh_token": self._refresh_token}, "refresh token", timeout
+        )
         return self._token
 
-    def request(self, path: str, params: Optional[dict[str, Any]] = None) -> requests.Response:
+    def mint_system_token(self, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
+        self._system_token = self._exchange({"grant_type": "system_access"}, "client credentials", timeout)
+        return self._system_token
+
+    def request(
+        self, path: str, params: Optional[dict[str, Any]] = None, system_access: bool = False
+    ) -> requests.Response:
         url = f"{self._host}{path}"
         if params:
             url = f"{url}?{urlencode(params)}"
 
-        if self._token is None:
-            self.mint_token()
+        mint = self.mint_system_token if system_access else self.mint_token
+        if (self._system_token if system_access else self._token) is None:
+            mint()
 
         def _do() -> requests.Response:
+            token = self._system_token if system_access else self._token
             return self._session.get(
                 url,
-                headers={"Authorization": f"Bearer {self._token}"},
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
 
         response = _do()
         # Access tokens last two hours; a long sync can outlive one, so re-mint once and retry.
         if response.status_code == 401:
-            self.mint_token()
+            mint()
             response = _do()
 
         if not response.ok:
@@ -134,8 +145,10 @@ class GustoClient:
 
         return response
 
-    def get_json(self, path: str, params: Optional[dict[str, Any]] = None) -> tuple[Any, requests.Response]:
-        response = self.request(path, params)
+    def get_json(
+        self, path: str, params: Optional[dict[str, Any]] = None, system_access: bool = False
+    ) -> tuple[Any, requests.Response]:
+        response = self.request(path, params, system_access=system_access)
         return response.json(), response
 
 
@@ -329,6 +342,48 @@ def _windowed_rows(
         yield rows[index : index + WINDOW_CHUNK_SIZE]
 
 
+def _event_rows(
+    client: GustoClient,
+    config: GustoEndpointConfig,
+    companies: list[dict[str, Any]],
+    resume: Optional[GustoResumeConfig],
+    resumable_source_manager: ResumableSourceManager[GustoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    first_company = resume.company_index if resume is not None else 0
+    for company_index, company in enumerate(companies):
+        if company_index < first_company:
+            continue
+        company_uuid = str(company.get("uuid") or company.get("id"))
+        cursor = resume.starting_after_uuid if (resume is not None and company_index == first_company) else None
+        for page_number in range(1, MAX_PAGES_PER_COMPANY + 1):
+            # Ascending is Gusto's default order; it's set so `starting_after_uuid` always reads forward.
+            params: dict[str, Any] = {"resource_uuid": company_uuid, "limit": PAGE_SIZE, "sort_order": "asc"}
+            if cursor is not None:
+                params["starting_after_uuid"] = cursor
+            body, _ = client.get_json(config.path, params, system_access=True)
+            rows = extract_rows(config, body)
+            last_uuid = rows[-1].get("uuid") if rows else None
+            # Gusto sends no pagination headers here, so a short page is the last one.
+            done = len(rows) < PAGE_SIZE or last_uuid is None
+            if not done and page_number == MAX_PAGES_PER_COMPANY:
+                done = True
+                if client.logger is not None:
+                    client.logger.warning(f"Gusto page cap reached, stopping early. endpoint={config.name}")
+            if done:
+                resumable_source_manager.save_state(GustoResumeConfig(company_index=company_index + 1))
+            else:
+                cursor = str(last_uuid)
+                resumable_source_manager.save_state(
+                    GustoResumeConfig(company_index=company_index, starting_after_uuid=cursor)
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            if done:
+                break
+
+
 def get_rows(
     environment: str,
     client_id: str,
@@ -372,6 +427,10 @@ def get_rows(
             f"page={resume.next_page}, employee_index={resume.employee_index}"
         )
 
+    if config.system_access:
+        yield from _event_rows(client, config, companies, resume, resumable_source_manager)
+        return
+
     for company_index, company in enumerate(companies):
         if resume is not None and company_index < resume.company_index:
             continue
@@ -408,10 +467,13 @@ def get_rows(
                         on_page=checkpoint_parent_page(company_index, parent_index),
                     )
                 else:
-                    body, _ = client.get_json(path)
-                    rows = _stamp_parents(extract_rows(config, body), child_parents)
-                    if rows:
-                        yield rows
+                    for variant in config.query_variants or ({},):
+                        body, _ = client.get_json(path, variant or None)
+                        rows = [{**variant, **row} for row in _stamp_parents(extract_rows(config, body), child_parents)]
+                        if rows:
+                            yield rows
+                        else:
+                            resumable_source_manager.safe_point()
                 resumable_source_manager.save_state(
                     GustoResumeConfig(company_index=company_index, employee_index=parent_index + 1)
                 )

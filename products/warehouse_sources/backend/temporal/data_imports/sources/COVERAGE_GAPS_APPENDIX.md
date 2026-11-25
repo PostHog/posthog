@@ -6963,7 +6963,7 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Gusto — gaps
 
-Today (18): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_requests`
+Today (20): `ach_transactions`, `companies`, `company_benefits`, `contractor_payments`, `contractors`, `departments`, `earning_types`, `employee_benefits`, `employees`, `employment_history`, `events`, `jobs`, `locations`, `pay_periods`, `pay_schedules`, `payrolls`, `recurring_reimbursements`, `tax_payments`, `time_off_activities`, `time_off_requests`
 
 Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 
@@ -6974,9 +6974,9 @@ Diffed against: <https://docs.gusto.com/embedded-payroll/llms.txt>
 - [x] `Employee benefits (GET /v1/company_benefits/{company_benefit_id}/employee_benefits)` — measure benefit enrollment, employee deductions, and employer contribution arrangements (medium)
 - [x] `Employment history (GET /v1/employees/{employee_id}/employment_history)` — analyze terminations, rehires, tenure, and workforce changes beyond current employment status (medium)
 - [x] `Time off requests (GET /v1/companies/{company_uuid}/time_off/requests)` — track requested and approved leave, absence patterns, and approval delays (medium)
-- [ ] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
+- [x] `Employee time off activities (GET /v1/employees/{employee_uuid}/time_off_activities)` — explain leave balance changes through accrual, usage, and adjustment activity (medium)
 - [x] `Recurring reimbursements (GET /v1/employees/{employee_id}/recurring_reimbursements)` — forecast recurring employee reimbursements separately from amounts already paid through payroll (medium)
-- [ ] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
+- [x] `Events (GET /v1/events)` — track payroll and employee changes as events instead of inferring them from repeated snapshots (medium)
 - [x] `Tax payments (GET /v1/companies/{company_uuid}/tax_payments)` — reconcile payroll tax liabilities with what Gusto paid each agency and when (medium)
 
 Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI blocks from each selected reference page. Compared their GET operations with the nine static source tables. Compensation records, terminations, and garnishments are already nested in existing responses. Child collections need parent fan-out; events require system authentication and retain only 30 days.
