@@ -146,6 +146,7 @@ class TestConsumerTickDecision(BaseTest):
             ("reset_requested", {"config": {"reset_pipeline": True}}, True),
             ("snapshotting", {"config": {"cdc_mode": "snapshot"}}, True),
             ("resnapshot_pending", {"config": {CDC_RESET_PENDING_KEY: {"generation": 1}}}, True),
+            ("ad_hoc_run_paused_the_schedule", {"config": {"admin_unpause_schedule_after_run": "wf-ad-hoc"}}, True),
             ("last_run_failed", {"status": ExternalDataSchema.Status.FAILED}, True),
             ("billing_limited", {"status": ExternalDataSchema.Status.BILLING_LIMIT_REACHED}, True),
             ("flag_off", {}, False),

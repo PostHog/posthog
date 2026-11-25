@@ -109,17 +109,22 @@ def _gate_applies(schema: ExternalDataSchema) -> bool:
 
     Never for a snapshot, a reset, a sync someone asked for, or a table whose last run did not complete.
     Those keep the behavior from before the gate, including a retry on every tick.
+
+    An ad-hoc run paused the schedule, and only its completed job unpauses it, so standing it down
+    would leave the schedule paused for good.
     """
     from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
     from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
 
+    config = schema.sync_type_config or {}
     return (
         serves_buffered_lane(schema)
         and schema.status == schema.Status.COMPLETED
         and not schema.reset_pipeline
         and not schema.manual_run_requested
         and not schema.manual_sync_pending
-        and CDC_RESET_PENDING_KEY not in (schema.sync_type_config or {})
+        and CDC_RESET_PENDING_KEY not in config
+        and "admin_unpause_schedule_after_run" not in config
     )
 
 
