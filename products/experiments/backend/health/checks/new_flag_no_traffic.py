@@ -30,7 +30,7 @@ from products.experiments.backend.health.skips import (
 
 
 def new_flag_no_traffic_values(ctx: HealthContext) -> CheckValues:
-    if ctx.archived or ctx.is_launched:
+    if ctx.archived or ctx.is_launched or ctx.warehouse_native_exposures:
         return {}
     values: dict[ExperimentHealthValueKey, bool | str] = {}
     if ctx.flag_called is not None:
