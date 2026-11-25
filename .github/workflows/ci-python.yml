@@ -840,21 +840,15 @@ jobs:
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
                   narrow=()
-                  targets=(products/warehouse_sources/backend/temporal/data_imports/sources/tests)
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
-                  else
-                      credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
-                      targets+=("$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py")
                   fi
-                  pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
 
             # These suites check that every vendor declares a valid, unique credential kind and an
             # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
             # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
-              # The catalog's vendor filter would deselect credential cases in a shared session.
-              if: steps.select.outputs.mode == 'vendors'
               run: |
                   credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
                   pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short
