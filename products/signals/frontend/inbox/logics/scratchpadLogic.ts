@@ -29,7 +29,7 @@ const SEARCH_DEBOUNCE_MS = 300
 const SEARCHABLE_TEXT = /[\p{L}\p{N}]{3}|(?<=[^\p{L}\p{N}])[\p{L}\p{N}]{2}|[\p{L}\p{N}]{2}(?=[^\p{L}\p{N}])/u
 
 export function isSearchableText(text: string): boolean {
-    return SEARCHABLE_TEXT.test(text)
+    return SEARCHABLE_TEXT.test(text.trim())
 }
 // `list` caps at 1000 newest-first with no pagination wrapper. Search and one scout's entries
 // are narrow reads, so they take the whole cap in one read and filter it client-side.
@@ -526,7 +526,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadSearchResults: async (_payload: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     const text = values.searchText.trim()
-                    if (!teamId || !isSearchableText(text)) {
+                    if (!teamId || !text) {
                         return null
                     }
                     const discardedBeforeRead = values.discardedKeys.length
@@ -730,7 +730,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // Typed text the endpoint would refuse, so the panel asks for more rather than sending it.
         searchTextTooShort: [
             (s) => [s.searchText],
-            (searchText: string): boolean => !!searchText.trim() && !isSearchableText(searchText.trim()),
+            (searchText: string): boolean => !!searchText.trim() && !isSearchableText(searchText),
         ],
         // Entries written or refreshed over the roster window, so the roster's "learned" headline
         // sits on the same span as the run and report numbers the summary endpoint returns for it.
@@ -904,7 +904,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             }
         },
         setSearchText: async ({ searchText }, breakpoint) => {
-            if (!isSearchableText(searchText.trim())) {
+            if (!isSearchableText(searchText)) {
                 return
             }
             await breakpoint(SEARCH_DEBOUNCE_MS)
@@ -915,7 +915,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // narrowing what's already here — a wider span has rows the loaded window never held.
         setTimeFilter: () => {
             actions.loadEntries()
-            if (isSearchableText(values.searchText.trim())) {
+            if (isSearchableText(values.searchText)) {
                 actions.loadSearchResults()
             }
         },
