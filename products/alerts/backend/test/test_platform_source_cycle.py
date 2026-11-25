@@ -61,6 +61,7 @@ from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals
 from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
+from products.alerts.backend.platform_insight_alert import investigated_alert
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -1387,12 +1388,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
         assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
 
-    def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_own_id(self) -> None:
+    @parameterized.expand([("created with no row", False), ("a copy whose row is deleted", True)])
+    def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_public_id(
+        self, _name: str, row_deleted: bool
+    ) -> None:
         alert = self._alert(detector_config={"type": "zscore", "threshold": 0.95, "window": 30})
         insight = alert.insight
         configuration = self._copy(
             None,
             owner=PlatformAlertOwner.PLATFORM,
+            legacy_configuration_id=alert.id if row_deleted else None,
             created_by_id=self.user.id,
             source_config={
                 "insight_id": insight.id,
@@ -1401,6 +1406,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 "investigation_gates_notifications": True,
             },
         )
+        public_id = alert.id if row_deleted else configuration.id
         alert.delete()
 
         outcome = self._fire(configuration)
@@ -1409,16 +1415,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert outcome.held_delivery is not None
         (start,) = claims.starts
-        assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
+        assert (start.alert_id, start.user_id) == (str(public_id), self.user.id)
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
         assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
-        investigated = load_investigated_alert(self.team.id, configuration.id)
-        assert investigated is not None
-        assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
-            configuration.id,
-            insight.id,
-            True,
-        )
+        # The agent names the alert by its public id, and a metrics run by the id its investigation keeps.
+        for investigated in (
+            load_investigated_alert(self.team.id, public_id),
+            investigated_alert(self.team.id, configuration.id),
+        ):
+            assert investigated is not None
+            assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
+                public_id,
+                insight.id,
+                True,
+            )
 
     def test_a_firing_whose_investigation_cannot_be_decided_still_goes_out(self) -> None:
         _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)

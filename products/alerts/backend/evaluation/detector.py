@@ -276,9 +276,9 @@ def _saved_alert_flags(team: Team, alert_id: Any) -> tuple[EarlierFlag, ...]:
     alert = AlertConfiguration.objects.filter(team_id=team.id, id=alert_id).first()
     if alert is None:
         # Imported here for the same reason as `_platform_fired_checks`'s import.
-        from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+        from products.alerts.backend.platform_insight_alert import rowless_insight_alert_view  # noqa: PLC0415
 
-        view = native_insight_alert_view(team.id, alert_id)
+        view = rowless_insight_alert_view(team.id, alert_id)
         alert = AlertConfiguration.from_platform_view(view, team_id=team.id) if view is not None else None
     return _earlier_flags(alert) if alert is not None else ()
 

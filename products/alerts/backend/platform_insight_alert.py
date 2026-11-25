@@ -119,10 +119,11 @@ def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, use
 
 def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     """The alert a check evaluates: a copy's insight row, or, for an alert insight keeps no row for,
-    one built from the platform alert. None when either is gone."""
+    one built from the platform alert. A copy whose row is gone is built under its row's id, as
+    `checked_alert` builds it. None when its insight is gone."""
     if check.legacy_configuration_id is None:
         return alert_from_platform(check, team_id=check.team_id, enabled=True)
-    return legacy_alert(team_id=check.team_id, alert_id=check.legacy_configuration_id)
+    return legacy_alert(team_id=check.team_id, alert_id=check.legacy_configuration_id) or checked_alert(check)
 
 
 def checked_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -137,22 +138,29 @@ def checked_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     alert = alert_from_platform(check, team_id=check.team_id, enabled=True)
     if alert is None:
         return None
-    if check.legacy_configuration_id is not None:
-        alert.id = check.legacy_configuration_id
     alert.owner = PlatformAlertOwner.PLATFORM if check.owned_by_platform else PlatformAlertOwner.SOURCE
     alert.owner_changed_at = check.owner_changed_at
     return alert
 
 
 def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
-    """The alert an investigation names: its insight row, or, for an alert insight keeps no row for,
-    one built from the platform alert, whose id it carries. None when both are gone."""
+    """The alert an investigation names, by its public id or its platform alert's id: its insight row,
+    or one built from the platform alert under its public id when insight keeps no row for it. None
+    when both are gone."""
     if (alert := legacy_alert(team_id=team_id, alert_id=alert_id)) is not None:
         return alert
     configuration = get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
     )
-    if configuration is None or configuration.legacy_configuration_id is not None:
+    if configuration is not None and configuration.legacy_configuration_id is not None:
+        # A copy named by its own id, as an investigation keeps it: its row while it has one.
+        if (alert := legacy_alert(team_id=team_id, alert_id=configuration.legacy_configuration_id)) is not None:
+            return alert
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            return None
+    if configuration is None:
+        configuration = rowless_insight_alert_view(team_id, alert_id)
+    if configuration is None:
         return None
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
@@ -175,8 +183,27 @@ def charted_alert(team_id: int, alert_id: UUID) -> tuple[AlertConfiguration, UUI
     alert = alert_from_platform(copy, team_id=team_id, enabled=copy.enabled)
     if alert is None:
         return None
-    alert.id = alert_id
     return alert, copy.id
+
+
+def rowless_insight_alert_view(
+    team_id: int, alert_id: UUID, *, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert the platform keeps under the public id `alert_id`, for a caller that
+    found no insight row under it: one created with no insight row, or a copy the platform owns whose
+    row is gone. None otherwise. With `lock`, its row stays locked until the caller's transaction ends."""
+    if (view := native_insight_alert_view(team_id, alert_id, lock=lock)) is not None:
+        return view
+    copy = owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert_id]
+    ).get(alert_id)
+    if copy is None or not lock:
+        return copy
+    locked = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=copy.id, lock=True
+    )
+    # Rechecked under the lock, so a copy handed back to its source is not served as the platform's.
+    return locked if locked is not None and locked.owner == PlatformAlertOwner.PLATFORM else None
 
 
 def native_insight_alert_view(
@@ -317,7 +344,7 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
     # An unsaved threshold has no `created_at`, which the API's readers expect, and a fresh id on
     # every read. The alert's id keeps the threshold's id the same from one read to the next.
     alert.threshold.created_at = configuration.created_at
-    alert.threshold.id = configuration.id
+    alert.threshold.id = configuration.destination_alert_id
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
@@ -332,10 +359,9 @@ def _no_insight_row(*args: object, **kwargs: object) -> None:
     raise TypeError("This insight alert has no insight row. Write it through the platform.")
 
 
-def is_built_from_platform(alert: AlertConfiguration, configuration_id: UUID) -> bool:
-    """Whether the alert has no insight row. A built alert carries its platform alert's id, and a
-    copy's row never does."""
-    return alert.id == configuration_id
+def is_built_from_platform(alert: AlertConfiguration) -> bool:
+    """Whether the alert has no insight row: built from its platform alert, and never saved."""
+    return alert._state.adding
 
 
 def alert_from_platform(
@@ -362,7 +388,7 @@ def _built_alert(
 ) -> AlertConfiguration:
     threshold_config = _threshold_of(configuration)
     return AlertConfiguration(
-        id=configuration.id,
+        id=configuration.destination_alert_id,
         team=insight.team,
         insight=insight,
         enabled=enabled,

@@ -150,7 +150,7 @@ def claim_investigation(
         refused = rows.filter(refusing_investigations(alert, datetime.now(UTC), status_field="status")).exists()
         investigation = InsightAlertInvestigation.objects.for_team(alert.team_id).create(
             team_id=alert.team_id,
-            alert_configuration=None if is_built_from_platform(alert, configuration_id) else alert,
+            alert_configuration=None if is_built_from_platform(alert) else alert,
             configuration_id=configuration_id,
             evaluation_key=evaluation_key,
             episode_started_at=episode_started_at,

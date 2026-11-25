@@ -19,6 +19,7 @@ from products.alerts.backend.platform_insight_alert import (
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
+    rowless_insight_alert_view,
     subscribers_with_insight_access,
 )
 from products.alerts.backend.platform_ownership import (
@@ -55,6 +56,7 @@ __all__ = [
     "native_insight_alert_views",
     "platform_takes_new_alert_with",
     "platform_subscriber_ids",
+    "rowless_insight_alert_view",
     "set_native_subscribers",
     "subscribers_with_insight_access",
     "sync_alert_subscriber_destinations",
