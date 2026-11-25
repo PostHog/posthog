@@ -200,7 +200,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -581,7 +581,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -962,7 +962,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -1387,7 +1387,7 @@ export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
                 type: zod
                     .string()
                     .describe(
-                        "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                     ),
                 value: zod
                     .unknown()
@@ -1687,7 +1687,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -2104,7 +2104,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -2493,7 +2493,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -2880,7 +2880,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -3166,7 +3166,7 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -3249,7 +3249,7 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()

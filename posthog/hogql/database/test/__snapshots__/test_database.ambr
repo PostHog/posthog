@@ -8213,10 +8213,261 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; it is paused when its linked flag has feature_flags.active = 0.",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "conclusion": {
+                  "chain": null,
+                  "description": "Outcome set when the experiment ends: 'won', 'lost', 'inconclusive', 'stopped_early' or 'invalid'; NULL until concluded.",
+                  "fields": null,
+                  "hogql_value": "conclusion",
+                  "id": null,
+                  "name": "conclusion",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "conclusion_comment": {
+                  "chain": null,
+                  "description": "Free-text note on the conclusion.",
+                  "fields": null,
+                  "hogql_value": "conclusion_comment",
+                  "id": null,
+                  "name": "conclusion_comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metrics": {
+                  "chain": null,
+                  "description": "JSON list of the primary metric definitions (metric type, source, conversion window, math). Saved metrics are in experiment_to_saved_metrics.",
+                  "fields": null,
+                  "hogql_value": "metrics",
+                  "id": null,
+                  "name": "metrics",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "metrics_secondary": {
+                  "chain": null,
+                  "description": "JSON list of the secondary metric definitions, same shape as metrics.",
+                  "fields": null,
+                  "hogql_value": "metrics_secondary",
+                  "id": null,
+                  "name": "metrics_secondary",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "exposure_criteria": {
+                  "chain": null,
+                  "description": "JSON config that decides which users count as exposed, e.g. the exposure event and multiple-variant handling.",
+                  "fields": null,
+                  "hogql_value": "exposure_criteria",
+                  "id": null,
+                  "name": "exposure_criteria",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "stats_config": {
+                  "chain": null,
+                  "description": "JSON statistical settings, e.g. the method (bayesian or frequentist) and its parameters.",
+                  "fields": null,
+                  "hogql_value": "stats_config",
+                  "id": null,
+                  "name": "stats_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "deleted": {
+                  "chain": null,
+                  "description": "1 if the experiment has been deleted, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "system.experiments",
           "name": "system.experiments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.experiment_saved_metrics": {
+          "certification": null,
+          "description": "Reusable experiment metrics shared across experiments; one row per saved metric. Link them to experiments through experiment_to_saved_metrics.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Saved metric id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Saved metric name.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "description": "Saved metric description.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "description": "JSON metric definition, same shape as an item of experiments.metrics.",
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "description": "User who created the saved metric.",
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the saved metric was created.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the saved metric was last updated.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.experiment_saved_metrics",
+          "name": "system.experiment_saved_metrics",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.experiment_to_saved_metrics": {
+          "certification": null,
+          "description": "Links experiments to the saved metrics they use; one row per experiment and saved metric pair.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Link row id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "experiment_id": {
+                  "chain": null,
+                  "description": "Experiment that uses the metric; joins to experiments.id.",
+                  "fields": null,
+                  "hogql_value": "experiment_id",
+                  "id": null,
+                  "name": "experiment_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "saved_metric_id": {
+                  "chain": null,
+                  "description": "Saved metric used; joins to experiment_saved_metrics.id.",
+                  "fields": null,
+                  "hogql_value": "saved_metric_id",
+                  "id": null,
+                  "name": "saved_metric_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "metadata": {
+                  "chain": null,
+                  "description": "JSON settings for this use of the metric, e.g. type 'primary' or 'secondary'.",
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the metric was added.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the link was last updated.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.experiment_to_saved_metrics",
+          "name": "system.experiment_to_saved_metrics",
           "row_count": null,
           "type": "system"
       },
@@ -8362,6 +8613,17 @@
                   "hogql_value": "deleted",
                   "id": null,
                   "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active": {
+                  "chain": null,
+                  "description": "1 if the flag is enabled, 0 if it is disabled.",
+                  "fields": null,
+                  "hogql_value": "active",
+                  "id": null,
+                  "name": "active",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -25171,10 +25433,261 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; it is paused when its linked flag has feature_flags.active = 0.",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "conclusion": {
+                  "chain": null,
+                  "description": "Outcome set when the experiment ends: 'won', 'lost', 'inconclusive', 'stopped_early' or 'invalid'; NULL until concluded.",
+                  "fields": null,
+                  "hogql_value": "conclusion",
+                  "id": null,
+                  "name": "conclusion",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "conclusion_comment": {
+                  "chain": null,
+                  "description": "Free-text note on the conclusion.",
+                  "fields": null,
+                  "hogql_value": "conclusion_comment",
+                  "id": null,
+                  "name": "conclusion_comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "metrics": {
+                  "chain": null,
+                  "description": "JSON list of the primary metric definitions (metric type, source, conversion window, math). Saved metrics are in experiment_to_saved_metrics.",
+                  "fields": null,
+                  "hogql_value": "metrics",
+                  "id": null,
+                  "name": "metrics",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "metrics_secondary": {
+                  "chain": null,
+                  "description": "JSON list of the secondary metric definitions, same shape as metrics.",
+                  "fields": null,
+                  "hogql_value": "metrics_secondary",
+                  "id": null,
+                  "name": "metrics_secondary",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "exposure_criteria": {
+                  "chain": null,
+                  "description": "JSON config that decides which users count as exposed, e.g. the exposure event and multiple-variant handling.",
+                  "fields": null,
+                  "hogql_value": "exposure_criteria",
+                  "id": null,
+                  "name": "exposure_criteria",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "stats_config": {
+                  "chain": null,
+                  "description": "JSON statistical settings, e.g. the method (bayesian or frequentist) and its parameters.",
+                  "fields": null,
+                  "hogql_value": "stats_config",
+                  "id": null,
+                  "name": "stats_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "deleted": {
+                  "chain": null,
+                  "description": "1 if the experiment has been deleted, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               }
           },
           "id": "system.experiments",
           "name": "system.experiments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.experiment_saved_metrics": {
+          "certification": null,
+          "description": "Reusable experiment metrics shared across experiments; one row per saved metric. Link them to experiments through experiment_to_saved_metrics.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Saved metric id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Saved metric name.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "description": "Saved metric description.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "query": {
+                  "chain": null,
+                  "description": "JSON metric definition, same shape as an item of experiments.metrics.",
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "description": "User who created the saved metric.",
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the saved metric was created.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the saved metric was last updated.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.experiment_saved_metrics",
+          "name": "system.experiment_saved_metrics",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.experiment_to_saved_metrics": {
+          "certification": null,
+          "description": "Links experiments to the saved metrics they use; one row per experiment and saved metric pair.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Link row id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "experiment_id": {
+                  "chain": null,
+                  "description": "Experiment that uses the metric; joins to experiments.id.",
+                  "fields": null,
+                  "hogql_value": "experiment_id",
+                  "id": null,
+                  "name": "experiment_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "saved_metric_id": {
+                  "chain": null,
+                  "description": "Saved metric used; joins to experiment_saved_metrics.id.",
+                  "fields": null,
+                  "hogql_value": "saved_metric_id",
+                  "id": null,
+                  "name": "saved_metric_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "metadata": {
+                  "chain": null,
+                  "description": "JSON settings for this use of the metric, e.g. type 'primary' or 'secondary'.",
+                  "fields": null,
+                  "hogql_value": "metadata",
+                  "id": null,
+                  "name": "metadata",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the metric was added.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the link was last updated.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.experiment_to_saved_metrics",
+          "name": "system.experiment_to_saved_metrics",
           "row_count": null,
           "type": "system"
       },
@@ -25320,6 +25833,17 @@
                   "hogql_value": "deleted",
                   "id": null,
                   "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active": {
+                  "chain": null,
+                  "description": "1 if the flag is enabled, 0 if it is disabled.",
+                  "fields": null,
+                  "hogql_value": "active",
+                  "id": null,
+                  "name": "active",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
+import { RefreshContext } from '../refreshContext'
 import { cachedResult, runCachedQuery } from './queryCache'
 import type { QueryRequest, QueryResult, RunQuery } from './vizTypes'
 
@@ -8,9 +9,10 @@ export type QueryFrames =
     | { status: 'error'; message: string }
     | ({ status: 'ready'; refreshing: boolean } & QueryResult)
 
-function initial(runQuery: RunQuery, queryKey: string): QueryFrames {
-    const result = cachedResult(runQuery, queryKey)
-    return result ? { status: 'ready', refreshing: false, ...result } : { status: 'loading' }
+// A result from before the latest refresh shows as refreshing, so the chart is marked busy until the new one lands.
+function initial(runQuery: RunQuery, queryKey: string, refresh: number): QueryFrames {
+    const cached = cachedResult(runQuery, queryKey, refresh)
+    return cached ? { status: 'ready', refreshing: cached.stale, ...cached.result } : { status: 'loading' }
 }
 
 // The cache hands back the same frames array, so a remounted tile keeps its state and its chart skips a rebuild.
@@ -29,16 +31,17 @@ export function afterRequestChange(previous: QueryFrames, cached: QueryFrames): 
     return unchanged(previous, cached) ? previous : cached
 }
 
-/** Runs a chart's query through the host's runner, and again whenever the query or its time range changes. */
+/** Runs a chart's query through the host's runner, and again when the query, its time range or the dashboard refresh changes. */
 export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): QueryFrames {
     // An edit rebuilds the request object, so the query runs again only when its content changes.
     const queryKey = JSON.stringify(request)
-    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey))
+    const refresh = useContext(RefreshContext)
+    const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey, refresh))
     useEffect(() => {
         let cancelled = false
         const show = (next: QueryFrames): void => setResult((previous) => (unchanged(previous, next) ? previous : next))
-        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey)))
-        runCachedQuery(runQuery, queryKey).then(
+        setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey, refresh)))
+        runCachedQuery(runQuery, queryKey, refresh).then(
             (result) => !cancelled && show({ status: 'ready', refreshing: false, ...result }),
             (error: unknown) =>
                 !cancelled && show({ status: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -46,6 +49,6 @@ export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): Query
         return () => {
             cancelled = true
         }
-    }, [queryKey, runQuery])
+    }, [queryKey, runQuery, refresh])
     return result
 }

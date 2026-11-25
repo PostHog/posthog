@@ -7,6 +7,7 @@ import {
     Describer,
     Description,
     defaultDescriber,
+    humanize,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -265,6 +266,23 @@ describe('humanizeActivity', () => {
                 .container.textContent?.replace(/\s+/g, ' ')
                 .trim()
         ).toBe(expected)
+    })
+
+    it.each([
+        [ActivityScope.SCORE_DEFINITION, false, 'Project key example-key-id', false],
+        [ActivityScope.TRACE_REVIEW, true, 'Project key example-key-id', false],
+        [ActivityScope.PERSON, true, 'PostHog', true],
+    ] as const)('renders the project-key actor for %s', (scope, storedAsSystem, expectedName, displayedAsSystem) => {
+        const logItem = makeLogItem({
+            scope,
+            is_system: storedAsSystem,
+            credential_type: 'project_secret_key',
+            credential_id: 'example-key-id',
+        })
+        const [row] = humanize([logItem], () => defaultDescriber)
+
+        expect(render(<ActivityLogUserName logItem={logItem} />).container.textContent).toBe(expectedName)
+        expect(row.isSystem).toBe(displayedAsSystem)
     })
 
     describe('userNameForLogItem', () => {
