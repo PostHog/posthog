@@ -94,7 +94,7 @@ const PromptLimitCount = (): JSX.Element | null => {
                 tabIndex={0}
                 data-attr="content-autopilot-prompt-limit"
             >
-                {setupContext.active_prompts} of {setupContext.max_active_prompts} prompts tracked
+                {`${setupContext.active_prompts} of ${setupContext.max_active_prompts} prompts tracked`}
             </span>
         </Tooltip>
     )
