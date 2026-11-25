@@ -13,7 +13,6 @@ import json
 import hashlib
 import datetime as dt
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -21,7 +20,7 @@ import orjson
 from pydantic import ValidationError
 from rest_framework.utils.encoders import JSONEncoder
 
-from posthog.schema import ChartDisplayType, MetricsQuery, TrendsQuery
+from posthog.schema import ChartDisplayType, TrendsQuery
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
@@ -30,7 +29,6 @@ from posthog.hogql_queries.utils.result_series import get_series_key
 
 from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameFieldType, FrameMeta
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
-from products.metrics.backend.facade.api import metrics_query_interval
 
 # Trends displays that draw one value per interval. The others show one number per series.
 _TIME_SERIES_DISPLAYS = {
@@ -102,7 +100,7 @@ def _frames(
     if kind == "HogQLQuery":
         return hogql_frames(result, pivot=not as_table)
     if kind == "MetricsQuery":
-        return metrics_frames(source, result)
+        return metrics_frames(result)
     if kind == "TrendsQuery":
         try:
             return trends_frames(TrendsQuery.model_validate(source), result)
@@ -267,20 +265,12 @@ def _readable_breakdown(label: str) -> str:
 # Metrics (builder, SQL and PromQL), ported from PR #138426.
 
 
-def metrics_frames(query: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+def metrics_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
     series_list = result.get("results")
     if not isinstance(series_list, list):
         return None
+    # The runner can coarsen the query's interval and the response does not say to what, so no interval is given.
     meta = _meta(result.get("resolved_date_range"), None, previous=False)
-    if meta.date_from and meta.date_to:
-        # The runner coarsens an interval that would give too many buckets, so the frame names the one it ran.
-        try:
-            interval = metrics_query_interval(
-                query=MetricsQuery.model_validate(query), date_from=meta.date_from, date_to=meta.date_to
-            )
-        except (ValidationError, ValueError):
-            interval = None
-        meta = replace(meta, interval=interval)
     # Same naming as the metrics chart (metricsSeries.ts formatSeriesNames).
     several_clauses = len({series.get("clause") for series in series_list if series.get("clause")}) > 1
     frames: list[Frame] = []

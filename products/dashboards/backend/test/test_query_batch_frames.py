@@ -348,27 +348,13 @@ class TestFrameConverters(SimpleTestCase):
         assert frames_for(QueryBatchLanguage.LOGQL, {}, result) is None
         assert frames_for(QueryBatchLanguage.LOGQL, {}, {"results": {**result["results"], "result": series[:-1]}})
 
-    @parameterized.expand(
-        [
-            ("coarsened_to_fit_the_range", "minute", dt.timedelta(days=7), "minute_30"),
-            ("kept_when_it_fits", "minute", dt.timedelta(hours=1), "minute"),
-            ("unknown_interval", "fortnight", dt.timedelta(hours=1), None),
-        ]
-    )
-    def test_metrics_frames_name_the_interval_the_runner_ran(
-        self, _name: str, requested: str, span: dt.timedelta, expected: str | None
-    ) -> None:
-        date_from = dt.datetime(2026, 9, 12, tzinfo=dt.UTC)
-        result = {
-            "results": [{"labels": {}, "metricName": "up", "points": [{"time": NOW, "value": 1}]}],
-            "resolved_date_range": {"date_from": date_from.isoformat(), "date_to": (date_from + span).isoformat()},
-        }
-        query = {"kind": "MetricsQuery", "clauses": [], "interval": requested}
+    def test_metrics_frames_give_no_interval_the_runner_may_have_coarsened(self) -> None:
+        result = {"results": [{"labels": {}, "metricName": "up", "points": [{"time": NOW, "value": 1}]}]}
 
-        frames = frames_for(QueryBatchLanguage.QUERY, query, result)
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "MetricsQuery", "interval": "minute"}, result)
 
         assert frames is not None
-        assert frames[0]["meta"]["interval"] == expected
+        assert frames[0]["meta"]["interval"] is None
 
     @parameterized.expand(
         [
