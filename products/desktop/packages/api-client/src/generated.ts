@@ -9147,6 +9147,7 @@ export namespace Schemas {
     };
     export type TraceQuery = {
         dateRange?: (DateRange | null) | undefined;
+        eventsLimit?: (number | null) | undefined;
         includeSentiment?: (boolean | null) | undefined;
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
