@@ -578,12 +578,12 @@ describe('valves', () => {
             }
         }
 
-        const send = (abortSignal?: AbortSignal): Promise<string> =>
+        const send = (abortSignal?: AbortSignal, to = 'run-1-1@www.example.com'): Promise<string> =>
             ses
                 .send(
                     new SendEmailCommand({
                         FromEmailAddress: 'flows@www.example.com',
-                        Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                        Destination: { ToAddresses: [to] },
                         Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
                     }),
                     { abortSignal }
@@ -606,6 +606,53 @@ describe('valves', () => {
             expect(await send()).toBe('sent')
             expect(valves.timeline()[0]).toEqual(expect.objectContaining({ releasedAt: expect.any(String) }))
             expect(valves.timeline()[0].error).toBeUndefined()
+        })
+
+        it('picks the units a share dose hits from the card seed, whatever order they arrive in, and lists them', async () => {
+            const ordinals = Array.from({ length: 20 }, (_, index) => index + 1)
+            const firedIn = async (seed: number, arriving: number[]) => {
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 0.5 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    { ...onEdge(), seed }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                for (const ordinal of arriving) {
+                    await send(undefined, `${runId}-${ordinal}@www.example.com`)
+                }
+                await valves.releaseAll()
+                const [fired] = valves.fired()
+                return { fired, hit: fired.unitIds?.map((unitId) => unitId.slice(runId.length + 1)).sort() }
+            }
+
+            const first = await firedIn(6, ordinals)
+            const reordered = await firedIn(6, [...ordinals].reverse())
+            const otherSeed = await firedIn(7, ordinals)
+
+            expect(first.fired).toEqual({
+                valve: 'ses.reject',
+                target: 'ses',
+                dose: { type: 'rejected', share: 0.5 },
+                requestedAt: expect.any(String),
+                intentAt: expect.any(String),
+                appliedAt: expect.any(String),
+                observedAt: expect.any(String),
+                releasedAt: expect.any(String),
+                unitIds: expect.any(Array),
+            })
+            expect(first.hit!.length).toBeGreaterThan(0)
+            expect(first.hit!.length).toBeLessThan(ordinals.length)
+            expect(reordered.hit).toEqual(first.hit)
+            expect(otherSeed.hit).not.toEqual(first.hit)
         })
 
         it.each([

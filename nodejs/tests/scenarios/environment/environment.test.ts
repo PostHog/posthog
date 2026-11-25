@@ -39,6 +39,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    configHashOf,
     consumerGroupsOf,
     fetchRetriesOf,
     intakeTopicsOf,
@@ -642,6 +643,28 @@ describe('scenario environment', () => {
                 ENCRYPTION_SALT_KEYS: 'run-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt',
             })
+        })
+
+        it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
+                configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
+            const here = hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR)
+
+            expect({
+                elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
+                settings: hashOf({ PATH: '/usr/bin', HOME: '/home/a' }, STATE_DIR, {
+                    CDP_WATCHER_HOG_COST_TIMING: '7',
+                }),
+                inherited: hashOf(
+                    { PATH: '/usr/bin', HOME: '/home/a', CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' },
+                    STATE_DIR
+                ),
+            }).toEqual({
+                elsewhere: here,
+                settings: expect.not.stringMatching(here),
+                inherited: expect.not.stringMatching(here),
+            })
+            expect(here).toMatch(/^[0-9a-f]{64}$/)
         })
     })
 

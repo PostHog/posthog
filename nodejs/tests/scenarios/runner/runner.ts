@@ -15,7 +15,7 @@ import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
-import { Environment, defaultStateDir } from '../environment/environment'
+import { Environment, RunConfig, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
     ConsumerGroup,
@@ -107,6 +107,8 @@ export type RunResult = {
     cardHash: string
     profileHash: string
     topologyHash?: string
+    configHash?: string
+    services?: string[]
     origin: 'local-agent'
     target: Target
     units?: DriveSummary
@@ -550,6 +552,7 @@ export function createRunner(
             let driven: DriveWindow | undefined
             let offered: Offered | undefined
             let recorded: Wiring | undefined
+            let runConfig: RunConfig | undefined
             const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
             const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
                 const read = await writerCpuFor(card.bars, window, readSignal)
@@ -567,6 +570,7 @@ export function createRunner(
                     )
                     throw error
                 })
+                runConfig = await environment.runConfig()
                 live.write({ type: 'phase', at: Date.now(), phase: 'seed' })
                 const seeded = await opened.seed(signal).catch((error: unknown) => {
                     if (error instanceof SeedingCutShort) {
@@ -619,6 +623,7 @@ export function createRunner(
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
+                    seed: card.seed,
                 })
                 const offers = await opened.offers()
                 const windowOpen = new AbortController()
@@ -803,6 +808,8 @@ export function createRunner(
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
+                ...(runConfig?.configHash != null && { configHash: runConfig.configHash }),
+                ...(runConfig?.services != null && { services: runConfig.services }),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),
@@ -815,6 +822,7 @@ export function createRunner(
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'faults.json', { seed: card.seed, faults: valves.fired() })
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {

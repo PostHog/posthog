@@ -138,6 +138,8 @@ describe('scorecard', () => {
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
                     topology_hash: null,
+                    config_hash: null,
+                    service_versions: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
                     origin: 'local-agent',

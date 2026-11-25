@@ -24,6 +24,7 @@ import {
     Role,
     RoleId,
     RoleSpec,
+    configHashOf,
     consumerGroupsOf,
     intakeTopicsOf,
     portOf,
@@ -45,6 +46,7 @@ import {
     postgresServersOf,
     rolesNotReady,
     seekToEnd,
+    serviceImagesOf,
     startStack,
     syncTemplates,
     terminateRoleConnections,
@@ -71,12 +73,16 @@ export interface Environment {
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
     dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
+    runConfig(): Promise<RunConfig>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
+
+// null when the run cannot read it, such as a target whose roles run elsewhere.
+export type RunConfig = { configHash: string | null; services: string[] | null }
 
 export type RoleHandle = { name: Role; replica: number; url: string; metricsUrl: string }
 
@@ -208,6 +214,7 @@ export function createEnvironment({
     let cyclotronUrl = STACK.cyclotronNodeUrl
     let releaseLock: (() => Promise<void>) | undefined
     let running: RoleId[] = roleIdsOf()
+    let launched: RoleSpec[] = []
 
     const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
@@ -289,6 +296,11 @@ export function createEnvironment({
             }
         },
 
+        runConfig: async () => ({
+            configHash: launched.length === 0 ? null : configHashOf(launched),
+            services: await serviceImagesOf(docker).catch(() => null),
+        }),
+
         exits: (): RoleExit[] => supervisor.exits(),
 
         groupLag: (group) => groupLag(group, docker),
@@ -322,6 +334,7 @@ export function createEnvironment({
         await supervisor.stop()
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
         running = specs
+        launched = specs
         await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
@@ -427,6 +440,7 @@ export function createEnvironment({
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
+        launched = specs
         await createTopics(intakeTopicsOf(specs), docker)
         for (const group of groups) {
             await seekToEnd(group, docker)

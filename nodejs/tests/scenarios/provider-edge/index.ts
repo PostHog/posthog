@@ -7,7 +7,7 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
-import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, ruleOf } from './faults'
+import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, hitOf, ruleOf } from './faults'
 import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
@@ -36,6 +36,7 @@ const FAULT_POLL_MS = 100
 export type FaultHold = {
     observed(holdEnds?: AbortSignal): Promise<boolean>
     accepted?(until: AbortSignal): Promise<boolean>
+    hits?(): string[]
     release(): Promise<void>
 }
 
@@ -115,7 +116,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const { message } = request
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), ...trackedOf(trackingCodeOf(message)) }
-        const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
+        const addresses = addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])])
+        const fault = faults.takeSes(addresses, hitOf(correlation.unitId, [...addresses].sort().join(',')))
         if (fault?.answer.kind === 'ambiguous' && !fault.answer.accepted) {
             return 'drop-connection'
         }
@@ -289,7 +291,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
-        const fault = faults.takeWebhook(host)
+        const fault = faults.takeWebhook(host, hitOf(unitId, `${host}${target}`))
         if (fault?.answer.kind === 'webhook-ambiguous' && !fault.answer.accepted) {
             req.socket.destroy()
             return
@@ -366,6 +368,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                     }
                     return faults.firstAppliedAt(id) !== undefined
                 },
+                hits: () => faults.hitsOf(id),
                 release: () => {
                     removeFault(id)
                     return Promise.resolve()

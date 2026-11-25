@@ -1,8 +1,9 @@
+import { createHash } from 'crypto'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { PluginServerMode } from '~/common/config'
-import { overrideConfigWithEnv } from '~/common/config/config'
+import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
 import { ReplicaOf } from './identity'
@@ -62,6 +63,21 @@ export type Replicas = Profile['replicas']
 export type RoleId = ReplicaOf<Role>
 
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
+
+const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN/
+
+// Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config.
+export function configHashOf(specs: RoleSpec[]): string {
+    const settings = new Set(Object.keys(getDefaultConfig()).filter((key) => !SECRET_SETTING.test(key)))
+    const configs = specs.map(({ role, replica, env }) => [
+        role,
+        replica,
+        Object.entries(env)
+            .filter(([key]) => settings.has(key))
+            .sort(([a], [b]) => a.localeCompare(b)),
+    ])
+    return createHash('sha256').update(JSON.stringify(configs)).digest('hex')
+}
 
 const REPLICA_PORT_OFFSET = 100
 

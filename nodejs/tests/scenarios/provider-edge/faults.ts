@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
@@ -86,9 +86,13 @@ export type FaultRule = {
     match?: { recipient?: string; host?: string }
     dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
+    pick?: string
 }
 
 type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
+
+// The hit is the unit id, or the addresses or host when a request names no unit.
+export type Hit = { hit: string; key: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 const THROTTLED: SesStatusAnswer = {
@@ -129,9 +133,23 @@ type ActiveFault = {
     matched: number
     applied: number
     passedAt: number[]
+    attempts: Map<string, number>
 }
 
 const SHARE_TOLERANCE = 1e-9
+const SCORE_BYTES = 6
+
+// A unit id is `<run id>-<ordinal>`, so the ordinal names the same unit in every run of a card.
+export function hitOf(unitId: string | undefined, fallback: string): Hit {
+    return unitId === undefined
+        ? { hit: fallback, key: fallback }
+        : { hit: unitId, key: /-(\d+)$/.exec(unitId)?.[1] ?? unitId }
+}
+
+function picked(pick: string, key: string, attempt: number, share: number): boolean {
+    const digest = createHash('sha256').update(`${pick}\0${key}\0${attempt}`).digest()
+    return digest.readUIntBE(0, SCORE_BYTES) / 2 ** (8 * SCORE_BYTES) < share
+}
 
 const isWebhookAnswer = (answer: SesAnswer | WebhookAnswer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
@@ -146,9 +164,9 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     return !isWebhookAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
-function doseTakes(fault: ActiveFault, now: number): boolean {
+function doseTakes(fault: ActiveFault, now: number, { key }: Hit): boolean {
     const {
-        rule: { dose },
+        rule: { dose, pick },
         matched,
         applied,
     } = fault
@@ -158,6 +176,11 @@ function doseTakes(fault: ActiveFault, now: number): boolean {
     }
     if ('count' in dose) {
         return applied < dose.count
+    }
+    if (pick !== undefined) {
+        const attempt = fault.attempts.get(key) ?? 0
+        fault.attempts.set(key, attempt + 1)
+        return picked(pick, key, attempt, dose.share)
     }
     const crossings = (sends: number): number => Math.floor(sends * dose.share + SHARE_TOLERANCE)
     return crossings(matched) > crossings(matched - 1)
@@ -172,11 +195,12 @@ function countSentAgainst(throttles: ActiveFault[], now: number): void {
 export class FaultList {
     private faults: ActiveFault[] = []
     private firstApplied = new Map<string, number>()
+    private hits = new Map<string, string[]>()
 
     add(rule: FaultRule): string {
         const id = randomUUID()
         const until = rule.for === undefined ? Infinity : Date.now() + durationMs(rule.for)
-        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [] })
+        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [], attempts: new Map() })
         return id
     }
 
@@ -189,35 +213,41 @@ export class FaultList {
     clear(): void {
         this.faults = []
         this.firstApplied.clear()
+        this.hits.clear()
     }
 
     firstAppliedAt(id: string): number | undefined {
         return this.firstApplied.get(id)
     }
 
-    takeSes(recipients: string[]): { id: string; name: string; answer: SesAnswer } | undefined {
-        const fault = this.take({ channel: 'ses', recipients })
+    hitsOf(id: string): string[] {
+        return [...new Set(this.hits.get(id))]
+    }
+
+    takeSes(recipients: string[], hit: Hit): { id: string; name: string; answer: SesAnswer } | undefined {
+        const fault = this.take({ channel: 'ses', recipients }, hit)
         return fault && !isWebhookAnswer(fault.rule.answer)
             ? { id: fault.id, name: fault.rule.name, answer: fault.rule.answer }
             : undefined
     }
 
-    takeWebhook(host: string): { name: string; answer: WebhookAnswer } | undefined {
-        const rule = this.take({ channel: 'webhook', host })?.rule
+    takeWebhook(host: string, hit: Hit): { name: string; answer: WebhookAnswer } | undefined {
+        const rule = this.take({ channel: 'webhook', host }, hit)?.rule
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    private take(request: FaultedRequest): ActiveFault | undefined {
+    private take(request: FaultedRequest, hit: Hit): ActiveFault | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
         const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
         const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
-            return doseTakes(fault, now)
+            return doseTakes(fault, now, hit)
         })
         if (answering) {
             answering.applied += 1
+            this.hits.set(answering.id, [...(this.hits.get(answering.id) ?? []), hit.hit])
             if (!this.firstApplied.has(answering.id)) {
                 this.firstApplied.set(answering.id, now)
             }
