@@ -414,6 +414,24 @@ describe('dashboardLogic', () => {
                 { backUrl: '/feature_flags/12', backName: 'my-flag' },
                 { name: 'my-flag', path: '/feature_flags/12' },
             ],
+            [
+                "a flag's usage link without the flag",
+                {},
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+            [
+                'the Dashboards list for a link to another site',
+                {},
+                { backUrl: 'https://other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
+            [
+                'the Dashboards list for a protocol-relative link',
+                {},
+                { backUrl: '//other.example/page', backName: 'Settings' },
+                { name: 'Dashboards', path: urls.dashboards() },
+            ],
         ])('is %s', (_, flags, searchParams, expected) => {
             featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
             router.actions.push(urls.dashboard(5), searchParams)

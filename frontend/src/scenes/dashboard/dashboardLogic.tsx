@@ -59,7 +59,7 @@ import { getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
-import { toParams } from 'lib/utils/url'
+import { getRelativeNextPath, toParams } from 'lib/utils/url'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsParentBreadcrumb'
 import {
@@ -4809,7 +4809,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 searchParams: Record<string, any>,
                 featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
-                const backUrl = searchParams.backUrl as string | undefined
+                // Anyone can put a `backUrl` in a shared link, so only a path inside the app becomes the first crumb.
+                const backUrl = getRelativeNextPath(searchParams.backUrl, window.location)
                 const backName = searchParams.backName as string | undefined
                 // A back link from another page, such as a flag's usage dashboard, wins over the Analytics list.
                 const otherBackUrl = backUrl && !analyticsBackLink(searchParams, featureFlags) ? backUrl : undefined
