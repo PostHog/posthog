@@ -1332,8 +1332,6 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
 
 def _human_or_anonymous(user: Any) -> Any:
-    # A service account authenticates with credentials only. Every session read goes through here, so a
-    # login path that fails to refuse one still cannot give it a working browser session.
     if getattr(user, "is_service_account", False):
         return AnonymousUser()
     return user

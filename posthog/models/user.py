@@ -174,7 +174,6 @@ class UserManager(BaseUserManager):
 
     _queryset_class = UserQuerySet
 
-    # Returns users of every type. A path that must only see people calls `.humans()`.
     def get_queryset(self) -> UserQuerySet:  # type: ignore[override]
         queryset = cast(UserQuerySet, super().get_queryset().defer(*DEFERED_ATTRS))
         if _join_current_organization.get():

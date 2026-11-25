@@ -577,7 +577,6 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if user.is_service_account:
-            # Same answer as a wrong password, so the response does not reveal that the address is a service account.
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if radar_attempt and radar_attempt.attempt_id:
