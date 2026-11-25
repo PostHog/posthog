@@ -887,7 +887,7 @@ def _record_gateway_errors(forwarder: SSHTunnelForwarder) -> list[Exception]:
             errors.append(e)
             raise
 
-    forwarder._connect_to_gateway = recording_connect
+    forwarder._connect_to_gateway = recording_connect  # ty: ignore[invalid-assignment]
     return errors
 
 
