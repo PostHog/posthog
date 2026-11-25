@@ -3,8 +3,10 @@ that runs once per send, so sends get the workflow's metrics, run history and ve
 
 import json
 import time
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 
@@ -50,10 +52,27 @@ TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
 PUSH_BATCH_PARALLEL_REQUESTS = 10
 # A recipient not reached by then is answered as unconfirmed, so a stalled CDP service can't hold the request.
 PUSH_BATCH_TIMEOUT_SECONDS = 30
+# A web process serves 8 requests at once, email sends included. Push waits on the CDP service in at most this many of
+# them, so a CDP service that hangs on pushes leaves the rest to email.
+PUSH_REQUESTS_PER_PROCESS = 3
 # The same as BATCH_COPIED_BYTES_MAX, which the CDP service applies to an email batch.
 PUSH_BATCH_COPIED_MAX_BYTES = 16 * 1024 * 1024
 # These hold for every recipient, so a batch refused for all of them answers once instead of per recipient.
 WHOLE_BATCH_REFUSALS = (QuotaLimited, TransactionalPushPaused, DeliveryUnavailable)
+
+_push_requests = threading.BoundedSemaphore(PUSH_REQUESTS_PER_PROCESS)
+
+
+@contextmanager
+def _push_request() -> Iterator[None]:
+    # Refuses instead of waiting, because a waiting request holds its thread too.
+    if not _push_requests.acquire(blocking=False):
+        raise DeliveryUnavailable()
+    try:
+        yield
+    finally:
+        _push_requests.release()
+
 
 PUSH_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
     "quota_limited": (QuotaLimited, "The project is over its quota for push notifications."),
@@ -93,14 +112,15 @@ def send_transactional_push(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
         )
     hog_flow_id = _transactional_push_workflow_id(team.id, template)
-    return _queue_push(
-        team.id,
-        hog_flow_id,
-        distinct_id=distinct_id,
-        message_data=message_data,
-        idempotency_key=idempotency_key,
-        timeout=timeout,
-    )
+    with _push_request():
+        return _queue_push(
+            team.id,
+            hog_flow_id,
+            distinct_id=distinct_id,
+            message_data=message_data,
+            idempotency_key=idempotency_key,
+            timeout=timeout,
+        )
 
 
 def check_push_batch(message_data: dict[str, Any], recipients_data: Sequence[dict[str, Any]]) -> None:
@@ -149,7 +169,7 @@ def send_transactional_push_batch(
             message_id = keyed_run_id(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, recipient.idempotency_key)
             return EmailNotQueued(message_id=str(message_id), error=e)
 
-    with ThreadPoolExecutor(max_workers=min(PUSH_BATCH_PARALLEL_REQUESTS, len(recipients))) as pool:
+    with _push_request(), ThreadPoolExecutor(max_workers=min(PUSH_BATCH_PARALLEL_REQUESTS, len(recipients))) as pool:
         results = tuple(pool.map(queue, recipients))
     errors = [result.error for result in results if isinstance(result, EmailNotQueued)]
     if len(errors) == len(results) and isinstance(errors[0], WHOLE_BATCH_REFUSALS):
