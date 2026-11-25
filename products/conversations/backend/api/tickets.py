@@ -624,6 +624,8 @@ class TicketAssigneeRequestField(serializers.Field):
 
 
 MAX_TAGS_ADDED_PER_UPDATE = 100
+# Inbound email sets these traits, and they keep unverified relayed or forwarded mail private and unattributed.
+INBOUND_EMAIL_TRAIT_KEYS = frozenset({"email_relayed", "email_forwarded"})
 
 
 class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -681,6 +683,11 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         tags = validated_data.pop("tags", None)
+        traits = validated_data.get("anonymous_traits")
+        if isinstance(traits, dict):
+            existing = instance.anonymous_traits or {}
+            kept = {key: value for key, value in existing.items() if key in INBOUND_EMAIL_TRAIT_KEYS}
+            validated_data["anonymous_traits"] = {**traits, **kept}
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request

@@ -28,6 +28,7 @@ from django.utils import timezone
 import requests
 import structlog
 import posthoganalytics
+from free_email_domains import whitelist as free_email_domains_list
 from requests import RequestException
 
 from posthog.dataclasses import frozen
@@ -80,7 +81,7 @@ _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 # Outlook's `-----Original Message-----` and underscore rule also head plain replies, so they are left out.
 _FORWARD_MARKER_RE = re.compile(
-    r"^>?[ \t]*(?:-{2,}[ \t]*Forwarded message[ \t]*-{2,}|Begin forwarded message:)[ \t]*$",
+    r"^(?:[ \t]*-{2,}[ \t]*Forwarded message[ \t]*-{2,}|>?[ \t]*Begin forwarded message:)[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 _FORWARDED_HEADER_RE = re.compile(
@@ -807,7 +808,8 @@ def _forwarded_original_message(email: ParsedEmail, config: EmailChannel) -> _Fo
         return None
     sender = forwarded.sender
     recipients = {recipient.email for recipient in (*email.to_recipients, *email.cc_recipients)}
-    forwarder_domain = email.sender.email.rpartition("@")[2]
+    sender_domain = email.sender.email.rpartition("@")[2]
+    forwarder_domain = None if sender_domain in free_email_domains_list else sender_domain
     internal_addresses = {
         address.lower()
         for address in EmailChannel.objects.filter(team_id=config.team_id).values_list("from_email", flat=True)

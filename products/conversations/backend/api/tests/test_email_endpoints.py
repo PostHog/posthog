@@ -2691,6 +2691,12 @@ class TestForwardedMessage(SimpleTestCase):
                 None,
             ),
             (
+                "forward_inside_localized_reply",
+                "Danke!\n\nAm Mo., 2. Nov. 2026 um 10:00 schrieb Jane Doe <jane@example.net>:\n> "
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
                 "forward_inside_reply_header",
                 "On it.\r\n\r\nFrom: Jane Doe <jane@example.net>\r\nSent: Monday\r\n\r\n"
                 + _gmail_forward("Bob <bob@example.net>"),
@@ -2723,6 +2729,7 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
             domain_verified=True,
         )
         self._create_user("sam@example.org")
+        self._create_user("ana.forwarding-test@gmail.com")
         flag = patch(
             "products.conversations.backend.services.mailgun_events.posthoganalytics.feature_enabled", return_value=True
         )
@@ -2789,6 +2796,14 @@ class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
             ("sent_on_to_an_outsider", {"To": "support@example.com, Bob <bob@example.org>"}),
             ("forwarded_sender_on_forwarders_domain", {"body-plain": _gmail_forward("Billing <billing@posthog.com>")}),
             ("forwarded_team_member", {"body-plain": _gmail_forward("Sam <sam@example.org>")}),
+            (
+                "free_mail_forwarder_copies_an_outsider",
+                {
+                    "from": "Ana <ana.forwarding-test@gmail.com>",
+                    "sender": "ana.forwarding-test@gmail.com",
+                    "Cc": "bo.forwarding-test@gmail.com",
+                },
+            ),
             ("reply_on_existing_thread", {"In-Reply-To": "<existing@example.net>"}),
         ]
     )

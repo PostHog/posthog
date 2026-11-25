@@ -337,6 +337,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
 
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit):
+        inbound = {"email_relayed": True, "email_forwarded": True}
+        self.ticket.anonymous_traits = {"name": "Jane", "email": "jane@example.net", **inbound}
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"anonymous_traits": {"name": "Jane Doe", "email": "jane@example.net"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == {"name": "Jane Doe", "email": "jane@example.net", **inbound}
+
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
         self.ticket.save()
