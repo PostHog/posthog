@@ -21,7 +21,11 @@
                 "scripts/**/*.py",
                 "../../pyproject.toml",
                 "../../uv.lock",
-                "../../common/**/*.py"
+                "../../common/**/*.py",
+                // The runner and its ignore list decide which tests every product runs, so a change to them
+                // marks every product affected, also on a PR whose earlier full run already passed.
+                "../../.github/scripts/run-product-tests.sh",
+                "../../.github/scripts/product-tests-owned-elsewhere.txt"
             ],
             "outputs": [],
             "cache": true
