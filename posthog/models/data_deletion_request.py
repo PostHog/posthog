@@ -821,8 +821,6 @@ def build_deletion_count_query(obj: "DataDeletionRequest") -> tuple[str, dict]:
 
 
 _STATS_MAX_EXECUTION_TIME = 300
-# A stored query is one ClickHouse query, so it gets the time of both criteria-backed stats queries.
-_QUERY_BACKED_STATS_MAX_EXECUTION_TIME = 600
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int | None = None) -> dict:
@@ -941,7 +939,7 @@ def fetch_query_backed_deletion_stats(obj: "DataDeletionRequest", *, user_id: in
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
-        count = count_query_backed_deletion(obj, max_execution_time=_QUERY_BACKED_STATS_MAX_EXECUTION_TIME)
+        count = count_query_backed_deletion(obj)
     return {
         "count": count,
         "min_timestamp": None,

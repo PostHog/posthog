@@ -31,6 +31,8 @@ from products.feature_flags.backend.facade.flags import get_organization_flag_ev
 MAX_QUERY_BYTES = 100_000
 MAX_VARIABLES_BYTES = 100_000
 MAX_ACTIVE_REQUESTS_PER_TEAM = 5
+# The stats count and the deletion job run the same stored query, so a query that counts in time also queues in time.
+QUERY_BACKED_MAX_EXECUTION_TIME = 300
 ACTIVE_REQUEST_STATUSES = (
     RequestStatus.PENDING,
     RequestStatus.APPROVED,
@@ -224,7 +226,7 @@ def preview_event_deletion(*, query: str, variables: dict[str, object], team: Te
     return _count_selected_uuids(selected, team_id=team.id)
 
 
-def count_query_backed_deletion(request: DataDeletionRequest, *, max_execution_time: int) -> int:
+def count_query_backed_deletion(request: DataDeletionRequest) -> int:
     """Count the event UUIDs that the request's stored query selects.
 
     The query compiles with its creator's access controls, as the deletion job compiles it, so the count
@@ -245,7 +247,7 @@ def count_query_backed_deletion(request: DataDeletionRequest, *, max_execution_t
         selected,
         team_id=team.id,
         ch_user=ClickHouseUser.META,
-        settings={"max_execution_time": max_execution_time},
+        settings={"max_execution_time": QUERY_BACKED_MAX_EXECUTION_TIME},
     )
 
 
