@@ -40,7 +40,7 @@ export function stableSeriesColors(
     if (palette.length === 0) {
         return colors
     }
-    const taken = new Set([...assigned.values()].map((color) => palette.indexOf(color)).filter((slot) => slot >= 0))
+    const taken = new Set(keys.map((key) => palette.indexOf(assigned.get(key) ?? '')).filter((slot) => slot >= 0))
     for (const key of [...keys].sort()) {
         const previous = assigned.get(key)
         if (previous !== undefined && palette.includes(previous)) {

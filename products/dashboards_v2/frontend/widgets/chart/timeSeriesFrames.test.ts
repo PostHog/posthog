@@ -107,6 +107,14 @@ describe('timeSeriesFromFrames', () => {
 })
 
 describe('stableSeriesColors', () => {
+    it('gives a new series a colour no drawn series has, even when older series used every colour', () => {
+        const assigned = new Map<string, string>()
+        stableSeriesColors(['old-1', 'old-2', 'old-3', 'old-4', 'old-5'], PALETTE, assigned)
+        const colors = stableSeriesColors(['B:requests', 'C:value'], PALETTE, assigned)
+
+        expect(colors.get('B:requests')).not.toEqual(colors.get('C:value'))
+    })
+
     it('forgets the oldest colours of series no longer drawn once it remembers too many', () => {
         const assigned = new Map<string, string>()
         for (let refresh = 0; refresh < 3; refresh++) {
