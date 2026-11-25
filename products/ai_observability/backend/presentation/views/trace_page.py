@@ -34,3 +34,26 @@ class TracePageWithBoundsRequestSerializer(TracePageRequestSerializer):
         if not api.is_usable_page_bounds(earliest, latest):
             raise serializers.ValidationError("The page bounds are out of range.")
         return attrs
+
+
+class TraceTurnsRequestSerializer(TracePageWithBoundsRequestSerializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(trim_whitespace=False),
+        min_length=1,
+        max_length=api.TRACE_TURNS_MAX_IDS,
+        help_text=f"The IDs of the traces to read the turns of, from 1 to {api.TRACE_TURNS_MAX_IDS}. Items come back "
+        "in this order, at most once per ID. A trace with no generation and no trace event is left out.",
+    )
+    latest_created_at = serializers.DateTimeField(
+        help_text="The latest createdAt of the traces. It can't be before earliest_created_at, nor more than "
+        f"{api.TRACE_TURNS_MAX_SPAN.days} days after it.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if not api.is_readable_turns_span(attrs["earliest_created_at"], attrs["latest_created_at"]):
+            raise serializers.ValidationError(
+                f"The traces' createdAt values span more than {api.TRACE_TURNS_MAX_SPAN.days} days. Read them in "
+                "smaller pages."
+            )
+        return attrs

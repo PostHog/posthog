@@ -160,7 +160,9 @@ from ..logic.traces.trace_selection import (
 )
 from ..logic.traces.trace_selection_queries import SelectionCounts, load_rows_after
 from ..logic.traces.tree import TreeNode
-from ..logic.traces.turn import Turn, missing_reason, preview
+from ..logic.traces.turn import Turn, TurnSides, missing_reason, preview, shown, unread_reason
+from ..logic.traces.turn_queries import load_turn_sources
+from ..logic.traces.turn_sides import page_turn_sides
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
@@ -184,6 +186,9 @@ class NoScoreScaleError(Exception):
 
 TRACE_LIST_DEFAULT_LIMIT: Final = 50
 TRACE_LIST_MAX_LIMIT: Final = 100
+TRACE_TURNS_MAX_IDS: Final = 20
+# Traces missing from ai_events are read from the shared events table across the page's span, so the span is bounded.
+TRACE_TURNS_MAX_SPAN: Final = timedelta(days=30)
 
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
@@ -204,6 +209,10 @@ def is_usable_page_bounds(earliest: datetime, latest: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def is_readable_turns_span(earliest: datetime, latest: datetime) -> bool:
+    return latest - earliest <= TRACE_TURNS_MAX_SPAN
 
 
 def get_available_trace_ids(team: Team, user: User | None, trace_ids: list[str]) -> list[str]:
@@ -370,6 +379,39 @@ def _to_preview(trace_id: str, turn: Turn | None) -> contracts.TracePreview:
         output=preview(answer),
         input_missing_reason=missing_reason(message),
         output_missing_reason=missing_reason(answer),
+    )
+
+
+def load_trace_turns(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, earliest: datetime, latest: datetime
+) -> Callable[[], contracts.TraceTurnList]:
+    """Loads what the traces' turns are built from, and returns the step that builds them, one per requested trace that
+    was found, in request order. `earliest` and `latest` are the first timestamps of the page's earliest and latest
+    traces, which bound the read of traces missing from `posthog.ai_events`.
+
+    The step reads the team's recipes from Postgres and normalizes each turn, but runs no ClickHouse query. So a caller
+    that holds a query concurrency slot for the load can release the slot before it runs the step. A side the step
+    cannot build within `PREVIEWS_TIME_LIMIT_SECONDS` for the whole page is null and timed out.
+    """
+    requested = list(dict.fromkeys(trace_ids))
+    sources = load_turn_sources(team, user, requested, earliest=earliest, latest=latest)
+
+    def build() -> contracts.TraceTurnList:
+        sides = page_turn_sides(sources, build_normalizer=partial(team_normalizer, team.pk), team_id=team.pk)
+        return contracts.TraceTurnList(
+            items=[_to_turn(trace_id, sides[trace_id]) for trace_id in requested if trace_id in sides]
+        )
+
+    return build
+
+
+def _to_turn(trace_id: str, sides: TurnSides) -> contracts.TraceTurn:
+    return contracts.TraceTurn(
+        trace_id=trace_id,
+        input=shown(sides.input),
+        output=shown(sides.output),
+        input_missing_reason=unread_reason(sides.input),
+        output_missing_reason=unread_reason(sides.output),
     )
 
 
