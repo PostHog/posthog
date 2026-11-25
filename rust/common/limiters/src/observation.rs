@@ -7,9 +7,8 @@ use tokio::task::JoinHandle;
 
 use crate::redis::{limiter_key, QuotaResource, RedisLimiter, ServiceName};
 
-/// Reads the set that a `RedisLimiter` with the same arguments reads, from a second cache, and
-/// reports its size, read errors and read time. It holds no set and shares no state with any
-/// limiter, so what it reads never changes a limit.
+/// Reads a limiter's set from a second cache and reports what it finds. It shares no state with
+/// any limiter, so what it reads never changes a limit.
 pub fn spawn_observation(
     interval: Duration,
     redis: Arc<dyn Client + Send + Sync>,

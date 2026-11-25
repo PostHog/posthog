@@ -19,12 +19,8 @@ const CONNECT_COOLDOWN: Duration = Duration::from_secs(5);
 /// fully down cluster makes every read retry every node. Rebuild it after this many failures.
 const FAILURES_BEFORE_RECONNECT: u32 = 3;
 
-/// A read client for a cluster-protocol cache such as ElastiCache Serverless.
-///
-/// It builds no connection in `new`, so a cache that is down at startup cannot fail or
-/// block the caller. The first read connects; once connected, the cluster connection
-/// reconnects and refreshes its slots on its own. Only sorted-set range reads are
-/// supported; every other `Client` method returns `InvalidConfiguration`.
+/// Connects on the first read, so a cache that is down at startup cannot fail or block the
+/// caller. Only the sorted-set range reads work; every other method returns an error.
 #[derive(Clone)]
 pub struct RedisClusterClient {
     inner: Arc<Inner>,
@@ -402,9 +398,8 @@ mod tests {
         Hang,
     }
 
-    /// A one-node cluster on a local port. It speaks enough RESP2 for the client: the connection
-    /// setup, `CLUSTER SLOTS` with itself as the only primary, and `ZRANGEBYSCORE`. A connection
-    /// that sees `Hang` stops answering for good, like a frozen node.
+    /// A one-node cluster that answers the connection setup, `CLUSTER SLOTS` and `ZRANGEBYSCORE`.
+    /// A connection that sees `Hang` stops answering for good, like a frozen node.
     struct FakeNode {
         port: u16,
         mode: Arc<Mutex<NodeMode>>,
@@ -636,15 +631,20 @@ mod tests {
 
         node.set_mode(NodeMode::Hang);
         for _ in 0..3 {
-            assert!(matches!(
-                read(&client).await,
-                Err(CustomRedisError::Timeout)
-            ));
+            let result = read(&client).await;
+            assert!(
+                matches!(result, Err(CustomRedisError::Timeout)),
+                "{result:?}"
+            );
         }
         node.set_mode(NodeMode::Answer);
         let before_rebuild = node.connections();
 
         let in_cooldown = read(&client).await.unwrap_err();
+        assert!(
+            !matches!(in_cooldown, CustomRedisError::Timeout),
+            "the third failure must drop the hung connection"
+        );
         assert!(!in_cooldown.is_unrecoverable_error());
         assert_eq!(node.connections(), before_rebuild);
 
