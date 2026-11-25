@@ -8,6 +8,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Connection, Postgres, Row};
 use tokio::time::error::Elapsed;
+use tokio::time::timeout_at;
 
 use crate::cache::{CachedPerson, PersonCacheKey};
 
@@ -57,11 +58,8 @@ pub async fn acquire_timed(
     conn
 }
 
-/// A pooled connection stays on the pgbouncer pod it first reached. When that pod goes away,
-/// the next query on the connection reads EOF. With `FALLBACK_PG_PING_IDLE_AFTER_MS` set, the
-/// pool pings only connections that sat idle, so a busy connection reaches its query without
-/// that check. Excludes `TimedOut`, which `release_or_discard` returns, because a retry after a
-/// deadline would hold the caller's per-key lock for a second deadline.
+/// The error a pooled connection returns after its pgbouncer pod closed it. Excludes the
+/// `TimedOut` that `release_or_discard` returns, so a load never retries after its deadline.
 pub fn is_severed(e: &sqlx::Error) -> bool {
     matches!(
         e,
@@ -95,12 +93,16 @@ pub fn release_or_discard<T>(
             counter!("personhog_leader_fallback_query_timeouts_total", "caller" => caller)
                 .increment(1);
             drop(conn.detach());
-            Err(sqlx::Error::Io(io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("{caller} got no answer before its deadline"),
-            )))
+            Err(deadline_error(caller))
         }
     }
+}
+
+fn deadline_error(caller: &str) -> sqlx::Error {
+    sqlx::Error::Io(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("{caller} got no answer before its deadline"),
+    ))
 }
 
 /// Validate a configured table identifier before it is interpolated into
@@ -199,11 +201,11 @@ pub async fn load_person_from_pg(
              WHERE team_id = $1 AND id = $2 AND is_deleted = false",
         )
     );
-    let row = match fetch_person_row(pool, &sql, team_id_i32, key.person_id, false).await {
+    let row = match fetch_person_row(pool, &sql, team_id_i32, key.person_id).await {
         Err(e) if is_severed(&e) => {
             counter!("personhog_leader_fallback_reconnects_total", "caller" => "load_person")
                 .increment(1);
-            fetch_person_row(pool, &sql, team_id_i32, key.person_id, true).await?
+            refetch_on_live_connection(pool, &sql, team_id_i32, key.person_id).await?
         }
         result => result?,
     };
@@ -272,21 +274,36 @@ async fn fetch_person_row(
     sql: &str,
     team_id: i32,
     person_id: i64,
-    ping_first: bool,
 ) -> Result<Option<PgRow>, sqlx::Error> {
     let mut conn = acquire_timed(pool, "load_person").await?;
-    if ping_first {
-        let alive = matches!(
-            tokio::time::timeout(QUERY_DEADLINE, conn.ping()).await,
-            Ok(Ok(()))
-        );
-        if !alive {
-            drop(conn.detach());
-            conn = acquire_timed(pool, "load_person").await?;
-        }
-    }
     let query = sqlx::query(sql).bind(team_id).bind(person_id);
     let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
+    release_or_discard(conn, outcome, "load_person")
+}
+
+/// A closed pgbouncer pod closes every connection through it, and the pool hands out recently
+/// used ones without a ping, so each connection is pinged here. One deadline covers the whole
+/// retry, so the caller's per-key lock is never held past a single deadline.
+async fn refetch_on_live_connection(
+    pool: &PgPool,
+    sql: &str,
+    team_id: i32,
+    person_id: i64,
+) -> Result<Option<PgRow>, sqlx::Error> {
+    let deadline = tokio::time::Instant::now() + QUERY_DEADLINE;
+    let mut conn = loop {
+        let Ok(acquired) = timeout_at(deadline, acquire_timed(pool, "load_person")).await else {
+            return Err(deadline_error("load_person"));
+        };
+        let mut conn = acquired?;
+        match timeout_at(deadline, conn.ping()).await {
+            Ok(Ok(())) => break conn,
+            Ok(Err(e)) if is_severed(&e) => drop(conn.detach()),
+            outcome => return release_or_discard(conn, outcome, "load_person").map(|()| None),
+        }
+    };
+    let query = sqlx::query(sql).bind(team_id).bind(person_id);
+    let outcome = timeout_at(deadline, query.fetch_optional(&mut *conn)).await;
     release_or_discard(conn, outcome, "load_person")
 }
 
