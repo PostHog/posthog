@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "library_id": {
+            "description": "Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+            "type": "number"
+        },
+        "query": {
+            "description": "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+            "type": "string"
+        },
+        "rerank": {
+            "default": true,
+            "description": "Rerank results with an LLM pass for better relevance. Defaults to true. Falls back to fused rank order when the rerank fails. Pass false for a faster search.",
+            "type": "boolean"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

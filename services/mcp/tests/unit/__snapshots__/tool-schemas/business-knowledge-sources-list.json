@@ -1,0 +1,36 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "added_by": {
+            "description": "Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
+            "enum": ["human", "learned"],
+            "type": "string"
+        },
+        "library_id": {
+            "description": "Return only sources in this library. Do not combine with unfiled.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Case-insensitive substring match against the source name and URL.",
+            "type": "string"
+        },
+        "source_type": {
+            "description": "Filter to a single source type (text, url, or file).",
+            "enum": ["file", "text", "url"],
+            "type": "string"
+        },
+        "unfiled": {
+            "description": "When true, return only sources that are in no library. Do not combine with library_id.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "always_include": {
+            "description": "When true, this source's content is injected into every support reply prompt as general context.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this knowledge source.",
+            "type": "string"
+        },
+        "library_ids": {
+            "description": "Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "name": {
+            "description": "New human label for the source.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "text": {
+            "description": "Replacement text. Omit to keep the existing content.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

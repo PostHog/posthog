@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "library_id": {
+            "description": "Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.",
+            "type": "string"
+        },
+        "path": {
+            "description": "File path returned by the repository search.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "repo": {
+            "description": "owner/repo to read. It must already be selected.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["path", "repo"],
+    "type": "object"
+}

@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "always_include": {
+            "default": false,
+            "description": "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction).",
+            "type": "boolean"
+        },
+        "name": {
+            "description": "Short human label for the source. Shown in the settings list and in agent citations.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "text": {
+            "description": "Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3.",
+            "type": "string"
+        }
+    },
+    "required": ["name", "text"],
+    "type": "object"
+}
