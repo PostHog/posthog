@@ -1653,8 +1653,8 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Experiments, trials, and trial components (ListExperiments, ListTrials, ListTrialComponents and their Describe operations, POST /)` — resolve ExperimentConfig references on training jobs and compare experiment runs, parameters, and metrics (high)
 - [x] `Transform jobs (ListTransformJobs and DescribeTransformJob, POST /)` — analyze batch inference status, duration, failures, and model use (high)
 - [x] `Pipeline executions (ListPipelineExecutions and DescribePipelineExecution, POST /)` — measure workflow success rates, execution duration, and repeated failures (high)
-- [ ] `Pipeline execution steps (ListPipelineExecutionSteps, POST /)` — locate slow or failed steps and connect pipeline runs to training and processing jobs (medium)
-- [ ] `Pipelines (ListPipelines and DescribePipeline, POST /)` — identify pipeline owners and definitions when comparing workflow execution results (medium)
+- [x] `Pipeline execution steps (ListPipelineExecutionSteps, POST /)` — locate slow or failed steps and connect pipeline runs to training and processing jobs (medium)
+- [x] `Pipelines (ListPipelines and DescribePipeline, POST /)` — identify pipeline owners and definitions when comparing workflow execution results (medium)
 - [x] `Monitoring executions (ListMonitoringExecutions, POST /)` — track model monitoring failures and execution status for deployed endpoints (medium)
 
 Note: The official AWS SDK model supplies operation names, HTTP methods, required inputs, and response fields. The four existing tables use list and describe operations; training metrics and status transitions are already included. Read operations use POST / and require operation names in X-Amz-Target. Pipelines, steps, experiments, and model packages need nested requests or describe calls; unrelated settings and write operations are excluded.
