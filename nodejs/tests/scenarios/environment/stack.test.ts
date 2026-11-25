@@ -32,26 +32,32 @@ describe('withPostgres', () => {
 
 describe('keepRunningContainers', () => {
     it.each([
-        ['the posthog project', '', COMPOSE],
+        ['the posthog project', '', COMPOSE, 'posthog'],
         [
             'a project named docker-compose, after the profile banner',
             "echo '▶ docker-compose: profiles: temporal' && ",
             'docker compose -p docker-compose -f docker-compose.dev.yml -f docker-compose.profiles.yml',
+            'docker-compose',
         ],
     ])(
-        'starts the compose services of %s without recreating the running ones and leaves the rest of the config alone',
-        (_case, banner, compose) => {
+        'starts the compose services of %s without recreating the running ones, names its project and leaves the rest of the config alone',
+        (_case, banner, compose, project) => {
             const config = generatedConfig(banner + composeShell(compose, 'up --pull always -d'))
 
-            expect(parse(keepRunningContainers(config))).toEqual({
-                procs: {
-                    'docker-compose': {
-                        shell: banner + composeShell(compose, 'up --pull always --no-recreate -d'),
-                        ready_pattern: 'docker-compose ready',
+            const kept = keepRunningContainers(config)
+
+            expect({ project: kept.project, config: parse(kept.yaml) }).toEqual({
+                project,
+                config: {
+                    procs: {
+                        'docker-compose': {
+                            shell: banner + composeShell(compose, 'up --pull always --no-recreate -d'),
+                            ready_pattern: 'docker-compose ready',
+                        },
+                        backend: { shell: 'bin/start-backend' },
                     },
-                    backend: { shell: 'bin/start-backend' },
+                    _posthog: { intents: ['workflows'] },
                 },
-                _posthog: { intents: ['workflows'] },
             })
         }
     )

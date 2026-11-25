@@ -94,7 +94,7 @@ const STACK_UNITS = {
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
-const COMPOSE_BASE = String.raw`docker compose -p [\w.-]+ -f docker-compose\.dev\.yml -f docker-compose\.profiles\.yml(?: --profile [\w-]+)*`
+const COMPOSE_BASE = String.raw`docker compose -p (?<project>[\w.-]+) -f docker-compose\.dev\.yml -f docker-compose\.profiles\.yml(?: --profile [\w-]+)*`
 const ECHO = String.raw`echo "[^"$\x60\\]*"`
 const GENERATED_COMPOSE_SHELL = new RegExp(
     String.raw`^(?<head>(?:echo '[^']*' && )?if \[ "\$\{POSTHOG_SANDBOX:-\}" = "1" \]; then ${ECHO} && echo "docker-compose ready" && sleep infinity; else (?<compose>${COMPOSE_BASE}))` +
@@ -114,7 +114,7 @@ export class StackNotReadyError extends Error {
 // shell or a merge key that brings one in, is refused rather than interpreted.
 const COMPOSE_PROC_KEYS = new Set(['shell', 'ready_pattern', 'capability', 'groups', 'autostart'])
 
-export function keepRunningContainers(mprocsYaml: string): string {
+export function keepRunningContainers(mprocsYaml: string): { yaml: string; project: string } {
     let config: { procs?: Record<string, Record<string, unknown> | null> } | null
     try {
         config = parse(mprocsYaml)
@@ -131,7 +131,7 @@ export function keepRunningContainers(mprocsYaml: string): string {
         )
     }
     compose.shell = generated.groups!.head + KEEPING_COMPOSE_UP + generated.groups!.tail
-    return stringify(config, { lineWidth: 0 })
+    return { yaml: stringify(config, { lineWidth: 0 }), project: generated.groups!.project }
 }
 
 // bin/start moves these services' data from anonymous to named volumes before compose runs, and expects compose
@@ -225,8 +225,8 @@ export async function startStack(
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
-    writeFileSync(config, keepRunningContainers(readFileSync(config, 'utf8')))
-    const project = env.COMPOSE_PROJECT_NAME || 'posthog'
+    const { yaml, project } = keepRunningContainers(readFileSync(config, 'utf8'))
+    writeFileSync(config, yaml)
     const { running: kept, stopped } = await existingServices(docker, project, signal)
     if (stopped.length > 0) {
         throw new StackNotReadyError(
