@@ -191,8 +191,9 @@ The recovery action depends on root cause, not just status. Match the user's sit
 - The job is healthy when its age is in line with the earlier completed jobs, or when `rows_synced` grows between two
   checks a few minutes apart. Tell the user it is still running and how long earlier runs took.
 - The job is likely orphaned when it has run much longer than earlier jobs and longer than the sync interval, and
-  `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id` and the job's
-  `workflow_run_id` as `job_id` to confirm that no recent log lines exist.
+  `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id`, the job's
+  `workflow_run_id` as `job_id`, and `level` set to `DEBUG` to confirm that no recent log lines exist. Batch writes log
+  at `DEBUG`, and the default level hides them.
 - Action, only for an orphaned job or a stale status: `external-data-schemas-cancel` to stop it, then
   `external-data-schemas-reload`.
 
