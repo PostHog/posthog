@@ -481,8 +481,16 @@ class TestSafetyShadow(SimpleTestCase):
         return results, events
 
     def test_shadow_inspects_every_window_and_reports_the_disagreement(self) -> None:
+        fenced_by_announced_marker: list[bool] = []
+        markers: set[str] = set()
+
         def decide(request: DecisionRequest, *, timeout_seconds: float) -> DecisionResult:
             assert isinstance(request.state, dict)
+            lines = str(request.state["document"]).split("\n")
+            fenced_by_announced_marker.append(
+                lines[0] == lines[-1] and lines[0] in request.questions["unsafe"].instructions
+            )
+            markers.add(lines[0])
             probability = 0.9 if "ATTACK" in str(request.state["document"]) else 0.05
             return DecisionResult(model="jev-test", answers={"unsafe": NoulAnswer(probability)}, input_tokens=100)
 
@@ -492,6 +500,8 @@ class TestSafetyShadow(SimpleTestCase):
         assert len(events) == 1
         windows = events[0]["shadow_windows"]
         assert windows > 1
+        assert fenced_by_announced_marker == [True] * windows
+        assert len(markers) == windows
         assert {
             key: events[0][key]
             for key in (
