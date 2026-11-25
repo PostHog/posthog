@@ -13,6 +13,8 @@ import { trackDrag } from '../emailDragDrop'
 import { useEscapeToClose } from './useEscapeToClose'
 
 const HANDLE_GAP = 8
+const HANDLE_WIDTH = 56
+const HANDLE_HEIGHT = 32
 
 interface HandlePosition {
     top: number
@@ -21,6 +23,19 @@ interface HandlePosition {
     width: number
     height: number
     pos: number
+}
+
+/** In a section's padding, between a block and its handle, where a step would otherwise move it to the section. */
+function isOnTheWayToHandle(block: HandlePosition, event: MouseEvent, container: HTMLElement): boolean {
+    const parent = container.getBoundingClientRect()
+    const x = event.clientX - parent.left + container.scrollLeft
+    const y = event.clientY - parent.top + container.scrollTop
+    return (
+        x < block.left + HANDLE_GAP &&
+        x > block.left - HANDLE_WIDTH &&
+        y >= block.top &&
+        y <= block.top + Math.max(block.height, HANDLE_HEIGHT)
+    )
 }
 
 /** The hover handle beside each block: drag to reorder, or open its menu. Also reachable with Alt+Arrow keys. */
@@ -53,6 +68,15 @@ export function EmailBlockHandle({
                 return
             }
             const { view } = editor
+            const current = positionRef.current
+            const currentParent = current && blockAtPos(editor.state.doc, current.pos)?.parent
+            if (
+                current &&
+                currentParent?.type.name === 'emailSection' &&
+                isOnTheWayToHandle(current, event, container)
+            ) {
+                return
+            }
             const editorRect = view.dom.getBoundingClientRect()
             // The gutter beside the text counts as hovering that line, so the handle stays reachable.
             const x = Math.min(Math.max(event.clientX, editorRect.left + 2), editorRect.right - 2)

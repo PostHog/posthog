@@ -11,12 +11,12 @@ import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { EmailHtmlBlockView } from './components/EmailHtmlBlockView'
 import { EmailImageBlockView } from './components/EmailImageBlockView'
 import { EmailVariableChip } from './components/EmailVariableChip'
-import { EmailBlockStyle } from './emailDocument'
+import { EmailBlockStyle, SECTION_PADDING } from './emailDocument'
 import { parseLiquidOutput } from './emailVariables'
 import { lineHeightCss, safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
 
 const COLUMN_BLOCKS =
-    '(paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml)+'
+    'paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml'
 const STYLED_BLOCKS = [
     'paragraph',
     'bulletList',
@@ -27,6 +27,7 @@ const STYLED_BLOCKS = [
     'emailButton',
     'emailColumns',
     'emailColumn',
+    'emailSection',
     'emailHtml',
 ]
 
@@ -71,7 +72,7 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
         'letter-spacing': !isButton && style.letterSpacing ? `${style.letterSpacing}px` : undefined,
         'text-transform': !isButton && style.uppercase ? 'uppercase' : undefined,
         'text-align': style.textAlign,
-        padding: sidesCss(style.padding),
+        padding: sidesCss(style.padding ?? (typeName === 'emailSection' ? SECTION_PADDING : undefined)),
         'padding-left': isList ? `${(style.padding?.left ?? 0) + (style.listIndent ?? 24)}px` : undefined,
         gap: style.columnGap !== undefined ? `${style.columnGap}px` : undefined,
         '--email-list-gap': style.listItemGap !== undefined ? `${style.listItemGap}px` : undefined,
@@ -166,6 +167,7 @@ function withCanvasStyle<T extends Node<any, any>>(extension: T): T {
 }
 
 const EmailDocumentNode = Document.extend({
+    content: '(block | emailSection)+',
     addAttributes() {
         return { page: { default: {} }, ownPlainText: { default: false } }
     },
@@ -339,7 +341,7 @@ export const EmailHtmlBlock = Node.create({
 
 export const EmailColumn = Node.create({
     name: 'emailColumn',
-    content: COLUMN_BLOCKS,
+    content: `(${COLUMN_BLOCKS})+`,
     isolating: true,
     defining: true,
     // A click in a column's empty space should place the cursor, not select the column for Backspace to delete.
@@ -381,6 +383,21 @@ export const EmailColumns = Node.create({
     },
     renderHTML({ HTMLAttributes }) {
         return ['div', mergeAttributes(HTMLAttributes, { 'data-email-columns': '', class: 'email-canvas-columns' }), 0]
+    },
+})
+
+export const EmailSection = Node.create({
+    name: 'emailSection',
+    // In no group, so it only goes where it's named: a list or quote takes any block, and neither sends a section.
+    content: `(${COLUMN_BLOCKS} | emailColumns)+`,
+    isolating: true,
+    defining: true,
+    draggable: true,
+    parseHTML() {
+        return [{ tag: 'div[data-email-section]' }]
+    },
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-email-section': '', class: 'email-canvas-section' }), 0]
     },
 })
 
@@ -543,6 +560,7 @@ export const emailSchemaExtensions = [
     EmailHtmlBlock,
     EmailColumn,
     withCanvasStyle(EmailColumns),
+    withCanvasStyle(EmailSection),
     EmailVariable,
     EmailLink,
     EmailTextStyle,
@@ -580,7 +598,7 @@ export function buildEmailExtensions(placeholder: string): any[] {
                     return ''
                 }
                 const $pos = editor.state.doc.resolve(pos)
-                return $pos.depth > 0 && $pos.node($pos.depth).type.name === 'emailColumn'
+                return ['emailColumn', 'emailSection'].includes($pos.parent.type.name)
                     ? 'Type / for blocks'
                     : placeholder
             },
