@@ -64,14 +64,15 @@ export type RoleId = ReplicaOf<Role>
 
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
-const SECRET_SETTING = /SECRET|PASSWORD|SALT|TOKEN|CERT|SIGNING|_KEYS?$|_KEY_ID$/
-const URL_HOST_AND_PASSWORD = /\/\/(?:([^:/?#@\s]*)(?::[^/?#@\s]*)?@)?[^/?#\s]*/g
+const SECRET_OR_PLACE_SETTING =
+    /SECRET|PASSWORD|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_DIR$|_LOCATION$/
+const URL_HOST_AND_PASSWORD = /\/\/(?:([^:/?#@\s]*)(?::[^@\s]*)?@)?[^/?#\s]*/g
 
 // Only the server's own settings count, so a machine's PATH or state directory does not split runs of one config.
-// A run cluster's own secrets, hosts and passwords do not split runs on it either, but an emptied secret does,
+// A run cluster's own secrets, hosts, passwords and paths do not split runs on it either, but an emptied secret does,
 // and a key list of bare commas is empty to the server that splits it.
 const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
-    SECRET_SETTING.test(key)
+    SECRET_OR_PLACE_SETTING.test(key)
         ? value && (value.split(',').some((part) => part.trim()) ? 'set' : '')
         : value?.replace(URL_HOST_AND_PASSWORD, (_, user?: string) => (user ? `//${user}@` : '//'))
 

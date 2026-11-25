@@ -663,6 +663,12 @@ describe('scenario environment', () => {
                 certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
                 sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
                 sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                certificateCheckOff: withSetting({
+                    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
+                }),
+                passwordWithSlash: withSetting({ DATABASE_URL: 'postgres://posthog:o/ne@cluster-b:5432/posthog' }),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
             }).toEqual({
                 elsewhere: here,
                 settings: expect.not.stringMatching(here),
@@ -673,6 +679,12 @@ describe('scenario environment', () => {
                 certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
                 sealingOff: expect.not.stringMatching(here),
                 sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                certificateCheckOff: expect.not.stringMatching(
+                    withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
+                ),
+                passwordWithSlash: database,
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
             })
             expect(here).toMatch(/^[0-9a-f]{64}$/)
         })
