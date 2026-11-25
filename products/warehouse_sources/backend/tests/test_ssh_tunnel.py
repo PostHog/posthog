@@ -1,4 +1,7 @@
 import base64
+import socket
+import struct
+import threading
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -350,6 +353,51 @@ def test_gateway_connect_that_hangs_raises_the_gateway_error():
             forwarder.start()
 
     dial.assert_called_once_with(("93.184.216.34", 5432), timeout=ssh_tunnel_module.SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+
+
+@pytest.mark.parametrize(
+    ("reset", "expected_error"),
+    [
+        # OpenSSH over its MaxStartups limit closes the connection without reading it, so the kernel
+        # sends a reset. The schema must stay enabled, so the error must not carry the gateway prefix.
+        (True, ssh_tunnel_module.SSH_GATEWAY_CONNECTION_RESET_ERROR),
+        # A server that closes cleanly without a banner is not an SSH server under load, so it keeps
+        # the gateway error that turns the schema off.
+        (False, "Could not establish session to SSH gateway"),
+    ],
+)
+def test_gateway_that_closes_before_its_banner(reset: bool, expected_error: str):
+    listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(10)
+    listen_port = listener.getsockname()[1]
+    create_connection = socket.create_connection
+
+    def close_after_client_banner() -> None:
+        conn, _ = listener.accept()
+        with conn:
+            received = b"-"
+            while received and not received.endswith(b"\n"):
+                received = conn.recv(256)
+            if reset:
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+    server = threading.Thread(target=close_after_client_banner)
+    server.start()
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    def dial_local(_address: tuple[str, int], timeout: float) -> socket.socket:
+        return create_connection(("127.0.0.1", listen_port), timeout=timeout)
+
+    try:
+        with patch.object(ssh_tunnel_module.socket, "create_connection", side_effect=dial_local):
+            with pytest.raises(BaseSSHTunnelForwarderError) as exc_info:
+                forwarder.start()
+    finally:
+        server.join()
+        listener.close()
+
+    assert str(exc_info.value).startswith(expected_error)
+    assert isinstance(exc_info.value, ssh_tunnel_module.SSHGatewayConnectionResetError) is reset
 
 
 def test_gateway_transport_limits_every_step_of_the_handshake():

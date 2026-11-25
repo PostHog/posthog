@@ -8,7 +8,7 @@ from typing import IO, Literal
 
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
-from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey, Transport
+from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey, SSHException, Transport
 from sshtunnel import (
     SSH_TIMEOUT,
     BaseSSHTunnelForwarderError,
@@ -58,8 +58,53 @@ SSH_TUNNEL_CONNECT_TIMEOUT_ERROR = (
 )
 
 
+# An SSH server that has too many connections waiting to authenticate (OpenSSH `MaxStartups`) closes
+# each new one before it sends its banner. The client has already written its own banner, so the
+# kernel answers with a reset. This is a server under load, not a wrong host or a refused login, so
+# the message must not start with sshtunnel's "Could not establish session to SSH gateway": that
+# prefix is non-retryable and turns the schema off.
+SSH_GATEWAY_CONNECTION_RESET_ERROR = (
+    "The SSH server reset the connection before the SSH handshake, which it does when it has too many "
+    "new connections at the same time"
+)
+
+
+class SSHGatewayConnectionResetError(BaseSSHTunnelForwarderError):
+    def __init__(self) -> None:
+        super().__init__(SSH_GATEWAY_CONNECTION_RESET_ERROR)
+
+
+def _is_reset_before_banner(error: BaseException | None) -> bool:
+    # paramiko raises the banner error inside its `except` block, so the socket error is the context.
+    return (
+        isinstance(error, SSHException)
+        and "SSH protocol banner" in str(error)
+        and isinstance(error.__context__, ConnectionResetError)
+    )
+
+
 class SSHTunnelForwarder(_UnboundedSSHTunnelForwarder):
     """An `sshtunnel` forwarder with a limit on every step of the connection to the SSH server."""
+
+    _gateway_connect_error: BaseException | None = None
+
+    def start(self) -> None:
+        # sshtunnel logs the paramiko error and raises one fixed message for every failure to reach
+        # the gateway, so the cause is kept here to tell a busy server from a broken configuration.
+        self._gateway_connect_error = None
+        try:
+            super().start()
+        except BaseSSHTunnelForwarderError:
+            if _is_reset_before_banner(self._gateway_connect_error):
+                raise SSHGatewayConnectionResetError() from self._gateway_connect_error
+            raise
+
+    def _connect_to_gateway(self) -> None:
+        try:
+            super()._connect_to_gateway()
+        except (SSHException, OSError) as e:
+            self._gateway_connect_error = e
+            raise
 
     def _get_transport(self) -> Transport:
         # The parent method also handles a proxy. Nothing here configures one, so this keeps only

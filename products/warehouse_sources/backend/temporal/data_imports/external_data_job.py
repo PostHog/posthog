@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CONNECTION_RESET_ERROR
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -313,6 +314,15 @@ TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
     "port set for the tunnel; the next sync runs on schedule."
 )
 
+# The SSH server refused a share of the connections that the tables of one source opened at the
+# same time. The schema stays enabled, so the copy names the server setting that sets the limit.
+TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE = (
+    "Your SSH server closed PostHog's connection before the SSH handshake. SSH servers do this when "
+    "too many new connections arrive at the same time, and PostHog opens one for each table it "
+    "syncs. This sync is still enabled and will run again on its next schedule. If this keeps "
+    "happening, raise MaxStartups in the SSH server's sshd_config."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -408,6 +418,7 @@ Transient_Error_Messages: dict[str, str] = {
     # one request the vendor mishandles every time, which is not an outage that clears on its own.
     # The host policy's own lookup never answered. Every SQL source reaches it through the shared
     # tunnel layer, so it is mapped here rather than per source.
+    SSH_GATEWAY_CONNECTION_RESET_ERROR: TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
     TEMPORARY_HOST_RESOLUTION_PREFIX: (
         "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
         "Check that the host name is correct and that its DNS records are answering; the next sync "
