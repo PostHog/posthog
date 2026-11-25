@@ -423,10 +423,9 @@ __all__ = [
     "delete_organization_task_storage",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
-    "delete_task_session_storage",
+    "delete_team_task_session_storage_page",
     "delete_team_task_storage",
     "ensure_personal_channel_id",
-    "list_team_task_ids_by_organization",
     "ensure_sandbox_custom_image_builder_task",
     "edit_task_run_living_artifact",
     "enqueue_comment_activity_retry",
@@ -3154,16 +3153,12 @@ def delete_team_task_storage(team_id: int, *, should_stop: Callable[[], bool]) -
     return storage_deletion.delete_team_storage(team_id, should_stop=should_stop)
 
 
-def list_team_task_ids_by_organization(
-    team_ids: list[int], *, after_task_id: str | None, limit: int
-) -> dict[str, list[str]]:
-    return storage_deletion.list_team_task_ids_by_organization(team_ids, after_task_id=after_task_id, limit=limit)
-
-
-def delete_task_session_storage(
-    organization_id: UUID | str, task_ids: list[str], *, should_stop: Callable[[], bool]
-) -> int:
-    return storage_deletion.delete_task_session_storage(organization_id, task_ids, should_stop=should_stop)
+def delete_team_task_session_storage_page(
+    team_ids: list[int], *, after_task_id: str | None, limit: int, should_stop: Callable[[], bool]
+) -> str | None:
+    return storage_deletion.delete_team_task_session_storage_page(
+        team_ids, after_task_id=after_task_id, limit=limit, should_stop=should_stop
+    )
 
 
 def delete_organization_task_storage(organization_id: UUID | str, *, should_stop: Callable[[], bool]) -> int:

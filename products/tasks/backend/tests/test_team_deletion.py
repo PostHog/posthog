@@ -12,9 +12,8 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.facade.api import (
     delete_organization_task_storage,
-    delete_task_session_storage,
+    delete_team_task_session_storage_page,
     delete_team_task_storage,
-    list_team_task_ids_by_organization,
 )
 from products.tasks.backend.logic.services import storage_deletion
 from products.tasks.backend.models import Task, TaskRun
@@ -191,28 +190,34 @@ class TestDeleteTaskStorage(TestCase):
             with self.assertRaises(storage_deletion.TaskStorageDeletionError):
                 delete_team_task_storage(self.team_id, should_stop=lambda: False)
 
-    def test_deletes_the_session_transcripts_of_the_teams_tasks_and_keeps_other_teams_in_the_organization(self):
+    def test_deletes_the_session_transcripts_of_the_teams_tasks_page_by_page_and_keeps_other_teams(self):
         organization = Organization.objects.create(name="Shared Org")
         user = User.objects.create_user(email="tasks-session-sweep@example.com", first_name="Owner", password="pw")
-        task_ids = {}
-        for name in ("deleted", "kept"):
-            team = Team.objects.create(organization=organization, name=name)
+        deleted_team = Team.objects.create(organization=organization, name="deleted")
+        kept_team = Team.objects.create(organization=organization, name="kept")
+        deleted_keys: list[str] = []
+        kept_keys: list[str] = []
+        for team, keys in ((deleted_team, deleted_keys), (deleted_team, deleted_keys), (kept_team, kept_keys)):
             task = Task.objects.create(
                 team=team,
                 created_by=user,
-                title=name,
+                title=team.name,
                 description="d",
                 origin_product=Task.OriginProduct.USER_CREATED,
             )
             TaskRun.objects.create(task=task, team=team)
-            task_ids[name] = (team.pk, str(task.id))
-        deleted_keys = self._write_organization_objects(str(organization.id), task_ids["deleted"][1])
-        kept_keys = self._write_organization_objects(str(organization.id), task_ids["kept"][1])
+            keys.extend(self._write_organization_objects(str(organization.id), str(task.id)))
 
-        for organization_id, team_task_ids in list_team_task_ids_by_organization(
-            [task_ids["deleted"][0]], after_task_id=None, limit=10
-        ).items():
-            delete_task_session_storage(organization_id, team_task_ids, should_stop=lambda: False)
+        cursors: list[str] = []
+        after_task_id: str | None = None
+        for _ in range(4):
+            after_task_id = delete_team_task_session_storage_page(
+                [deleted_team.pk], after_task_id=after_task_id, limit=1, should_stop=lambda: False
+            )
+            if after_task_id is None:
+                break
+            cursors.append(after_task_id)
 
+        self.assertEqual(len(cursors), 2)
         self.assertEqual(self._existing(deleted_keys), [])
         self.assertEqual(self._existing(kept_keys), kept_keys)

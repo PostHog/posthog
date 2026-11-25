@@ -24,7 +24,6 @@ from posthog.temporal.delete_teams.activities import (
     delete_ui_customization_activity,
     deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
-    list_task_ids_activity,
     queue_recording_deletions_activity,
     send_organization_deleted_email_activity,
     send_project_deleted_email_activity,
@@ -37,8 +36,6 @@ from posthog.temporal.delete_teams.types import (
     OrganizationRecordInputs,
     ProjectEmailInputs,
     ProjectRecordInputs,
-    TaskIdsPageInputs,
-    TaskSessionStorageInputs,
     TeamDataActivityInputs,
 )
 
@@ -61,7 +58,7 @@ SIDE_EFFECT_RETRY_POLICY = temporalio.common.RetryPolicy(
 )
 
 HEAVY_ACTIVITY_TIMEOUT = dt.timedelta(hours=2)
-TASK_ID_PAGES_MAX = 50
+TASK_SESSIONS_ACTIVITY_TIMEOUT = dt.timedelta(hours=12)
 # Persons batches wait for TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES slots, so a large deletion takes hours.
 PERSONS_ACTIVITY_TIMEOUT = dt.timedelta(hours=12)
 HEAVY_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
@@ -189,9 +186,14 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
                 )
 
         task_storage_patched = temporalio.workflow.patched("delete-task-storage")
-        task_id_pages: list[dict[str, list[str]]] = []
         if task_storage_patched:
-            task_id_pages = await _list_task_id_pages(inputs.team_ids)
+            await temporalio.workflow.execute_activity(
+                delete_task_session_storage_activity,
+                team_inputs,
+                start_to_close_timeout=TASK_SESSIONS_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
 
         # The bulky children are gone, so the Team row delete is cheap, then hand off to ClickHouse.
         await temporalio.workflow.execute_activity(
@@ -216,38 +218,6 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
                 heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
                 retry_policy=DELETE_RETRY_POLICY,
             )
-            for task_ids_by_organization in task_id_pages:
-                if not task_ids_by_organization:
-                    continue
-                await temporalio.workflow.execute_activity(
-                    delete_task_session_storage_activity,
-                    TaskSessionStorageInputs(
-                        team_ids=inputs.team_ids, task_ids_by_organization=task_ids_by_organization
-                    ),
-                    start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
-                    heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
-                    retry_policy=DELETE_RETRY_POLICY,
-                )
-
-
-async def _list_task_id_pages(team_ids: list[int]) -> list[dict[str, list[str]]]:
-    pages: list[dict[str, list[str]]] = []
-    after_task_id: str | None = None
-    for _ in range(TASK_ID_PAGES_MAX):
-        page = await temporalio.workflow.execute_activity(
-            list_task_ids_activity,
-            TaskIdsPageInputs(team_ids=team_ids, after_task_id=after_task_id),
-            start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-            retry_policy=DELETE_RETRY_POLICY,
-        )
-        pages.append(page.task_ids_by_organization)
-        if page.next_after_task_id is None:
-            return pages
-        after_task_id = page.next_after_task_id
-    raise temporalio.exceptions.ApplicationError(
-        f"Teams {team_ids} have more than {TASK_ID_PAGES_MAX} pages of tasks", non_retryable=True
-    )
 
 
 async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workflow_id: str) -> None:

@@ -1,5 +1,4 @@
 import uuid
-import typing
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
@@ -48,20 +47,11 @@ CORE_ACTIVITY_ORDER = [
     "delete_ui_customization_activity",
     "delete_batch_exports_activity",
     "delete_data_modeling_schedules_activity",
-    "list_task_ids_activity",
+    "delete_task_session_storage_activity",
     "delete_team_records_activity",
     "enqueue_clickhouse_deletion_activity",
     "delete_task_storage_activity",
-    "delete_task_session_storage_activity",
 ]
-
-ORGANIZATION_ID = "11111111-1111-1111-1111-111111111111"
-
-
-def _team_activity_result(name: str) -> dict | None:
-    if name == "list_task_ids_activity":
-        return {"task_ids_by_organization": {ORGANIZATION_ID: ["task"]}, "next_after_task_id": None}
-    return None
 
 
 def _recording_activities(
@@ -71,9 +61,8 @@ def _recording_activities(
 
     def _team_activity(name: str):
         @activity.defn(name=name)
-        async def _fn(inputs: typing.Any) -> dict | None:
+        async def _fn(inputs: TeamDataActivityInputs) -> None:
             calls.append(name)
-            return _team_activity_result(name)
 
         return _fn
 
@@ -253,8 +242,8 @@ def _core_activities_with(target_name: str, target_fn) -> list:
 
 def _noop_team_activity(name: str):
     @activity.defn(name=name)
-    async def _noop(inputs: typing.Any) -> dict | None:
-        return _team_activity_result(name)
+    async def _noop(inputs: TeamDataActivityInputs) -> None:
+        pass
 
     return _noop
 
@@ -301,7 +290,7 @@ async def test_protected_error_fails_fast_without_retry(activity_name: str):
 async def test_transient_error_is_retried(activity_name: str):
     attempts: list[str] = []
 
-    async def fails_once(inputs: typing.Any) -> None:
+    async def fails_once(inputs: TeamDataActivityInputs) -> None:
         attempts.append("attempt")
         if len(attempts) == 1:
             raise RuntimeError("transient database hiccup")
@@ -356,27 +345,6 @@ async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
 
     assert len(attempts) > 1  # durably retried until the test-only execution timeout
     assert calls == []  # nothing else ran — the pointer-destroying cascade never started
-
-
-async def test_core_workflow_sweeps_the_sessions_of_every_task_id_page():
-    swept_pages: list[dict] = []
-
-    async def two_pages(inputs: typing.Any) -> dict:
-        if inputs["after_task_id"] is None:
-            return {"task_ids_by_organization": {ORGANIZATION_ID: ["a"]}, "next_after_task_id": "a"}
-        return {"task_ids_by_organization": {ORGANIZATION_ID: ["b"]}, "next_after_task_id": None}
-
-    async def record_sweep(inputs: typing.Any) -> None:
-        swept_pages.append(inputs["task_ids_by_organization"])
-
-    paged = {"list_task_ids_activity": two_pages, "delete_task_session_storage_activity": record_sweep}
-    activities = [
-        *(activity.defn(name=name)(fn) for name, fn in paged.items()),
-        *(_noop_team_activity(name) for name in CORE_ACTIVITY_ORDER if name not in paged),
-    ]
-    await _run_core_with(activities)
-
-    assert swept_pages == [{ORGANIZATION_ID: ["a"]}, {ORGANIZATION_ID: ["b"]}]
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():

@@ -15,32 +15,6 @@ class TeamDataActivityInputs:
 
 
 @dataclasses.dataclass
-class TaskIdsPageInputs:
-    team_ids: list[int]
-    after_task_id: str | None
-
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {"team_ids": self.team_ids, "after_task_id": self.after_task_id}
-
-
-@dataclasses.dataclass
-class TaskIdsPage:
-    task_ids_by_organization: dict[str, list[str]]
-    next_after_task_id: str | None
-
-
-@dataclasses.dataclass
-class TaskSessionStorageInputs:
-    team_ids: list[int]
-    task_ids_by_organization: dict[str, list[str]]
-
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {"team_ids": self.team_ids}
-
-
-@dataclasses.dataclass
 class ProjectRecordInputs:
     project_id: int
 
