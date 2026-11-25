@@ -213,6 +213,24 @@ export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly st
     return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
 }
 
+export type PlatformAlertMute = { kind: 'snoozed'; until: string } | { kind: 'groupsSnoozed'; count: number }
+
+function activeSnooze(snoozeUntil: string | null, now: Date): string | null {
+    return snoozeUntil && new Date(snoozeUntil) > now ? snoozeUntil : null
+}
+
+export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlertMute | null {
+    const until = activeSnooze((row.kind === 'group' ? row.group : row.configuration).snooze_until, now)
+    if (until) {
+        return { kind: 'snoozed', until }
+    }
+    if (row.kind === 'group') {
+        return null
+    }
+    const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
+    return count ? { kind: 'groupsSnoozed', count } : null
+}
+
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
     const count = configuration.overflowed_groups
     if (count <= 0) {
