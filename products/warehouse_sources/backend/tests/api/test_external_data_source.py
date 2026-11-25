@@ -4011,7 +4011,7 @@ class TestExternalDataSource(APIBaseTest):
 
         source.refresh_from_db()
         aws_config = SourceRegistry.get_source(ExternalDataSourceType.AWSCONFIG)
-        stored = nest_flat_select_containers(
+        stored: dict[str, Any] = nest_flat_select_containers(
             SourceInputsStore.load(source), aws_config.get_source_config.fields, aws_config.flat_stored_selects
         )
         # An unchanged resubmit keeps the legacy row, which reads lift into the container.
