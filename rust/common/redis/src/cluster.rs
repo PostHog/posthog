@@ -11,7 +11,6 @@ use tracing::{info, warn};
 use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CustomRedisError, RedisValueFormat};
 
-/// Time after a failed connect attempt or a dropped connection before the next attempt.
 const CONNECT_COOLDOWN: Duration = Duration::from_secs(5);
 /// The cluster connection heals a lost node by itself, but a hung node sends no MOVED and a
 /// fully down cluster makes every read retry every node. Rebuild it after this many failures.
