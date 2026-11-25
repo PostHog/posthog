@@ -80,6 +80,24 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
 
 const LOADING_ROWS = 6
 
+const PromptLimitCount = (): JSX.Element | null => {
+    const { setupContext } = useValues(contentAutopilotPromptsLogic)
+    if (!setupContext) {
+        return null
+    }
+    return (
+        <Tooltip title="Each tracked prompt is checked by every enabled AI assistant on its schedule.">
+            <span
+                className="text-muted text-sm whitespace-nowrap"
+                tabIndex={0}
+                data-attr="content-autopilot-prompt-limit"
+            >
+                {`${setupContext.active_prompts} of ${setupContext.max_active_prompts} prompts tracked`}
+            </span>
+        </Tooltip>
+    )
+}
+
 export const ContentAutopilotPrompts = (): JSX.Element => {
     const { prompts, promptsLoading, promptsError, promptsPage, promptEngines, showArchived, needsImprovement } =
         useValues(contentAutopilotPromptsLogic)
@@ -125,7 +143,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     size="small"
                     data-attr="content-autopilot-prompts-show-archived"
                 />
-                <div className="ml-auto flex gap-2">
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                    <PromptLimitCount />
                     <ContentAutopilotPromptSuggestButton size="small" />
                     <LemonButton
                         type="primary"
