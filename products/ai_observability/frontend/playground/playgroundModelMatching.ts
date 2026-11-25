@@ -18,7 +18,7 @@ interface MatchOptions {
     includeDefaultFallback: boolean
 }
 
-const DEFAULT_MATCH_MODEL = 'gpt-5-mini'
+const DEFAULT_MATCH_MODEL = 'gpt-6-luna'
 
 const TRACE_MATCH_OPTIONS: MatchOptions = {
     scopeToNamespacePrefix: true,

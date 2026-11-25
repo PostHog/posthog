@@ -14,8 +14,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
-from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, ErrorsByLastValue
+from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts
 from products.feature_flags.backend.flag_windows.exposure import ConditionExposure, ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import ScoreParameters, WindowScore, score_window
 
@@ -62,12 +63,11 @@ def _exposure(
     shares: Sequence[float],
     exposed: int = PEOPLE,
     in_condition: Mapping[ConditionMatch, ConditionExposure] | None = None,
-    unexposed: int | None = None,
 ) -> list[ExposureBucket]:
     since_edit = ExposureCounts(
         with_flag=2 * PEOPLE,
         exposed=exposed,
-        unexposed=2 * PEOPLE - exposed if unexposed is None else unexposed,
+        unexposed=2 * PEOPLE - exposed,
         by_variant={},
         in_condition=in_condition or {},
     )
@@ -86,7 +86,6 @@ def _exposure(
 def _errors(
     exposed_with_errors: int,
     unexposed_with_errors: int,
-    by_last_value: ErrorsByLastValue | None = None,
     in_condition: Mapping[ConditionMatch, ConditionErrors] | None = None,
 ) -> ErrorCounts:
     return ErrorCounts(
@@ -96,7 +95,36 @@ def _errors(
         unexposed_with_errors=unexposed_with_errors,
         by_variant={},
         in_condition=in_condition or {},
-        by_last_value=by_last_value,
+    )
+
+
+def _last_values(
+    shares: Sequence[float],
+    exposed_with_errors: int,
+    unexposed_with_errors: int,
+    exposed: int = PEOPLE,
+) -> list[LastValueBucket]:
+    """The buckets of `_exposure`, with the errors of people whose events may not carry the flag."""
+    errors = {"exposed_with_errors": exposed_with_errors, "unexposed_with_errors": unexposed_with_errors}
+    return [
+        LastValueBucket(
+            start=bucket.start,
+            in_bucket=_last_value_counts(bucket.in_bucket, **errors),
+            since_edit=_last_value_counts(bucket.since_edit, **errors),
+        )
+        for bucket in _exposure(shares, exposed=exposed)
+    ]
+
+
+def _last_value_counts(
+    counts: ExposureCounts, *, exposed_with_errors: int, unexposed_with_errors: int
+) -> LastValueCounts:
+    return LastValueCounts(
+        with_flag=counts.with_flag,
+        exposed=counts.exposed,
+        unexposed=counts.unexposed,
+        exposed_with_errors=exposed_with_errors,
+        unexposed_with_errors=unexposed_with_errors,
     )
 
 
@@ -124,11 +152,21 @@ def _score(
     edit: WatchedEdit = EDIT,
     condition_match: ConditionMatch | None = None,
     replaced_hours: Mapping[int, HourErrors] | None = None,
+    last_values: Sequence[LastValueBucket] | None = None,
 ) -> WindowScore:
     hours = _hours(rates)
     for index, counts in (replaced_hours or {}).items():
         hours[EDITED_AT + index * HOUR] = counts
-    return score_window(edit, exposure, errors, hours, _baseline(hours), parameters, condition_match=condition_match)
+    return score_window(
+        edit,
+        exposure,
+        errors,
+        hours,
+        _baseline(hours),
+        parameters,
+        condition_match=condition_match,
+        last_values=last_values,
+    )
 
 
 class TestScoreWindow(SimpleTestCase):
@@ -265,7 +303,7 @@ class TestScoreWindow(SimpleTestCase):
         hours = {**_hours([BASELINE_RATE]), start: counts}
         baseline = _baseline([EDITED_AT] if baseline_rates is None else hours, baseline_rates or BASELINE_RATES)
 
-        result = score_window(EDIT, _exposure([0.5]), _errors(40, 40), hours, baseline, PARAMETERS)
+        result = score_window(EDIT, _exposure([0.5]), _errors(40, 40), hours, baseline, PARAMETERS, last_values=None)
 
         assert result.level_5 == 0.0
         assert not result.suspicious
@@ -275,7 +313,13 @@ class TestScoreWindow(SimpleTestCase):
         weeks = (*_baseline(hours)[0].weeks[:2], HourErrors(active=2, with_errors=1))
 
         result = score_window(
-            EDIT, _exposure([0.5]), _errors(40, 40), hours, [BaselineHour(start=EDITED_AT, weeks=weeks)], PARAMETERS
+            EDIT,
+            _exposure([0.5]),
+            _errors(40, 40),
+            hours,
+            [BaselineHour(start=EDITED_AT, weeks=weeks)],
+            PARAMETERS,
+            last_values=None,
         )
 
         assert result.level_5 == 1.0
@@ -283,7 +327,7 @@ class TestScoreWindow(SimpleTestCase):
     def test_a_window_without_exposure_or_errors_yet_is_not_suspicious(self) -> None:
         hours = _hours([BASELINE_RATE])
 
-        result = score_window(EDIT, [], None, hours, _baseline(hours), PARAMETERS)
+        result = score_window(EDIT, [], None, hours, _baseline(hours), PARAMETERS, last_values=None)
 
         assert result.level_1 is None and result.level_2 is None
         assert not result.suspicious
@@ -379,9 +423,13 @@ class TestScoreWindow(SimpleTestCase):
         expected: float | None,
         replaced_hours: Mapping[int, HourErrors] | None = None,
     ) -> None:
-        result = _score(_exposure(shares), _errors(40, 40), rates, replaced_hours=replaced_hours)
+        by_event = _score(_exposure(shares), _errors(40, 40), rates, replaced_hours=replaced_hours)
+        by_last_value = _score(
+            [], _errors(40, 40), rates, replaced_hours=replaced_hours, last_values=_last_values(shares, 0, 0)
+        )
 
-        assert result.level_4 == pytest.approx(expected)
+        assert by_event.level_4 == pytest.approx(expected)
+        assert by_last_value.level_4 == pytest.approx(expected)
 
     @parameterized.expand(
         [
@@ -389,7 +437,7 @@ class TestScoreWindow(SimpleTestCase):
                 "level_2_with_a_later_spike",
                 [0.5] * 4,
                 [0.027, BASELINE_RATE, BASELINE_RATE, RISE_RATE],
-                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                (50, 10),
                 0.72,
             ),
             (
@@ -404,7 +452,7 @@ class TestScoreWindow(SimpleTestCase):
                 "level_2_with_hours_of_the_day_to_come",
                 [0.5],
                 [BASELINE_RATE],
-                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                (50, 10),
                 0.72,
                 dict.fromkeys(range(1, 12), HOUR_TO_COME),
             ),
@@ -412,7 +460,7 @@ class TestScoreWindow(SimpleTestCase):
                 "level_2_with_a_rise_before_the_exposure_rise",
                 [0.0, 0.0, 0.5, 0.5],
                 [RISE_RATE, BASELINE_RATE, BASELINE_RATE, BASELINE_RATE],
-                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                (50, 10),
                 0.72 * math.exp(-1 / 6),
             ),
             (
@@ -436,44 +484,44 @@ class TestScoreWindow(SimpleTestCase):
         _name: str,
         shares: list[float],
         rates: list[float],
-        by_last_value: ErrorsByLastValue | None,
+        errors_by_last_value: tuple[int, int] | None,
         score: float,
         replaced_hours: Mapping[int, HourErrors] | None = None,
     ) -> None:
-        result = _score(_exposure(shares), _errors(40, 40, by_last_value), rates, replaced_hours=replaced_hours)
+        last_values = _last_values(shares, *errors_by_last_value) if errors_by_last_value else None
+
+        result = _score(
+            [] if last_values else _exposure(shares),
+            _errors(40, 40),
+            rates,
+            replaced_hours=replaced_hours,
+            last_values=last_values,
+        )
 
         assert result.score == pytest.approx(score)
 
     @parameterized.expand(
         [
             ("without_the_counts_by_last_value", None, PEOPLE, None),
-            ("exposed_people_worse", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), PEOPLE, 0.8),
-            ("exposed_people_better", ErrorsByLastValue(exposed_with_errors=10, unexposed_with_errors=50), PEOPLE, 0.0),
+            ("exposed_people_worse", (50, 10), PEOPLE, 0.8),
+            ("exposed_people_better", (10, 50), PEOPLE, 0.0),
             (
                 "more_errors_than_exposed_people",
-                ErrorsByLastValue(exposed_with_errors=1500, unexposed_with_errors=10),
+                (1500, 10),
                 PEOPLE,
                 0.99,
             ),
-            ("no_exposed_errors", ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=50), PEOPLE, 0.0),
-            (
-                "people_whose_value_changed_in_both_groups",
-                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
-                PEOPLE,
-                0.84,
-                EDIT,
-                5 * PEOPLE // 4,
-            ),
+            ("no_exposed_errors", (0, 50), PEOPLE, 0.0),
             (
                 "too_few_errors_with_a_value",
-                ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0),
+                (1, 0),
                 PEOPLE,
                 None,
             ),
-            ("nobody_exposed", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), 0, None),
+            ("nobody_exposed", (50, 10), 0, None),
             (
                 "an_edit_with_watched_conditions",
-                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                (50, 10),
                 PEOPLE,
                 None,
                 EDIT_WITH_CONDITIONS,
@@ -483,43 +531,71 @@ class TestScoreWindow(SimpleTestCase):
     def test_level_2_is_the_share_of_exposed_errors_that_the_flag_explains(
         self,
         _name: str,
-        by_last_value: ErrorsByLastValue | None,
+        errors_by_last_value: tuple[int, int] | None,
         exposed: int,
         expected: float | None,
         edit: WatchedEdit = EDIT,
-        unexposed: int | None = None,
     ) -> None:
-        errors = _errors(0, 0, by_last_value=by_last_value)
+        last_values = _last_values([0.5], *errors_by_last_value, exposed=exposed) if errors_by_last_value else None
 
-        result = _score(_exposure([0.5], exposed=exposed, unexposed=unexposed), errors, [BASELINE_RATE], edit=edit)
+        # No event carries the flag, as for a flag that only a backend evaluates.
+        result = _score([], _errors(40, 0), [BASELINE_RATE], edit=edit, last_values=last_values)
 
         assert result.level_2 == pytest.approx(expected)
         assert result.score == pytest.approx(PARAMETERS.weight_level_2 * (expected or 0.0))
+        assert result.suspicious == (result.score >= PARAMETERS.threshold)
+
+    @parameterized.expand(
+        [
+            # Level 5 alone makes the window suspicious when the curve has enough exposed people.
+            ("last_values_win_over_the_events", 0, PEOPLE, True),
+            ("nobody_with_a_last_value_wins_over_the_events", PEOPLE, None, False),
+        ]
+    )
+    def test_the_volume_comes_from_the_last_values(
+        self, _name: str, exposed_on_events: int, exposed_by_last_value: int | None, suspicious: bool
+    ) -> None:
+        last_values = (
+            _last_values([0.0, 1.0], 0, 0, exposed=exposed_by_last_value) if exposed_by_last_value is not None else []
+        )
+
+        result = _score(
+            _exposure([0.0, 1.0], exposed=exposed_on_events),
+            _errors(20, 20),
+            [BASELINE_RATE, RISE_RATE],
+            last_values=last_values,
+        )
+
+        assert result.suspicious == suspicious
 
     @parameterized.expand(
         [
             (
                 "hour_on_a_utc_hour_in_a_half_hour_time_zone",
                 EDITED_AT.astimezone(ZoneInfo("Asia/Kolkata")),
-                False,
+                "hours",
                 False,
             ),
-            ("hour_on_a_utc_half_hour", EDITED_AT + timedelta(minutes=30), False, True),
-            ("exposure_bucket_on_a_utc_half_hour", EDITED_AT + timedelta(minutes=30), True, True),
+            ("hour_on_a_utc_half_hour", EDITED_AT + timedelta(minutes=30), "hours", True),
+            ("exposure_bucket_on_a_utc_half_hour", EDITED_AT + timedelta(minutes=30), "exposure", True),
+            ("last_value_bucket_on_a_utc_half_hour", EDITED_AT + timedelta(minutes=30), "last_values", True),
         ]
     )
-    def test_buckets_must_start_on_a_utc_hour(
-        self, _name: str, start: datetime, in_exposure: bool, raises: bool
-    ) -> None:
-        exposure = _exposure([0.5])
-        hours = {EDITED_AT: HourErrors(active=PEOPLE, with_errors=10)}
-        if in_exposure:
-            exposure = [dataclasses.replace(exposure[0], start=start)]
-        else:
-            hours = {start: HourErrors(active=PEOPLE, with_errors=10)}
+    def test_buckets_must_start_on_a_utc_hour(self, _name: str, start: datetime, moved: str, raises: bool) -> None:
+        starts = {"exposure": EDITED_AT, "hours": EDITED_AT, "last_values": EDITED_AT, moved: start}
+        [exposure] = _exposure([0.5])
+        [last_values] = _last_values([0.5], 0, 0)
 
         with self.assertRaises(ValueError) if raises else nullcontext():
-            score_window(EDIT, exposure, _errors(40, 40), hours, _baseline([EDITED_AT]), PARAMETERS)
+            score_window(
+                EDIT,
+                [dataclasses.replace(exposure, start=starts["exposure"])],
+                _errors(40, 40),
+                {starts["hours"]: HourErrors(active=PEOPLE, with_errors=10)},
+                _baseline([EDITED_AT]),
+                PARAMETERS,
+                last_values=[dataclasses.replace(last_values, start=starts["last_values"])],
+            )
 
     @parameterized.expand(
         [

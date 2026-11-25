@@ -2202,6 +2202,9 @@ database "posthog" {
     column "person_properties_map_custom" {
       type = "Map(String, String)"
     }
+    column "properties_group_feature_flags" {
+      type = "Map(LowCardinality(String), LowCardinality(String))"
+    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
@@ -5927,7 +5930,9 @@ database "posthog" {
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
       index_granularity                = "8192"
+      map_serialization_version        = "with_buckets"
       materialize_ttl_recalculate_only = "1"
+      max_buckets_in_map               = "32"
       ttl_only_drop_parts              = "1"
     }
     column "uuid" {
@@ -6029,6 +6034,10 @@ database "posthog" {
     column "person_properties_map_custom" {
       type         = "Map(String, String)"
       materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
+    column "properties_group_feature_flags" {
+      type         = "Map(LowCardinality(String), LowCardinality(String))"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')))"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"
@@ -7590,6 +7599,9 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -7606,6 +7618,9 @@ database "posthog" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {

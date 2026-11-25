@@ -54,6 +54,7 @@ def insight_snapshot(
     last_notified_at: datetime | None,
     snooze_until: datetime | None = None,
     firing_started_at: datetime | None = None,
+    failed_while_firing: bool = False,
 ) -> AlertSnapshot:
     """The machine's view of an insight alert. The model keeps no failure counter, so an ERRORED
     state reads as one failure. The platform's parallel run builds its view here too, so both
@@ -65,6 +66,7 @@ def insight_snapshot(
         snooze_until=snooze_until,
         consecutive_failures=1 if state == AlertState.ERRORED else 0,
         firing_started_at=firing_started_at,
+        failed_while_firing=failed_while_firing,
     )
 
 

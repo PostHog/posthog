@@ -164,7 +164,7 @@ function sanitizeGlobals(
  */
 export function createInvocationSanitizer(
     config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> &
-        Partial<Pick<CdpConfig, 'CDP_SEAL_TRANSACTIONAL_EMAIL_STATE' | 'CDP_SEALED_STATE_KEYS'>> &
+        Partial<Pick<CdpConfig, 'CDP_SEALED_STATE_KEYS'>> &
         Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
     integrationRefsRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout(),
     integrationRefSigner: IntegrationRefSigner = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
@@ -174,21 +174,22 @@ export function createInvocationSanitizer(
         true
     )
 
-    if (config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && !config.CDP_SEALED_STATE_KEYS?.split(',').some(Boolean)) {
-        throw new Error('CDP_SEAL_TRANSACTIONAL_EMAIL_STATE is on but CDP_SEALED_STATE_KEYS is not set')
-    }
+    const sealing = Boolean(config.CDP_SEALED_STATE_KEYS?.split(',').some(Boolean))
     const sealer = new EncryptedFields(config.CDP_SEALED_STATE_KEYS ?? '')
 
     // Only transactional sends carry login codes and reset links, so only they are stored encrypted. The setting is read
     // at boot rather than from a flag, because a flag that fails to load would store them in plaintext.
     const sealedEvents = [TRANSACTIONAL_EMAIL_EVENT, TRANSACTIONAL_PUSH_EVENT]
     const seal = (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
-        config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && sealedEvents.includes(inv.state?.event?.event ?? '')
-            ? sealInvocation(inv, sealer)
-            : inv
+        sealing && sealedEvents.includes(inv.state?.event?.event ?? '') ? sealInvocation(inv, sealer) : inv
 
     return {
         seal,
+        sealing,
+
+        // A webhook run with a sensitive step carries its secret in the request, so the intake topic gets it sealed too.
+        sealIntakeRun: (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
+            sealing && inv.state?.sensitive === true ? sealInvocation(inv, sealer) : seal(inv),
 
         sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
             const enabled = integrationRefsRollout.isEnabled()

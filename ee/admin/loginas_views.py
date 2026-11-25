@@ -17,7 +17,12 @@ from posthog.middleware import (
 from posthog.models import User
 
 
-def loginas_user(request, user_id):
+def start_impersonation(request, user_id, *, read_only: bool):
+    """Log the staff user in as `user_id`. The reason comes from the POST body, as django-loginas reads it there.
+
+    Every way to start an impersonation goes through here, so CAN_LOGIN_AS, the reason check, the session flags
+    and the `impersonation_started` event stay in one place.
+    """
     staff_user = request.user
     response = loginas_user_login(request, user_id)
 
@@ -32,8 +37,7 @@ def loginas_user(request, user_id):
     )
 
     if login_succeeded:
-        is_read_only = request.POST.get("read_only") != "false"
-        if is_read_only:
+        if read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
         elif IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:
             # Re-impersonating the same user keeps the existing session (Django only flushes on a
@@ -49,7 +53,7 @@ def loginas_user(request, user_id):
             distinct_id=str(staff_user.distinct_id),
             event="impersonation_started",
             properties={
-                "mode": "read_only" if is_read_only else "read_write",
+                "mode": "read_only" if read_only else "read_write",
                 "reason": request.POST.get("reason", ""),
                 "staff_user_id": staff_user.id,
                 "staff_user_email": staff_user.email,
@@ -58,7 +62,18 @@ def loginas_user(request, user_id):
             },
         )
 
+    if request.headers.get("Accept") == "application/json":
+        json_response = JsonResponse({"success": login_succeeded}, status=200 if login_succeeded else 403)
+        json_response.cookies.update(response.cookies)
+        if response.has_header("Vary"):
+            json_response["Vary"] = response["Vary"]
+        return json_response
+
     return response
+
+
+def loginas_user(request, user_id):
+    return start_impersonation(request, user_id, read_only=request.POST.get("read_only") != "false")
 
 
 @require_http_methods(["POST"])

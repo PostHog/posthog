@@ -32,14 +32,13 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf, pushIntakeModeOf } from './intake/intake-producer'
-import { Committed, Recalled, Run, RunIntake, keyedRunId } from './intake/run-intake'
+import { IntakeProducer, intakeClusterOf } from './intake/intake-producer'
+import { Run, RunIntake, keyedRunId } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
-import { isLockTimeout } from './services/cyclotron-v2/manager'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -375,6 +374,11 @@ const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>)
         issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
     })
     return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
+}
+
+const invalidSlotReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const reply = invalidSendReplyOf(error, context)
+    return reply.outcome === 'invalid_request' ? { ...reply, body: { error: 'invalid_recipient' } } : reply
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -1663,11 +1667,7 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
-                if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
-                    return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
-                }
-                release = this.transactionalEmailBatchCapacity.admit()
+                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
@@ -1679,7 +1679,7 @@ export class CdpApi {
                         hog_flow_id: req.params.id,
                         issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
                     })
-                    return refuse('invalid_request', 400, { error: parsed.error.message })
+                    return refuse('invalid_request', 400, { error: 'invalid_request' })
                 }
                 const batch = parsed.data
                 if (exceedsCopyLimits(batch)) {
@@ -1715,7 +1715,7 @@ export class CdpApi {
                     const request = BatchSlotRequestSchema.safeParse(slotRequestOf(batch, recipient))
                     return request.success
                         ? keyed.push(request.data) - 1
-                        : invalidSendReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
+                        : invalidSlotReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
                 })
                 const sender = batch.send
                     ? senderOfCodeSend(team.id, batch.send, integration)
@@ -1751,7 +1751,7 @@ export class CdpApi {
                 logger.error('Error running a transactional email batch', {
                     error: e instanceof Error ? e.message : String(e),
                 })
-                return refuse('error', 500, { error: e instanceof Error ? e.message : String(e) })
+                return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
                 release?.()
@@ -1937,6 +1937,13 @@ export class CdpApi {
                 return reply('not_found', 404, { error: 'Workflow not found' })
             }
 
+            const { seal, sealing } = createInvocationSanitizer(this.config)
+            // Checked before the claim, because claims made with the missing key would read as another request's.
+            if (!sealing && hasSensitiveMessageStep(hogFlow)) {
+                logger.error('🔑', 'Sensitive transactional push refused: CDP_SEALED_STATE_KEYS is unset')
+                return reply('not_sealing', 503, { error: 'not_sealing' })
+            }
+
             // The first one is stored with a new claim. The others match a claim signed before a key rotation.
             const fingerprints = transactionalPushFingerprints(this.fingerprintSigner, hogFlow.id, parsed.data)
             const runId = idempotencyKey ? keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey) : undefined
@@ -1944,27 +1951,13 @@ export class CdpApi {
                 claimedFingerprint !== undefined && fingerprints.includes(claimedFingerprint)
                     ? reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
                     : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
-            const intake = this.transactionalPushIntakeForRequest()
-            // An unsealed sensitive push stays off the topic, because its variables can hold a login code.
-            const isAsync =
-                intake.modeOf(team.id) === 'async' &&
-                (this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE || !hasSensitiveMessageStep(hogFlow))
+            const intake = this.transactionalPushIntakeForRequest(seal)
             // Checked before the workflow, so a retry still gets its answer after someone turns the workflow off.
             if (runId) {
-                const claim = { runId, fingerprint: fingerprints[0] }
-                let recalled: Recalled
-                if (isAsync) {
-                    recalled = await intake.recallWithin(claim, 'transactional-push')
-                } else {
-                    try {
-                        recalled = await intake.recall(claim)
-                    } catch (error) {
-                        logger.error('🔑', 'Transactional push claim lookup failed', {
-                            error: error instanceof Error ? error.message : String(error),
-                        })
-                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
-                    }
-                }
+                const recalled = await intake.recallWithin(
+                    { runId, fingerprint: fingerprints[0] },
+                    'transactional-push'
+                )
                 if (recalled.status !== 'absent') {
                     return answerClaim(recalled.claimedFingerprint)
                 }
@@ -2005,63 +1998,26 @@ export class CdpApi {
                 ? { kind: 'transactional-push', invocation, claim: { fingerprint: fingerprints[0] } }
                 : { kind: 'transactional-push', invocation }
 
-            if (isAsync) {
-                switch (await intake.produce(run)) {
-                    case 'accepted':
-                        return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
-                    case 'unavailable':
-                        return reply('intake_unavailable', 503, { error: 'intake_unavailable' })
-                    case 'too_large':
-                        return reply('message_too_large', 413, { error: 'message_too_large' })
-                    case 'invalid':
-                        return reply('invalid_request', 400, { error: 'invalid_request' })
-                }
+            switch (await intake.produce(run)) {
+                case 'accepted':
+                    return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                case 'unavailable':
+                    return reply('intake_unavailable', 503, { error: 'intake_unavailable' })
+                case 'too_large':
+                    return reply('message_too_large', 413, { error: 'message_too_large' })
+                case 'invalid':
+                    return reply('invalid_request', 400, { error: 'invalid_request' })
             }
-
-            let committed: Committed
-            try {
-                // Two sends with one key can both pass the lookup above, and the insert lets only one through.
-                ;[committed] = await intake.launch([run])
-            } catch (error) {
-                if (isLockTimeout(error)) {
-                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
-                }
-                throw error
-            }
-            if (committed.outcome !== 'created') {
-                return answerClaim(committed.outcome === 'replayed' ? fingerprints[0] : committed.claimedFingerprint)
-            }
-            // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
-            const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
-            void produced.catch((error: unknown) =>
-                logger.warn('⚠️', 'Transactional push telemetry flush failed', {
-                    error: error instanceof Error ? error.message : String(error),
-                    invocation_id: invocation.id,
-                })
-            )
-
-            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
         } catch (e) {
             logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
             return reply('error', 500, { error: 'internal_error' })
         }
     }
 
-    // Its own topic and team list, so push moves onto Kafka without touching transactional email.
-    private transactionalPushIntakeForRequest(): RunIntake {
+    private transactionalPushIntakeForRequest(seal: ReturnType<typeof createInvocationSanitizer>['seal']): RunIntake {
         return new RunIntake({
             hogflowQueue: this.hogflowQueue,
-            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-            intake: {
-                modeOf: pushIntakeModeOf(this.config),
-                producer: new IntakeProducer(
-                    this.outputs,
-                    undefined,
-                    createInvocationSanitizer(this.config).seal,
-                    intakeClusterOf(this.config)
-                ),
-                sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
-            },
+            producer: new IntakeProducer(this.outputs, undefined, seal, intakeClusterOf(this.config)),
         })
     }
     private refusalDeadline?: () => Promise<void>
@@ -2073,19 +2029,13 @@ export class CdpApi {
             encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
-                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-                intake: {
-                    modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(
-                        this.outputs,
-                        undefined,
-                        createInvocationSanitizer(this.config).seal,
-                        intakeClusterOf(this.config)
-                    ),
-                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
-                },
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
             }),
-            invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
             emailSuppression: this.emailSuppressionService,

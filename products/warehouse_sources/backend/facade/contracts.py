@@ -217,6 +217,7 @@ class PersonPropertySyncProgress:
     existing: int
     produced: int
     skipped_missing_person: int
+    removed: int = 0
 
 
 @dataclass(frozen=True)

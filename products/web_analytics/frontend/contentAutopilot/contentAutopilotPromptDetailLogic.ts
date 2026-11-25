@@ -32,6 +32,7 @@ import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import type { ContentAutopilotWorkspaceTab } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import {
     PromptConsensusMatrix,
     PromptReportKpis,
@@ -135,6 +136,7 @@ export interface contentAutopilotPromptDetailLogicActions {
     setPromptActiveSuccess: (prompt: AEOPromptApi) => {
         prompt: AEOPromptApi
     } // contentAutopilotPromptsLogic
+    loadSetupContext: () => any // contentAutopilotSetupLogic
     closePromptDetail: () => {
         value: true
     }
@@ -340,6 +342,8 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             ['setPromptActive', 'setPromptActiveSuccess', 'setPromptActiveFailure', 'loadAeoPrompts'],
             contentAutopilotLogic,
             ['setWorkspaceTab'],
+            contentAutopilotSetupLogic,
+            ['loadSetupContext'],
         ],
     })),
     actions({
@@ -731,10 +735,6 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 }
                 actions.loadAeoPrompts()
                 contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
-                if (patch.prompt !== undefined) {
-                    // Opportunities carry the old wording; a refresh rebuilds them for the new text.
-                    contentAutopilotLogic.findMounted()?.actions.refreshOpportunities()
-                }
             } catch (error) {
                 actions.savePromptEditFailure()
                 // A 400 or 409 says why the change was refused, for example a duplicate prompt text.
@@ -759,6 +759,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                         : 'web analytics content autopilot prompt restored'
                 )
                 actions.loadAeoPrompts()
+                actions.loadSetupContext()
                 contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.setPromptArchivedFailure()

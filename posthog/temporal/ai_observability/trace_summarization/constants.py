@@ -20,7 +20,7 @@ DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have
 # Changing the model is a deploy, and the value must also be on the Python gateway's
 # llma_summarization allowlist (services/llm-gateway/src/llm_gateway/products/config.py),
 # or the fallback path 403s.
-DEFAULT_MODEL = OpenAIModel.GPT_5_NANO
+DEFAULT_MODEL = OpenAIModel.GPT_6_LUNA
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive

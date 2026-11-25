@@ -31,6 +31,7 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
      */
     rounded?: boolean
     disabledReason?: string
+    tooltip?: string
     'data-attr'?: string
 }
 
@@ -69,6 +70,7 @@ export function SettingsMenu({
     whenUnavailable,
     rounded = false,
     disabledReason,
+    tooltip,
     'data-attr': dataAttr,
     ...props
 }: SettingsMenuProps): JSX.Element {
@@ -86,6 +88,7 @@ export function SettingsMenu({
                 size="xsmall"
                 icon={icon}
                 disabledReason={disabledReason}
+                tooltip={tooltip}
                 data-attr={dataAttr}
             >
                 {label}
@@ -100,7 +103,7 @@ type SettingsButtonProps = (
 ) & {
     title?: string
     icon?: JSX.Element | null
-    label: JSX.Element | string
+    label?: JSX.Element | string
 }
 
 type SettingsToggleProps = SettingsButtonProps & {

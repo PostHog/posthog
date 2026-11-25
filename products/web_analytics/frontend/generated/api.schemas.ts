@@ -529,7 +529,7 @@ export interface PaginatedAEOPromptListApi {
 
 export interface PatchedAEOPromptUpdateRequestApi {
     /**
-     * Turn the prompt on or off for future runs.
+     * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
      * @nullable
      */
     active?: boolean | null
@@ -1095,6 +1095,19 @@ export interface AEOPromptSetTopicCountsApi {
     active_prompts: number
 }
 
+export interface AEOPromptSetEngineTopicCountsApi {
+    /** Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'. */
+    readonly mention_rate: number
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'. */
+    topic: string
+    /** Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'. */
+    answers: number
+    /** Of those answers, how many name the brand. A cited answer counts as a mention. */
+    mentioned: number
+}
+
 export interface AEOPromptSetDomainApi {
     /** Host of the cited URLs, for example 'docs.example.com'. */
     domain: string
@@ -1139,6 +1152,8 @@ export interface AEOPromptSetOverviewApi {
     daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
+    /** The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero. */
+    engine_topics: AEOPromptSetEngineTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
     top_domains: AEOPromptSetDomainApi[]
     /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
@@ -1419,7 +1434,7 @@ export interface AEOSetupRequestApi {
     run_first_check?: boolean
     /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
     only_first_run?: boolean
-    /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+    /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
     activate_paused_prompts?: boolean
 }
 
@@ -1473,7 +1488,7 @@ export interface AEOSetupStepApi {
     status: SetupStepStatusEnumApi
     /** How many brands, prompts or keywords the step added. */
     added?: number
-    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
     detail?: string
 }
 
@@ -1540,6 +1555,8 @@ export interface AEOSetupContextApi {
     own_domains: string[]
     /** Active, unarchived prompts the project tracks. */
     active_prompts: number
+    /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+    max_active_prompts: number
     /** Unarchived prompts that are turned off. No run checks them. */
     paused_prompts: number
     /** Keywords in the project's keyword list. */

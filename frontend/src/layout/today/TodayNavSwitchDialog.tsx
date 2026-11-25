@@ -21,10 +21,10 @@ import conspiracyBoardHog from 'public/hedgehog/conspiracy-board-hog.png'
 import { clickPoint } from './todayTourGeometry'
 import { todayTourLogic } from './todayTourLogic'
 
-/** Greets someone who just switched to the new navigation, with a tour and a way back. */
+/** Greets someone who just switched to the new navigation, with a tour they can take or skip. */
 export function TodayNavSwitchDialog(): JSX.Element {
     const { newNavDialogOpen } = useValues(navSwitchLogic)
-    const { setNewNavDialogOpen, switchNav, dismissNewNavDialog, newNavDialogClosed } = useActions(navSwitchLogic)
+    const { setNewNavDialogOpen, dismissNewNavDialog, newNavDialogClosed } = useActions(navSwitchLogic)
     const { tourCompleted, tourJustCompleted } = useValues(todayTourLogic)
     const { startTour } = useActions(todayTourLogic)
     const reducedMotion = useReducedMotion()
@@ -40,6 +40,12 @@ export function TodayNavSwitchDialog(): JSX.Element {
                 window.setTimeout(triggerHogfetti, delay)
             }
         }
+    }
+
+    const skipTour = (): void => {
+        // pinned: analytics event name.
+        posthog.capture('today nav tour skipped')
+        setNewNavDialogOpen(false)
     }
 
     return (
@@ -105,12 +111,8 @@ export function TodayNavSwitchDialog(): JSX.Element {
                     </div>
                     <DialogFooter>
                         {!tourCompleted && (
-                            <Button
-                                variant="outline"
-                                onClick={() => switchNav('new_nav_dialog')}
-                                data-attr="today-nav-switch-dialog-switch-back"
-                            >
-                                Switch back
+                            <Button variant="outline" onClick={skipTour} data-attr="today-nav-switch-dialog-skip-tour">
+                                Skip
                             </Button>
                         )}
                         {tourCompleted ? (

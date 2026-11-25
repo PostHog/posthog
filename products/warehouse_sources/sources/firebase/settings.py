@@ -28,6 +28,7 @@ DEFAULT_DATABASE_ID: Final[str] = "(default)"
 
 AUTH_USERS_TABLE: Final[str] = "auth_users"
 AUTH_TENANT_USERS_TABLE: Final[str] = "auth_tenant_users"
+AUTH_TENANTS_TABLE: Final[str] = "auth_tenants"
 FIRESTORE_TABLE_PREFIX: Final[str] = "firestore_"
 # A subcollection reads as a collection group (every collection with the id, under any parent). The
 # `/` in the prefix states that scope and cannot appear in a Firestore collection id, so no root
@@ -115,6 +116,7 @@ REALTIME_DATABASE_VALUE_COLUMN: Final[str] = "value"
 AUTH_USERS_PRIMARY_KEY: Final[list[str]] = ["localId"]
 # A user id is unique only inside its tenant.
 AUTH_TENANT_USERS_PRIMARY_KEY: Final[list[str]] = ["tenantId", "localId"]
+AUTH_TENANTS_PRIMARY_KEY: Final[list[str]] = ["tenantId"]
 
 # Firestore stores no schema, so the cursor fields a collection can offer are read off a sample of
 # real documents. Ten is enough to reject a field that only some documents carry, while keeping
@@ -155,6 +157,9 @@ FIRESTORE_INDEX_REQUIRED_ERROR: Final[str] = "The query requires an index"
 # Password material Identity Platform returns to sufficiently privileged callers. Warehousing a
 # password hash serves no analytics purpose, so it never leaves the source.
 REDACTED_AUTH_USER_FIELDS: Final[frozenset[str]] = frozenset({"passwordHash", "salt", "rawPassword"})
+# `hashConfig` holds the tenant's password hash signer key, and `testPhoneNumbers` maps phone numbers
+# to fixed verification codes that sign in without an SMS. Neither belongs in the warehouse.
+REDACTED_TENANT_FIELDS: Final[frozenset[str]] = frozenset({"hashConfig", "testPhoneNumbers"})
 
 # The only hosts a Realtime Database lives on. Restricting to these stops a source edit from
 # pointing the minted Google access token at an arbitrary server.

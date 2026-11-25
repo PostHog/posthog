@@ -1,5 +1,5 @@
 import type { TracePreviewMissingReasonApi } from '../../../generated/api.schemas'
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TraceCellValue } from './TraceCellValue'
 
 const MISSING_REASON_LABELS: Record<TracePreviewMissingReasonApi, string> = {

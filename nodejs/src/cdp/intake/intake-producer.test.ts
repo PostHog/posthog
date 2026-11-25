@@ -19,9 +19,7 @@ import {
     IntakeRun,
     PublishSettlement,
     intakeClusterOf,
-    intakeModeOf,
     publishesSettled,
-    pushIntakeModeOf,
 } from './intake-producer'
 
 describe('IntakeProducer', () => {
@@ -70,7 +68,7 @@ describe('IntakeProducer', () => {
     ] as const)('produces a %s run to its topic, keyed by its run id', async (kind, output, fingerprint) => {
         const run = invocation({ acceptedAt: '2026-11-12T10:00:00.000Z' })
 
-        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint }, 'async')
+        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint })
 
         expect(outcome).toBe('acked')
         expect(produced).toEqual([
@@ -89,44 +87,38 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['async', 'transactional-email', 'msk-broker:9094', 'msk'],
-        ['async', 'workflow-webhook', '', 'warpstream'],
-        ['async', 'transactional-push', 'msk-broker:9094', 'msk'],
-    ] as const)(
-        'counts an acked %s %s run with brokers %p under the %s cluster label',
-        async (mode, kind, brokers, cluster) => {
-            const acked = async (): Promise<number> => {
-                const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
-                return metric.values
-                    .filter(
-                        (v) =>
-                            v.labels.kind === kind &&
-                            v.labels.mode === mode &&
-                            v.labels.outcome === 'acked' &&
-                            v.labels.cluster === cluster
-                    )
-                    .reduce((sum, v) => sum + v.value, 0)
-            }
-            const before = await acked()
-
-            await new IntakeProducer(
-                outputs(),
-                undefined,
-                undefined,
-                intakeClusterOf({ KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers })
-            ).produce({ kind, invocation: invocation() }, mode)
-
-            expect((await acked()) - before).toBe(1)
+        ['transactional-email', 'msk-broker:9094', 'msk'],
+        ['workflow-webhook', '', 'warpstream'],
+        ['transactional-push', 'msk-broker:9094', 'msk'],
+    ] as const)('counts an acked %s run with brokers %p under the %s cluster label', async (kind, brokers, cluster) => {
+        const acked = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
+            return metric.values
+                .filter(
+                    (v) =>
+                        v.labels.kind === kind &&
+                        v.labels.mode === 'async' &&
+                        v.labels.outcome === 'acked' &&
+                        v.labels.cluster === cluster
+                )
+                .reduce((sum, v) => sum + v.value, 0)
         }
-    )
+        const before = await acked()
+
+        await new IntakeProducer(
+            outputs(),
+            undefined,
+            undefined,
+            intakeClusterOf({ KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers })
+        ).produce({ kind, invocation: invocation() })
+
+        expect((await acked()) - before).toBe(1)
+    })
 
     it('produces nothing for a run too large for the topic', async () => {
         const run = invocation({ variables: { body: 'x'.repeat(2 * 1024 * 1024) } })
 
-        const outcome = await new IntakeProducer(outputs()).produce(
-            { kind: 'transactional-email', invocation: run },
-            'async'
-        )
+        const outcome = await new IntakeProducer(outputs()).produce({ kind: 'transactional-email', invocation: run })
 
         expect(outcome).toBe('too_large')
         expect(produced).toEqual([])
@@ -139,10 +131,7 @@ describe('IntakeProducer', () => {
         jest.useFakeTimers()
         produce = failingProduce
 
-        const outcome = new IntakeProducer(outputs()).produce(
-            { kind: 'workflow-webhook', invocation: invocation() },
-            'async'
-        )
+        const outcome = new IntakeProducer(outputs()).produce({ kind: 'workflow-webhook', invocation: invocation() })
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
 
         await expect(outcome).resolves.toBe('unacked')
@@ -160,8 +149,8 @@ describe('IntakeProducer', () => {
         const producer = new IntakeProducer(outputs())
 
         const outcomes = [
-            producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', settlement),
-            producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', settlement),
+            producer.produce({ kind: 'transactional-email', invocation: invocation() }, settlement),
+            producer.produce({ kind: 'transactional-email', invocation: invocation() }, settlement),
         ]
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
         await expect(Promise.all(outcomes)).resolves.toEqual(['unacked', 'unacked'])
@@ -189,8 +178,8 @@ describe('IntakeProducer', () => {
         const [first, second] = [new PublishSettlement(), new PublishSettlement()]
         const settled = [false, false]
 
-        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', first)
-        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', second)
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, first)
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, second)
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
         ;[first, second].forEach((settlement, i) => void publishesSettled(settlement).then(() => (settled[i] = true)))
         await jest.advanceTimersByTimeAsync(0)
@@ -229,7 +218,6 @@ describe('IntakeProducer', () => {
 
         const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
-            'async',
             settlement
         )
 
@@ -246,7 +234,6 @@ describe('IntakeProducer', () => {
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
-            'async',
             settlement
         )
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
@@ -274,36 +261,11 @@ describe('IntakeProducer', () => {
         }
         const before = await ackSum()
 
-        const outcome = new IntakeProducer(outputs()).produce(
-            { kind: 'workflow-webhook', invocation: invocation() },
-            'async'
-        )
+        const outcome = new IntakeProducer(outputs()).produce({ kind: 'workflow-webhook', invocation: invocation() })
         await jest.advanceTimersByTimeAsync(400)
 
         await expect(outcome).resolves.toBe('acked')
         expect((await ackSum()) - before).toBe(400)
-    })
-
-    it.each([
-        ['', 'off'],
-        ['7', 'async'],
-        ['*', 'async'],
-        ['10', 'off'],
-    ])('runs team 7 with async teams %p as %s', (asyncTeams, mode) => {
-        const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
-
-        expect(modeOf(7)).toBe(mode)
-    })
-
-    it.each([
-        ['', 'off'],
-        ['8,9', 'off'],
-        ['7', 'async'],
-        ['*', 'async'],
-    ])('runs the pushes of team 7 with push async teams %p as %s', (pushTeams, mode) => {
-        const modeOf = pushIntakeModeOf({ CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS: pushTeams })
-
-        expect(modeOf(7)).toBe(mode)
     })
 })
 
@@ -311,7 +273,7 @@ describe('IntakeProducer', () => {
 // settlement `produce` takes.
 const _settlementTypeChecks = (producer: IntakeProducer, run: IntakeRun): void => {
     // @ts-expect-error an empty object is not a settlement
-    void producer.produce(run, 'async', {})
+    void producer.produce(run, {})
     // @ts-expect-error a spread copy is not the handle its publishes are tracked on
-    void producer.produce(run, 'async', { ...new PublishSettlement() })
+    void producer.produce(run, { ...new PublishSettlement() })
 }

@@ -49,6 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metric_totals_by_source,
     fetch_app_metrics_trends,
 )
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -93,6 +94,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
@@ -147,7 +149,12 @@ from products.replay_vision.backend.facade.api import (
 )
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    TASK_RUN_GATEWAY_PRODUCT,
+    reasoning_efforts_for,
+    runnable_model_choices,
+    uncataloged_runtime_adapter,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
@@ -265,6 +272,7 @@ from products.workflows.backend.facade.proposals import (
     absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
+    conversion_evidence_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -290,6 +298,7 @@ from products.workflows.backend.facade.sandbox_email import (
     deliverable_own_sender_ids,
     has_sandbox_sender,
     has_verified_own_sender,
+    is_sensitive,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -328,6 +337,7 @@ from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_sample,
     suggestions_scout_refusal,
+    suggestions_scout_schedule,
     suggestions_scout_status,
     sync_suggestions_scout,
 )
@@ -1603,6 +1613,14 @@ class BlastRadiusSerializer(serializers.Serializer):
             "project's daily email allowance to its other workflows, so it may reach more people over several days."
         ),
     )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Keys of the project's test account filters this audience leaves out because they only apply to events, "
+            "such as event properties. Empty unless the audience filters out test accounts."
+        ),
+    )
 
 
 class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
@@ -1618,6 +1636,13 @@ class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
     )
     error = serializers.CharField(
         allow_null=True, help_text="Why the audience could not be resolved, in words meant for the customer."
+    )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Keys of the project's test account filters this run left out because they only apply to events. "
+            "Empty until the audience is ready."
+        ),
     )
 
 
@@ -2084,24 +2109,25 @@ class HogFlowActionSerializer(serializers.Serializer):
         model = model_value.get("model")
         reasoning_effort = model_value.get("reasoning_effort")
         if model:
-            # An empty catalogue means the gateway is unreachable, not that no model is valid -
-            # skip rather than block every save during an outage (see available_model_choices).
-            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-            if available:
-                choice = next((c for c in available if c.model == model), None)
-                if choice is None:
+            choice = next((c for c in runnable_model_choices(TASK_RUN_GATEWAY_PRODUCT) if c.model == model), None)
+            if choice is not None:
+                supported_efforts = choice.supported_efforts
+            else:
+                runtime_adapter = uncataloged_runtime_adapter(model)
+                if runtime_adapter is None:
                     raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
-                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
-                    raise serializers.ValidationError(
-                        {
-                            "inputs": {
-                                "model": (
-                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
-                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
-                                )
-                            }
+                supported_efforts = reasoning_efforts_for(runtime_adapter, model)
+            if reasoning_effort and reasoning_effort not in supported_efforts:
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "model": (
+                                f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                f"'{model}'. Supported values: {', '.join(supported_efforts) or 'none'}."
+                            )
                         }
-                    )
+                    }
+                )
 
         max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
         if max_parallel_tasks is not None:
@@ -3454,13 +3480,6 @@ class EmailInfrastructureHealthSerializer(serializers.Serializer):
             "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
         ),
     )
-    delivery_rate = serializers.FloatField(
-        read_only=True,
-        help_text=(
-            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
-            "to 0.001. Acceptance is not inbox placement."
-        ),
-    )
     bounce_rate = serializers.FloatField(
         read_only=True,
         help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
@@ -4581,6 +4600,10 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     """
     team = Team.objects.get(id=team_id)
     user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user_access_control.user
+    ):
+        raise exceptions.PermissionDenied(CDPPropertyAccessPermission.message)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
@@ -4961,6 +4984,13 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
                 "then remove this one."
             }
         )
+    if is_sensitive(action):
+        raise exceptions.ValidationError(
+            {
+                "sender": "This step is sensitive, and the PostHog test sender would store its email. "
+                "Keep it on one of the project's own senders."
+            }
+        )
     dropped = own_only_settings(action)
     if dropped and not drop_own_sender_settings:
         raise exceptions.ValidationError(
@@ -5276,6 +5306,20 @@ class SuggestionsSampleSerializer(serializers.Serializer):
     )
 
 
+class SuggestionsScheduleSerializer(serializers.Serializer):
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the project's suggestions scout last checked its workflows. Null before its first check.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Roughly when the scout checks next. Null before its first check, or when a custom schedule or a "
+        "backoff decides it.",
+    )
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
     scout_status = serializers.ChoiceField(
@@ -5290,6 +5334,12 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
         "while suggestions are on but the scout is not running, or when the workflow has no email step.",
+    )
+    schedule = SuggestionsScheduleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="When the project's suggestions scout last checked and checks next. Null unless the scout is "
+        "running.",
     )
 
 
@@ -5852,6 +5902,8 @@ class HogFlowViewSet(
     AppMetricsMixin,
     viewsets.ModelViewSet,
 ):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -7211,6 +7263,16 @@ class HogFlowViewSet(
         # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
         evidence.pop("measured", None)
+        conversion_error = conversion_evidence_error(
+            hog_flow_id=instance.id,
+            evidence=evidence,
+            changes=content,
+            live=snapshot_flow_content(instance),
+            base_version=params["base_version"],
+            now=django_timezone.now(),
+        )
+        if conversion_error:
+            raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
             evidence["measured"] = measured
@@ -7398,6 +7460,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
+                live=snapshot_flow_content(hog_flow),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
@@ -7490,8 +7553,11 @@ class HogFlowViewSet(
             except Exception as error:
                 # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
                 capture_exception(error)
+        schedule = suggestions_scout_schedule(self.team) if scout_status == SuggestionsScoutStatus.RUNNING else None
         return Response(
-            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": scout_status, "sample": sample, "schedule": schedule}
+            ).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:
@@ -7874,6 +7940,7 @@ class HogFlowViewSet(
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key
                     ),
+                    "skipped_test_account_filters": size.skipped_test_account_filters,
                     "realtime_cohort": (
                         {
                             "id": realtime_cohort.id,
@@ -8929,7 +8996,12 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Internal server error"}, status=500)
         return Response(
             InternalBatchJobAudienceSnapshotSerializer(
-                {"status": snapshot.status, "audience_size": snapshot.audience_size, "error": snapshot.error}
+                {
+                    "status": snapshot.status,
+                    "audience_size": snapshot.audience_size,
+                    "error": snapshot.error,
+                    "skipped_test_account_filters": snapshot.skipped_test_account_filters,
+                }
             ).data
         )
 

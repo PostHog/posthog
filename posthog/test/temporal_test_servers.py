@@ -88,6 +88,9 @@ def _fail_default_downloads(method: str) -> None:
 
 
 def install() -> None:
+    # Every dev server that start_local() spawns inherits this environment. Without the variable, the server
+    # reports to version-info.temporal.io on each start, and a test run starts many of them.
+    os.environ.setdefault("TEMPORAL_VERSION_CHECK_DISABLED", "1")
     for method in SERVERS:
         if not _is_downloaded(method) and not _prepare(method):
             _fail_default_downloads(method)

@@ -27,7 +27,7 @@ from posthog.api.github_callback.views import github_oauth_callback, github_setu
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
-from posthog.api.oauth.toolbar_views import authorize_and_redirect
+from posthog.api.oauth.toolbar_views import authorize_and_redirect, toolbar_oauth_error
 from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
@@ -206,7 +206,7 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
-    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # may not import (hoglint rule `presentation-uses-facade`), so the mount
     # stays here until those views move into presentation/.
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
@@ -235,6 +235,7 @@ urlpatterns = [
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
     path("toolbar_oauth/check", user.toolbar_oauth_check),
+    path("toolbar_oauth/error", login_required(toolbar_oauth_error)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
