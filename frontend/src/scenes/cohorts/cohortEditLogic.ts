@@ -210,7 +210,7 @@ export interface cohortEditLogicActions {
         errorObject?: any
     }
     duplicateCohortSuccess: (
-        duplicatedCohort: CohortType | CohortApi | null,
+        duplicatedCohort: CohortApi | CohortType | null,
         payload?: {
             asStatic: boolean
         }
