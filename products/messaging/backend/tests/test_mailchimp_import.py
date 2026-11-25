@@ -629,6 +629,11 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
                 "linus@example.com",
             }
             assert self._emptied(run) == {"Renamed here": ("listed", DELETED_AUDIENCE_NOTE)}
+            assert [item["label"] for item in run.progress["contacts"]["items"]][:3] == [
+                "Mailchimp contacts, Example Co",
+                "Renamed here",
+                "Old audience (from Mailchimp)",
+            ]
             assert "Novedades del producto ñ" in self._opt_outs()["Left.Person@example.com"]
             self._close(run)
 
@@ -665,8 +670,8 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert NOVEDADES not in self._staged(run)
         assert self._emptied(run) == {NOVEDADES: ("skipped", UNCONFIRMED_AUDIENCE_NOTE)}
 
-    def _other_account(self) -> None:
-        self.mailchimp.data["account"] = {"account_id": "acct2", "account_name": "Other", "role": "owner"}
+    def _use_account(self, account_id: str) -> None:
+        self.mailchimp.data["account"] = {"account_id": account_id, "account_name": "Other", "role": "owner"}
 
     def _change_cohort(self, **values: Any) -> None:
         Cohort.objects.filter(id=self._cohort(NOVEDADES).id).update(**values)
@@ -676,7 +681,9 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
     @parameterized.expand(
         [
-            ("another_account", lambda test: test._other_account()),
+            ("another_account", lambda test: test._use_account("acct2")),
+            ("account_id_that_starts_the_same", lambda test: test._use_account("acct")),
+            ("account_id_that_goes_on", lambda test: test._use_account("acct10")),
             ("made_dynamic", lambda test: test._change_cohort(is_static=False)),
             ("deleted_in_posthog", lambda test: test._change_cohort(deleted=True)),
             ("description_edited", lambda test: test._change_cohort(description="Mine now")),
@@ -700,18 +707,35 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert cohort_id not in {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]}
         assert self._emptied(run) == {}
 
-    def test_a_copy_of_an_imported_cohort_is_not_emptied(self) -> None:
+    @parameterized.expand([("newer_copy", False), ("older_cohort_given_its_description", True)])
+    def test_a_cohort_someone_gave_the_same_description_is_not_emptied(self, _name: str, older: bool) -> None:
+        other = Cohort.objects.create(team_id=self.team.id, name="Mine", is_static=True) if older else None
         self._close(self._import_contacts("new_people"))
-        original = self._cohort(NOVEDADES)
-        copy = Cohort.objects.create(
-            team_id=self.team.id, name="Copy", description=original.description, is_static=True
-        )
+        imported = self._cohort(NOVEDADES)
+        other = other or Cohort.objects.create(team_id=self.team.id, name="Mine", is_static=True)
+        Cohort.objects.filter(id=other.id).update(description=imported.description)
         self._delete()
 
         run = self._import_contacts("new_people")
 
-        planned = {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]}
-        assert original.id in planned and copy.id not in planned
+        assert other.id not in {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]}
+
+    def test_a_cohort_that_could_not_be_emptied_says_so(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        self._delete()
+        handle = self.mailchimp.handle
+
+        def edited_meanwhile(
+            path: str, query: dict[str, str], authorization: str
+        ) -> tuple[int, dict[str, Any], dict[str, str]]:
+            if path.endswith("/lists/f6e5d4c3b2"):
+                self._change_cohort(description="Mine now")
+            return handle(path, query, authorization)
+
+        with patch.object(self.mailchimp, "handle", edited_meanwhile):
+            run = self._import_contacts("new_people")
+
+        assert self._emptied(run) == {NOVEDADES: ("failed", NOT_EMPTIED_NOTE)}
 
     def test_an_account_without_audiences_changes_no_cohort(self) -> None:
         self._close(self._import_contacts("new_people"))

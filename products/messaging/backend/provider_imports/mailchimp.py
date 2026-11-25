@@ -115,16 +115,14 @@ NO_AUDIENCES_NOTE = (
     "Mailchimp returned no audiences, so every cohort stays as it is. If you deleted your audiences, empty or delete "
     "their cohorts yourself."
 )
-DELETED_AUDIENCE_NOTE = (
-    "This audience was deleted in Mailchimp, so everyone left its cohort. The people stay in PostHog."
-)
+DELETED_AUDIENCE_NOTE = "This audience was deleted in Mailchimp, so this import takes everyone out of its cohort. The people stay in PostHog."
 NOT_EMPTIED_NOTE = (
     "This audience was deleted in Mailchimp, but PostHog couldn't empty its cohort. Import again as someone who can edit "
     "it."
 )
 UNCONFIRMED_AUDIENCE_NOTE = (
     "Mailchimp doesn't list this audience, but PostHog couldn't confirm it was deleted, so its cohort stays as it is. "
-    "Import again with the API key of an owner or admin of the account."
+    "Import again, with the API key of an owner or admin of the account."
 )
 # Other roles can have access to only some audiences, which for them looks like the rest were deleted.
 _ROLES_SEEING_EVERY_AUDIENCE = frozenset({"owner", "admin"})
@@ -896,8 +894,8 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
             return saved
         first_emptied = len(saved.items) - len(gone.emptied)
         emptied = [
-            replace(item, notes=(NOT_EMPTIED_NOTE,))
-            if item.status == "failed"
+            replace(item, status="failed", notes=(NOT_EMPTIED_NOTE,))
+            if item.status == "failed" or item.url is None
             # A skipped item says it was left as it is.
             else replace(item, status="listed")
             for item in saved.items[first_emptied:]

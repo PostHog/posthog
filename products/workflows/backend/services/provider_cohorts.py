@@ -22,7 +22,13 @@ def resend_segment_description(segment_id: str) -> str:
 
 
 def described_static_cohorts(team_id: int, description_prefix: str) -> list[DescribedCohort]:
-    return static_cohorts_by_description_prefix(team_id=team_id, prefix=description_prefix)
+    """The static cohorts whose description starts with the prefix, of which an import fills the same one again."""
+    return [
+        cohort
+        for cohort in static_cohorts_by_description_prefix(team_id=team_id, prefix=description_prefix)
+        if (ref := find_cohort_ref_by_description(team_id=team_id, description=cohort.description))
+        and ref.id == cohort.id
+    ]
 
 
 def import_cohort(
