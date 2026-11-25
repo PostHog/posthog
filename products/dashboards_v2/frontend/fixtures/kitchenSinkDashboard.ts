@@ -20,19 +20,24 @@ const stat = (title: string, sql: string, format?: StatOptions['format']): Conte
 const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
 const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
 // Spans go through SQL on `posthog.trace_spans`: `/query` refuses TraceSpansAggregationQuery for every signed-in user.
-// `kind = 2` is a server span, so these rank the endpoints a service handles.
+// `kind = 2` is a server span, so these rank the endpoints a service handles. The bar chart draws time series only,
+// so each picks its top endpoints and returns one hourly series per endpoint.
 const SERVER_SPANS = (service: string): string => `kind = 2 and service_name = '${service}' and {filters}`
+const spansByEndpoint = (service: string, value: string, top: string): string =>
+    `select toStartOfHour(timestamp) as hour, name as endpoint, ${value} from posthog.trace_spans where ${SERVER_SPANS(service)} ` +
+    `and name in (select name from posthog.trace_spans where ${SERVER_SPANS(service)} ${top} limit 5) ` +
+    'group by hour, endpoint order by hour'
 const slowestSpans = (title: string, service: string): ContentWidget<ChartConfig> =>
     bar(
         title,
-        `select name, round(quantile(0.95)(duration_nano) / 1000000, 1) as p95_ms from posthog.trace_spans where ${SERVER_SPANS(service)} ` +
-            'group by name having count() >= 100 order by p95_ms desc limit 10'
+        spansByEndpoint(
+            service,
+            'round(quantile(0.95)(duration_nano) / 1000000, 1) as p95_ms',
+            'group by name having count() >= 100 order by quantile(0.95)(duration_nano) desc'
+        )
     )
 const busiestSpans = (title: string, service: string): ContentWidget<ChartConfig> =>
-    bar(
-        title,
-        `select name, count() as requests from posthog.trace_spans where ${SERVER_SPANS(service)} group by name order by requests desc limit 10`
-    )
+    bar(title, spansByEndpoint(service, 'count() as requests', 'group by name order by count() desc'))
 const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
 
 const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
