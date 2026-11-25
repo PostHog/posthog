@@ -44,6 +44,7 @@ logger = structlog.get_logger(__name__)
 MAX_INTERNAL_EVENT_DETAIL_BYTES = 512 * 1024
 _SUMMARY_DETAIL_KEYS = ("id", "short_id", "type", "name")
 _MAX_SUMMARY_NAME_LENGTH = 1000
+PROJECT_KEY_ACTOR_SCOPES = frozenset({"ScoreDefinition", "TraceReview"})
 
 ACTIVITY_LOG_WRITE_FAILURES = Counter(
     "activity_log_write_failures_total",
@@ -123,6 +124,8 @@ ActivityScope = Literal[
     "LLMPromptLabel",
     "LLMSkill",
     "LLMTrace",
+    "TraceReview",
+    "ScoreDefinition",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
@@ -1105,7 +1108,9 @@ def log_activity(
             "team_id": team_id,
             "user": user,
             "was_impersonated": was_impersonated,
-            "is_system": user is None and not external_actor,
+            "is_system": user is None
+            and not external_actor
+            and not (scope in PROJECT_KEY_ACTOR_SCOPES and credential and credential.type == "project_secret_key"),
             "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
