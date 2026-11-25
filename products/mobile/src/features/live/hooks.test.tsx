@@ -410,6 +410,9 @@ describe('useLiveFeed', () => {
 
     beforeEach(() => {
         queryClient.clear()
+        useAuthStore.setState({
+            user: { uuid: 'test-user', distinctId: 'test-user', email: 'test@example.com', name: 'Test Account' },
+        })
         useItemErrors.getState().reset()
         mockFocused = true
         liveFocused = true

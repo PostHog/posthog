@@ -5,7 +5,7 @@ import { LemonCollapse, LemonDivider, LemonInput, LemonSelect } from '@posthog/l
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { setPageStyle } from '../emailCommands'
-import { DEFAULT_EMAIL_PAGE_STYLE, EMAIL_FONTS, EmailPageStyle, fontOptions, resolvePageStyle } from '../emailDocument'
+import { DEFAULT_EMAIL_PAGE_STYLE, EmailPageStyle, fontOptions, fontUrlFor, resolvePageStyle } from '../emailDocument'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
@@ -136,8 +136,7 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                                         onChange={(fontFamily) =>
                                             set({
                                                 fontFamily,
-                                                fontUrl:
-                                                    EMAIL_FONTS.find((font) => font.value === fontFamily)?.url ?? '',
+                                                fontUrl: fontUrlFor(fontFamily) ?? '',
                                             })
                                         }
                                         data-attr="email-editor-theme-font"

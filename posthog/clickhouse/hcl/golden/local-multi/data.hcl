@@ -7599,6 +7599,9 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -7615,6 +7618,9 @@ database "posthog" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {

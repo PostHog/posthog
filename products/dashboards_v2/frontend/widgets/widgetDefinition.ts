@@ -7,6 +7,8 @@ import type { WidgetSpec } from './widgetSpec'
 /** A widget type the browser can render: its spec plus its component. The host passes its list of these to the dashboard. */
 export interface WidgetDefinition<Config = unknown> extends WidgetSpec<Config> {
     Component: ComponentType<{ widget: ContentWidget<Config> }>
+    /** Shows while `Component` suspends. Without it, the tile shows `WidgetLoading`. */
+    Loading?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Controls in the tile's header, beside the title, such as an interval picker or an "Open as insight" button. */
     HeaderActions?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Replaces what the footer shows. Without it, a widget whose data refreshes shows when it last refreshed. */

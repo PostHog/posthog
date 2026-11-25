@@ -335,6 +335,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
+    [Scene.ToolbarOAuthError]: {
+        name: 'Toolbar sign-in error',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
     [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.AccountConnected]: {
         name: 'Account connected',
@@ -948,6 +954,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
+    // pinned: the Django path in posthog/urls.py that every refused toolbar sign-in redirects to.
+    '/toolbar_oauth/error': [Scene.ToolbarOAuthError, 'toolbarOAuthError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],

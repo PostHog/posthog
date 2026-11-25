@@ -9964,6 +9964,8 @@ export namespace Schemas {
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
+      /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Client provided name of the query */
@@ -24970,6 +24972,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `frames` - Frames
+     * * `result` - Result
+     */
+    export type CachedTileFormatEnum = typeof CachedTileFormatEnum[keyof typeof CachedTileFormatEnum];
+
+
+    export const CachedTileFormatEnum = {
+      Frames: 'frames',
+      Result: 'result',
+    } as const;
+
+    /**
      * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
@@ -25076,6 +25090,71 @@ export namespace Schemas {
       NotFound: 'not_found',
     } as const;
 
+    export interface FrameMeta {
+      /**
+         * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+         * @nullable
+         */
+      interval: string | null;
+      /**
+         * Start of the range the frame covers.
+         * @nullable
+         */
+      date_from: string | null;
+      /**
+         * End of the range the frame covers.
+         * @nullable
+         */
+      date_to: string | null;
+      /** Whether the frame is the compared period. Its dates are that period's dates. */
+      previous: boolean;
+    }
+
+    /**
+     * * `time` - Time
+     * * `number` - Number
+     */
+    export type FrameFieldTypeEnum = typeof FrameFieldTypeEnum[keyof typeof FrameFieldTypeEnum];
+
+
+    export const FrameFieldTypeEnum = {
+      Time: 'time',
+      Number: 'number',
+    } as const;
+
+    export interface FrameField {
+      /** Field name: 'time' for the time field, 'value' for a number field. */
+      name: string;
+      /** What the values are.
+       *
+       * * `time` - Time
+       * * `number` - Number */
+      type: FrameFieldTypeEnum;
+      /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+      values: (number | null)[];
+      /**
+         * UCUM unit of the values, e.g. 'By' or 'ms'.
+         * @nullable
+         */
+      unit: string | null;
+    }
+
+    /**
+     * Label values that identify the series within the tile.
+     */
+    export type FrameLabels = {[key: string]: string};
+
+    export interface Frame {
+      /** Series name, as the chart legend shows it. */
+      name: string;
+      /** Label values that identify the series within the tile. */
+      labels: FrameLabels;
+      /** Interval and date range of the frame. */
+      meta: FrameMeta;
+      /** A time field, then one number field. */
+      fields: FrameField[];
+    }
+
     export interface CachedTileResult {
       /** Dashboard tile ID. */
       id: number;
@@ -25088,6 +25167,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `frames` - Frames
+       * * `result` - Result */
+      format?: CachedTileFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
     }
 
     export interface CachedTilesResponse {
@@ -35985,6 +36071,13 @@ export namespace Schemas {
       status: CachedTileStatusEnum;
       /** The cached result. Present only when status is 'hit'. */
       insight?: CachedTileInsightResult;
+      /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+       *
+       * * `frames` - Frames
+       * * `result` - Result */
+      format?: CachedTileFormatEnum;
+      /** Chart-ready frames, one per series. Present when format is 'frames'. */
+      frames?: Frame[];
       /** Present on hits: whether the cached result is past its target age. */
       stale?: boolean;
     }
@@ -41194,6 +41287,51 @@ export namespace Schemas {
     }
 
     /**
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain
+     */
+    export type DomainConnectContextKindEnum = typeof DomainConnectContextKindEnum[keyof typeof DomainConnectContextKindEnum];
+
+
+    export const DomainConnectContextKindEnum = {
+      Email: 'email',
+      Proxy: 'proxy',
+    } as const;
+
+    export interface DomainConnectApplyUrlRequest {
+      /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+       *
+       * * `email` - Email sending domain
+       * * `proxy` - Reverse proxy domain */
+      context: DomainConnectContextKindEnum;
+      /**
+         * ID of the email integration (sender). Required when `context` is `email`.
+         * @nullable
+         */
+      integration_id?: number | null;
+      /**
+         * ID of the reverse proxy record. Required when `context` is `proxy`.
+         * @nullable
+         */
+      proxy_record_id?: string | null;
+      /**
+         * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+         * @nullable
+         */
+      redirect_uri?: string | null;
+      /**
+         * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+         * @nullable
+         */
+      provider_endpoint?: string | null;
+    }
+
+    export interface DomainConnectApplyUrlResponse {
+      /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+      url: string;
+    }
+
+    /**
      * * `all` - All
      * * `selected` - Selected
      */
@@ -42563,6 +42701,18 @@ export namespace Schemas {
       /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found or when include_email_setup is off. */
       existing_email_tools: string[];
     }
+
+    /**
+     * * `auto` - Domain Connect
+     * * `manual` - Manual DNS records
+     */
+    export type EmailDomainSetupMethodEnum = typeof EmailDomainSetupMethodEnum[keyof typeof EmailDomainSetupMethodEnum];
+
+
+    export const EmailDomainSetupMethodEnum = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
 
     /**
      * * `verification` - Domain ownership
@@ -54390,6 +54540,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
          * The latest error that occurred when syncing this schema.
          * @nullable
          */
@@ -60597,6 +60752,19 @@ export namespace Schemas {
       readonly version_live_since: string;
     }
 
+    export interface SuggestionsSchedule {
+      /**
+         * Roughly when the project's suggestions scout last checked its workflows. Null before its first check.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * Roughly when the scout checks next. Null before its first check, or when a custom schedule or a backoff decides it.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+    }
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
@@ -60610,6 +60778,8 @@ export namespace Schemas {
       readonly scout_status: SuggestionsScoutStatusEnum;
       /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
       readonly sample: SuggestionsSample | null;
+      /** When the project's suggestions scout last checked and checks next. Null unless the scout is running. */
+      readonly schedule: SuggestionsSchedule | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -77009,6 +77179,39 @@ export namespace Schemas {
       projects: HoglakeProject[];
     }
 
+    /**
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only)
+     */
+    export type NativeEmailProviderEnum = typeof NativeEmailProviderEnum[keyof typeof NativeEmailProviderEnum];
+
+
+    export const NativeEmailProviderEnum = {
+      Ses: 'ses',
+      Maildev: 'maildev',
+    } as const;
+
+    export interface NativeEmailIntegration {
+      /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+      email: string;
+      /** Sender display name recipients see in their inbox, for example `Acme`. */
+      name: string;
+      /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
+       *
+       * * `ses` - Amazon SES
+       * * `maildev` - Maildev (local development only) */
+      provider: NativeEmailProviderEnum;
+      /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+      mail_from_subdomain?: string;
+      /** Reply-to address for emails from this sender when the email step sets none. Blank clears it. */
+      reply_to?: string;
+      /** How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. Reported on the verification event.
+       *
+       * * `auto` - Domain Connect
+       * * `manual` - Manual DNS records */
+      setup_method?: EmailDomainSetupMethodEnum;
+    }
+
     export type NewrelicIssueSignalExtraKindEnum = typeof NewrelicIssueSignalExtraKindEnum[keyof typeof NewrelicIssueSignalExtraKindEnum];
 
 
@@ -92153,6 +92356,11 @@ export namespace Schemas {
       order?: number | null;
     }
 
+    export interface PatchedEmailSenderUpdateRequest {
+      /** The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; `email` must stay the same. */
+      config?: NativeEmailIntegration;
+    }
+
     /**
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
@@ -93345,6 +93553,11 @@ export namespace Schemas {
       readonly live_query_unavailable_reason?: string | null;
       /** @nullable */
       readonly last_synced_at?: string | null;
+      /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
       /**
          * The latest error that occurred when syncing this schema.
          * @nullable
@@ -94668,43 +94881,6 @@ export namespace Schemas {
          * @nullable
          */
       values_query_connection_id?: string | null;
-    }
-
-    /**
-     * Standard Integration serializer.
-     */
-    export interface PatchedIntegrationConfig {
-      readonly id?: number;
-      /**
-         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-         * @maxLength 32
-         */
-      kind?: string;
-      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
-       *
-       * * `oauth` - OAuth
-       * * `token` - Token
-       * * `credentials` - Credentials */
-      readonly auth_type?: IntegrationAuthTypeEnum;
-      config?: unknown;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly errors?: string;
-      readonly display_name?: string;
-      /** Slack only: whether reconnecting can request the files:write scope. */
-      readonly files_write_requestable?: boolean;
-      /**
-         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-         * @nullable
-         */
-      readonly installation_shared?: boolean | null;
-      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-      readonly installation_status?: InstallationStatusEnum | null;
-      /**
-         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
-         * @nullable
-         */
-      readonly needs_webhook_reconnect?: boolean | null;
     }
 
     export interface PatchedJsSnippetVersion {
@@ -141145,6 +141321,10 @@ export namespace Schemas {
      */
     filters_override?: string;
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat;
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string;
@@ -141153,6 +141333,14 @@ export namespace Schemas {
      */
     variables_override?: string;
     };
+
+    export type DashboardsCachedTilesRetrieveFormat = typeof DashboardsCachedTilesRetrieveFormat[keyof typeof DashboardsCachedTilesRetrieveFormat];
+
+
+    export const DashboardsCachedTilesRetrieveFormat = {
+      Frames: 'frames',
+      Json: 'json',
+    } as const;
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
@@ -144663,7 +144851,7 @@ export namespace Schemas {
 
     export type ExternalDataSchemasListParams = {
     /**
-     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
      */
     compact?: boolean;
     /**
@@ -144743,7 +144931,7 @@ export namespace Schemas {
 
     export type ExternalDataSourcesListParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean;
     /**
@@ -144766,7 +144954,7 @@ export namespace Schemas {
 
     export type ExternalDataSourcesRetrieveParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean;
     /**
