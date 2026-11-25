@@ -166,10 +166,26 @@ class TestTicketMessageSignals(BaseTest):
     def test_first_public_human_reply_records_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
-        self._create_team_message(draft)
+        with patch("products.conversations.backend.ai.human_outcome.report_team_action") as mock_report:
+            self._create_team_message(draft)
 
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
+        mock_report.assert_called_once()
+        _, event, properties = mock_report.call_args.args
+        assert event == "support ai draft outcome recorded"
+        assert properties["outcome"] == "used"
+        assert properties["source"] == "reply"
+
+    def test_findings_note_without_question_records_no_human_outcome(self, mock_on_commit):
+        self._create_ai_message(
+            "Investigation notes\n\nThe knowledge base and docs did not cover this.",
+            item_context={"persist_as": "findings", "clarifying_questions": []},
+        )
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
 
     def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
@@ -596,20 +612,6 @@ class TestTicketMessageSignals(BaseTest):
         self._create_customer_message("Hello")
 
         mock_invalidate.assert_called_once_with(self.team.id, self.widget_session_id)
-
-    @patch("products.conversations.backend.signals.invalidate_messages_cache")
-    def test_message_invalidates_messages_cache(self, mock_invalidate, mock_on_commit):
-        """Sending a message should invalidate the widget messages cache."""
-        self._create_customer_message("Hello")
-
-        mock_invalidate.assert_called_once_with(self.team.id, str(self.ticket.id))
-
-    @patch("products.conversations.backend.signals.invalidate_messages_cache")
-    def test_private_message_does_not_invalidate_messages_cache(self, mock_invalidate, mock_on_commit):
-        """Private messages should not invalidate the messages cache."""
-        self._create_team_message("Private note", is_private=True)
-
-        mock_invalidate.assert_not_called()
 
     @patch("products.conversations.backend.signals.invalidate_tickets_cache")
     def test_private_message_does_not_invalidate_cache(self, mock_invalidate, mock_on_commit):

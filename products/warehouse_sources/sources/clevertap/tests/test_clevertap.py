@@ -155,3 +155,104 @@ def test_bad_response_fails_without_committing_completion(body: dict[str, Any], 
     assert str(result.raised) == message
     assert result.rows == []
     assert result.saved_states == []
+
+
+@time_machine.travel("2024-03-05T12:00:00Z", tick=False)
+def test_campaigns_walk_31_day_windows_and_resume_from_the_next_window() -> None:
+    result = driver().run(
+        "campaigns",
+        [
+            ScriptedResponse(json={"status": "success", "targets": [{"id": 1, "status": "completed"}]}),
+            ScriptedResponse(json={"status": "success", "targets": []}),
+            ScriptedResponse(json={"status": "success", "targets": [{"id": 2, "status": "pending"}]}),
+        ],
+    )
+    assert result.raised is None
+    assert [request.path for request in result.requests] == ["/1/targets/list.json"] * 3
+    assert [request.json() for request in result.requests] == [
+        {"from": 20240101, "to": 20240131},
+        {"from": 20240201, "to": 20240302},
+        {"from": 20240303, "to": 20240304},
+    ]
+    assert [row["id"] for row in result.rows] == [1, 2]
+    assert result.committed_states[-1] == ClevertapResumeConfig(cursor=None, completed=True)
+
+    resumed = driver().run(
+        "campaigns",
+        [ScriptedResponse(json={"status": "success", "targets": []})],
+        resume_state=ClevertapResumeConfig(cursor=None, window_from="2024-03-03"),
+    )
+    assert [request.json() for request in resumed.requests] == [{"from": 20240303, "to": 20240304}]
+
+
+@pytest.mark.parametrize(
+    ("resume", "expected_reports"),
+    [
+        (None, [1, 3]),
+        (ClevertapResumeConfig(cursor=None, window_from="2024-01-01", campaign_id=1), [3]),
+    ],
+)
+@time_machine.travel("2024-01-04T12:00:00Z", tick=False)
+def test_campaign_reports_fan_out_over_completed_campaigns(
+    resume: ClevertapResumeConfig | None, expected_reports: list[int]
+) -> None:
+    campaigns = [
+        {"id": 1, "name": "First", "scheduled_on": 202401011200, "status": "completed"},
+        {"id": 2, "name": "Running", "scheduled_on": 202401021200, "status": "running"},
+        {"id": 3, "name": "Deleted", "scheduled_on": 202401031200, "status": "completed"},
+    ]
+    reports = {
+        1: ScriptedResponse(json={"status": "success", "result": {"sent": 82, "clicked": 28}}),
+        3: ScriptedResponse(status=404, json={"status": "fail", "error": "Report not found", "code": 404}),
+    }
+    result = driver().run(
+        "campaign_reports",
+        [
+            ScriptedResponse(json={"status": "success", "targets": campaigns}),
+            *[reports[campaign_id] for campaign_id in expected_reports],
+        ],
+        resume_state=resume,
+    )
+    assert result.raised is None
+    assert result.requests[0].json() == {"from": 20240101, "to": 20240103}
+    assert [request.json() for request in result.requests[1:]] == [{"id": i} for i in expected_reports]
+    assert {request.path for request in result.requests[1:]} == {"/1/targets/result.json"}
+    expected_rows = (
+        [{"sent": 82, "clicked": 28, "campaign_id": 1, "campaign_name": "First", "scheduled_on": 202401011200}]
+        if 1 in expected_reports
+        else []
+    )
+    assert result.rows == expected_rows
+    assert result.committed_states[-1] == ClevertapResumeConfig(cursor=None, window_from="2024-01-01", campaign_id=3)
+
+
+@time_machine.travel("2024-01-04T12:00:00Z", tick=False)
+def test_message_reports_request_the_whole_range_and_rename_the_message_id() -> None:
+    message = {"message id": 1508323121, "data": [[{"sent": 0}]], "status": "completed", "channel": "InApp"}
+    result = driver().run("message_reports", [ScriptedResponse(json={"status": "success", "messages": [message]})])
+    assert result.raised is None
+    assert result.requests[0].path == "/1/message/report.json"
+    assert result.requests[0].json() == {"from": "20240101", "to": "20240103", "daily": False}
+    assert result.rows == [
+        {"data": [[{"sent": 0}]], "status": "completed", "channel": "InApp", "message_id": 1508323121}
+    ]
+
+
+@time_machine.travel("2024-04-04T12:00:00Z", tick=False)
+def test_content_blocks_page_until_the_total() -> None:
+    result = driver().run(
+        "content_blocks",
+        [
+            ScriptedResponse(json={"status": "success", "contentBlocks": [{"id": 1}], "total": 101}),
+            ScriptedResponse(json={"status": "success", "contentBlocks": [{"id": 2}], "total": 101}),
+        ],
+    )
+    assert result.raised is None
+    assert [request.method for request in result.requests] == ["GET", "GET"]
+    assert result.params("pageNumber") == ["1", "2"]
+    assert result.params("pageSize") == ["100", "100"]
+    assert result.rows == [{"id": 1}, {"id": 2}]
+    assert result.committed_states == [
+        ClevertapResumeConfig(cursor=None, page=2),
+        ClevertapResumeConfig(cursor=None, completed=True),
+    ]

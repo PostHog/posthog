@@ -18,6 +18,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -155,6 +156,7 @@ export function addLogsValueFilter(
 }
 
 export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
+    const mobileLayout = useApmMobileLayout()
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
@@ -199,7 +201,7 @@ export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }):
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
                 overlay={
-                    <div className="w-[400px] md:w-[600px]">
+                    <div className={mobileLayout ? 'w-[min(600px,calc(100vw-2rem))]' : 'w-[400px] md:w-[600px]'}>
                         <LogsNaturalLanguageSearch onApplied={onClose} />
                         <InfiniteSelectResults
                             focusInput={() => searchInputRef.current?.focus()}
@@ -214,6 +216,7 @@ export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }):
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
+                    compactCategoryDropdown={mobileLayout}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     autoFocus={autoFocus}

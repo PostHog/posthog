@@ -4,7 +4,7 @@ from typing import cast
 from django import forms
 from django.contrib import admin
 from django.http import HttpRequest
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models.scoping import team_scope
@@ -12,20 +12,11 @@ from posthog.models.user import User
 
 from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
 from .models import SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
-from .presentation.views.infrastructure_admin import infrastructure_admin
 from .visibility import task_run_visibility_q, task_visibility_q
 
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    change_list_template = "admin/tasks/task/change_list.html"
-
-    def get_urls(self) -> list:
-        return [
-            path("infrastructure/", self.admin_site.admin_view(infrastructure_admin), name="tasks_infrastructure"),
-            *super().get_urls(),
-        ]
-
     list_display = ("slug", "title", "origin_product", "internal", "team", "created_by", "created_at", "deleted")
     list_filter = ("origin_product", "internal", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
@@ -35,7 +26,10 @@ class TaskAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product", "internal")}),
         ("Team & User", {"fields": ("team", "created_by")}),
-        ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
+        (
+            "Repository",
+            {"fields": ("github_integration", "github_user_integration", "repository_integration_id", "repository")},
+        ),
         ("Schema", {"fields": ("json_schema",)}),
         ("Status", {"fields": ("deleted", "deleted_at")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),

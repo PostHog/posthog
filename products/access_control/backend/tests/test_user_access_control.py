@@ -2427,6 +2427,16 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         assert admin_access is not None
         assert (admin_access.access_level, admin_access.source) == ("manager", "org_admin")
 
+    def test_inherited_access_matches_enforcement_for_an_object_without_rules(self):
+        # Tables are closed to everyone, and one source is opened. The source default cannot open
+        # its tables, so "No override" must show the same level the table resolves to
+        self._apply_for_everyone({"all_tables": "none", "this_source": "viewer"}, self.sourced_table)
+
+        subject = SubjectAccessControl(self.user, self.team)
+        inherited = subject.inherited_access_for_object(self.sourced_table)
+        assert inherited is not None
+        assert inherited.access_level == subject.get_user_access_level(self.sourced_table) == "none"
+
     def test_precheck_outcomes_report_their_source(self):
         resolved, access = self.user_access_control._object_access_level_precheck("warehouse_table", is_creator=True)
         assert resolved and access is not None

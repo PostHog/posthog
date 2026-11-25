@@ -45,7 +45,11 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { leadingSlashCommand, serializeError } from "@posthog/agent-contracts";
+import {
+  type GatewayModel,
+  leadingSlashCommand,
+  serializeError,
+} from "@posthog/agent-contracts";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import {
   createEnrichment,
@@ -55,7 +59,6 @@ import {
 import {
   buildFinishRunUpdate,
   isCloudRun,
-  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -437,6 +440,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  logger?: Logger;
   startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
@@ -447,6 +451,7 @@ export interface ClaudeAcpAgentOptions {
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
   modelsGatewayUrl?: string;
+  listModels?: () => Promise<GatewayModel[]>;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -481,7 +486,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.toolUseCache = {};
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
-    this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
+    this.logger =
+      options?.logger ??
+      new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
     this.enrichment = createEnrichment(options?.posthogApiConfig);
   }
 
@@ -2522,6 +2529,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Conversation clear timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: params.sessionId },
+      );
       return await this.finishClear(
         params,
         session,
@@ -2881,6 +2893,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: this.sessionId },
+      );
     } catch (error) {
       // The old query is already retired and the new one is unproven, so any
       // failure here — retireQuery, timeout, or SDK init rejection — leaves
@@ -3202,6 +3219,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       | "fork"
       | "setup hooks"
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update",
     error: unknown,
@@ -3221,7 +3239,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async awaitStartupControl(
-    step: "model switch" | "effort update" | "fast mode update",
+    step:
+      | "model switch"
+      | "attribution update"
+      | "effort update"
+      | "fast mode update",
     control: Promise<void>,
     errorData: Record<string, unknown>,
   ): Promise<void> {
@@ -3330,9 +3352,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // Register the in-process general local-tools MCP server. Tools self-gate
     // via the registry (e.g. signed-commit is cloud-only and needs a GH token),
-    // so adding a tool needs no change here. In cloud runs `git commit`/`git
-    // push` are blocked by the PreToolUse guard (and the sandbox git shim), so
-    // the agent commits via the signed-commit tool instead.
+    // so adding a tool needs no change here. In GitHub cloud runs `git commit`/
+    // `git push` are blocked by the PreToolUse guard (and the sandbox git shim),
+    // so the agent commits via the signed-commit tool instead. GitLab runs use
+    // plain git and get the merge request tool.
     //
     // A closure so refresh/self-heal can rebuild a fresh instance (reusing one
     // throws "Already connected to a transport"). Capture only the fields it
@@ -3340,11 +3363,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
-    const taskOriginProduct =
-      typeof meta?.taskOriginProduct === "string"
-        ? meta.taskOriginProduct
-        : undefined;
-    const endRunWhenDone = meta?.endRunWhenDone === true;
+    const finishTool = meta?.finishTool === true;
+    const finishReportRequired = meta?.finishReportRequired === true;
+    const reportActivityTool = meta?.reportActivityTool === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -3360,19 +3381,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
-          finishReportRequired: isFinishReportRequired({
-            taskOriginProduct,
-            endRunWhenDone,
-          }),
+          finishReportRequired,
         },
         {
           environment,
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
-          taskOriginProduct,
-          endRunWhenDone,
-          callerEndsRun: meta?.callerEndsRun === true,
+          finishTool,
+          reportActivityTool,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -3382,7 +3399,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const localToolsServerNames = Object.keys(initialInProcess);
     if (localToolsServerNames.length === 0 && cloudRun) {
       this.logger.warn(
-        "Cloud run registered no local tools (missing GH_TOKEN/GITHUB_TOKEN?); signed commits unavailable",
+        "Cloud run registered no local tools; signed commits and merge request tools unavailable",
       );
     }
 
@@ -3473,6 +3490,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       onModeChange: this.createOnModeChange(),
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
+      onMemoryRead: (read) => {
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+            sessionId: this.sessionId,
+            ...read,
+          })
+          .catch((error) => {
+            this.logger.warn("Failed to report memory read", { error });
+          });
+      },
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),
@@ -3652,6 +3679,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.options?.modelsGatewayUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
         Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
+        this.options?.gatewayEnv ? undefined : this.options?.listModels,
       ),
       ...(meta?.taskRunId
         ? [
@@ -3754,10 +3782,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
     let startupStep:
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update"
       | undefined;
     try {
+      startupStep = "attribution update";
+      await this.awaitStartupControl(
+        startupStep,
+        this.session.query.applyFlagSettings({
+          attribution: { commit: "", pr: "" },
+        }),
+        startupErrorData,
+      );
+
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
         try {

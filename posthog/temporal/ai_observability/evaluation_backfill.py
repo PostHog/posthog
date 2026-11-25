@@ -37,24 +37,24 @@ from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import USER_ERROR_SPECS, application_error_details
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
-from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
+from posthog.temporal.ai_observability.evaluation_types import (
+    EVALUATION_WORKFLOW_PREFIXES,
+    STOPPED_EVALUATION_ERROR_TYPES,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
-from posthog.temporal.ai_observability.run_aggregate_evaluation import (
-    INGESTION_LAG_MARGIN_SECONDS,
-    RunAggregateEvaluationInputs,
-    resolve_settle_plan,
-)
+from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
 from posthog.temporal.ai_observability.run_evaluation import WorkflowResult
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import unwrap_temporal_cause
 
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates, fetch_backfill_candidates
+from products.ai_observability.backend.facade.evaluation_runtime import settle_horizon
 from products.ai_observability.backend.models.evaluation_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     EvaluationBackfill,
     EvaluationBackfillStatus,
 )
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
 
 logger = structlog.get_logger(__name__)
 
@@ -90,20 +90,6 @@ BACKFILL_FAILURE_PAUSES = (
     timedelta(minutes=10),
     timedelta(minutes=30),
 )
-
-
-def settle_horizon(target: str, settle: dict[str, Any] | None) -> timedelta:
-    """How long after its first event a unit is still being graded by the live path.
-
-    Zero for a generation, which is complete when it lands. For a trace or a session it is the
-    settle ceiling the evaluation is configured with, which reaches 7 days for a session, not the
-    24 hour default. Two things read it: the window a backfill may cover, and how far past that
-    window a live verdict for one of its units can still be stamped.
-    """
-    if target == EvaluationTarget.GENERATION.value:
-        return timedelta(0)
-    plan = resolve_settle_plan(settle, target)
-    return timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
 
 
 def backfill_workflow_id(backfill_id: str) -> str:
@@ -250,6 +236,11 @@ def _stop_reason(result: WorkflowResult) -> str | None:
     if reason == "evaluation_disabled" or (spec is not None and spec.disables_evaluation):
         return "evaluation_disabled"
     return None
+
+
+def _failed_run_stop_reason(error: BaseException) -> str | None:
+    cause = unwrap_temporal_cause(error)
+    return cause.type if cause is not None and cause.type in STOPPED_EVALUATION_ERROR_TYPES else None
 
 
 class _BackfillPacing:
@@ -490,6 +481,20 @@ async def prepare_evaluation_backfill_tick_activity(inputs: EvaluationBackfillIn
 
 def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOutput:
     row = EvaluationBackfill.objects.for_team(inputs.team_id).select_related("evaluation").get(pk=inputs.backfill_id)
+    limit = inputs.limit
+    if row.max_units is not None:
+        # Units keep landing in the window after the run starts, so only the dispatch count can hold the cap.
+        # Every earlier page has advanced by now, which makes the count current.
+        limit = min(limit, row.max_units - row.dispatched_count)
+        if limit <= 0:
+            return FindCandidatesOutput(
+                candidates=[],
+                next_cursor_timestamp=None,
+                next_cursor_unit_id="",
+                exhausted=True,
+                started_from_cursor_timestamp=row.cursor_timestamp.isoformat() if row.cursor_timestamp else None,
+                started_from_cursor_unit_id=row.cursor_unit_id,
+            )
     team = Team.objects.get(pk=inputs.team_id)
     page = fetch_backfill_candidates(
         team=team,
@@ -502,7 +507,7 @@ def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOut
         rerun_existing=row.rerun_existing,
         cursor_timestamp=row.cursor_timestamp,
         cursor_unit_id=row.cursor_unit_id,
-        limit=inputs.limit,
+        limit=limit,
     )
     output = FindCandidatesOutput(
         candidates=[
@@ -530,7 +535,7 @@ def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOut
         backfill_id=inputs.backfill_id,
         team_id=inputs.team_id,
         candidates=len(page.candidates),
-        limit=inputs.limit,
+        limit=limit,
         exhausted=page.exhausted,
     )
     return output
@@ -832,6 +837,12 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             # A cancelled backfill raises here; a run cancelled on its own is only a failed run.
             if is_cancelled_exception(error) and not isinstance(error, ChildWorkflowError):
                 raise
+            stop_reason = _failed_run_stop_reason(error)
+            # The SDK memoizes patched() per run, so calling it for an ordinary failure replayed from
+            # before the deploy would pin it to False for a later stop. A stopped run holds no
+            # workflow id, so it counts as failed and Retry remaining runs it again.
+            if stop_reason and temporalio.workflow.patched("evaluation-backfill-stopped-run-fails-2026-11"):
+                return BackfillChildOutcome(outcome=ChildOutcome.FAILED, stop_reason=stop_reason)
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
             )

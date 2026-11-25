@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 

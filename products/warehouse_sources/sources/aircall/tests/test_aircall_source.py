@@ -12,18 +12,26 @@ class TestAircallSource:
         self.config = AircallSourceConfig(api_id="api-id", api_token="api-token")
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "probe_result, expected_valid, expected_substring",
         [
-            (True, True, None),
-            (False, False, "Invalid Aircall API credentials"),
+            ((True, 200), True, None),
+            ((False, 401), False, "rejected your API ID or API token"),
+            ((False, 403), False, "rejected your API ID or API token"),
+            ((False, 429), False, "Couldn't reach Aircall"),
+            ((False, 500), False, "Couldn't reach Aircall"),
+            ((False, None), False, "Couldn't reach Aircall"),
         ],
     )
     @mock.patch("products.warehouse_sources.sources.aircall.source.validate_aircall_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials(self, mock_validate, probe_result, expected_valid, expected_substring):
+        mock_validate.return_value = probe_result
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
-        assert error_message == expected_message
+        if expected_substring is None:
+            assert error_message is None
+        else:
+            assert error_message is not None
+            assert expected_substring in error_message
         mock_validate.assert_called_once_with(self.config.api_id, self.config.api_token)

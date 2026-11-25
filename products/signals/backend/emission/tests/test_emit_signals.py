@@ -728,7 +728,10 @@ class TestEmissionRetryIdentity:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("record_processed_outputs", [False, True])
-    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+    @pytest.mark.parametrize("record_count", [1, 2])
+    async def test_retry_repairs_ledger_for_finalized_signal(
+        self, team: Team, record_processed_outputs: bool, record_count: int
+    ) -> None:
         output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
         signal_id = signal_id_for(
             team_id=team.id,
@@ -744,7 +747,9 @@ class TestEmissionRetryIdentity:
         config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
         with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
             for _ in range(2):
-                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                result = await run_signal_pipeline(
+                    team=team, config=config, records=[{"id": "record-1"}] * record_count, extra={}
+                )
                 assert result["signals_emitted"] == 0
         emit.assert_not_awaited()
         assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
@@ -1534,6 +1539,11 @@ class TestPipelineStageTelemetry:
             "signal_data_source_entered",
             "signal_data_source_filtered",
         ]
+        (filtered_call,) = [
+            call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
+        ]
+        assert filtered_call.kwargs["properties"]["filter_reason"] == "not_actionable"
+        assert filtered_call.kwargs["properties"]["steering_applied"] is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1579,7 +1589,10 @@ class TestRunSignalPipelineSteering:
         filtered_calls = [
             call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
         ]
-        assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
+        assert [
+            (call.kwargs["properties"]["filter_reason"], call.kwargs["properties"]["steering_applied"])
+            for call in filtered_calls
+        ] == [("not_actionable", True)]
 
     @pytest.mark.asyncio
     async def test_without_source_config_prompt_is_unchanged(self, team):

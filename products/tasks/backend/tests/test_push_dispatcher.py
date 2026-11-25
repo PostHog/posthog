@@ -13,6 +13,7 @@ from prometheus_client import REGISTRY
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.user_push_token import UserPushToken
+from posthog.push_notifications import mobile_push_delivery_allowed
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -80,6 +81,76 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(data["notificationKind"], _name)
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
+
+    @parameterized.expand([("run_completed",), ("pr_merged",), ("handoff",)])
+    @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
+    def test_deactivated_organization_gets_no_push(self, trigger, _flag):
+        if trigger == "pr_merged":
+            self.task.origin_product = Task.OriginProduct.SLACK
+            self.task.state = {"mobile_push_user_ids": [self.user.id]}
+            self.task.save(update_fields=["origin_product", "state"])
+        self.organization.is_active = False
+        self.organization.save()
+        queued: list[tuple] = []
+
+        with (
+            patch(
+                "products.tasks.backend.push_dispatcher.send_user_push.delay",
+                side_effect=lambda *args: queued.append(args),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if trigger == "pr_merged":
+                notify_task_pull_request_outcome(
+                    task_id=str(self.task.id),
+                    run_id=str(self.task_run.id),
+                    team_id=self.team.id,
+                    pr_url="https://github.com/example/project/pull/1",
+                    merged=True,
+                )
+            elif trigger == "handoff":
+                notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
+            else:
+                notify_task_run_completed(self.task_run)
+
+        self.assertEqual(queued, [])
+
+    @parameterized.expand([("task",), ("report",)])
+    def test_queued_push_is_refused_once_the_organization_is_deactivated(self, kind):
+        payload = (
+            {"type": "task", "taskId": str(self.task.id), "projectId": self.team.id, "notificationKind": "completed"}
+            if kind == "task"
+            else {
+                "type": "report",
+                "project_id": self.team.id,
+                "report_id": str(uuid4()),
+                "notificationKind": "report_completed",
+            }
+        )
+
+        with (
+            patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.signals.backend.facade.reports.user_may_receive_report_push", return_value=True),
+        ):
+            self.assertTrue(mobile_push_delivery_allowed(self.user, payload))
+            self.organization.is_active = False
+            self.organization.save()
+            self.assertFalse(mobile_push_delivery_allowed(self.user, payload))
+
+    @parameterized.expand([(True,), (False,)])
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_cancel_push_reads_persisted_actor(self, cancelled_by_recipient: bool, mock_delay: Mock) -> None:
+        actor_id = self.user.id if cancelled_by_recipient else self.user.id + 1
+        TaskRun.update_state_atomic(self.task_run.id, updates={"cancel_requested_by_user_id": actor_id})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_cancelled(self.task_run)
+
+        if cancelled_by_recipient:
+            mock_delay.assert_not_called()
+        else:
+            mock_delay.assert_called_once()
+            self.assertEqual(mock_delay.call_args.args[3]["cancelledByUserId"], actor_id)
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_trial_completion_does_not_notify_the_operator(self, mock_delay) -> None:
@@ -300,7 +371,9 @@ class TestPushDispatcher(TestCase):
             notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
         mock_delay.assert_not_called()
 
-    @parameterized.expand([("mobile_push_enabled",), ("mobile_push_tasks_enabled",)])
+    @parameterized.expand(
+        [("mobile_push_enabled",), ("mobile_push_tasks_enabled",), ("mobile_push_chat_completions_enabled",)]
+    )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     @patch("posthog.tasks.push_notifications.send_push_to_user")
@@ -310,7 +383,15 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
         send_user_push(
-            self.user.id, "PostHog", "Finished", {"taskId": str(self.task.id), "projectId": self.task.team_id}
+            self.user.id,
+            "PostHog",
+            "Finished",
+            {
+                "type": "task",
+                "taskId": str(self.task.id),
+                "projectId": self.task.team_id,
+                "notificationKind": "completed",
+            },
         )
         mock_delay.assert_not_called()
         mock_send.assert_not_called()

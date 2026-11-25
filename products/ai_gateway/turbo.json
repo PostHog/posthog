@@ -11,6 +11,7 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/apps.py",
+                "backend/receivers.py",
                 "backend/console.py"
             ],
             "outputs": [],

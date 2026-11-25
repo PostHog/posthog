@@ -7,8 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { QuillCertificationSuggestionsDialogs } from './QuillCertificationSuggestionsDialogs'
+import { DeprecateAction, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { QuillDeprecateSuggestionModal } from './QuillDeprecateSuggestionModal'
 import { SuggestedCertificationsTable } from './SuggestedCertificationsTable'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -73,7 +73,7 @@ interface TableStoryProps {
     reviewOpen?: boolean
     confirmSuggestionId?: string
     catalogDialogs?: boolean
-    deleteView?: boolean
+    deprecateAction?: DeprecateAction
 }
 
 function TableStory({
@@ -82,7 +82,7 @@ function TableStory({
     reviewOpen = false,
     confirmSuggestionId,
     catalogDialogs,
-    deleteView = false,
+    deprecateAction = 'deprecate',
 }: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -101,15 +101,15 @@ function TableStory({
         }
         if (confirmSuggestionId) {
             logic.actions.openAcceptConfirm(confirmSuggestionId)
-            logic.actions.setDeleteView(deleteView)
+            logic.actions.setDeprecateAction(deprecateAction)
         }
-    }, [reviewOpen, confirmSuggestionId, deleteView, catalogDialogs, stripState, logic])
+    }, [reviewOpen, confirmSuggestionId, deprecateAction, catalogDialogs, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             {catalogDialogs ? (
                 <BindLogic logic={warehouseSuggestionsLogic} props={{ surface: 'catalog' }}>
                     <div data-quill>
-                        <QuillCertificationSuggestionsDialogs />
+                        <QuillDeprecateSuggestionModal />
                     </div>
                 </BindLogic>
             ) : (
@@ -187,7 +187,7 @@ export const DeprecateDialog: Story = {
 export const DeleteDialog: Story = {
     args: {
         confirmSuggestionId: '3',
-        deleteView: true,
+        deprecateAction: 'delete',
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: dialogSnapshot(1300),
@@ -198,19 +198,6 @@ const catalogDialogSnapshot = (width: number): Story['parameters'] => ({
     featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     testOptions: { viewport: { width, height: 900 }, snapshotBrowsers: [] },
 })
-
-export const CatalogReviewDialog: Story = {
-    args: {
-        catalogDialogs: true,
-        reviewOpen: true,
-        results: [
-            suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
-            suggestion('2', 'certify', 'table', 'stripe_charges'),
-            suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
-        ],
-    },
-    parameters: catalogDialogSnapshot(1300),
-}
 
 export const CatalogDeprecateDialog: Story = {
     args: {
@@ -225,7 +212,7 @@ export const CatalogDeleteDialog: Story = {
     args: {
         catalogDialogs: true,
         confirmSuggestionId: '3',
-        deleteView: true,
+        deprecateAction: 'delete',
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: catalogDialogSnapshot(1300),

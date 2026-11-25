@@ -31,13 +31,16 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
     preset?: string
 }
 
-export const MAX_PROJECT_API_KEYS_PER_PROJECT = 50
+export const MAX_PROJECT_API_KEYS_PER_PROJECT = 100
 
 const GATEWAY_SCOPE = 'llm_gateway:read'
 
 // Rows that differ from API_SCOPES here. PAKs label llm_gateway "LLM gateway", but here it is the AI gateway
 // service credential. messaging_preference is OAuth-hidden, so it has no API_SCOPES row and only this picker offers it.
 const PROJECT_SECRET_SCOPE_ROWS: Record<string, { label: string; info?: string }> = {
+    dataset: { label: 'Dataset', info: 'Datasets, their items, revisions, and retention.' },
+    evaluation: { label: 'Evaluation', info: 'Offline experiments, their items, and results.' },
+    llm_analytics: { label: 'AI observability', info: 'Scorers, offline evaluation scores, and trace reviews.' },
     llm_gateway: { label: 'AI gateway' },
     messaging_preference: {
         label: 'Recipient preference',

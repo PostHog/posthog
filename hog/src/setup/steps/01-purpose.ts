@@ -1,5 +1,6 @@
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { REGION_CHOICES, REGIONS, regionOf, type RegionId } from '@/posthog/host'
+import { REGION_CHOICES, REGIONS, regionOf, type Host, type RegionId } from '@/posthog/host'
+import { fallbackHost, readSettings } from '@/posthog/settings'
 
 import { PRODUCT_IDS, productLabel, type ProductId } from '../products'
 import type { SetupInput } from '../result'
@@ -12,12 +13,25 @@ const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
 const SENT_NOTICE = 'hog sends your answer to PostHog to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
-const INSTRUCTIONS = [
-    `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
-    `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
-    'If none match, pass `--products product-analytics`.',
-    'Add `--region eu` only if the user mentions the EU or data residency.',
-].join(' ')
+function instructions(region: string): string {
+    return [
+        `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
+        `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
+        'If none match, pass `--products product-analytics`.',
+        region,
+    ]
+        .filter(Boolean)
+        .join(' ')
+}
+
+function regionInstructions(named: Host | undefined, lastLogin: Host | undefined): string {
+    if (named !== undefined) {
+        return ''
+    }
+    return lastLogin === undefined
+        ? 'hog logs in to US Cloud unless you add `--region eu`. Add it only if the user already asked for the EU. The login step tells you how to offer the other region.'
+        : `hog logs in to ${lastLogin}, where the user last logged in with hog, unless you add \`--region us\` or \`--region eu\`. Add it only if the user already asked for the other region.`
+}
 
 type Answers = Pick<SetupInput, 'reason' | 'products' | 'region'>
 
@@ -68,8 +82,13 @@ export const purpose: Step = {
     async advance(run) {
         const { ctx, input } = run
         const named = await run.namedHost()
+        const lastLogin = named === undefined ? fallbackHost(await readSettings(ctx.runtime)) : undefined
         const given = { reason: input.reason, products: input.products, region: input.region }
-        const { reason, products, region } = await askAtTerminal(run, given, named === undefined)
+        const { reason, products, region } = await askAtTerminal(
+            run,
+            given,
+            named === undefined && lastLogin === undefined
+        )
 
         if (reason === undefined || products === undefined) {
             if (Object.values(given).some((answer) => answer !== undefined)) {
@@ -83,24 +102,30 @@ export const purpose: Step = {
             }
 
             run.context.products = await run.productsContext()
+            if (lastLogin !== undefined) {
+                run.context.lastLoginHost = lastLogin
+            }
             return {
                 code: 'setup_needs_answers',
                 next: {
                     kind: 'ask_user',
                     ask: QUESTION,
                     command: COMMAND,
-                    instructions: INSTRUCTIONS,
+                    instructions: instructions(regionInstructions(named, lastLogin)),
                 },
             }
         }
 
-        const host = named ?? REGIONS[region ?? 'us']
+        const host = named ?? (region === undefined ? lastLogin : REGIONS[region]) ?? REGIONS.us
+        const hostPicked =
+            named !== undefined || region !== undefined ? undefined : lastLogin === undefined ? 'default' : 'last_login'
         run.state = {
             folder: run.scope.folder,
             startedAt: ctx.runtime.now(),
             reason,
             products,
             host,
+            hostPicked,
             reads: [],
             completed: [],
         }

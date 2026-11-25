@@ -6,7 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from ...facade import api, contracts
 from .trace_ids import MalformedTraceIdSegmentError, decode_trace_id_segment

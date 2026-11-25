@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo } from 'react'
 
 import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -17,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
@@ -46,7 +45,6 @@ import {
 } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
-import { listensOnEvent } from '../logic/alertNotifications'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
@@ -137,6 +135,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         isNonTimeSeriesDisplay,
         isBreakdownValid,
         formulaNodes,
+        display,
         interval: trendInterval,
         indexedResults,
         insightDataLoading,
@@ -157,6 +156,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     // loaded alert wins over the one passed in. The editor's own flag decides for a new alert.
     const llmDetectorEnabled =
         loadedAlert?.llm_detector_available ?? initialAlert?.llm_detector_available ?? editorCanUseLlmDetector
+    // Saving checks the forecast rollout for the alert's creator, so the editor's flag only decides what the picker shows.
+    const forecastDetectorEnabled = useFeatureFlag('ALERTS_FORECAST_DETECTOR')
 
     const formLogicProps = {
         alert,
@@ -204,7 +205,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
-    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
+    const { destinations, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
         useValues(notificationLogic)
     const { sendTestDelivery, loadNewAlertPagerDutyAvailable } = useActions(notificationLogic)
     const pagerDutyAvailable = alertId ? Boolean(alert?.pagerduty_available) : newAlertPagerDutyAvailable
@@ -225,10 +226,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
-        // A test sends only the firing event.
-        existingHogFunctions.some(
-            (hogFunction) => hogFunction.enabled && listensOnEvent(hogFunction, INSIGHT_ALERT_FIRING_EVENT_ID)
-        )
+        destinations.some((destination) => destination.enabled && destination.hears_firing)
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -315,11 +313,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     ])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
-    // A PagerDuty destination is an opened and a closed function, so the closed one is left out.
-    const destinationCount =
-        existingHogFunctions.filter(
-            (hogFunction) => !listensOnEvent(hogFunction, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID)
-        ).length + pendingNotifications.length
+    const destinationCount = destinations.length + pendingNotifications.length
     const summary = useMemo(
         () => buildAlertSummary(alertForm, subscribedCount, destinationCount),
         [alertForm, destinationCount, subscribedCount]
@@ -397,7 +391,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertMode={alertMode}
             thresholdBoundsFormError={thresholdBoundsFormError}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-            trends={{ alertSeries, formulaNodes, isBreakdownValid }}
+            trends={
+                // A calendar heatmap returns one result, for the first series, and ignores formulas.
+                display === ChartDisplayType.CalendarHeatmap
+                    ? { alertSeries: alertSeries.slice(0, 1), formulaNodes: [], isBreakdownValid }
+                    : { alertSeries, formulaNodes, isBreakdownValid }
+            }
             funnel={{
                 stepLabels: funnelStepLabels,
                 preview: funnelAlertPreview,
@@ -412,6 +411,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             llmDetectorEnabled={llmDetectorEnabled}
+            forecastDetectorEnabled={forecastDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}

@@ -137,12 +137,8 @@ describe('projectTreeDataLogic', () => {
     it.each<[string, string[], string[]]>([
         ['its flag is off', [], ['Models', 'SQL editor']],
         ['its flag is on', [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION], ['ELT', 'Models', 'SQL editor']],
-        [
-            'both catalog flags hide Models',
-            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
-            ['SQL editor'],
-        ],
-        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['Models', 'SQL editor']],
+        ['the catalog restructure hides Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['SQL editor']],
+        ['the rail nav alone keeps Models', [FEATURE_FLAGS.TODAY_RAIL_NAV], ['Models', 'SQL editor']],
     ])('shows starred products by their flags when %s', (_case, enabledFlags, expectedNames) => {
         featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
         logic.actions.loadShortcutsSuccess([
@@ -216,6 +212,32 @@ describe('projectTreeDataLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
             created ? 1 : 0
         )
+    })
+
+    it.each([
+        { type: 'dashboard', path: 'Weekly KPIs', itemName: 'Weekly KPIs' },
+        { type: 'person', path: 'ada@example.com', itemName: undefined },
+        { type: 'trace', path: 'GET /users/ada@example.com', itemName: undefined },
+    ])('leaves customer record names out of star telemetry ($type)', async ({ type, path, itemName }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const star = { id: 'star-1', path, type, href: '/somewhere' }
+        logic.actions.loadShortcutsSuccess([])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: star, created: true })
+        jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue(undefined as any)
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'item', path, type, href: '/somewhere' })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.deleteShortcut('star-1')
+        }).toFinishAllListeners()
+
+        const starEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('navbar starred item'))
+        expect(starEvents).toEqual([
+            ['navbar starred item added', { item_type: type, item_name: itemName }],
+            ['navbar starred item removed', { item_type: type, item_name: itemName }],
+        ])
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {

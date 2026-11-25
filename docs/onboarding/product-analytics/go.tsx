@@ -18,7 +18,7 @@ export const getGoInstallSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                go get "github.com/posthog/posthog-go"
+                                go get github.com/posthog/posthog-go/v2
                             `,
                             },
                         ]}
@@ -41,7 +41,7 @@ export const getGoInstallSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 package main
 
                                 import (
-                                    "github.com/posthog/posthog-go"
+                                    "github.com/posthog/posthog-go/v2"
                                 )
 
                                 func main() {

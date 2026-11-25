@@ -228,6 +228,44 @@ class TestOffsetRows:
         assert result.requests[0].param("offset") == "2"
 
 
+class TestRowOffsetRows:
+    @staticmethod
+    def _page(n: int, start: int = 0, total: int | None = None) -> dict[str, Any]:
+        page: dict[str, Any] = {"entries": [{"id": f"a{start + i}"} for i in range(n)]}
+        if total is not None:
+            page["total"] = total
+        return page
+
+    @pytest.mark.parametrize(
+        ("endpoint", "pages", "expected_offsets", "expected_saved"),
+        [
+            ("audit_logs", [_page(PAGE_SIZE, total=PAGE_SIZE)], ["0"], []),
+            # The server caps pageSize below what we ask for: a short page is not the end.
+            ("audit_logs", [_page(3, total=5), _page(2, start=3, total=5)], ["0", "3"], [3]),
+            ("access_logs", [_page(2), _page(0)], ["0", "2"], [2]),
+        ],
+        ids=["total_ends_full_page", "short_page_before_total", "no_total_stops_at_empty_page"],
+    )
+    def test_walks_row_offsets(
+        self, endpoint: str, pages: list[Any], expected_offsets: list[str], expected_saved: list[int]
+    ) -> None:
+        result = _run_get_rows(endpoint, pages)
+
+        assert result.params("offset") == expected_offsets
+        assert result.params("pageSize") == [str(PAGE_SIZE)] * len(expected_offsets)
+        assert result.saved_states == [InstanaResumeConfig(next_row_offset=offset) for offset in expected_saved]
+        assert len(result.rows) == sum(len(page["entries"]) for page in pages)
+
+    def test_resume_starts_at_saved_row_offset(self) -> None:
+        result = _run_get_rows(
+            "audit_logs",
+            [self._page(1, start=40, total=41)],
+            resume_state=InstanaResumeConfig(next_row_offset=40),
+        )
+
+        assert result.params("offset") == ["40"]
+
+
 def _run_metric_rows(
     endpoint: str,
     pages: list[Any],
@@ -361,6 +399,46 @@ class TestFanOutRows:
             "to": (str(now_ms),),
         }
         assert result.items == [[{"apdexId": "APDEX1", "apdexScore": [[1, 0.9]], "from": 1, "to": 2}]]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_body", "child_path", "child_field"),
+        [
+            (
+                "application_alert_configs",
+                {"items": [{"id": "APP1"}, {"id": "APP_GONE"}, {"id": "APP2"}], "page": 1, "totalHits": 3},
+                "/api/events/settings/application-alert-configs",
+                "applicationId",
+            ),
+            (
+                "website_alert_configs",
+                [{"id": "APP1"}, {"id": "APP_GONE"}, {"id": "APP2"}],
+                "/api/events/settings/website-alert-configs",
+                "websiteId",
+            ),
+        ],
+    )
+    def test_alert_configs_send_parent_id_as_query_param(
+        self, endpoint: str, parent_body: Any, child_path: str, child_field: str
+    ) -> None:
+        result = DRIVER.run(
+            endpoint,
+            [
+                ScriptedResponse(json=parent_body),
+                ScriptedResponse(json=[{"id": "A1", "name": "high error rate"}, {"id": "A2", "name": "slow calls"}]),
+                ScriptedResponse(status=404, json={"message": "not found"}),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [child_path] * 3
+        assert result.queries[1:] == [{child_field: (parent_id,)} for parent_id in ("APP1", "APP_GONE", "APP2")]
+        assert result.items == [
+            [
+                {"id": "A1", "name": "high error rate", child_field: "APP1"},
+                {"id": "A2", "name": "slow calls", child_field: "APP1"},
+            ]
+        ]
 
 
 class TestListRows:

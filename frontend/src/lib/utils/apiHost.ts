@@ -17,8 +17,7 @@ export function backendAssetUrl(path: string): string {
     return backendHost ? `${backendHost}${path}` : path
 }
 
-export function apiHostOrigin(): string {
-    const appOrigin = window.location.origin
+export function apiHostOrigin(appOrigin: string = window.location.origin): string {
     if (appOrigin === 'https://us.posthog.com') {
         return 'https://us.i.posthog.com'
     } else if (appOrigin === 'https://eu.posthog.com') {

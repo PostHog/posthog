@@ -25,9 +25,16 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import clear_team_metadata_cache
 
 from products.cohorts.backend.models.team_access import RealtimeCohortTeamAccess
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    REQUEST_LIST_FIELDS,
+    TeamFeatureFlagPolicyConfig,
+)
 
 logger = structlog.get_logger(__name__)
+
+# The refresh and verification jobs both run hourly. The verification job stops at its 40-minute hard limit.
+# The refresh job has no time limit. One hour assumes that a refresh run ends within its period.
+RETIRED_TOKEN_RECLEAR_DELAY_SECONDS = 60 * 60
 
 
 def _record_enqueue_failure() -> None:
@@ -92,14 +99,14 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 def update_team_metadata_cache_on_flag_policy_save(
     sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, created: bool, **kwargs: Any
 ) -> None:
-    """Refresh the cached team when its request blocklists change, because the flags service reads them from that cache."""
+    """Refresh the cached team when its request lists change, because the flags service reads them from that cache."""
     if not settings.FLAGS_REDIS_URL:
         return
     # The first read of Team.feature_flag_policy_config creates an empty row, and the cache
     # already holds empty lists for a team without a row.
-    if created and not instance.blocked_hosts and not instance.blocked_ips:
+    if created and not any(getattr(instance, field) for field in REQUEST_LIST_FIELDS):
         return
-    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"blocked_hosts", "blocked_ips"})):
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset(REQUEST_LIST_FIELDS)):
         return
 
     _enqueue_team_metadata_update_on_commit(instance.team_id)
@@ -133,6 +140,15 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
         _enqueue_or_record_failure(
             lambda: clear_team_metadata_cache_for_token_task.delay(api_token),
             "Failed to enqueue retired token metadata clear",
+            team_id=team_id,
+        )
+        # A refresh or verification run that loaded the team before the commit writes the entry back.
+        # The second clear runs after those runs finish.
+        _enqueue_or_record_failure(
+            lambda: clear_team_metadata_cache_for_token_task.apply_async(
+                args=[api_token], countdown=RETIRED_TOKEN_RECLEAR_DELAY_SECONDS
+            ),
+            "Failed to enqueue delayed retired token metadata clear",
             team_id=team_id,
         )
 

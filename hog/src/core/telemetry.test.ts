@@ -3,10 +3,13 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
 import { detectCi } from './ci'
+import { parseJsonOrUndefined } from './json'
+import { TelemetryBatch } from './telemetry'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -37,7 +40,7 @@ describe('telemetry', () => {
                     command_name: 'endpoints_run',
                     command_path: 'endpoints run',
                     success: true,
-                    exit_code: 0,
+                    exit_code: EXIT_SUCCESS,
                     options: ['var'],
                     source: 'endpoint',
                     variable_count: 1,
@@ -57,6 +60,26 @@ describe('telemetry', () => {
         const result = await runHog(argv, { ...ON, env: AGENT, respond: () => ({ status: 200, body: {} }) })
         expect(events(result).length).toBeGreaterThan(0)
         expect(JSON.stringify(events(result))).not.toContain('secret-customer')
+    })
+
+    test.each([
+        ['homebrew', '/opt/homebrew/Cellar/hog/1.0.0/bin/hog', 'Cellar'],
+        ['project', '/home/test/secret-customer-app/node_modules/@posthog/hog-linux-x64/bin/hog', 'secret-customer'],
+    ])('the usage event says hog came from %s and leaves out where it lives', async (kind, execPath, privatePart) => {
+        const result = await runHog(['commands'], {
+            ...ON,
+            env: AGENT,
+            execPath,
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(events(result)).toEqual([
+            expect.objectContaining({
+                event: 'posthog cli command run',
+                properties: expect.objectContaining({ install_method: kind }),
+            }),
+        ])
+        expect(JSON.stringify(events(result))).not.toContain(privatePart)
     })
 
     test.each([
@@ -126,6 +149,39 @@ describe('telemetry', () => {
     })
 
     test.each([
+        [
+            'a run at a terminal or in an agent hands usage events to a background process',
+            ['commands'],
+            {},
+            true,
+            'background',
+        ],
+        ['a run in CI sends usage events itself', ['commands'], { GITHUB_ACTIONS: 'true' }, true, 'inline'],
+        ['a run with --debug sends usage events itself', ['commands', '--debug'], {}, true, 'inline'],
+        ['a run with --debug that fails to parse sends usage events itself', ['nope', '--debug'], {}, true, 'inline'],
+        ['a run whose background process fails to start sends usage events itself', ['commands'], {}, false, 'inline'],
+    ])('%s', async (_name, argv, env, started, expected) => {
+        const background: string[] = []
+        const result = await runHog(argv, {
+            ...ON,
+            env: { ...AGENT, ...env },
+            respond: () => ({ status: 200, body: {} }),
+            sendTelemetryInBackground: async (body) => {
+                background.push(body)
+                return started
+            },
+        })
+
+        const handedOff = background.flatMap((body) => parseJsonOrUndefined(body, TelemetryBatch)?.batch ?? [])
+        if (expected === 'background') {
+            expect(handedOff).toEqual([expect.objectContaining({ event: 'posthog cli command run' })])
+            expect(events(result)).toEqual([])
+        } else {
+            expect(events(result)).toEqual([expect.objectContaining({ event: 'posthog cli command run' })])
+        }
+    })
+
+    test.each([
         ['HOG_NO_TELEMETRY', ['commands'], { HOG_NO_TELEMETRY: '1' }, {}],
         ['DO_NOT_TRACK', ['commands'], { DO_NOT_TRACK: '1' }, {}],
         ['--no-telemetry', ['commands', '--no-telemetry'], {}, {}],
@@ -165,7 +221,7 @@ describe('telemetry', () => {
             http_status: status,
         })
         expect(JSON.stringify(events(result))).not.toContain('Private detail')
-        expect(run!.properties).toMatchObject({ success: false, error_code: code, exit_code: 1 })
+        expect(run!.properties).toMatchObject({ success: false, error_code: code, exit_code: EXIT_FAILURE })
     })
 
     test('a posthog.json hog cannot parse stops the command, and telemetry still reports it', async () => {
@@ -175,7 +231,7 @@ describe('telemetry', () => {
             files: { '/work/posthog.json': '{"cli":' },
             respond: () => ({ status: 200, body: {} }),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(events(result).map((event) => [event.event, event.properties.error_code])).toEqual([
             ['$exception', 'invalid_config'],
             ['posthog cli command run', 'invalid_config'],
@@ -202,7 +258,7 @@ describe('telemetry', () => {
                 },
             }
         )
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const uploads = events(result).filter((event) => event.event.startsWith('error_tracking_cli'))
         expect(uploads.map((event) => [event.event, event.properties.type, event.properties.file_count])).toEqual([
             ['error_tracking_cli_sourcemaps_upload_started', 'proguard', 1],
@@ -240,7 +296,7 @@ describe('telemetry', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(events(result).length).toBeGreaterThan(0)
         expect(keychainReads).toBe(0)
     })

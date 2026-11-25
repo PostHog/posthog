@@ -12,6 +12,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -77,17 +78,6 @@ class SquadcastResumeConfig:
 
 def _hosts_for_region(region: str | None) -> RegionHosts:
     return REGION_HOSTS.get((region or "us").lower(), REGION_HOSTS["us"])
-
-
-def _format_datetime(value: Any) -> str:
-    """Format a datetime as RFC 3339 with a Z suffix, which Squadcast's date filters expect."""
-    if isinstance(value, datetime):
-        utc_value = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-    elif isinstance(value, date):
-        utc_value = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
-    else:
-        return str(value)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -282,8 +272,8 @@ def _iter_incident_export_windows(
             {
                 config.team_param: team_id,
                 "type": "json",
-                "start_time": _format_datetime(window_start),
-                "end_time": _format_datetime(window_end),
+                "start_time": format_datetime(window_start),
+                "end_time": format_datetime(window_end),
             },
         )
 
@@ -300,7 +290,7 @@ def _iter_incident_export_windows(
         window_start = window_end
         if window_start < now:
             resumable_source_manager.save_state(
-                SquadcastResumeConfig(team_id=team_id, cursor=_format_datetime(window_start))
+                SquadcastResumeConfig(team_id=team_id, cursor=format_datetime(window_start))
             )
 
 
@@ -321,8 +311,8 @@ def _get_postmortem_rows(
         config.path,
         {
             config.team_param: team_id,
-            "fromDate": _format_datetime(window_start),
-            "toDate": _format_datetime(datetime.now(UTC)),
+            "fromDate": format_datetime(window_start),
+            "toDate": format_datetime(datetime.now(UTC)),
             "limit": POSTMORTEM_LIMIT,
         },
     )

@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.facade.api import (
     schema_needs_webhook,
     sources_missing_webhook,
     validate_source_prefix,
+    webhook_issues,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    request_manual_runs,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -81,6 +83,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    added_table_root,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -97,6 +100,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     source_type_supports_cdc,
     sql_schema_metadata,
+    supports_adding_tables,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
@@ -112,13 +116,15 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
-    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
+    WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    ExternalDataSchemaSummarySerializer,
     canonical_masked_columns,
     masked_columns_error,
     pinned_table_ids,
     source_supports_column_selection,
+    truncate_error,
     unsupported_row_filter_reason,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
@@ -154,6 +160,25 @@ def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
     return interval or timedelta(hours=6)
 
 
+COMPACT_CONTEXT_KEY = "compact"
+INCLUDE_SCHEMAS_CONTEXT_KEY = "include_schemas"
+# Source health only: no connection settings (`job_inputs`) and no configuration flags.
+COMPACT_SOURCE_FIELDS = frozenset(
+    {
+        "id",
+        "created_at",
+        "source_type",
+        "prefix",
+        "description",
+        "access_method",
+        "status",
+        "latest_error",
+        "last_run_at",
+        "schemas",
+    }
+)
+
+
 class ExternalDataSourceListSerializer(serializers.ListSerializer):
     def to_representation(
         self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
@@ -162,7 +187,9 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         child = self.child
         assert isinstance(child, ExternalDataSourceSerializers)
         child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
-        child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
+        # The compact form has no webhook field, so it skips the lookup.
+        if not child.context.get(COMPACT_CONTEXT_KEY):
+            child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
         return super().to_representation(sources)
 
     def _webhook_missing_by_source(
@@ -216,6 +243,28 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
+    )
+    supports_adding_tables = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether tables can be added to this source by their path with the add_table endpoint. True for "
+            "object storage sources whose files URL names a folder, not one file or a pattern."
+        ),
+    )
+    table_root = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "For object storage sources: the folder that add_table resolves relative paths against, as "
+            "`<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null "
+            "for other sources, for a files URL that names one file or a pattern, or when the URL can't be read."
+        ),
+    )
+    supports_table_discovery = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a "
+            "source that reads tables from anywhere in its bucket. Add tables to such a source by their path."
+        ),
     )
     file_name = serializers.SerializerMethodField(
         read_only=True,
@@ -330,6 +379,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -352,11 +404,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
         ]
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        if self.context.get(COMPACT_CONTEXT_KEY):
+            fields = {name: field for name, field in fields.items() if name in COMPACT_SOURCE_FIELDS}
+        if self.context.get(INCLUDE_SCHEMAS_CONTEXT_KEY) is False:
+            fields.pop("schemas", None)
+        return fields
 
     def _source_inputs(self, instance: ExternalDataSource) -> dict[str, Any]:
         if instance.id in self.preloaded_source_inputs:
@@ -417,9 +480,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
 
+    def _registered_source(self, instance: ExternalDataSource) -> AnySource | None:
+        try:
+            return SourceRegistry.get_source(instance.source_type)
+        except ValueError:
+            # Removing a vendor's source leaves its stored rows behind, so an unregistered type is expected here.
+            return None
+
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(instance.source_type)
+            source = self._registered_source(instance)
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
@@ -444,10 +514,29 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
         try:
-            return SourceRegistry.get_source(instance.source_type).uploaded_file_name(instance)
+            source = self._registered_source(instance)
+            return source.uploaded_file_name(instance) if source is not None else None
         except Exception as e:
             capture_exception(e)
             return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
+        return self.get_table_root(instance) is not None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_table_root(self, instance: ExternalDataSource) -> str | None:
+        if not supports_adding_tables(instance.source_type):
+            return None
+        try:
+            source_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            return None
+        return added_table_root(instance.source_type, source_inputs)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
+        return not instance.is_self_managed_migration
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
@@ -489,7 +578,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
         if schema_with_error is None:
             return None
-        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+        redacted = helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+        return truncate_error(redacted) if self.context.get(COMPACT_CONTEXT_KEY) else redacted
 
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
         cached = getattr(instance, "_error_redaction_values", None)
@@ -509,6 +599,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
         else:
             schemas = list(instance.schemas.exclude(deleted=True).order_by("name"))
+        if self.context.get(COMPACT_CONTEXT_KEY):
+            return ExternalDataSchemaSummarySerializer(
+                schemas,
+                many=True,
+                read_only=True,
+                context={**self.context, "error_redaction_values": self._error_redaction_values(instance)},
+            ).data
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
@@ -516,14 +613,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
-            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
-                source_id: missing
-                for source_id, missing in self._webhook_missing_by_source(instance).items()
-                if source_id == instance.pk
-            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(instance.team_id, schemas)
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def _stored_credential_for_update(
@@ -1105,6 +1198,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
         ),
+    )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )
 
 
@@ -2165,6 +2263,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         detected_primary_keys,
                         incremental_field,
                         normalize=False,
+                        fall_back_to_all_columns=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
@@ -2414,11 +2513,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Syncs every enabled schema, so it needs editor on each - a table locked below the source
         # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
-        self._assert_can_write_schemas(
+        schemas = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .exclude(deleted=True)
             .select_related("source", "table")
         )
+        self._assert_can_write_schemas(schemas)
 
         if is_any_external_data_schema_paused(self.team_id):
             return setup_error_response(
@@ -2426,6 +2526,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
+        request_manual_runs([schema.id for schema in schemas], self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 
@@ -2481,7 +2582,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 

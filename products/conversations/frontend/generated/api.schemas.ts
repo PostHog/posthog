@@ -296,6 +296,76 @@ export interface PatchedTicketMacroApi {
     readonly created_by?: UserBasicApi | null
 }
 
+export interface PylonImportStartApi {
+    /**
+     * Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.
+     * @maxLength 500
+     */
+    api_token: string
+    /**
+     * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+export type PylonImportJobRegionEnumApi = (typeof PylonImportJobRegionEnumApi)[keyof typeof PylonImportJobRegionEnumApi]
+
+export const PylonImportJobRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface PylonImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /** Pylon region the API token belongs to: us or eu. */
+    readonly region: PylonImportJobRegionEnumApi | null
+    /** Whether a stored Pylon API token exists for this job (the token is never returned). */
+    readonly has_credentials: boolean
+    /** Total number of issues discovered for import. */
+    readonly total_issues: number
+    /** Number of issues processed so far. */
+    readonly processed_issues: number
+    /** Number of issues imported as tickets. */
+    readonly imported_issues: number
+    /** Number of issues skipped because they were already imported. */
+    readonly skipped_issues: number
+    /** Number of issues that failed to import. */
+    readonly failed_issues: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface PylonImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
+}
+
 export interface SigningSecretApi {
     /**
      * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
@@ -516,6 +586,11 @@ export interface TicketApi {
      */
     readonly intercom_conversation_id: string | null
     /**
+     * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+     * @nullable
+     */
+    readonly pylon_issue_id: string | null
+    /**
      * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
      * @nullable
      */
@@ -679,6 +754,23 @@ export const RatingEnumApi = {
 } as const
 
 /**
+ * * `wrong_facts` - Wrong or made-up facts
+ * * `missed_question` - Missed the customer's question
+ * * `too_vague` - Too vague to act on
+ * * `wrong_tone` - Wrong tone or style
+ * * `should_not_run` - Should not have run on this ticket
+ */
+export type AiFeedbackReasonEnumApi = (typeof AiFeedbackReasonEnumApi)[keyof typeof AiFeedbackReasonEnumApi]
+
+export const AiFeedbackReasonEnumApi = {
+    WrongFacts: 'wrong_facts',
+    MissedQuestion: 'missed_question',
+    TooVague: 'too_vague',
+    WrongTone: 'wrong_tone',
+    ShouldNotRun: 'should_not_run',
+} as const
+
+/**
  * Payload for recording reviewer feedback on an AI reply.
  */
 export interface AiFeedbackRequestApi {
@@ -697,6 +789,11 @@ export interface AiFeedbackRequestApi {
      * @maxLength 2000
      */
     feedback_text?: string
+    /**
+     * Optional reasons for a bad rating. Ignored for a good rating.
+     * @maxItems 5
+     */
+    reasons?: AiFeedbackReasonEnumApi[]
 }
 
 /**
@@ -817,7 +914,7 @@ export interface TicketNoteCreateRequestApi {
      * @maxLength 5000
      */
     message: string
-    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -830,7 +927,7 @@ export interface PatchedTicketNoteUpdateRequestApi {
      * @maxLength 5000
      */
     message?: string
-    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -845,7 +942,7 @@ export interface TicketReplyRequestApi {
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
     is_private?: boolean
-    /** Optional TipTap rich content JSON for formatted messages. */
+    /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400. */
     rich_content?: unknown
 }
 
@@ -952,7 +1049,7 @@ export interface ComposeTicketApi {
      * @maxLength 5000
      */
     message: string
-    /** TipTap rich content JSON for formatted messages. */
+    /** TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
     /**
      * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.

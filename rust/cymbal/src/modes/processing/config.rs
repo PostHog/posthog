@@ -102,6 +102,11 @@ pub struct ProcessingConfig {
     #[envconfig(default = "128")]
     pub process_max_in_flight_requests: usize,
 
+    /// Bounds the results a request that asks for per-event results can make cymbal build,
+    /// because each event of such a request gets a result even when it does not parse.
+    #[envconfig(default = "10000")]
+    pub process_max_events_per_request: usize,
+
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,
 
@@ -207,6 +212,9 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE", default = "3")]
     pub adaptive_ingestion_project_day_multiple: f64,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_MIN_HISTORY_DAYS", default = "7")]
+    pub adaptive_ingestion_min_history_days: usize,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
@@ -215,6 +223,26 @@ pub struct ProcessingConfig {
     // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
+
+    // Retention must be deployed before enabling writes for all teams.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
+    pub issue_change_log_enabled: bool,
+
+    // `off` or `log`. See `team_db_slots`.
+    #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS_MODE", default = "off")]
+    pub team_db_slots_mode: String,
+
+    // Each team's limit of Linking calls for issue-cache misses in flight on one pod.
+    #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS", default = "8")]
+    pub team_db_slots: usize,
+
+    // Comma separated `team_id:limit` pairs that replace CYMBAL_TEAM_DB_SLOTS for those teams.
+    #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS_OVERRIDES", default = "")]
+    pub team_db_slots_overrides: String,
+
+    // How long a team stays hot after its calls go over its limit.
+    #[envconfig(from = "CYMBAL_TEAM_HOT_WINDOW_SECS", default = "10")]
+    pub team_hot_window_secs: u64,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

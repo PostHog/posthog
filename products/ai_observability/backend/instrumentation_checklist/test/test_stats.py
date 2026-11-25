@@ -253,6 +253,25 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert stats.sdk_generations == 1
         assert stats.sdk_generations_identified == 0
 
+    def test_identified_uses_shared_expression(self) -> None:
+        bulk_create_ai_events(
+            [
+                _ai_event(team=self.team, event="$ai_generation", trace_id="trace-bare"),
+                _ai_event(team=self.team, event="$ai_generation", trace_id="trace-user", distinct_id="user-42"),
+                _ai_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    trace_id="trace-otel",
+                    distinct_id="4d1cc9d4-0f2e-4a55-9a9b-6c0f7d3e1b22",
+                    properties={"$ai_ingestion_source": "otel"},
+                ),
+            ]
+        )
+
+        stats = fetch_checklist_stats(self.team)
+
+        assert (stats.sdk_generations, stats.sdk_generations_identified) == (2, 1)
+
     def test_a_verdict_is_reused_until_a_refresh_asks_for_a_new_one(self) -> None:
         bulk_create_ai_events(_generations(self.team, VOLUME_FLOOR))
         assert fetch_checklist_stats(self.team).total_events == VOLUME_FLOOR
@@ -263,8 +282,8 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert fetch_checklist_stats(self.team, force_refresh=True).total_events == VOLUME_FLOOR + 1
 
     def test_a_project_below_the_volume_floor_is_never_held_at_its_first_counts(self) -> None:
-        # Every check grades pending down here, which is the card someone watches while their first
-        # events land. A cached verdict would answer them with the counts from before they started.
+        # Tool calls still grades pending down here, and this is the card someone watches while their
+        # first events land. A cached verdict would answer them with the counts from before they started.
         assert fetch_checklist_stats(self.team).total_events == 0
 
         bulk_create_ai_events(_generations(self.team, VOLUME_FLOOR - 1))

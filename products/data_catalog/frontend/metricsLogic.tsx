@@ -15,6 +15,7 @@ import { UserType } from '~/types'
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { existingMetricFromNameConflict, metricCount, metricDisplayName } from './common'
 import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
@@ -101,6 +102,7 @@ export interface metricsLogicValues {
     allMetricsLoading: boolean
     approvedMetrics: DataCatalogMetricApi[]
     bulkActionInFlight: BulkMetricAction | null
+    catalogEmpty: boolean
     creatingMetricAs: MetricSaveAction | null
     creatorFilterOptions: MetricCreatorOption[]
     filters: MetricsFilters
@@ -223,6 +225,7 @@ export interface metricsLogicMeta {
         showApproved: (filters: MetricsFilters) => boolean
         ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         creatorFilterOptions: (allMetrics: DataCatalogMetricApi[]) => MetricCreatorOption[]
+        catalogEmpty: (metricsLoadState: MetricsLoadState, allMetrics: DataCatalogMetricApi[]) => boolean
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
         stageCounts: (allMetrics: DataCatalogMetricApi[]) => MetricStageCounts
     }
@@ -402,6 +405,12 @@ export const metricsLogic = kea<metricsLogicType>([
                     .sort((a, b) => a.label.localeCompare(b.label))
             },
         ],
+        // A boolean, so a component that only branches on emptiness does not re-render on each metrics reload.
+        catalogEmpty: [
+            (s) => [s.metricsLoadState, s.allMetrics],
+            (metricsLoadState: MetricsLoadState, allMetrics: DataCatalogMetricApi[]): boolean =>
+                metricsLoadState === 'loaded' && allMetrics.length === 0,
+        ],
         proposedCount: [
             (s) => [s.allMetrics],
             (allMetrics: DataCatalogMetricApi[]) => allMetrics.filter((metric) => metric.status === 'proposed').length,
@@ -417,6 +426,7 @@ export const metricsLogic = kea<metricsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        loadMetricsSuccess: () => refreshDataCatalogAttention(),
         toggleStage: ({ stage }) => {
             posthog.capture('data catalog stage card clicked', { stage, status: values.filters.status })
         },

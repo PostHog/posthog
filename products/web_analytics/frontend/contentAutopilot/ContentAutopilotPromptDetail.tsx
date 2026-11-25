@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
-import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
@@ -16,6 +15,7 @@ import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotPromptDetailSkeleton } from './ContentAutopilotPromptDetailSkeleton'
 import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
 import { ContentAutopilotPromptOverview } from './ContentAutopilotPromptOverview'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
@@ -24,7 +24,6 @@ import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
-import { draftableOpportunity } from './utils'
 
 const TabSection = ({
     title,
@@ -65,17 +64,10 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         searchesQuery,
         sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const {
-        closePromptDetail,
-        openPromptDetail,
-        setArchiveConfirming,
-        setPromptEditing,
-        setReportTab,
-        setVisibilityMetric,
-    } = useActions(contentAutopilotPromptDetailLogic)
-    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
+    const { openPromptDetail, setArchiveConfirming, setPromptEditing, setReportTab, setVisibilityMetric } = useActions(
+        contentAutopilotPromptDetailLogic
+    )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const draftOpportunity = prompt && draftingEnabled ? draftableOpportunity(opportunityByPromptId, prompt) : null
     const backToPrompts = (): void => setWorkspaceTab('prompts')
 
     if (!promptId) {
@@ -117,9 +109,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const actions =
         prompt && !prompt.archived_at ? (
             <>
-                {draftOpportunity ? (
-                    <ContentAutopilotDraftButton opportunity={draftOpportunity} onReview={closePromptDetail} />
-                ) : null}
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -168,11 +157,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
                 </LemonBanner>
             ) : !reportReady ? (
-                <div className="flex flex-col gap-3">
-                    <LemonSkeleton className="h-6 w-1/2" />
-                    <LemonSkeleton className="h-20 w-full" />
-                    <LemonSkeleton className="h-72 w-full" />
-                </div>
+                <ContentAutopilotPromptDetailSkeleton />
             ) : (
                 <div className="@container/prompt-report flex flex-col gap-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">

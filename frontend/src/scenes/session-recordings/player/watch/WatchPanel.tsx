@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -21,27 +22,31 @@ import { WatchPanelSectionsWithObservations } from './WatchPanelSectionsWithObse
 export const WATCH_PANEL_COLLAPSED_SIZE = '2.5rem'
 
 export function WatchPanel(): JSX.Element | null {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const vision = useVisionSurfaceShown()
     const { debugMode, watchDebugDock, watchPanelCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setWatchPanelCollapsed } = useActions(playerSettingsLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [collapseToggleEl, setCollapseToggleEl] = useState<HTMLElement | null>(null)
     if (!sessionRecordingId) {
         return null
     }
-    const debugDocked = debugMode && watchDebugDock === 'bottom'
-    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
     const feed = isFeedReplayLayout(replayLayout)
+    // The feed layout shows debug in the list column instead, and fullscreen shows it beside the player.
+    const debugDocked = debugMode && watchDebugDock === 'bottom' && !feed && !isFullScreen
+    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
     const collapseToggle = (
-        <Button
-            size="icon"
-            onClick={() => setWatchPanelCollapsed(!watchPanelCollapsed)}
-            tooltip={watchPanelCollapsed ? 'Expand' : 'Collapse'}
-            aria-label={watchPanelCollapsed ? 'Expand' : 'Collapse'}
-            data-attr="watch-panel-collapse"
-        >
-            <IconChevronDown className={watchPanelCollapsed ? 'rotate-180' : undefined} />
-        </Button>
+        <span ref={setCollapseToggleEl} className="flex">
+            <Button
+                size="icon"
+                onClick={() => setWatchPanelCollapsed(!watchPanelCollapsed)}
+                tooltip={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+                aria-label={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+                data-attr="watch-panel-collapse"
+            >
+                <IconChevronDown className={watchPanelCollapsed ? 'rotate-180' : undefined} />
+            </Button>
+        </span>
     )
     const toggle = feed ? (
         <>
@@ -63,9 +68,13 @@ export function WatchPanel(): JSX.Element | null {
         >
             <RecordingTitleBlock hideProperties={feed} actions={actions} trailingActions={toggle} />
             {vision && dataProcessingAccepted ? (
-                <WatchPanelSectionsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
+                <WatchPanelSectionsWithObservations
+                    sessionId={sessionRecordingId}
+                    debug={debugDocked}
+                    hintAnchor={collapseToggleEl}
+                />
             ) : (
-                <WatchPanelSections debug={debugDocked} />
+                <WatchPanelSections debug={debugDocked} hintAnchor={collapseToggleEl} />
             )}
             <RecordingCommentsList sessionId={sessionRecordingId} />
         </div>

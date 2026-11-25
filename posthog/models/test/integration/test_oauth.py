@@ -41,8 +41,6 @@ from posthog.models.integration import (
     refresh_backoff_active,
 )
 from posthog.models.integration.model import integration_model
-from posthog.models.integration.oauth import posthog_slack_scope
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -59,27 +57,15 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
 
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
-    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
-
-
-@pytest.mark.parametrize(
-    "debug, cloud_deployment, requests_in_review",
-    [
-        (False, "US", False),
-        (False, "EU", False),
-        (False, None, False),
-        (False, "DEV", True),
-        (True, None, True),
-    ],
-)
-def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
-    debug: bool, cloud_deployment: str | None, requests_in_review: bool
-) -> None:
-    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
-        requested = set(posthog_slack_scope().split(","))
-
-    assert {scope.value for scope in SlackIntegrationScope} <= requested
-    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+    assert {
+        "assistant:write",
+        "im:history",
+        "canvases:read",
+        "canvases:write",
+        "channels:join",
+        "files:write",
+        "channels:manage",
+    } <= requested
 
 
 class TestOauthIntegrationModel(BaseTest):
@@ -106,6 +92,8 @@ class TestOauthIntegrationModel(BaseTest):
         "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
         "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
         "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
+        "BING_ADS_CLIENT_ID": "bing-ads-client-id",
+        "BING_ADS_CLIENT_SECRET": "bing-ads-client-secret",
     }
 
     def create_integration(
@@ -138,12 +126,20 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge_method": "S256",
             }
 
-    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+    @parameterized.expand(
+        [
+            ("google-search-console", {"consent", "select_account"}, "offline"),
+            ("bing-ads", {"select_account"}, None),
+        ]
+    )
+    def test_authorize_url_offers_the_account_chooser(
+        self, kind: str, expected_prompt: set[str], expected_access_type: Optional[str]
+    ):
         with self.settings(**self.mock_settings):
-            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            url = OauthIntegration.authorize_url(kind, token="state_token", next="/projects/test")
             params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
-            assert params["access_type"] == "offline"
-            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
+            assert params.get("access_type") == expected_access_type
+            assert set(params["prompt"].split(" ")) == expected_prompt
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):

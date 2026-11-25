@@ -121,6 +121,7 @@ describe('buildToolDomainsBlock', () => {
     it('trims lifecycle and capability actions from singleton domains', () => {
         const trailingActions = [
             'accept',
+            'add',
             'archive',
             'calculate',
             'cancel',
@@ -150,6 +151,7 @@ describe('buildToolDomainsBlock', () => {
             'publish',
             'record',
             'refresh',
+            'remove',
             'rename',
             'reset',
             'restore',

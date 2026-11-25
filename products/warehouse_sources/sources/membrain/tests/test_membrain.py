@@ -78,9 +78,10 @@ class TestMembrainPaginator:
 
 
 class TestPagination:
-    def test_follows_from_offsets_until_count_reached(self) -> None:
+    @parameterized.expand([("companies",), ("orders",), ("quotes",)])
+    def test_follows_from_offsets_until_count_reached(self, endpoint: str) -> None:
         result = _driver().run(
-            "companies",
+            endpoint,
             [
                 ScriptedResponse(json=_envelope([{"Id": "a"}, {"Id": "b"}], count=3, start=0)),
                 ScriptedResponse(json=_envelope([{"Id": "c"}], count=3, start=2)),
@@ -115,25 +116,46 @@ class TestPagination:
 
     @parameterized.expand(
         [
-            ("companies", {"IncludeDeleted": "true", "SortBy": "CreatedDate ASC"}),
-            ("contacts", {"IncludeDeleted": "true", "IncludeRetired": "true", "SortBy": "CreatedDate ASC"}),
-            ("activities", {"SortBy": "CreatedDate ASC"}),
+            ("companies", "/companies/", {"IncludeDeleted": "true", "SortBy": "CreatedDate ASC"}),
+            (
+                "contacts",
+                "/contacts/",
+                {"IncludeDeleted": "true", "IncludeRetired": "true", "SortBy": "CreatedDate ASC"},
+            ),
+            ("activities", "/activities/", {"SortBy": "CreatedDate ASC"}),
+            ("orders", "/orders/", {"SortBy": "CreatedDate ASC"}),
+            ("quotes", "/quotes/", {"SortBy": "CreatedDate ASC"}),
             # These endpoints document neither SortBy nor Include* params, so none are sent.
-            ("prospects", {}),
-            ("opportunities", {}),
-            ("opportunity_products", {}),
-            ("account_growth_items", {}),
-            ("tickets", {}),
+            ("prospects", "/prospects/", {}),
+            ("opportunities", "/opportunities/", {}),
+            ("opportunity_products", "/opportunityProducts/", {}),
+            ("account_growth_items", "/accountGrowthItems/", {}),
+            ("tickets", "/tickets/", {}),
+            ("process_container_contacts", "/processContainerContacts/", {}),
+            ("order_rows", "/orderRows/", {}),
+            ("quote_rows", "/quoteRows/", {}),
+            ("flows", "/flows/", {}),
         ]
     )
-    def test_documented_params_sent_per_endpoint(self, endpoint: str, expected: dict[str, str]) -> None:
+    def test_documented_params_sent_per_endpoint(self, endpoint: str, path: str, expected: dict[str, str]) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=_envelope([], count=0, start=0))])
 
         assert result.raised is None
+        assert result.requests[0].path == f"/API/v2{path}"
         assert {key: values[0] for key, values in result.queries[0].items()} == expected
 
     @parameterized.expand(
-        [("prospects",), ("opportunities",), ("opportunity_products",), ("account_growth_items",), ("tickets",)]
+        [
+            ("prospects",),
+            ("opportunities",),
+            ("opportunity_products",),
+            ("account_growth_items",),
+            ("tickets",),
+            ("process_container_contacts",),
+            ("order_rows",),
+            ("quote_rows",),
+            ("flows",),
+        ]
     )
     def test_unsorted_endpoints_never_save_or_load_resume_state(self, endpoint: str) -> None:
         # No documented SortBy means no established stable order, so an offset resume across runs
@@ -165,6 +187,8 @@ class TestBareArrayEndpoints:
             ("prospecting_processes", "/prospectingProcesses/"),
             ("ticket_processes", "/ticketProcesses/"),
             ("account_growth_processes", "/accountGrowthProcesses/"),
+            ("sales_teams", "/salesTeams/"),
+            ("flow_processes", "/flowProcesses/"),
         ]
     )
     def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str, path: str) -> None:

@@ -13,11 +13,11 @@ import {
 } from '@posthog/quill'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import {
     STEP_SOURCE_PRESETS,

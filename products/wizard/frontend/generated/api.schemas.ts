@@ -828,6 +828,7 @@ export interface UpsertWizardSessionRequestApi {
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type UserCreatableDestinationTypeEnumApi =
     (typeof UserCreatableDestinationTypeEnumApi)[keyof typeof UserCreatableDestinationTypeEnumApi]
@@ -840,6 +841,7 @@ export const UserCreatableDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -885,7 +887,8 @@ export interface WizardCatalogToolApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     warehouse_destination_type: UserCreatableDestinationTypeEnumApi | null
     /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
      *

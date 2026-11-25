@@ -2,30 +2,30 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSelect, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { ContentAutopilotKeywordModifierTerms } from './ContentAutopilotKeywordModifierTerms'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
-import { KEYWORDS_DAYS, type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
+import { type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
+import { windowRange } from './utils'
 
 export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
-    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords } =
+    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords, filters } =
         useValues(contentAutopilotKeywordsLogic)
     const { loadModifiers, setModifierKeyword } = useActions(contentAutopilotKeywordsLogic)
 
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="What the engines add to your searches" />
+            <PagePerformanceCardHeader
+                title="What the engines add to your searches"
+                description={
+                    'Words the engines put in their web searches that your prompts don\'t contain, such as a year, "pricing" or "vs". Each points at content the engines look for. Words whose answers cite you much less than usual are marked as gaps.'
+                }
+            />
             <div className="flex flex-col gap-3 p-3" data-attr="content-autopilot-keywords-modifiers">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="m-0 text-xs text-muted max-w-2xl">
-                        Words the engines put in their web searches that your prompts don't contain, such as a year,
-                        "pricing" or "vs". Each points at content the engines look for. Words whose answers cite you
-                        much less than usual are marked as gaps.
-                    </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
                     <LemonSelect<string | null>
                         size="small"
                         aria-label="Keyword filter"
@@ -53,7 +53,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                 ) : modifiers.modifiers.length === 0 ? (
                     <p className="m-0 text-muted" data-attr="content-autopilot-keywords-modifiers-empty">
                         {modifiers.answers === 0
-                            ? `No answers ${modifierKeyword ? `searched for "${modifierKeyword}" ` : ''}in the last ${KEYWORDS_DAYS} days.`
+                            ? `No answers ${modifierKeyword ? `searched for "${modifierKeyword}" ` : ''}${windowRange(modifiers)}.`
                             : 'The engines searched only for words your prompts already contain. Only some engines report the searches they run.'}
                     </p>
                 ) : (
@@ -111,19 +111,12 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 <ContentAutopilotKeywordModifierTerms
                                     modifiers={group.modifiers}
                                     baselineCitedRate={modifiers.baseline_cited_rate}
+                                    dateFrom={modifiers.window_from}
+                                    dateTo={modifiers.window_to}
+                                    branded={filters.branded}
                                 />
                             ),
                         }}
-                        footer={
-                            <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(modifiers.answers, 'answer')} in the last {KEYWORDS_DAYS} days. Your
-                                site is cited in{' '}
-                                {modifiers.baseline_cited_rate === null
-                                    ? '-'
-                                    : percentage(modifiers.baseline_cited_rate, 0)}{' '}
-                                of them. Expand a group to see its words.
-                            </span>
-                        }
                     />
                 )}
             </div>

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import posthog from 'lib/posthog-typed'
 
 import { releasesImportAllCreate } from './generated/api'
 import type { ReleaseDTOApi } from './generated/api.schemas'
@@ -14,6 +15,7 @@ interface ReleaseImportLogicValues {
     dataLoading: boolean
     loadFailed: boolean
     canEditReleases: boolean
+    releasesEnabled: boolean
     autoImportedProjects: Record<string, true>
     autoImportState: AutoImportState
     showAutoImport: boolean
@@ -32,7 +34,10 @@ type releaseImportLogicType = MakeLogicType<ReleaseImportLogicValues, ReleaseImp
 export const releaseImportLogic = kea<releaseImportLogicType>([
     path(['products', 'release', 'frontend', 'releaseImportLogic']),
     connect(() => ({
-        values: [releaseLogic, ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases']],
+        values: [
+            releaseLogic,
+            ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases', 'releasesEnabled'],
+        ],
         actions: [releaseLogic, ['reload', 'loadReleasesSuccess']],
     })),
     actions({
@@ -57,6 +62,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 s.canEditReleases,
                 s.autoImportedProjects,
                 s.currentProjectId,
+                s.releasesEnabled,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -64,8 +70,10 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 loadFailed: boolean,
                 canEditReleases: boolean,
                 autoImportedProjects: Record<string, true>,
-                currentProjectId: number | null
+                currentProjectId: number | null,
+                releasesEnabled: boolean
             ) =>
+                releasesEnabled &&
                 !dataLoading &&
                 !loadFailed &&
                 canEditReleases &&
@@ -84,10 +92,15 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
             }
         },
         runAutoImport: async () => {
+            if (!values.releasesEnabled) {
+                return
+            }
             const projectId = String(values.currentProjectId)
             actions.setAutoImportState('running')
+            posthog.capture('release import started')
             try {
                 const { created_count } = await releasesImportAllCreate(projectId)
+                posthog.capture('release import finished', { created_count })
                 if (cache.disposables.isDisposed) {
                     return
                 }
@@ -98,6 +111,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 }
                 actions.reload(true)
             } catch {
+                posthog.capture('release import failed')
                 if (cache.disposables.isDisposed) {
                     return
                 }

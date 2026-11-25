@@ -28,7 +28,7 @@ EVENTS_WINDOW_CHUNK_MS = 24 * 60 * 60 * 1000
 # (typically ~31 days), so asking for more returns nothing extra.
 EVENTS_DEFAULT_LOOKBACK_DAYS = 30
 
-# `/api/infrastructure-monitoring/snapshots` has a `size` cap instead of pagination. The window
+# `/api/infrastructure-monitoring/snapshots` and `/api/host-agent` have a `size` cap instead of pagination. The window
 # only needs to cover entities currently reporting, so keep it short.
 SNAPSHOTS_WINDOW_MS = 60 * 60 * 1000
 SNAPSHOTS_MAX_SIZE = 1000
@@ -56,7 +56,7 @@ APPLICATION_METRICS: list[dict[str, str]] = [
 # the scores over the trailing window.
 APDEX_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
-PaginationStyle = Literal["page", "offset", "none"]
+PaginationStyle = Literal["page", "offset", "row_offset", "none"]
 
 
 @frozen
@@ -67,6 +67,8 @@ class InstanaFanOutConfig:
     parent_field: str
     # Column the parent id is written to on every child row, so rows stay attributable.
     child_field: str
+    # Send the parent id as the `child_field` query param instead of substituting it into `path`.
+    in_query: bool = False
 
 
 @frozen
@@ -123,7 +125,8 @@ def _timestamp_incremental_fields() -> list[IncrementalField]:
 # mirror, so coverage follows what the UI surfaces: events, the application-monitoring catalogs
 # (applications/services/endpoints) and their daily golden-signal metrics, website, mobile app and
 # synthetic monitoring configs, alerting settings, event specifications, releases, SLOs, Apdex, and
-# the infrastructure snapshot inventory. Trace analytics and synthetic result endpoints are
+# the infrastructure snapshot and host agent inventories, users, teams, groups, the audit and access
+# logs, business perspectives, maintenance windows, and the smart alert configs. Trace analytics and synthetic result endpoints are
 # POST-with-body cursor APIs and are intentionally out of scope.
 INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
     "events": InstanaEndpointConfig(
@@ -256,6 +259,74 @@ INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
         primary_keys=["apdexId", "from"],
         fan_out=InstanaFanOutConfig(parent="apdex_configs", parent_field="id", child_field="apdexId"),
         report_window_ms=APDEX_REPORT_WINDOW_MS,
+    ),
+    "host_agents": InstanaEndpointConfig(
+        name="host_agents",
+        path="/api/host-agent",
+        data_path="items",
+        primary_keys=["snapshotId"],
+        extra_params={"windowSize": str(SNAPSHOTS_WINDOW_MS), "size": str(SNAPSHOTS_MAX_SIZE)},
+    ),
+    "users": InstanaEndpointConfig(
+        name="users",
+        path="/api/settings/users",
+    ),
+    "teams": InstanaEndpointConfig(
+        name="teams",
+        path="/api/settings/rbac/teams",
+    ),
+    "groups": InstanaEndpointConfig(
+        name="groups",
+        path="/api/settings/rbac/groups",
+    ),
+    # The logs have no time filter (`query` is a free-text search), so they ship full refresh.
+    "audit_logs": InstanaEndpointConfig(
+        name="audit_logs",
+        path="/api/settings/auditlog",
+        data_path="entries",
+        pagination="row_offset",
+    ),
+    # Access log entries carry no id.
+    "access_logs": InstanaEndpointConfig(
+        name="access_logs",
+        path="/api/settings/accesslog",
+        data_path="entries",
+        primary_keys=["timestamp", "email", "action"],
+        pagination="row_offset",
+    ),
+    "business_perspectives": InstanaEndpointConfig(
+        name="business_perspectives",
+        path="/api/business-monitoring/business-perspectives",
+    ),
+    "maintenance_windows": InstanaEndpointConfig(
+        name="maintenance_windows",
+        path="/api/settings/v2/maintenance",
+    ),
+    "infra_alert_configs": InstanaEndpointConfig(
+        name="infra_alert_configs",
+        path="/api/events/settings/infra-alert-configs",
+    ),
+    # The application, website and mobile app smart alert lists each require the id of the entity
+    # they belong to, so they fan out over the matching catalog.
+    "application_alert_configs": InstanaEndpointConfig(
+        name="application_alert_configs",
+        path="/api/events/settings/application-alert-configs",
+        primary_keys=["applicationId", "id"],
+        fan_out=InstanaFanOutConfig(
+            parent="applications", parent_field="id", child_field="applicationId", in_query=True
+        ),
+    ),
+    "website_alert_configs": InstanaEndpointConfig(
+        name="website_alert_configs",
+        path="/api/events/settings/website-alert-configs",
+        primary_keys=["websiteId", "id"],
+        fan_out=InstanaFanOutConfig(parent="websites", parent_field="id", child_field="websiteId", in_query=True),
+    ),
+    "mobile_app_alert_configs": InstanaEndpointConfig(
+        name="mobile_app_alert_configs",
+        path="/api/events/settings/mobile-app-alert-configs",
+        primary_keys=["mobileAppId", "id"],
+        fan_out=InstanaFanOutConfig(parent="mobile_apps", parent_field="id", child_field="mobileAppId", in_query=True),
     ),
 }
 

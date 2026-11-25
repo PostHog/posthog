@@ -7,7 +7,6 @@ import { Provider, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -93,7 +92,6 @@ describe('EmailDomainScene', () => {
     }
 
     const turnOnSuggestions = (on: boolean): void => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true })
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: on,
@@ -111,9 +109,6 @@ describe('EmailDomainScene', () => {
         useMocks(backend.mocks())
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true,
-        })
     })
 
     afterEach(() => {
@@ -185,16 +180,20 @@ describe('EmailDomainScene', () => {
         expect(screen.getByText('Send another test')).toBeInTheDocument()
     })
 
-    it('sends the person to Cloudflare and verifies after they return', async () => {
+    it.each([
+        ['workflows', ''],
+        ['transactional emails', '?from=transactional'],
+    ])('sends the person to Cloudflare and back to the setup they came from %s', async (_origin, originQuery) => {
         seedSender()
         const tab = { location: { href: '' }, opener: {}, close: jest.fn() }
         jest.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-        await open(urls.workflowsEmailDomain(SENDER_ID))
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}${originQuery}`)
         expectStep('Add 8 settings at Cloudflare')
 
         click('email-domain-auto-configure')
         await flush()
-        const returnUrl = `http://localhost/project/997${urls.workflowsEmailDomain(SENDER_ID)}?domain_connect=email`
+        const returnPath = `${urls.workflowsEmailDomain(SENDER_ID)}${originQuery}${originQuery ? '&' : '?'}domain_connect=email`
+        const returnUrl = `http://localhost/project/997${returnPath}`
         expect(backend.requestsTo('domain_connect_apply_url')[0].body).toEqual({
             context: 'email',
             integration_id: SENDER_ID,
@@ -205,8 +204,8 @@ describe('EmailDomainScene', () => {
 
         backend.approveDomainConnect(DOMAIN)
         cleanup()
-        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?domain_connect=email`)
-        expect(router.values.location.search).toBe('')
+        await open(returnPath)
+        expect(router.values.location.search).toBe(originQuery)
         expect(backend.requestsTo('email_status').at(-1)?.url).toContain('refresh=true')
         expectStep('Checking your settings…')
         expectProgress('8 of 8 found')
@@ -378,6 +377,52 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('integration_get')).toHaveLength(2)
     })
 
+    it('says the sender no longer exists, without a retry, when it was deleted', async () => {
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('This sending domain no longer exists')
+        expect(document.querySelector('[data-attr="email-domain-retry"]')).toBeNull()
+        expectBackToChannels()
+    })
+
+    it('keeps a setup started from transactional emails pointed back there, from the new domain to ready', async () => {
+        await open(`${urls.workflowsEmailDomain('new')}?from=transactional`)
+        expect(screen.getByText('Back to transactional emails').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(new RegExp(`${urls.transactional()}$`))
+        )
+        typeInto('email-domain-another-domain', 'acme.com')
+        click('email-domain-use-custom-domain')
+        click('email-domain-continue')
+        await flush()
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}$`))
+        expect(router.values.location.search).toBe('?from=transactional')
+
+        backend.verifyDomain(DOMAIN)
+        cleanup()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=transactional`)
+        expectStep(/You can send from/)
+        expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(
+            'href',
+            expect.stringMatching(/\/transactional\?guide=send-from-code$/)
+        )
+
+        cleanup()
+        await open(`${urls.workflowsEmailDomain('new')}?from=transactional`)
+        typeInto('email-domain-another-domain', 'acme.com')
+        click('email-domain-use-custom-domain')
+        expect(screen.getByText('Open it').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}\\?from=transactional$`))
+        )
+    })
+
+    it('returns to workflows when the link names an origin the setup does not know', async () => {
+        seedSender()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=nowhere`)
+        expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
+        expectBackToChannels()
+    })
+
     it('keeps the progress on screen when a status check fails after the records were found', async () => {
         seedSender()
         backend.publishRecords(DOMAIN)
@@ -423,6 +468,92 @@ describe('EmailDomainScene', () => {
         expectStep('Add 8 settings at your DNS host')
         expect(document.querySelector('[data-attr="email-domain-auto-configure"]')).toBeNull()
         expect(element('email-domain-records-added')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['reaches ready once its records verify again', true, undefined],
+        ['stays stopped while the provider still reports it pending', false, 'failed'],
+    ])('a domain whose sending stopped %s after one verify', async (_, recordsFixed, sendingStatusAfter) => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('Sending stopped')
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        if (recordsFixed) {
+            backend.verifyAtProviderOnly(DOMAIN)
+        }
+        click('email-domain-check-again')
+        await flush()
+
+        expect(!!screen.queryByText(/You can send from/)).toBe(recordsFixed)
+        expect((backend.sender(SENDER_ID)?.config as Record<string, unknown> | undefined)?.ses_sending_status).toBe(
+            sendingStatusAfter
+        )
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+    })
+
+    it.each([
+        ['verified', true],
+        ['pending', false],
+    ])(
+        'shows a stopped domain the provider reports %s as stopped, and repairs it only on a check',
+        async (_, recordsFixedBeforeOpen) => {
+            seedSender()
+            backend.stopsSending(DOMAIN, { recordsRemoved: !recordsFixedBeforeOpen })
+            if (recordsFixedBeforeOpen) {
+                backend.verifyAtProviderOnly(DOMAIN)
+            } else {
+                backend.sesReports(DOMAIN, 'pending')
+            }
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            await flush(60_000)
+
+            expectStep('Sending stopped')
+            expect(backend.requestsTo('email_verify')).toHaveLength(0)
+
+            backend.verifyAtProviderOnly(DOMAIN)
+            click('email-domain-check-again')
+            await flush()
+
+            expectStep(/You can send from/)
+            expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+        }
+    )
+
+    it('shows a repaired domain as stopped again when a sender name save returns a new stop', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-check-again')
+        await flush()
+        expectStep(/You can send from/)
+        backend.stopsSending(DOMAIN, { recordsRemoved: true })
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expectStep('Sending stopped')
+        expect(screen.getAllByText(/^0 of \d+ found$/).length).toBeGreaterThan(0)
+    })
+
+    it('keeps the MAIL FROM subdomain a repair adopted when the sender name is saved afterwards', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        backend.sesUsesMailFrom(DOMAIN, 'bounce')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-check-again')
+        await flush()
+        expectStep(/You can send from/)
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expect(backend.senderConfig(SENDER_ID)).toMatchObject({ name: 'Acme Team', mail_from_subdomain: 'bounce' })
     })
 
     it('lets the person restart a stopped verification again after the first restart fails', async () => {

@@ -112,6 +112,23 @@ class TestRemoveUserByUuid(BaseTest):
 
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
+    @patch(
+        "products.cohorts.backend.static_reconciliation._user_path_redis",
+        side_effect=ConnectionError("redis down"),
+    )
+    def test_redis_error_does_not_prevent_removal(self, mock_record, mock_get_size, mock_remove_ch):
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = self._create_static_cohort()
+        add_cohort_members(cohort, [person])
+
+        result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
+
+        assert result is True
+        assert (cohort.id, person.id) not in get_active_fake()._cohort_members
+        mock_record.assert_called_once()
+
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_personhog_resolves_person_for_removal(self, mock_get_size, mock_remove_ch):
         person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()

@@ -902,8 +902,14 @@ export class RerunPaginatorService {
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
                 renderTimeoutAttempts: _renderTimeoutAttempts,
-                ...restoredCurrentAction
+                sandboxEmail,
+                sandboxEmailRetries: _sandboxEmailRetries,
+                ...resumableCurrentAction
             } = persistedState.currentAction ?? {}
+            const restoredCurrentAction =
+                sandboxEmail?.outcome === 'accepted'
+                    ? { ...resumableCurrentAction, sandboxEmail }
+                    : resumableCurrentAction
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
@@ -929,6 +935,7 @@ export class RerunPaginatorService {
                 // Later message steps check these before the per-worker preferences cache, which can predate them.
                 messageOptOuts: persistedState.messageOptOuts,
                 send: persistedState.send,
+                senderKind: persistedState.senderKind,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

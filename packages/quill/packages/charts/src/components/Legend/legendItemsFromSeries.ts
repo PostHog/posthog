@@ -15,6 +15,9 @@ export function legendItemsFromSeries(
         }
         const fallback = palette.length > 0 ? palette[i % palette.length] : '#000'
         const item: LegendItem = { key: s.key, label: s.label, color: s.color || fallback }
+        if (s.legendTag) {
+            item.tag = s.legendTag
+        }
         if (values?.length) {
             item.values = computeLegendValues(s.data, values)
         }

@@ -15,16 +15,25 @@ from posthog.temporal.ai_observability.shared_activities import (
 )
 
 
-def _create_team(approved: bool | None) -> int:
+def _create_team(approved: bool | None, enabled: bool = True) -> int:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
     organization = Organization.objects.create(name="Org", is_ai_data_processing_approved=approved)
-    return Team.objects.create(organization=organization, name="Team").id
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+    team = Team.objects.create(organization=organization, name="Team")
+    ClusteringConfig.objects.create(team=team, enabled=enabled)
+    return team.id
 
 
 @pytest.mark.django_db(transaction=True)
 class TestCheckAIDataProcessingConsentActivity:
+    @pytest.mark.asyncio
+    async def test_consent_does_not_replace_clustering_opt_in(self) -> None:
+        team_id = await database_sync_to_async(_create_team)(True, False)
+        assert await check_ai_data_processing_consent_activity(TeamAIConsentInput(team_id=team_id)) is False
+
     @parameterized.expand(
         [
             ("approved", True, True),

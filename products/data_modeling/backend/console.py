@@ -194,7 +194,7 @@ class ClearNodeSuspensionsTool(ConsoleTool):
     key = "clear-node-suspensions"
     title = "Clear node suspensions"
     owner = DATA_MODELING
-    group = "Data"
+    group = "Data warehouse"
     description = "Clears suspensions of data modeling nodes in this region, so their models run again."
 
     def page(self, request: HttpRequest) -> Page:
@@ -372,7 +372,7 @@ class DagTiersTool(ConsoleTool):
     key = "dag-tiers"
     title = "DAG schedule tiers"
     owner = DATA_MODELING
-    group = "Data"
+    group = "Data warehouse"
     description = "What each cadence tier of a data modeling DAG holds, and what its last run did."
 
     def page(self, request: HttpRequest) -> Page:

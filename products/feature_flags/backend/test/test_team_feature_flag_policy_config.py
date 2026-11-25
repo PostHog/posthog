@@ -8,14 +8,14 @@ from rest_framework import status
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.feature_flags.backend.facade.request_blocklist import (
-    MAX_BLOCKED_HOST_LENGTH,
-    MAX_BLOCKED_HOSTS,
-    MAX_BLOCKED_IP_LENGTH,
-    MAX_BLOCKED_IPS,
-    BlocklistEntryError,
-    normalize_blocked_hosts,
-    normalize_blocked_ips,
+from products.feature_flags.backend.facade.request_lists import (
+    MAX_LISTED_HOST_LENGTH,
+    MAX_LISTED_HOSTS,
+    MAX_LISTED_IP_LENGTH,
+    MAX_LISTED_IPS,
+    RequestListEntryError,
+    normalize_listed_hosts,
+    normalize_listed_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import (
     TeamFeatureFlagPolicyConfig,
@@ -23,7 +23,7 @@ from products.feature_flags.backend.models.team_feature_flag_policy_config impor
 )
 
 
-class TestNormalizeBlockedHosts(SimpleTestCase):
+class TestNormalizeListedHosts(SimpleTestCase):
     @parameterized.expand(
         [
             ("lowercases_and_trims", [" Example.COM. "], ["example.com"]),
@@ -38,13 +38,13 @@ class TestNormalizeBlockedHosts(SimpleTestCase):
             ("backslash_in_url_reads_as_slash", ["https://example.com\\@evil.com"], ["example.com"]),
             (
                 "accepts_max_after_dedupe",
-                [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS)] + ["HOST0.example.com"],
-                [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS)],
+                [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS)] + ["HOST0.example.com"],
+                [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS)],
             ),
         ]
     )
     def test_normalizes(self, _name: str, entries: list[str], expected: list[str]) -> None:
-        assert normalize_blocked_hosts(entries) == expected
+        assert normalize_listed_hosts(entries) == expected
 
     @parameterized.expand(
         [
@@ -57,16 +57,16 @@ class TestNormalizeBlockedHosts(SimpleTestCase):
             ("longer_than_253_chars", [".".join(["a" * 63] * 4)], "is not a valid domain"),
             ("invalid_idn_joiner", ["a\u200db.example"], "is not a valid domain"),
             ("invalid_punycode", ["xn--zz.com"], "is not a valid domain"),
-            ("single_label", ["com"], "would block every domain that ends in .com"),
-            ("too_many", [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS + 1)], "up to 100 domains"),
+            ("single_label", ["com"], "would match every domain that ends in .com"),
+            ("too_many", [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS + 1)], "up to 100 domains"),
         ]
     )
     def test_rejects(self, _name: str, entries: list[str], message: str) -> None:
-        with self.assertRaisesRegex(BlocklistEntryError, message):
-            normalize_blocked_hosts(entries)
+        with self.assertRaisesRegex(RequestListEntryError, message):
+            normalize_listed_hosts(entries)
 
 
-class TestNormalizeBlockedIps(SimpleTestCase):
+class TestNormalizeListedIps(SimpleTestCase):
     @parameterized.expand(
         [
             ("ipv4_address", ["203.0.113.7"], ["203.0.113.7"]),
@@ -81,13 +81,13 @@ class TestNormalizeBlockedIps(SimpleTestCase):
             ("ipv4_mapped_range_as_ipv4", ["::ffff:203.0.113.0/120"], ["203.0.113.0/24"]),
             (
                 "accepts_max_after_dedupe",
-                [f"10.0.0.{i}" for i in range(MAX_BLOCKED_IPS)] + ["10.0.0.0/32"],
-                [f"10.0.0.{i}" for i in range(MAX_BLOCKED_IPS)],
+                [f"10.0.0.{i}" for i in range(MAX_LISTED_IPS)] + ["10.0.0.0/32"],
+                [f"10.0.0.{i}" for i in range(MAX_LISTED_IPS)],
             ),
         ]
     )
     def test_normalizes(self, _name: str, entries: list[str], expected: list[str]) -> None:
-        assert normalize_blocked_ips(entries) == expected
+        assert normalize_listed_ips(entries) == expected
 
     @parameterized.expand(
         [
@@ -99,12 +99,12 @@ class TestNormalizeBlockedIps(SimpleTestCase):
             ("ipv6_too_broad", ["2000::/15"], "IPv6 ranges can be /16 or narrower"),
             ("ipv4_mapped_everything", ["::ffff:0:0/96"], "IPv4 ranges can be /8 or narrower"),
             ("ipv6_scoped", ["fe80::1%eth0"], "is not a valid IP address or range"),
-            ("too_many", [f"10.0.{i // 256}.{i % 256}" for i in range(MAX_BLOCKED_IPS + 1)], "up to 100 IP"),
+            ("too_many", [f"10.0.{i // 256}.{i % 256}" for i in range(MAX_LISTED_IPS + 1)], "up to 100 IP"),
         ]
     )
     def test_rejects(self, _name: str, entries: list[str], message: str) -> None:
-        with self.assertRaisesRegex(BlocklistEntryError, message):
-            normalize_blocked_ips(entries)
+        with self.assertRaisesRegex(RequestListEntryError, message):
+            normalize_listed_ips(entries)
 
 
 class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
@@ -139,12 +139,12 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
 
     def test_admin_sets_request_blocklist_normalized_and_logged(self) -> None:
         self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}}, format="json")
-        other_hosts = [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS - 2)]
+        other_hosts = [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS - 2)]
         # Each fills its column exactly. Postgres truncates an entry that is too long for its
         # varchar(n)[] column instead of raising an error, so only the read-back shows that it fits.
         longest_host = ".".join(["a" * 63] * 3 + ["b" * 61])
         longest_ip = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127"
-        assert (len(longest_host), len(longest_ip)) == (MAX_BLOCKED_HOST_LENGTH, MAX_BLOCKED_IP_LENGTH)
+        assert (len(longest_host), len(longest_ip)) == (MAX_LISTED_HOST_LENGTH, MAX_LISTED_IP_LENGTH)
 
         response = self.client.patch(
             self.url,
@@ -185,7 +185,7 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
             ("host_malformed_url", {"blocked_hosts": ["https://[example.com"]}, "is not a valid domain"),
             (
                 "hosts_over_unique_cap",
-                {"blocked_hosts": [f"host{i}.example.com" for i in range(MAX_BLOCKED_HOSTS + 1)]},
+                {"blocked_hosts": [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS + 1)]},
                 "up to 100 domains",
             ),
         ]

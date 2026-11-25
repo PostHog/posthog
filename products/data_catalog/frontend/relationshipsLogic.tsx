@@ -15,6 +15,7 @@ import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/vi
 import { itemsOnPage, pageCountFor } from './catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from './catalogSort'
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogRelationshipProposalsCreate,
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -49,7 +50,6 @@ export interface RelationshipRow {
     joiningTableKey: string
     fieldName: string
     rowStatus: RelationshipRowStatus
-    confidence: number | null
     reasoning: string
     evidence: unknown
     rejectionReason: string
@@ -59,7 +59,7 @@ export interface RelationshipRow {
     joinId: string | null
 }
 
-export type RelationshipsSortColumn = 'source' | 'joining' | 'accessor' | 'confidence' | 'status' | 'reviewedBy'
+export type RelationshipsSortColumn = 'source' | 'joining' | 'accessor' | 'status' | 'reviewedBy'
 export type RelationshipsSort = ColumnSort<RelationshipsSortColumn>
 
 export const DEFAULT_RELATIONSHIPS_SORT: RelationshipsSort = { column: 'status', direction: 'asc' }
@@ -74,7 +74,6 @@ const RELATIONSHIP_SORT_VALUES: SortValueGetters<RelationshipRow, RelationshipsS
     source: (row) => relationshipTableRef(row.sourceTableName, row.sourceTableKey),
     joining: (row) => relationshipTableRef(row.joiningTableName, row.joiningTableKey),
     accessor: (row) => row.fieldName,
-    confidence: (row) => row.confidence,
     status: (row) => ROW_STATUS_RANK[row.rowStatus],
     reviewedBy: (row) => row.reviewedBy,
 }
@@ -373,7 +372,6 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         joiningTableKey: join.joining_table_key || '',
                         fieldName: join.field_name || '',
                         rowStatus: 'active',
-                        confidence: proposal?.confidence ?? null,
                         reasoning: proposal?.reasoning ?? '',
                         evidence: proposal?.evidence,
                         rejectionReason: '',
@@ -398,7 +396,6 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         joiningTableKey: proposal.joining_table_key,
                         fieldName: proposal.field_name,
                         rowStatus: 'active',
-                        confidence: proposal.confidence ?? null,
                         reasoning: proposal.reasoning ?? '',
                         evidence: proposal.evidence,
                         rejectionReason: '',
@@ -418,7 +415,6 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                         joiningTableKey: proposal.joining_table_key,
                         fieldName: proposal.field_name,
                         rowStatus: proposal.status === 'rejected' ? 'rejected' : 'pending',
-                        confidence: proposal.confidence ?? null,
                         reasoning: proposal.reasoning ?? '',
                         evidence: proposal.evidence,
                         rejectionReason: proposal.rejection_reason || '',
@@ -461,6 +457,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        loadPendingCountSuccess: () => refreshDataCatalogAttention(),
         setFilters: ({ filters }) => {
             const { table, ...search } = router.values.searchParams
             if (typeof table === 'string' && filters.search !== undefined && filters.search !== table) {

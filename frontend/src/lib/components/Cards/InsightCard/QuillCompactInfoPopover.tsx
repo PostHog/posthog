@@ -26,7 +26,7 @@ export function QuillCompactInfoPopover({
                     />
                 }
             >
-                <IconInfo />
+                <IconInfo className="size-3.5" />
             </PopoverTrigger>
             <PopoverContent arrow className="p-0">
                 <CompactInfoPopoverContent {...contentProps} />

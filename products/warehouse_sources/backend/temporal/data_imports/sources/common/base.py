@@ -10,6 +10,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -856,6 +857,13 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
 
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        """How one table's webhook rows fill the event columns, so the table can keep history.
+
+        None when the table has no change time to order its events by, or already keeps one row per event.
+        """
+        return None
+
     def create_webhook(
         self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
@@ -887,9 +895,12 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
         """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
 
-        While one is missing the webhook accepts and drops every delivery. Override where the
-        provider stores the credential under another input, so a configured webhook is not reported.
+        While one is missing the webhook accepts and drops every delivery, unless the signature check is
+        bypassed. Override where the provider stores the credential under another input, so a configured
+        webhook is not reported.
         """
+        if (inputs.get("bypass_signature_check") or {}).get("value"):
+            return []
         return [
             field.name
             for field in (self.get_source_config.webhookFields or [])

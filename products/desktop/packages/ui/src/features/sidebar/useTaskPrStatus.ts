@@ -1,3 +1,4 @@
+import { parseGitlabMergeRequestUrl } from "@posthog/core/git-interaction/prStatus";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,8 +24,11 @@ export function useTaskPrStatus(task: {
   // No id means no task — canvas rows share this hook — and a cloud run with no
   // PR url yet has nothing to look up either. Both would spend a round trip to
   // be told nothing.
+  // A GitLab merge request has no GitHub state to look up either.
   const skipQuery =
-    !task.id || (task.taskRunEnvironment === "cloud" && !task.cloudPrUrl);
+    !task.id ||
+    (task.taskRunEnvironment === "cloud" && !task.cloudPrUrl) ||
+    parseGitlabMergeRequestUrl(task.cloudPrUrl) !== null;
 
   const { data } = useQuery(
     trpc.workspace.getTaskPrStatus.queryOptions(

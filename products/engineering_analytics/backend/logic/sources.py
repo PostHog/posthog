@@ -50,6 +50,7 @@ DEPOT_JOB_ATTEMPTS_SCHEMA = "job_attempts"
 # GitHub adds this column to an issue event only for a team review request, so it lands only once some
 # pull request in the repo requested a team, and a read of it fails before that.
 REQUESTED_TEAM_COLUMN = "requested_team"
+PULL_REQUEST_BODY_COLUMN = "body"
 
 # The role is not in the endpoint's documented user object, so a snapshot can land without this column.
 MEMBER_ROLE_COLUMN = "role"
@@ -85,6 +86,7 @@ class GitHubTables:
     reviews: str | None = None
     # True when the issue-events table has the REQUESTED_TEAM_COLUMN.
     issue_events_team_requests: bool = False
+    pull_requests_have_body: bool = False
     # The OPTIONAL_WORKFLOW_RUNS_COLUMNS that the runs table has. A read selects NULL for the others.
     workflow_runs_optional_columns: frozenset[str] = frozenset()
     workflow_runs_synced_at: datetime | None = None
@@ -146,6 +148,7 @@ def resolve_github_tables(
                 deployment_statuses=tables.get(DEPLOYMENT_STATUSES_SCHEMA),
                 reviews=tables.get(REVIEWS_SCHEMA),
                 issue_events_team_requests=candidate.tables.issue_events_team_requests,
+                pull_requests_have_body=candidate.tables.pull_requests_have_body,
                 workflow_runs_optional_columns=candidate.tables.workflow_runs_optional_columns,
                 workflow_runs_synced_at=candidate.tables.synced_at.get(WORKFLOW_RUNS_SCHEMA),
                 workflow_jobs_synced_at=candidate.tables.synced_at.get(WORKFLOW_JOBS_SCHEMA),
@@ -340,6 +343,7 @@ class _RepoTables(NamedTuple):
     # Keyed by endpoint.
     names: dict[str, str]
     issue_events_team_requests: bool
+    pull_requests_have_body: bool
     workflow_runs_optional_columns: frozenset[str]
     # Keyed by endpoint, for the same schemas as ``names``.
     synced_at: dict[str, datetime | None]
@@ -563,6 +567,7 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     legacy_repo = _source_repository(source) or None
     by_repo: dict[str, dict[str, str]] = {}
     team_requests_by_repo: dict[str, bool] = {}
+    bodies_by_repo: dict[str, bool] = {}
     run_columns_by_repo: dict[str, frozenset[str]] = {}
     synced_at_by_repo: dict[str, dict[str, datetime | None]] = {}
     for schema in _synced_schemas(team=team, source=source):
@@ -575,6 +580,8 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
             synced_at_by_repo.setdefault(repository or "", {})[endpoint] = schema.last_synced_at
             if endpoint == ISSUE_EVENTS_SCHEMA:
                 team_requests_by_repo[repository or ""] = REQUESTED_TEAM_COLUMN in (table.columns or {})
+            if endpoint == PULL_REQUESTS_SCHEMA:
+                bodies_by_repo[repository or ""] = PULL_REQUEST_BODY_COLUMN in (table.columns or {})
             if endpoint == WORKFLOW_RUNS_SCHEMA:
                 run_columns_by_repo[repository or ""] = frozenset(OPTIONAL_WORKFLOW_RUNS_COLUMNS) & frozenset(
                     table.columns or {}
@@ -583,6 +590,7 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
         repository: _RepoTables(
             names=names,
             issue_events_team_requests=team_requests_by_repo.get(repository, False),
+            pull_requests_have_body=bodies_by_repo.get(repository, False),
             workflow_runs_optional_columns=run_columns_by_repo.get(repository, frozenset()),
             synced_at=synced_at_by_repo.get(repository, {}),
         )

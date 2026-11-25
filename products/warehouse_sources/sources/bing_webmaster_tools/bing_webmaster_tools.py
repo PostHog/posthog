@@ -9,7 +9,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL, ENDPOINT_CONFIGS
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    RetryableHTTPError,
+    SourceResponse,
+    make_tracked_session,
+    vendor_retry,
+)
 from products.warehouse_sources.sources.sdk.internals import NamingConvention
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -18,12 +23,35 @@ REQUEST_TIMEOUT_SECONDS = 60
 # tightly than a background sync request.
 VALIDATION_TIMEOUT_SECONDS = 30
 
+# Caps how many near-miss sites one error names, so an account with many verified paths on one host
+# doesn't produce an unreadable message.
+MAX_SUGGESTED_SITES = 3
+
+# `page_query_stats` sends one GetPageQueryStats request per top page, and GetPageStats can list
+# hundreds of pages for a busy site. Only the pages with the most clicks are fanned out, so one
+# table cannot use up the per-key quota that every other table of the source shares.
+MAX_PAGE_QUERY_STATS_PAGES = 100
+
+# ThrottleUser counts requests per API key and ThrottleIP per caller address. Neither fault says
+# when its window resets, and an immediate retry only spends more of the same quota. Wait this long
+# before the next activity attempt instead (the activity clamps it to its own maximum).
+THROTTLE_FAULTS = ("ThrottleUser", "ThrottleIP")
+THROTTLE_RETRY_AFTER_SECONDS = 60 * 60
+
 
 class BingWebmasterToolsError(Exception):
     """API-level failure carrying the ApiFault ``Message`` (e.g. InvalidApiKey, NotAuthorized).
 
     The fault message is part of the exception text so ``get_non_retryable_errors`` can match on
     it. Faults not in that map (e.g. throttling) stay retryable at the activity level.
+    """
+
+
+class BingWebmasterToolsThrottledError(BingWebmasterToolsError, RetryableHTTPError):
+    """A ThrottleUser or ThrottleIP fault.
+
+    Its `retry_after` is longer than `vendor_retry` waits in process, so the request is not sent
+    again in this attempt, and the activity defers its next attempt by that much.
     """
 
 
@@ -75,6 +103,7 @@ def _api_fault_message(response: requests.Response) -> str | None:
     return None
 
 
+@vendor_retry(suspend_adapter=False)
 def _request_payload(
     session: requests.Session,
     api_key: str,
@@ -82,6 +111,11 @@ def _request_payload(
     params: dict[str, str] | None = None,
     timeout: int = REQUEST_TIMEOUT_SECONDS,
 ) -> Any:
+    # `suspend_adapter=False`: this call's status handling below doesn't raise `RetryableHTTPError`,
+    # so suspending the adapter's own 429/5xx retries would drop that coverage. The decorator only
+    # adds retry for `NETWORK_ERRORS` (e.g. `ChunkedEncodingError` from a chunked response that gets
+    # cut off mid-stream), which the adapter never retries: the body is read lazily, after urllib3's
+    # own retry loop around connecting and the headers has already returned.
     try:
         response = session.get(
             f"{BASE_URL}/{method}",
@@ -97,9 +131,12 @@ def _request_payload(
     if not response.ok:
         fault = _api_fault_message(response)
         if fault is not None:
-            raise BingWebmasterToolsError(
-                f"Bing Webmaster Tools {method} failed with status {response.status_code}: {fault}"
-            )
+            message = f"Bing Webmaster Tools {method} failed with status {response.status_code}: {fault}"
+            if fault.rstrip().endswith(THROTTLE_FAULTS):
+                raise BingWebmasterToolsThrottledError(
+                    message, status=response.status_code, retry_after=THROTTLE_RETRY_AFTER_SECONDS
+                )
+            raise BingWebmasterToolsError(message)
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -151,6 +188,34 @@ def verified_sites_for_host(filter_url: str, verified: list[str]) -> list[str]:
     return [url for url in verified if urlparse(url).netloc.lower() == host]
 
 
+def _loose_host(url: str) -> str:
+    """Host without scheme, port or a leading ``www.``, so near-misses such as ``https://www.example.com``
+    against ``http://example.com/`` or ``https://example.com/blog/`` compare equal."""
+    stripped = url.strip()
+    host = (urlparse(stripped if "://" in stripped else f"//{stripped}").hostname or "").lower()
+    return host.removeprefix("www.")
+
+
+def _quoted(urls: list[str]) -> str:
+    return " and ".join(repr(url) for url in urls[:MAX_SUGGESTED_SITES])
+
+
+def _missing_site_hint(entry: str, sites: list[dict[str, Any]], verified: list[str]) -> str | None:
+    """Point a filter entry that matched no verified site at what the account actually lists: the
+    same site still awaiting ownership verification, or verified sites on the same host."""
+    unverified = [url for site in sites if not site.get("IsVerified") and isinstance(url := site.get("Url"), str)]
+    host = _loose_host(entry)
+    awaiting = [url for url in unverified if _site_key(url) == _site_key(entry)]
+    if not awaiting and host:
+        candidates = verified_sites_for_host(entry, verified) or [url for url in verified if _loose_host(url) == host]
+        if candidates:
+            return f"For '{entry}', your account has {_quoted(candidates)}."
+        awaiting = [url for url in unverified if _loose_host(url) == host]
+    if awaiting:
+        return f"Bing hasn't verified {_quoted(awaiting)} on your account yet. Verify ownership in Bing Webmaster Tools first."
+    return None
+
+
 def parse_site_urls(raw: str | None) -> list[str]:
     """Parse the optional site filter field: one URL per line, blanks skipped, duplicates dropped."""
     if not raw:
@@ -198,17 +263,10 @@ def select_site_urls(sites: list[dict[str, Any]], site_url_filters: list[str]) -
             # resolve to one registered URL; syncing it twice would seed duplicate primary keys.
             selected.append(matched)
     if missing:
-        ambiguous = {entry: candidates for entry in missing if (candidates := verified_sites_for_host(entry, verified))}
-        hint = ""
-        if ambiguous:
-            pairs = "; ".join(
-                f"'{entered}' matches {' and '.join(repr(url) for url in candidates)}"
-                for entered, candidates in ambiguous.items()
-            )
-            hint = f"Bing lists sites with their full URL, and {pairs}. "
+        hints = " ".join(hint for entry in missing if (hint := _missing_site_hint(entry, sites, verified)))
         raise ValueError(
             f"These site URLs are not verified sites on the connected account: {', '.join(missing)}. "
-            f"{hint}"
+            f"{hints + ' ' if hints else ''}"
             "Enter each site exactly as Bing Webmaster Tools lists it, or clear the field to sync "
             "every verified site."
         )
@@ -270,13 +328,32 @@ def _url_rows(items: list[dict[str, Any]], site_url: str) -> list[dict[str, Any]
     return [_normalized_row(item, site_url) for item in items if item.get("Url")]
 
 
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _top_pages(page_stats: list[dict[str, Any]], limit: int) -> list[str]:
+    """The `limit` pages with the most clicks over the window, then the most impressions.
+
+    GetPageStats has one row per page and date, so totals are summed per page. Ties keep the order
+    Bing lists the pages in.
+    """
+    totals: dict[str, tuple[int, int]] = {}
+    for item in page_stats:
+        page = item.get("Query")
+        if not isinstance(page, str) or not page:
+            continue
+        clicks, impressions = totals.get(page, (0, 0))
+        totals[page] = (clicks + _count(item.get("Clicks")), impressions + _count(item.get("Impressions")))
+    return sorted(totals, key=lambda page: totals[page], reverse=True)[:limit]
+
+
 def _page_query_stats_batches(
     session: requests.Session, api_key: str, site_url: str, logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan out GetPageQueryStats over the site's top pages, as listed by GetPageStats."""
     page_stats = _request(session, api_key, "GetPageStats", {"siteUrl": site_url})
-    pages = list(dict.fromkeys(page for item in page_stats if isinstance(page := item.get("Query"), str) and page))
-    for page in pages:
+    for page in _top_pages(page_stats, MAX_PAGE_QUERY_STATS_PAGES):
         # The JSON endpoint documents `page` as a quoted JSON string literal, unlike `siteUrl`.
         try:
             items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})

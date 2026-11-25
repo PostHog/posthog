@@ -20,19 +20,16 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     _NOT_SETTLED_ERROR_TYPES,
-    INGESTION_LAG_MARGIN_SECONDS,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
     FindQuietPointInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
-    SettlePlan,
     _quiet_point,
     check_session_settled_activity,
     check_trace_settled_activity,
     resolve_poll_interval,
-    resolve_settle_plan,
 )
 from posthog.temporal.ai_observability.run_session_evaluation import ExecuteSessionEvaluationInputs
 from posthog.temporal.ai_observability.run_trace_evaluation import (
@@ -40,6 +37,12 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     ExecuteTraceEvaluationInputs,
 )
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    INGESTION_LAG_MARGIN_SECONDS,
+    SettlePlan,
+    resolve_settle_plan,
+)
 
 
 @pytest.fixture

@@ -60,6 +60,8 @@ export const DEFAULT_TABLES_FILTERS: TablesFilters = { kind: 'any', problem: 'an
 export const TABLES_FILTER_PARAM = 'filter'
 export const TABLES_SEARCH_PARAM = 'table'
 export const PROPOSED_TABLES_FILTER = 'proposed'
+/** A link with this value opens the Metrics tab with no search and no filter, so the suggested metrics show. */
+export const SUGGESTED_METRICS_FILTER = 'suggested'
 export const DATA_QUALITY_TAB = 'data-quality'
 
 export function dataQualityUrl(tableName: string): string {
@@ -475,9 +477,21 @@ export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters):
     )
 }
 
-export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
+function textMatchesSearch(search: string, ...texts: string[]): boolean {
     const needle = search.trim().toLowerCase()
-    return !needle || row.name.toLowerCase().includes(needle) || row.subtitle.toLowerCase().includes(needle)
+    return !needle || texts.some((text) => text.toLowerCase().includes(needle))
+}
+
+export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
+    return textMatchesSearch(search, row.name, row.subtitle)
+}
+
+export function subjectMatchesSearch(subject: ChecksSubject, search: string): boolean {
+    return textMatchesSearch(search, subject.name)
+}
+
+export function subjectHasFailingChecks(subject: ChecksSubject): boolean {
+    return (passingChecks(subject)?.failing ?? 0) > 0
 }
 
 export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'

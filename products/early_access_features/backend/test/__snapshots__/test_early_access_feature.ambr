@@ -22,6 +22,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.1
@@ -191,6 +192,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -223,6 +225,7 @@
          "posthog_user"."email_opt_in",
          "ee_role"."id",
          "ee_role"."name",
+         "ee_role"."organization_access_level",
          "ee_role"."organization_id",
          "ee_role"."created_at",
          "ee_role"."created_by_id",
@@ -276,6 +279,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.4
@@ -341,6 +345,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.7
@@ -366,6 +371,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.8
@@ -380,6 +386,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -445,6 +452,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.1
@@ -510,6 +518,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.4
@@ -524,6 +533,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -710,6 +720,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -742,6 +753,7 @@
          "posthog_user"."email_opt_in",
          "ee_role"."id",
          "ee_role"."name",
+         "ee_role"."organization_access_level",
          "ee_role"."organization_id",
          "ee_role"."created_at",
          "ee_role"."created_by_id",
@@ -876,6 +888,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.2
@@ -941,6 +954,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.5
@@ -955,6 +969,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1043,6 +1058,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1075,6 +1091,7 @@
          "posthog_user"."email_opt_in",
          "ee_role"."id",
          "ee_role"."name",
+         "ee_role"."organization_access_level",
          "ee_role"."organization_id",
          "ee_role"."created_at",
          "ee_role"."created_by_id",
@@ -1111,6 +1128,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.1
@@ -1176,6 +1194,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.4
@@ -1190,6 +1209,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1278,6 +1298,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1310,6 +1331,7 @@
          "posthog_user"."email_opt_in",
          "ee_role"."id",
          "ee_role"."name",
+         "ee_role"."organization_access_level",
          "ee_role"."organization_id",
          "ee_role"."created_at",
          "ee_role"."created_by_id",

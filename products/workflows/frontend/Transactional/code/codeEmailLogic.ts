@@ -11,6 +11,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -29,6 +30,7 @@ import type {
     PatchedCodeEmailUpdateApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { opensRunLogs, withoutRunLogFilters } from '../runLogLinks'
 import { agentPrompt } from './agentPrompt'
 import { parseSourceFile } from './sourceFile'
 
@@ -36,9 +38,10 @@ export interface CodeEmailLogicProps {
     id: string
 }
 
-export type CodeEmailTab = 'metrics' | 'sends' | 'api'
+export type CodeEmailTab = 'impact' | 'metrics' | 'sends' | 'runs' | 'api'
 
-const CODE_EMAIL_TABS: CodeEmailTab[] = ['metrics', 'sends', 'api']
+// pinned: values of the `tab` URL search param - renaming breaks shared links
+const CODE_EMAIL_TABS: CodeEmailTab[] = ['impact', 'metrics', 'sends', 'runs', 'api']
 
 export type CodeEmailLoadState = 'loading' | 'loaded' | 'not-found' | 'failed'
 
@@ -117,7 +120,7 @@ export interface codeEmailLogicActions {
     setTab: (tab: CodeEmailTab) => {
         tab: CodeEmailTab
     }
-    showSends: (searchParams: Record<string, string>) => {
+    showRuns: (searchParams: Record<string, string>) => {
         searchParams: Record<string, string>
     }
     updateCodeEmail: (fields: PatchedCodeEmailUpdateApi) => {
@@ -175,7 +178,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     })),
     actions({
         setTab: (tab: CodeEmailTab) => ({ tab }),
-        showSends: (searchParams: Record<string, string>) => ({ searchParams }),
+        showRuns: (searchParams: Record<string, string>) => ({ searchParams }),
         loadCodeEmail: true,
         codeEmailLoaded: (codeEmail: CodeEmailApi) => ({ codeEmail }),
         codeEmailNotFound: true,
@@ -202,7 +205,7 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
         ],
     })),
     reducers({
-        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showSends: () => 'sends' }],
+        tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showRuns: () => 'runs' }],
         codeEmail: [
             null as CodeEmailApi | null,
             {
@@ -410,17 +413,17 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                 }
             },
             setTab: ({ tab }) => {
-                const { tab: shownTab, ...searchParams } = router.values.searchParams
-                if ((shownTab ?? 'metrics') !== tab) {
-                    const next = tab === 'metrics' ? searchParams : { ...searchParams, tab }
+                const { tab: _shownTab, ...searchParams } = router.values.searchParams
+                const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
+                const next = tab === 'metrics' ? kept : { ...kept, tab }
+                if (!objectsEqual(next, { ...router.values.searchParams })) {
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
             },
-            showSends: ({ searchParams }) => {
-                // The Sends tab reads its filters from the URL, so the drilldown stays on this page.
+            showRuns: ({ searchParams }) => {
                 router.actions.replace(
                     router.values.location.pathname,
-                    { ...searchParams, tab: 'sends' },
+                    { ...searchParams, tab: 'runs' },
                     router.values.hashParams
                 )
             },
@@ -428,7 +431,9 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
     }),
     urlToAction(({ actions, values, props }) => ({
         '/transactional/code-emails/:id': ({ id }, searchParams) => {
-            const tab = CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics'
+            const tab = opensRunLogs(searchParams)
+                ? 'runs'
+                : (CODE_EMAIL_TABS.find((known) => known === searchParams.tab) ?? 'metrics')
             if (id === props.id && tab !== values.tab) {
                 actions.setTab(tab)
             }

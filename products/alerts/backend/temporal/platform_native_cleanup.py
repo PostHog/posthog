@@ -3,6 +3,7 @@
 import asyncio
 import datetime as dt
 from itertools import batched
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -10,6 +11,9 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
@@ -96,4 +100,7 @@ class InsightAlertNativeCleanupWorkflow(PostHogWorkflow):
 
 
 NATIVE_CLEANUP_WORKFLOWS = [InsightAlertNativeCleanupWorkflow]
-NATIVE_CLEANUP_ACTIVITIES = [list_native_insight_alerts_activity, delete_native_insight_alert_activity]
+NATIVE_CLEANUP_ACTIVITIES: list[ActivityDefinition] = [
+    list_native_insight_alerts_activity,
+    delete_native_insight_alert_activity,
+]

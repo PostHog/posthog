@@ -1,6 +1,17 @@
 import { useValues } from 'kea'
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
+import {
+    Badge,
+    Heading,
+    Item,
+    ItemContent,
+    ItemTitle,
+    Tabs as QuillTabs,
+    TabsList,
+    TabsTrigger,
+    Text,
+} from '@posthog/quill'
 import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
 import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
 import { PROSE_LANGUAGE } from '@posthog/shared-onboarding/steps'
@@ -12,6 +23,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -74,6 +86,7 @@ export function OnboardingSelectedFileProvider({ children }: { children: ReactNo
 }
 
 function Steps({ children }: StepsProps): JSX.Element {
+    const quillSurface = useQuillSurface()
     let stepNumber = 0
 
     const processedChildren = Children.map(children, (child) => {
@@ -92,7 +105,7 @@ function Steps({ children }: StepsProps): JSX.Element {
         return child
     })
 
-    return <div className="space-y-6">{processedChildren}</div>
+    return <div className={quillSurface ? 'flex flex-col gap-6' : 'space-y-6'}>{processedChildren}</div>
 }
 
 function Step({
@@ -103,11 +116,32 @@ function Step({
     stepNumber,
     children,
 }: StepProps & { stepNumber?: number }): JSX.Element | null {
+    const quillSurface = useQuillSurface()
+
     if (docsOnly) {
         return null
     }
 
     const numberedTitle = stepNumber ? `${stepNumber}. ${title}` : title
+
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Heading size="sm" render={<h3 className="m-0" />}>
+                        {numberedTitle}
+                    </Heading>
+                    {badge && <Badge variant={badge === 'recommended' ? 'success' : 'default'}>{badge}</Badge>}
+                </div>
+                {subtitle && (
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        {subtitle}
+                    </Text>
+                )}
+                <div className="flex flex-col gap-4">{children}</div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -149,6 +183,7 @@ function CodeBlock({
     const globalSelectedFile = context?.selectedFile
     const globalSetSelectedFile = context?.setSelectedFile
     const { currentTeam } = useValues(teamLogic)
+    const quillSurface = useQuillSurface()
     const host = context?.apiHost ?? apiHostOrigin()
 
     const replacePlaceholders = (codeString: string): string => {
@@ -180,13 +215,25 @@ function CodeBlock({
     // standalone, copyable value — users otherwise try (and fail) to click or copy it in the snippet.
     const rawCodeStrings = blocks ? blocks.map((block) => block.code) : code ? [code] : []
     const hostUsed = rawCodeStrings.some((codeString) => codeString.includes('<ph_client_api_host>'))
+    const hostCopy = (
+        <CopyToClipboardInline explicitValue={host} description="API host" iconSize="xsmall" selectable>
+            {host}
+        </CopyToClipboardInline>
+    )
     const hostHint = hostUsed ? (
-        <div className="flex items-center gap-1 text-xs text-muted mt-1">
-            <span>API host:</span>
-            <CopyToClipboardInline explicitValue={host} description="API host" iconSize="xsmall" selectable>
-                {host}
-            </CopyToClipboardInline>
-        </div>
+        quillSurface ? (
+            <div className="flex flex-wrap items-center gap-1">
+                <Text size="xs" variant="muted" render={<span />}>
+                    API host:
+                </Text>
+                {hostCopy}
+            </div>
+        ) : (
+            <div className="flex items-center gap-1 text-xs text-muted mt-1">
+                <span>API host:</span>
+                {hostCopy}
+            </div>
+        )
     ) : null
 
     const uniqueFiles = codeBlocks
@@ -210,7 +257,7 @@ function CodeBlock({
     if (codeBlocks.length === 1) {
         const block = codeBlocks[0]
         return (
-            <div className="my-4">
+            <div className={quillSurface ? 'flex flex-col gap-1' : 'my-4'}>
                 {block.language === PROSE_LANGUAGE ? (
                     <LemonMarkdown>{block.code}</LemonMarkdown>
                 ) : (
@@ -229,17 +276,31 @@ function CodeBlock({
     }
 
     return (
-        <div className="space-y-2">
-            {uniqueFiles.length > 1 && (
-                <LemonTabs
-                    activeKey={selectedFile || uniqueFiles[0]}
-                    onChange={(key) => setSelectedFile(key as string)}
-                    tabs={uniqueFiles.map((file) => ({
-                        key: file,
-                        label: file,
-                    }))}
-                />
-            )}
+        <div className={quillSurface ? 'flex flex-col gap-2' : 'space-y-2'}>
+            {uniqueFiles.length > 1 &&
+                (quillSurface ? (
+                    <QuillTabs
+                        value={selectedFile || uniqueFiles[0]}
+                        onValueChange={(key) => setSelectedFile(key as string)}
+                    >
+                        <TabsList variant="line" className="max-w-full flex-wrap">
+                            {uniqueFiles.map((file) => (
+                                <TabsTrigger key={file} value={file}>
+                                    {file}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </QuillTabs>
+                ) : (
+                    <LemonTabs
+                        activeKey={selectedFile || uniqueFiles[0]}
+                        onChange={(key) => setSelectedFile(key as string)}
+                        tabs={uniqueFiles.map((file) => ({
+                            key: file,
+                            label: file,
+                        }))}
+                    />
+                ))}
             {selectedBlock.language === PROSE_LANGUAGE ? (
                 <LemonMarkdown>{selectedBlock.code}</LemonMarkdown>
             ) : (
@@ -260,7 +321,19 @@ function CalloutBox({
     title?: string
     children: ReactNode
 }): JSX.Element {
+    const quillSurface = useQuillSurface()
     const bannerType = type === 'caution' ? 'warning' : 'info'
+
+    if (quillSurface) {
+        return (
+            <Item tone={bannerType}>
+                <ItemContent>
+                    {title && <ItemTitle>{title}</ItemTitle>}
+                    <div className="flex flex-col gap-1 text-xs">{children}</div>
+                </ItemContent>
+            </Item>
+        )
+    }
 
     return (
         <LemonBanner type={bannerType} className="my-4 [&>*]:font-normal">
@@ -302,6 +375,18 @@ function Markdown({ children }: { children: string | ReactNode }): JSX.Element {
 }
 
 function Blockquote({ children }: { children: ReactNode }): JSX.Element {
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <Item tone="info">
+                <ItemContent>
+                    <div className="flex flex-col gap-1 text-xs">{children}</div>
+                </ItemContent>
+            </Item>
+        )
+    }
+
     return (
         <LemonBanner type="info" className="my-4 [&>*]:font-normal">
             {children}
@@ -313,17 +398,33 @@ const TabContext = createContext<{ activeTab: number; setActiveTab: (index: numb
 
 function TabGroup({ tabs, children }: { tabs: string[]; children: ReactNode }): JSX.Element {
     const [activeTab, setActiveTab] = React.useState(0)
+    const quillSurface = useQuillSurface()
 
     return (
         <TabContext.Provider value={{ activeTab, setActiveTab }}>
-            <div>
-                <LemonTabs
-                    activeKey={String(activeTab)}
-                    onChange={(key) => setActiveTab(Number(key))}
-                    tabs={tabs.map((tab, idx) => ({ key: String(idx), label: tab }))}
-                />
-                {children}
-            </div>
+            {quillSurface ? (
+                <div className="flex flex-col gap-4">
+                    <QuillTabs value={String(activeTab)} onValueChange={(key) => setActiveTab(Number(key))}>
+                        <TabsList variant="line" className="max-w-full flex-wrap">
+                            {tabs.map((tab, idx) => (
+                                <TabsTrigger key={idx} value={String(idx)}>
+                                    {tab}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </QuillTabs>
+                    {children}
+                </div>
+            ) : (
+                <div>
+                    <LemonTabs
+                        activeKey={String(activeTab)}
+                        onChange={(key) => setActiveTab(Number(key))}
+                        tabs={tabs.map((tab, idx) => ({ key: String(idx), label: tab }))}
+                    />
+                    {children}
+                </div>
+            )}
         </TabContext.Provider>
     )
 }
@@ -340,11 +441,12 @@ function TabItem(): JSX.Element {
 
 function TabPanels({ children }: { children: ReactNode }): JSX.Element {
     const context = useContext(TabContext)
+    const quillSurface = useQuillSurface()
     if (!context) {
         throw new Error('Tab.Panels must be used within Tab.Group')
     }
     const panels = Children.toArray(children)
-    return <div className="mt-4">{panels[context.activeTab]}</div>
+    return <div className={quillSurface ? undefined : 'mt-4'}>{panels[context.activeTab]}</div>
 }
 
 function TabPanel({ children }: { children: ReactNode }): JSX.Element {
@@ -359,12 +461,29 @@ const Tab = Object.assign(TabItem, {
 })
 
 function MinimalSteps({ children }: StepsProps): JSX.Element {
-    return <div className="space-y-4">{children}</div>
+    const quillSurface = useQuillSurface()
+
+    return <div className={quillSurface ? 'flex flex-col gap-4' : 'space-y-4'}>{children}</div>
 }
 
 function MinimalStep({ title, docsOnly, children }: StepProps): JSX.Element | null {
+    const quillSurface = useQuillSurface()
+
     if (docsOnly) {
         return null
+    }
+
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                {title && (
+                    <Heading size="sm" render={<h4 className="m-0" />}>
+                        {title}
+                    </Heading>
+                )}
+                <div className="flex flex-col gap-4">{children}</div>
+            </div>
+        )
     }
 
     return (

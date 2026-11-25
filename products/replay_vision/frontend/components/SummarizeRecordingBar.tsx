@@ -50,7 +50,7 @@ function SummarizeRecordingBarContent({
             className={
                 inline
                     ? 'flex items-center gap-2 min-w-0'
-                    : 'flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary'
+                    : 'flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary [&>:first-child]:min-w-0'
             }
             // Frozen: dashboards and selectors still find the bar under its old name.
             data-attr="vision-observations-dock"

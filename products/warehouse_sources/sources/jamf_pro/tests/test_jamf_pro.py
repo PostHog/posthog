@@ -409,6 +409,27 @@ class TestGetRows:
         assert result.rows[-1] == {"id": 2, parent_id_field: "5"}
         assert result.raised is None
 
+    @pytest.mark.parametrize(
+        "endpoint, path, key, expected_sort",
+        [
+            ("managed_software_update_plans", "/api/v1/managed-software-updates/plans", "planUuid", "planUuid:asc"),
+            ("computer_prestages", "/api/v3/computer-prestages", "id", "id:asc"),
+            ("mobile_device_prestages", "/api/v3/mobile-device-prestages", "id", "id:asc"),
+        ],
+    )
+    def test_top_level_endpoint_pages_to_the_end(self, endpoint, path, key, expected_sort):
+        page_0 = ScriptedResponse(json={"totalCount": 201, "results": [{key: str(i)} for i in range(200)]})
+        page_1 = ScriptedResponse(json={"totalCount": 201, "results": [{key: "200"}]})
+        result = self._drive([page_0, page_1], endpoint=endpoint)
+
+        assert result.paths[1:] == [path, path]
+        assert result.params("page")[1:] == ["0", "1"]
+        assert result.params("sort")[1:] == [expected_sort] * 2
+        assert len(result.rows) == 201
+        assert result.rows[-1] == {key: "200"}
+        assert result.saved_states == [JamfProResumeConfig(page=1)]
+        assert result.raised is None
+
     def test_unpaginated_fan_out_child_reads_results_wrapper(self):
         instances = ScriptedResponse(json={"totalCount": 2, "results": [{"id": "1"}, {"id": "2"}]})
         roster_1 = ScriptedResponse(

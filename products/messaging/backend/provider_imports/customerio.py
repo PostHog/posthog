@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from functools import partial
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -41,6 +41,19 @@ INVALID_CREDENTIALS_MESSAGE = (
 class CustomerIOImportProvider(ImportProvider):
     key = ImportProviderKey.CUSTOMERIO.value
     label = ImportProviderKey.CUSTOMERIO.label
+    api_key_label = "Customer.io App API Key"
+    api_key_help = "You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials."
+    not_imported = (
+        "People, most segments, transactional messages, newsletters, forms, collections and "
+        "delivery history stay in Customer.io."
+    )
+    next_steps = (
+        "Upload the opt-out preferences CSV, so people who left a single topic stay out of it.",
+        "Import your automations from the Workflows page. They arrive as drafts.",
+        "Add your sending domain in PostHog and publish its DNS records.",
+        "Run the import and upload a fresh CSV right before you stop sending from Customer.io, so late unsubscribes "
+        "come over.",
+    )
     steps = (
         ImportStepSpec(
             key="categories",
@@ -62,7 +75,9 @@ class CustomerIOImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         try:
             resolved_key = customerio_config.resolve_app_api_key(team_id, api_key)
         except customerio_config.ConfigIncomplete as e:
@@ -151,13 +166,28 @@ class CustomerIOImportProvider(ImportProvider):
 def _save_categories(service: CustomerIOImportService, topics: list[dict]) -> SavedPage:
     service.import_categories(topics)
     errors = service.progress["errors"]
+    warnings = _opt_in_warnings(topics)
     if not errors:
-        return SavedPage(imported=service.progress["categories_created"])
+        return SavedPage(imported=service.progress["categories_created"], warnings=warnings)
     # The service's errors hold raw exception text, which stays in the server log.
     logger.warning("Customer.io topics failed to import", extra={"team_id": service.team_id, "errors": errors})
     return SavedPage(
         imported=service.progress["categories_created"],
-        warnings=(f"{len(errors)} subscription topics couldn't be imported. Run the import again to retry them.",),
+        warnings=(
+            f"{len(errors)} subscription topics couldn't be imported. Run the import again to retry them.",
+            *warnings,
+        ),
+    )
+
+
+def _opt_in_warnings(topics: list[dict]) -> tuple[str, ...]:
+    names = [str(topic.get("name")) for topic in topics if topic.get("subscribed_by_default") is False]
+    if not names:
+        return ()
+    return (
+        f"People start unsubscribed from these topics in Customer.io: {', '.join(names)}. PostHog has no opt-in "
+        "categories, so anyone without an opt-out can get these messages. Send them only to a cohort of people who "
+        "subscribed.",
     )
 
 

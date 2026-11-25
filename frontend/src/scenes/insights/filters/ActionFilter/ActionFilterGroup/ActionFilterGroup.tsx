@@ -9,7 +9,6 @@ import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import {
     DefinitionPopoverRenderer,
@@ -24,6 +23,7 @@ import {
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupNode, NodeKind } from '~/queries/schema/schema-general'

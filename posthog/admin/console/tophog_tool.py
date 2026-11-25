@@ -305,7 +305,7 @@ class TopHogTool(ConsoleTool):
     key = "tophog"
     title = "TopHog"
     owner = INGESTION
-    group = "Data"
+    group = "Ingestion"
     description = "The top keys of each ingestion metric, and the restrictions that cover them."
 
     def page(self, request: HttpRequest) -> Page:

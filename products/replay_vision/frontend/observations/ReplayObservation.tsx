@@ -27,6 +27,7 @@ import { scannerLabel } from '../utils/observation'
 import { recordingTimeline } from '../utils/recordingTimeline'
 import { parseNumericParam } from '../utils/urlParams'
 import { ConfidenceBadge } from './ConfidenceBadge'
+import { ObservationAgentPromptButton } from './ObservationAgentPromptButton'
 import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
@@ -165,8 +166,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             nextUrl={nextObservationId ? observationUrl(nextObservationId) : undefined}
                             neighborsPending={neighborsPending}
                             neighborsFiltered={neighborsFiltered}
-                            observationId={observation.id}
-                            sessionRecordingId={observation.session_id}
+                            observation={observation}
                             playerKey={playerKey}
                         />
                     ) : (
@@ -227,7 +227,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 sessionRecordingId={observation.session_id}
                                 playerKey={playerKey}
                             />
-                            <ReplayVisionFeedbackButton />
+                            <ObservationAgentPromptButton observation={observation} appearance="lemon" />
+                            <ReplayVisionFeedbackButton type="secondary" />
                         </>
                     )
                 }

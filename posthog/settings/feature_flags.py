@@ -141,15 +141,6 @@ FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT: int = get_from_env(
 # a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
 # and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
 # which logs a warning.
-# Per-deployment kill switch for routing the refresh sweep to the Kafka builder, read
-# before the per-team flag. The flag cannot do this job: local evaluation resolves it
-# against the single project key in posthog/apps.py, so raising it raises it in every
-# region at once, including one whose flags-cache-builder still rejects the `source`
-# field.
-FLAGS_CACHE_REFRESH_KAFKA_ENABLED: bool = get_from_env(
-    "FLAGS_CACHE_REFRESH_KAFKA_ENABLED", False, type_cast=str_to_bool
-)
-
 FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
     1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
 )
@@ -187,11 +178,9 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
-# OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. 0 reads
-# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab, the
-# per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called.
-# 2 also stops writing it to events for teams in the ingestion allowlist. A change here never moves an
-# existing organization.
+# OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. FlagEvaluationsMode in
+# products/feature_flags/backend/facade/enums.py lists what each mode reads and writes. A change here never
+# moves an existing organization.
 FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
 
 # Feature flag limits to prevent memory issues during flag evaluation/caching.

@@ -46,6 +46,7 @@ jest.mock('./datasetsApi', () => ({
         restoreItem: jest.fn(),
         exportDataset: jest.fn(),
         getExport: jest.fn(),
+        getTraceStepItem: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -61,6 +62,7 @@ describe('aiObservabilityDatasetLogic', () => {
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
+        created_by_project_key_id: null,
         archived: false,
         expires_at: null,
         expiring_soon: false,
@@ -86,10 +88,12 @@ describe('aiObservabilityDatasetLogic', () => {
         source_timestamp: null,
         source_event_id: null,
         created_by: null,
+        created_by_project_key_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         version_created_at: '2024-01-01T00:00:00Z',
         version_created_by: null,
+        version_created_by_project_key_id: null,
         team_id: 997,
     }
 
@@ -110,10 +114,12 @@ describe('aiObservabilityDatasetLogic', () => {
         source_timestamp: null,
         source_event_id: null,
         created_by: null,
+        created_by_project_key_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         version_created_at: '2024-01-01T00:00:00Z',
         version_created_by: null,
+        version_created_by_project_key_id: null,
         team_id: 997,
     }
 
@@ -737,9 +743,17 @@ describe('aiObservabilityDatasetLogic', () => {
                 mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
                 const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
                 logic.mount()
+                mockDatasetsApi.getTraceStepItem.mockResolvedValue({
+                    client_item_id: 'n-1',
+                    source_trace_id: 't-1',
+                    source_event_id: 'n-1',
+                    source_timestamp: '2026-09-01T10:00:00Z',
+                    input: { message: 'hello' },
+                    source_output: null,
+                    metadata: {},
+                })
                 const button = saveToDatasetButtonLogic({
-                    partialDatasetItem: { input: { message: 'hello' } },
-                    step: null,
+                    step: { traceId: 't-1', nodeId: 'n-1', timestamp: '2026-09-01T10:00:00Z' },
                 })
                 button.mount()
                 await expectLogic(logic).toFinishAllListeners()

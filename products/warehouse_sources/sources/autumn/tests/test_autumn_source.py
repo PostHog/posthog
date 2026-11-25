@@ -97,3 +97,22 @@ class TestAutumnSource:
         assert (valid, error) == (True, None)
         assert len(network.requests_log) == 1
         assert network.requests_log[0].headers["x-api-version"] == expected_version
+
+    @pytest.mark.parametrize(
+        ("pinned_version", "expected_valid", "expected_requests"),
+        [
+            ("2.3.0", False, 0),
+            ("2.4.0", True, 1),
+        ],
+    )
+    def test_validate_credentials_rejects_the_balance_ledger_on_api_version_2_3(
+        self, pinned_version: str, expected_valid: bool, expected_requests: int
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            valid, error = self.source.validate_credentials(
+                self.config, team_id=123, schema_name="BalanceLedger", api_version=pinned_version
+            )
+
+        assert valid is expected_valid
+        assert (error is None) is expected_valid
+        assert len(network.requests_log) == expected_requests

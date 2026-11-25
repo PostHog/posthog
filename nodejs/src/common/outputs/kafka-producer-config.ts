@@ -2,6 +2,8 @@ import { ProducerGlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 import { z } from 'zod'
 
+export const DEFAULT_PRODUCER_BROKER_LIST = 'kafka:9092'
+
 /**
  * Zod schema defining the supported rdkafka producer config keys.
  *
@@ -11,9 +13,16 @@ import { z } from 'zod'
  */
 const producerConfigSchema = z.object({
     'client.id': z.string().optional(),
-    'metadata.broker.list': z.string().default('kafka:9092'),
-    'security.protocol': z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']).optional(),
-    'sasl.mechanisms': z.string().optional(),
+    'metadata.broker.list': z.string().default(DEFAULT_PRODUCER_BROKER_LIST),
+    'security.protocol': z
+        .string()
+        .transform((value) => value.toLowerCase())
+        .pipe(z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']))
+        .optional(),
+    'sasl.mechanisms': z
+        .string()
+        .transform((value) => value.toUpperCase())
+        .optional(),
     'sasl.username': z.string().optional(),
     'sasl.password': z.string().optional(),
     'compression.codec': z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']).default('snappy'),

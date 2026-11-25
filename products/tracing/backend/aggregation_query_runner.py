@@ -323,7 +323,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
-                countIf(status_code = 2) AS error_count"""
+                countIf(status_code = 2) AS error_count,
+                -- The spans a traces alert measures, so the UI only offers alerts on rows that have them.
+                countIf(is_root_span = 1 OR kind IN (2, 5)) AS entry_span_count"""
             + impact_columns
             + """
             FROM posthog.trace_spans
@@ -357,10 +359,11 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
-            sessions=row[7] if with_impact else None,
-            users=row[8] if with_impact else None,
-            spans_with_session_id=row[9] if with_impact else None,
-            spans_with_distinct_id=row[10] if with_impact else None,
+            entry_span_count=row[7] or 0,
+            sessions=row[8] if with_impact else None,
+            users=row[9] if with_impact else None,
+            spans_with_session_id=row[10] if with_impact else None,
+            spans_with_distinct_id=row[11] if with_impact else None,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:

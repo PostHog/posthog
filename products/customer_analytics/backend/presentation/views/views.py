@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -59,9 +60,10 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_scout_sandbox_request,
     is_service_auth,
+    scopes_caller_lacks,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import (
@@ -118,6 +120,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
+    CustomPropertyValueHistoryEntrySerializer,
+    CustomPropertyValueHistoryQuerySerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -964,6 +968,12 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            api.authorize_account_view_content(
+                request.validated_data["content"],
+                team=self.team,
+                user=cast(User, request.user),
+                can_query=not scopes_caller_lacks(request, ["query:read"]),
+            )
             view = api.create_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,
@@ -973,6 +983,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
         return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -988,6 +1000,13 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
+            if "content" in request.validated_data:
+                api.authorize_account_view_content(
+                    request.validated_data["content"],
+                    team=self.team,
+                    user=cast(User, request.user),
+                    can_query=not scopes_caller_lacks(request, ["query:read"]),
+                )
             view = api.update_account_view(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).id,
@@ -1102,6 +1121,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         summary="Update account sidebar configuration",
         description=(
             "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "or follow a project or role default when followed_default is provided, "
             "and change the task digest email preferences when task_digest is provided. "
             "Anything omitted keeps its current value. "
             "At most 50 account custom properties, relationships, and account fields can be pinned."
@@ -1125,6 +1145,18 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
                     )
                 except api.InvalidPinnedAccountProperties as error:
                     raise ValidationError({"pinned_properties": error.errors})
+
+            if "followed_default" in request.validated_data:
+                followed_default = request.validated_data["followed_default"]
+                try:
+                    config = api.follow_user_default_pinned_properties(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        kind=followed_default["kind"],
+                        role_id=followed_default.get("role_id"),
+                    )
+                except api.InvalidPinnedAccountProperties as error:
+                    raise ValidationError({"followed_default": error.errors})
 
             if "task_digest" in request.validated_data:
                 task_digest = request.validated_data["task_digest"]
@@ -1648,6 +1680,7 @@ class CustomPropertySourceViewSet(
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
                 column_descriptions=data.column_descriptions,
+                missing_row_behavior=data.missing_row_behavior,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
@@ -1664,6 +1697,7 @@ class CustomPropertySourceViewSet(
             mapped_column_count=len(data.column_property_map or {}),
             reads_warehouse_table=data.external_data_schema is not None,
             is_enabled=data.is_enabled,
+            missing_row_behavior=data.missing_row_behavior,
         )
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
@@ -2774,6 +2808,30 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
 
+    @validated_request(
+        query_serializer=CustomPropertyValueHistoryQuerySerializer,
+        responses={200: OpenApiResponse(response=CustomPropertyValueHistoryEntrySerializer(many=True))},
+    )
+    @action(detail=False, methods=["get"], url_path="history", required_scopes=["account:read"])
+    def history(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            entries = api.list_custom_property_value_history(
+                self.team_id,
+                account_id,
+                request.validated_query_data["definition"],
+                since=request.validated_query_data.get("since"),
+            )
+        except api.CustomPropertyDefinitionNotFound:
+            raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueHistoryTooLong as exc:
+            raise ValidationError(
+                {"since": f"This property has more than {exc.limit} values in this range. Pass a later since date."}
+            )
+        return Response(CustomPropertyValueHistoryEntrySerializer(entries, many=True).data)
+
     @extend_schema(
         request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}
     )
@@ -2953,6 +3011,8 @@ class EventStreamViewSet(
     every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
     destination that is re-provisioned inside the same transaction as every write, so
     config and delivery can't drift apart."""
+
+    permission_classes = [CDPPropertyAccessPermission]
 
     scope_object = "account"
     serializer_class = EventStreamSerializer

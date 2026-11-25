@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -243,6 +244,7 @@ export type MinimalAppMetric = {
         | 'disabled_permanently'
         | 'rate_limited'
         | 'masked'
+        | 'audience_truncated'
         | 'filtering_failed'
         | 'inputs_failed'
         | 'missing_credential'
@@ -276,6 +278,8 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
         | 'email_sandbox_sent'
         | 'email_sandbox_failed'
         | 'email_sandbox_blocked'
@@ -302,6 +306,7 @@ export type MinimalAppMetric = {
     // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
     // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
     app_source_version?: { id: string; version: number }
+    prometheus_metric_name?: 'email_sender_unverified'
 }
 
 export type AppMetricType = MinimalAppMetric & {
@@ -374,9 +379,15 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    queueLockId?: string
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
+    // A Fernet token that holds the content fields of a transactional send while it is stored. See sealInvocation.
+    sealed?: string
+    // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
+    stateUnreadable?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution
@@ -392,6 +403,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      */
     deliveredToRecipient?: boolean
     emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
+    parked?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -453,10 +465,14 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     // Set when a protected workflow step pauses mid-send, so its retries stay protected.
     sensitive?: boolean
+    trackingEnabled?: boolean
+    clickTrackingEnabled?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     scheduledAt?: string
+    // Copied from the workflow state, like `send`, so the email step can measure the send's wait from its acceptance.
+    acceptedAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
@@ -488,19 +504,15 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     // wait step calls it before its first evaluation, where a stale person parks the run for good.
     // It returns the values rather than mutating, so it stays correct on a cloned invocation.
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+    loadPersonProperties?: (
+        keys: string[]
+    ) => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type MessageOptOutRecord = {
     identifier: string
     // A message category id, or '$all' for all marketing messages.
     categoryId: string
-}
-
-export type QueuedIdempotencyKey = {
-    hash: string
-    fingerprint: string
-    scheduledAt?: string
-    replayFields?: Record<string, number>
 }
 
 export type HogFlowInvocationContext = {
@@ -537,6 +549,9 @@ export type HogFlowInvocationContext = {
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
     // `triggered` and clears this flag, so a rescheduled run does not count again.
     triggerMetricPending?: boolean
+    // ISO time the API accepted a transactional email send. It lives in the state so that it travels with the job
+    // through Kafka, the queue and every reschedule, and the send's wait counts from it.
+    acceptedAt?: string
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -586,6 +601,8 @@ export type HogFlowInvocationContext = {
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
         // parked ceiling with the action's current one tells the two apart.
         parkedMaxWaitDuration?: string
+        // Compared for the same reason: an edited condition can match at the deadline, before the sweep.
+        parkedConditionHash?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -630,9 +647,9 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
-    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

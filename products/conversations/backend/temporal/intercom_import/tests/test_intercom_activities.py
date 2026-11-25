@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Tag
 from posthog.models.comment import Comment
@@ -13,6 +18,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.cache import get_person_distinct_ids
 from products.conversations.backend.models import (
     EmailChannel,
+    EmailChannelConnectionStatus,
     EmailChannelKind,
     IntercomImportJob,
     PurgedTicketThread,
@@ -28,11 +34,8 @@ from products.conversations.backend.temporal.intercom_import.activities import (
     _import_conversation_batch_sync,
     _update_job_progress_sync,
 )
-from products.conversations.backend.temporal.intercom_import.client import (
-    IntercomAttachmentTooLargeError,
-    IntercomNotFoundError,
-    IntercomRateLimitError,
-)
+from products.conversations.backend.temporal.intercom_import.client import IntercomNotFoundError, IntercomRateLimitError
+from products.conversations.backend.temporal.ticket_import.attachment_download import AttachmentTooLargeError
 
 M = "products.conversations.backend.temporal.intercom_import.activities"
 
@@ -247,6 +250,124 @@ class TestIntercomImportBatchActivity(BaseTest):
         assert (ticket.distinct_id, ticket.email_from) == ("intercom:contact-7", "lee@example.com")
         assert (self._comments(ticket)[0].item_context or {})["author_type"] == "support"
 
+    @parameterized.expand(
+        [
+            (
+                "relayed_from_own_address",
+                EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
+                "info@example.com",
+                None,
+                ("intercom:contact-real", "real@example.org", "Real Sender"),
+                ["third@example.org"],
+            ),
+            (
+                "relayed_from_customer_communication_address",
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                EmailChannelConnectionStatus.ACTIVE,
+                "info@example.com",
+                None,
+                ("intercom:contact-real", "real@example.org", "Real Sender"),
+                ["third@example.org"],
+            ),
+            (
+                "relayed_sender_wrote_a_reply",
+                EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
+                "info@example.com",
+                "contact-third",
+                ("intercom:contact-third", "Third@example.org", "Third"),
+                ["real@example.org"],
+            ),
+            (
+                "relayed_from_unconfirmed_address",
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+                "info@example.com",
+                None,
+                ("intercom:contact-1", "info@example.com", "Jane Customer"),
+                ["real@example.org", "third@example.org"],
+            ),
+            (
+                "customer_with_other_contacts",
+                EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
+                "jane@example.com",
+                "contact-third",
+                ("intercom:contact-1", "jane@example.com", "Jane Customer"),
+                ["real@example.org", "third@example.org"],
+            ),
+        ]
+    )
+    def test_multiple_contacts_choose_requester_and_copy_the_rest(
+        self,
+        _name: str,
+        own_address_kind: EmailChannelKind,
+        own_address_status: EmailChannelConnectionStatus,
+        author_email: str,
+        reply_author_id: str | None,
+        expected_requester: tuple[str, str, str],
+        expected_cc: list[str],
+    ) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            kind=own_address_kind,
+            connection_status=own_address_status,
+            owner=self.user if own_address_kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
+            inbound_token="intercom-own-address-token",
+            from_email="info@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+        parts: list[dict[str, Any]] = []
+        if reply_author_id:
+            reply = _part("p1", author_type="user")
+            reply["author"]["id"] = reply_author_id
+            parts.append(reply)
+        conversation = _conversation(
+            "321",
+            source_author={"type": "user", "id": "contact-1", "name": "Jane Customer", "email": author_email},
+            parts=parts,
+            contacts=[
+                {"type": "contact", "id": "contact-1"},
+                {"type": "contact", "id": "contact-real"},
+                {"type": "contact", "id": "contact-third"},
+                {"type": "contact", "id": "contact-malformed"},
+            ],
+        )
+
+        self._run_batch(
+            [conversation],
+            contacts={
+                "contact-real": {"id": "contact-real", "name": "Real Sender", "email": "real@example.org"},
+                "contact-third": {"id": "contact-third", "name": "Third", "email": "Third@example.org"},
+                "contact-malformed": {"id": "contact-malformed", "name": "Malformed", "email": "broken@"},
+            },
+        )
+
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="321")
+        assert (ticket.distinct_id, ticket.email_from, ticket.anonymous_traits["name"]) == expected_requester
+        assert ticket.cc_participants == expected_cc
+
+    def test_relayed_conversation_without_outside_contact_has_no_customer_email(self) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.SUPPORT,
+            inbound_token="intercom-own-address-token",
+            from_email="info@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+        relayed = {"type": "user", "id": "contact-1", "name": "Website form", "email": "Info@example.com"}
+
+        self._run_batch(
+            [_conversation("322", source_author=relayed, contacts=[{"type": "contact", "id": "contact-1"}])]
+        )
+
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="322")
+        assert (ticket.distinct_id, ticket.email_from, ticket.cc_participants) == ("intercom:contact-1", None, [])
+        assert "email" not in ticket.anonymous_traits
+
     def test_default_email_channel_attached_and_backfilled_on_rerun(self) -> None:
         self._run_batch([_conversation("401")])
         channel = EmailChannel.objects.create(
@@ -273,16 +394,34 @@ class TestIntercomImportBatchActivity(BaseTest):
         assert (result.imported, result.failed) == (1, 0)
         assert Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="311").email_from is None
 
+        unreadable_copy = _conversation(
+            "313", contacts=[{"type": "contact", "id": "contact-1"}, {"type": "contact", "id": "forbidden1"}]
+        )
+
+        result, _ = self._run_batch(
+            [unreadable_copy], contacts={"forbidden1": ValueError("Invalid Intercom contact id")}
+        )
+
+        assert (result.imported, result.failed) == (1, 0)
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="313")
+        assert (ticket.email_from, ticket.cc_participants) == ("jane@example.com", [])
+
         flaky = _conversation("312", source_author=outbound, contacts=[{"type": "contact", "id": "slow1"}])
         with pytest.raises(IntercomRateLimitError):
             self._run_batch([flaky], contacts={"slow1": IntercomRateLimitError("slow down")})
         assert not Ticket.objects.filter(team_id=self.team.id, intercom_conversation_id="312").exists()
 
-    def test_rate_limited_fetch_propagates_so_temporal_retries_the_batch(self) -> None:
+    @parameterized.expand(
+        [
+            ("rate_limit", IntercomRateLimitError("slow down")),
+            ("database_connection", OperationalError("server closed the connection unexpectedly")),
+        ]
+    )
+    def test_transient_failure_propagates_so_temporal_retries_the_batch(self, _name: str, error: Exception) -> None:
         client = MagicMock()
-        client.fetch_conversation.side_effect = IntercomRateLimitError("slow down")
+        client.fetch_conversation.side_effect = error
 
-        with patch(f"{M}.IntercomImportClient", return_value=client), pytest.raises(IntercomRateLimitError):
+        with patch(f"{M}.IntercomImportClient", return_value=client), pytest.raises(type(error)):
             _import_conversation_batch_sync(
                 ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, conversation_ids=["520"])
             )
@@ -410,7 +549,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         victim_distinct_id = "victim@example.com"
         lead = {"type": "lead", "id": "lead42", "name": "Attacker", "email": victim_distinct_id}
 
-        self._run_batch([_conversation("731", source_author=lead)])
+        self._run_batch([_conversation("731", source_author=lead, contacts=[{"type": "contact", "id": "lead42"}])])
 
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="731")
         assert ticket.distinct_id == "intercom:lead42"
@@ -421,7 +560,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         conversation = self._attachment_conversation("721", files=3)
         client = MagicMock()
         client.fetch_conversation.return_value = conversation
-        client.download_attachment.side_effect = IntercomAttachmentTooLargeError("too big", bytes_read=150)
+        client.download_attachment.side_effect = AttachmentTooLargeError("too big", bytes_read=150)
 
         with (
             patch(f"{M}.MAX_ATTACHMENT_BYTES_PER_CONVERSATION", 200),
@@ -440,6 +579,8 @@ class TestIntercomImportBatchActivity(BaseTest):
 class TestIntercomImportJobProgress(BaseTest):
     def test_replayed_progress_update_does_not_double_count(self) -> None:
         job = IntercomImportJob.objects.unscoped().create(team_id=self.team.id, status=IntercomImportJob.Status.RUNNING)
+        an_hour_ago = timezone.now() - timedelta(hours=1)
+        IntercomImportJob.objects.unscoped().filter(id=job.id).update(updated_at=an_hour_ago)
         progress = UpdateJobProgressInput(
             job_id=str(job.id), total=150, processed=50, imported=40, skipped=8, failed=2, export_cursor="c2"
         )
@@ -456,3 +597,4 @@ class TestIntercomImportJobProgress(BaseTest):
             job.failed_conversations,
             job.export_cursor,
         ) == (150, 50, 40, 8, 2, "c2")
+        assert job.updated_at > an_hour_ago

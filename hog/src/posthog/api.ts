@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError, type ErrorPatch } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
@@ -23,6 +23,8 @@ export interface HttpRequest {
     form?: Record<string, string>
     token?: string
     timeoutMs?: number
+    // The request goes to the PostHog API, so its answer can carry notices (see `Notices.watch`).
+    posthog?: boolean
 }
 
 export interface HttpResponse {
@@ -55,6 +57,7 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
                   ? undefined
                   : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
+            posthogApi: request.posthog === true,
         })
         text = await response.text()
     } catch (error) {
@@ -80,23 +83,48 @@ function transportReason(error: unknown): string {
     return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
 }
 
-// A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
+export interface ApiErrorOptions {
+    type?: string
+    hint?: string
+    details?: Readonly<Record<string, unknown>>
+    serverDetail?: string
+    exitCode?: number
+    body?: unknown
+}
+
 export class ApiError extends HogError {
+    readonly type: string | undefined
+    readonly body: unknown
+
     constructor(
         readonly status: number,
-        readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string,
-        details?: Readonly<Record<string, unknown>>,
-        serverDetail?: string
+        { type, hint, details, serverDetail, exitCode, body }: ApiErrorOptions = {}
     ) {
-        super(code, message, hint, undefined, details, serverDetail)
+        super(code, message, hint, exitCode, details, serverDetail)
+        this.type = type
+        this.body = body
     }
 
-    override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
+    protected override copy(patch: ErrorPatch): ApiError {
+        return new ApiError(this.status, this.code, patch.message ?? this.message, {
+            type: this.type,
+            hint: patch.hint ?? this.hint,
+            details: this.details,
+            serverDetail: this.serverDetail,
+            exitCode: this.exitCode,
+            body: this.body,
+        })
     }
+}
+
+export function isTransient(error: HogError): boolean {
+    return (
+        error.code === 'network_error' ||
+        error.code === 'refresh_failed' ||
+        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    )
 }
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
@@ -108,14 +136,10 @@ export function stepUpRequired(
 ): ApiError {
     const named = scopes.filter(isScopeName)
     const command = stepUpCommand(named, host)
-    return new ApiError(
-        403,
-        undefined,
-        'step_up_required',
-        message,
-        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
-        { scopes: named, command }
-    )
+    return new ApiError(403, 'step_up_required', message, {
+        hint: `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        details: { scopes: named, command },
+    })
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
@@ -177,7 +201,7 @@ export class PostHogApi {
         const url = this.url(path)
         const send = (): Promise<HttpResponse> =>
             this.session.send(
-                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs }),
+                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs, posthog: true }),
                 (answer) => answer.status === 401
             )
         let response = await send()
@@ -189,13 +213,10 @@ export class PostHogApi {
             missing = await this.missingScopes(response)
         }
         if (missing && workload) {
-            throw new ApiError(
-                403,
-                undefined,
-                'missing_scopes',
-                `The job's token needs ${missing.join(', ')} for this.`,
-                workloadScopesHint(missing)
-            )
+            throw new ApiError(403, 'missing_scopes', `The job's token needs ${missing.join(', ')} for this.`, {
+                hint: workloadScopesHint(missing),
+                exitCode: EXIT_NEEDS_PERSON,
+            })
         }
         if (missing) {
             throw stepUpRequired(missing, { host: this.session.current.host })
@@ -205,7 +226,7 @@ export class PostHogApi {
             const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
             throw response.ok
                 ? new HogError('unexpected_response', message, hint)
-                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
+                : new ApiError(response.status, 'unexpected_response', message, { hint })
         }
         if (!response.ok) {
             throw this.failure(response.status, response.json)
@@ -241,14 +262,11 @@ export class PostHogApi {
             403: 'Check that the personal API key has access to this project.',
             404: 'Check the host and the project ID.',
         }
-        return new ApiError(
-            status,
-            error.type,
-            error.code ?? `http_${status}`,
-            `PostHog answered with HTTP ${status}.`,
-            hints[status],
-            undefined,
-            error.detail
-        )
+        return new ApiError(status, error.code ?? `http_${status}`, `PostHog answered with HTTP ${status}.`, {
+            type: error.type,
+            hint: hints[status],
+            serverDetail: error.detail,
+            body,
+        })
     }
 }
