@@ -261,8 +261,8 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         responses.add(
             responses.POST,
             "https://api.vercel.com/v2/oauth/access_token",
-            status=503,
-            json={"error": {"code": "server_error", "message": "Try again later"}},
+            status=400,
+            json={"error": {"code": "invalid_client", "message": "Integration disabled"}},
         )
 
         response = self.client.patch(

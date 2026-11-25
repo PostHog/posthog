@@ -930,9 +930,15 @@ CACHES["radar_login_attempt"] = {
 }
 
 # Vercel installation tokens only save a token request, so a stalled Redis must cost that request, not hold the call.
+# The entry is an encrypted string, so JSON keeps pickle out of the read.
 CACHES["vercel_installation_tokens"] = {
     **CACHES["default"],
-    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
 }
 
 # Dedicated cache for the feature flags service (if configured)
