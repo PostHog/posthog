@@ -1,111 +1,75 @@
 {% extends "email/base.html" %}
 {% block head %}
-    <style type="text/css">body, .main { background-color: #f3f4f0 !important; }</style>
+    <style type="text/css">
+        body, .main { background-color: #f3f4f0 !important; }
+        .dc-project { margin-bottom: 32px; }
+        .dc-project-name { display: block; margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #111827; text-decoration: none; word-break: break-word; }
+        .dc-card { background-color: #ffffff; border-radius: 8px; padding: 4px 16px; }
+        .dc-rows { border-collapse: collapse; }
+        .dc-label { padding: 12px 8px 12px 0; vertical-align: top; text-align: left; }
+        .dc-action { width: 1%; vertical-align: top; text-align: right; white-space: nowrap; }
+        .dc-divided { border-top: 1px solid #f3f4f6; }
+        .dc-count { color: #111827; font-weight: 600; font-size: 15px; }
+        .dc-new { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 10px; background-color: #fef3c7; color: #92400e; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .dc-samples { margin-top: 2px; color: #6b7280; font-size: 13px; word-break: break-word; }
+        .dc-review { display: inline-block; padding: 12px 0 12px 12px; color: #111827; font-weight: 600; font-size: 14px; text-decoration: underline; }
+        .dc-button { display: block; max-width: 280px; margin: 16px auto 0 auto; padding: 12px 16px; border-radius: 6px; background-color: #111827; color: #ffffff; font-size: 15px; font-weight: 600; text-align: center; text-decoration: none; }
+        .dc-note { margin: 0 0 16px 0; color: #6b7280; font-size: 13px; text-align: center; }
+    </style>
 {% endblock %}
-{% block preheader %}{{ total }} item{{ total|pluralize }} awaiting review in your data catalog{% endblock %}
+{% block preheader %}{{ total }} item{{ total|pluralize }} in total {{ total|pluralize:"waits,wait" }} for review in your data catalog{% endblock %}
 {% block main %}
-    <p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0;">
-        Your data catalog has <strong>{{ total }}</strong> item{{ total|pluralize }} waiting for review. Approving a
-        metric, a relationship, or a certification tells everyone which numbers and tables to trust.
+    <p style="font-size: 17px; color: #374151; margin: 0 0 8px 0;">
+        {% if new_total %}
+            <strong>{{ new_total }}</strong> new item{{ new_total|pluralize }} came in for review this week, and <strong>{{ total }}</strong> {{ total|pluralize:"waits,wait" }} in total.
+        {% else %}
+            <strong>{{ total }}</strong> item{{ total|pluralize }} {{ total|pluralize:"waits,wait" }} for review.
+        {% endif %}
     </p>
-    {% for section in project_sections %}
-        <div style="margin-bottom: 40px;">
-            <table width="100%"
-                   cellpadding="0"
-                   cellspacing="0"
-                   border="0"
-                   style="margin-bottom: 12px">
-                <tr>
-                    <td style="width: 50%; vertical-align: middle;">
-                        <div style="height: 1px; background-color: #d1d5db;"></div>
-                    </td>
-                    <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
-                        <a href="{{ section.project_url }}"
-                           target="_blank"
-                           style="font-size: 1.15em;
-                                  font-weight: 600;
-                                  color: #111827;
-                                  text-decoration: none">{{ section.team_name }}</a>
-                    </td>
-                    <td style="width: 50%; vertical-align: middle;">
-                        <div style="height: 1px; background-color: #d1d5db;"></div>
-                    </td>
-                </tr>
-            </table>
-            <div style="background-color: #ffffff;
-                        border-radius: 8px;
-                        padding: 20px;
-                        margin-bottom: 12px">
-                <table width="100%"
-                       cellpadding="0"
-                       cellspacing="0"
-                       border="0"
-                       style="border-collapse: collapse">
-                    {% for row in section.rows %}
-                        <tr>
-                            <td align="left"
-                                style="padding: 12px 8px 12px 0;
-                                       {% if not forloop.first %}border-top: 1px solid #f3f4f6;
-                                       {% endif %} vertical-align: top;
-                                       text-align: left">
-                                <span style="color: #111827; font-weight: 600; font-size: 0.95em;">{{ row.count }} {{ row.noun }}{{ row.count|pluralize }}</span>
-                                <br />
-                                <span style="color: #6b7280; font-size: 0.85em;">
-                                    {% for name in row.sample_names %}
-                                        {{ name|truncatechars:60 }}{% if not forloop.last %},{% endif %}
-                                    {% endfor %}
-                                    {% if row.omitted_count %}and {{ row.omitted_count }} more{% endif %}
-                                </span>
-                            </td>
-                            <td align="right"
-                                style="padding: 12px 0 12px 8px;
-                                       {% if not forloop.first %}border-top: 1px solid #f3f4f6;
-                                       {% endif %} vertical-align: top;
-                                       text-align: right;
-                                       white-space: nowrap">
-                                <a href="{{ row.review_url }}"
-                                   target="_blank"
-                                   style="color: #111827;
-                                          font-weight: 600;
-                                          font-size: 0.85em">Review</a>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </table>
-            </div>
-            <div style="text-align: center;">
-                <a href="{{ section.review_url }}"
+    <p style="font-size: 15px; color: #6b7280; margin: 0 0 32px 0;">
+        Approving a metric, a relationship, or a certification tells everyone which numbers and tables to trust.
+    </p>
+    {% spaceless %}
+        {% for section in project_sections %}
+            <div class="dc-project">
+                <a href="{{ section.project_url }}"
                    target="_blank"
-                   style="background-color: #111827;
-                          border-radius: 6px;
-                          color: #ffffff;
-                          display: inline-block;
-                          font-size: 0.9em;
-                          font-weight: 600;
-                          padding: 10px 20px;
-                          text-decoration: none">Review pending items</a>
-                <a href="{{ section.create_metric_url }}"
-                   target="_blank"
-                   style="color: #6b7280;
-                          font-size: 0.85em;
-                          margin-left: 16px;
-                          text-decoration: underline">Create a metric</a>
+                   class="dc-project-name">{{ section.team_name }}</a>
+                <div class="dc-card">
+                    <table width="100%"
+                           role="presentation"
+                           cellpadding="0"
+                           cellspacing="0"
+                           border="0"
+                           class="dc-rows">
+                        {% for row in section.rows %}
+                            <tr>
+                                <td class="dc-label{% if not forloop.first %} dc-divided{% endif %}">
+                                    <span class="dc-count">{{ row.count }} {{ row.noun }}{{ row.count|pluralize }}</span>
+                                    {% if row.new_count %}<span class="dc-new">{{ row.new_count }} new</span>{% endif %}
+                                    <div class="dc-samples">{{ row.samples }}</div>
+                                </td>
+                                <td class="dc-action{% if not forloop.first %} dc-divided{% endif %}">
+                                    <a href="{{ row.review_url }}" target="_blank" class="dc-review">Review</a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+                <a href="{{ section.review_url }}" target="_blank" class="dc-button">Review pending items</a>
             </div>
-        </div>
-    {% endfor %}
+        {% endfor %}
+    {% endspaceless %}
     {% if omitted_project_count %}
-        <p style="font-size: 0.9em;
-                  color: #6b7280;
-                  margin: 0 0 24px 0;
-                  text-align: center">
+        <p class="dc-note">
             {{ omitted_project_count }} more project{{ omitted_project_count|pluralize }} also {{ omitted_project_count|pluralize:"has,have" }} items waiting for review.
         </p>
     {% endif %}
-    <div style="margin-bottom: 16px; text-align: center;">
+    <p class="dc-note">
+        You get this email because you have access to {{ organization_name }}'s data catalog or Models.
         <a href="{{ settings_url }}"
            style="color: #6b7280;
-                  font-size: 0.85em;
                   text-decoration: underline">Change notification settings</a>
-    </div>
+    </p>
 {% endblock %}
 {% block footer %}{% endblock %}

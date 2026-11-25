@@ -36,6 +36,7 @@ env:
     SECURE_COOKIES: 0
     OPT_OUT_CAPTURE: 0
     E2E_TESTING: 1
+    MCP_CATALOG_SYNC_ON_WORKER_READY: 0
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
     SITE_URL: http://localhost:8000
