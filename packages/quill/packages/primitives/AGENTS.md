@@ -98,7 +98,7 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
-| Infotip     | An info icon that explains the value beside it, on click or tap. Use it instead of a Tooltip on an info icon. In quill-components       |
+| Infotip     | Last resort for explaining a value, after a clearer label or helper text. An info icon that opens on click. In quill-components         |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
 Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.

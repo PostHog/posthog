@@ -53,8 +53,9 @@ Rules:
 
 Rules:
 
-- Use `Infotip` for every icon-only info hint. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
-- A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Focus then returns to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
+- Explain with the layout first: a clear label, a unit, or visible helper text (`FieldDescription`, `CardDescription`). An `Infotip` is for detail most people don't need, such as how a value is calculated. A surface that needs several infotips needs a clearer layout instead.
+- When an info icon is the right call, use `Infotip`. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
+- A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Escape returns focus to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
 - The button draws 16px so it fits a line of small text, even a truncated one, and an invisible layer grows its target to 24px. Don't resize it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
 - A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
