@@ -9,6 +9,8 @@ import { safeEmailLink } from '../renderEmailHtml'
 import { EmailFormatButton, EmailFormatButtons } from './EmailFormatButtons'
 import { useEscapeToClose } from './useEscapeToClose'
 
+const FULL_LINK_HINT = 'Enter a full link, such as https://example.com'
+
 /** Formatting for selected text. It's positioned from the selection, because the canvas scrolls independently of the page. */
 export function EmailSelectionToolbar({
     editor,
@@ -50,16 +52,17 @@ export function EmailSelectionToolbar({
     const top = start.top - parent.top + container.scrollTop - 38
     const left = Math.max(4, start.left - parent.left + container.scrollLeft)
 
+    const value = href.trim()
+    const safeLink = safeEmailLink(value)
+    const invalidLink = !!value && !safeLink
     const applyLink = (): void => {
-        const value = href.trim()
         if (!value) {
             editor.chain().focus().extendMarkRange('link').unsetLink().run()
         } else {
-            const safe = safeEmailLink(value)
-            if (!safe) {
+            if (invalidLink) {
                 return
             }
-            editor.chain().focus().extendMarkRange('link').setLink({ href: safe }).run()
+            editor.chain().focus().extendMarkRange('link').setLink({ href: safeLink }).run()
         }
         setLinkOpen(false)
     }
@@ -79,7 +82,7 @@ export function EmailSelectionToolbar({
                 placement="bottom-start"
                 overlay={
                     <div
-                        className="flex gap-1 p-2 w-80"
+                        className="flex flex-col gap-1 p-2 w-80"
                         onKeyDown={(event) => {
                             if (event.key === 'Enter') {
                                 event.preventDefault()
@@ -87,24 +90,34 @@ export function EmailSelectionToolbar({
                             }
                         }}
                     >
-                        <LemonInput
-                            size="small"
-                            className="flex-1"
-                            autoFocus
-                            placeholder="https://example.com"
-                            value={href}
-                            onChange={setHref}
-                            data-attr="email-editor-link-input"
-                        />
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            onClick={applyLink}
-                            data-attr="email-editor-link-apply"
-                            disabledReason={!href.trim() && !editor.isActive('link') ? 'Enter a link' : undefined}
-                        >
-                            {href.trim() || !editor.isActive('link') ? 'Apply' : 'Remove'}
-                        </LemonButton>
+                        <div className="flex gap-1">
+                            <LemonInput
+                                size="small"
+                                className="flex-1"
+                                autoFocus
+                                placeholder="https://example.com"
+                                value={href}
+                                onChange={setHref}
+                                status={invalidLink ? 'danger' : 'default'}
+                                data-attr="email-editor-link-input"
+                            />
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={applyLink}
+                                data-attr="email-editor-link-apply"
+                                disabledReason={
+                                    invalidLink
+                                        ? FULL_LINK_HINT
+                                        : !value && !editor.isActive('link')
+                                          ? 'Enter a link'
+                                          : undefined
+                                }
+                            >
+                                {value || !editor.isActive('link') ? 'Apply' : 'Remove'}
+                            </LemonButton>
+                        </div>
+                        {invalidLink ? <span className="text-xs text-danger">{FULL_LINK_HINT}</span> : null}
                     </div>
                 }
             >

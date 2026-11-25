@@ -9,6 +9,7 @@ import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
+import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
 import { type Dashboard, GRID, activeGridTab } from './dashboardTypes'
@@ -96,27 +97,29 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     return (
         <DashboardV2StateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
-                <TileMountContext.Provider value={mountScheduler}>
-                    <div
-                        data-quill
-                        className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
-                    >
-                        {header}
-                        <DashboardV2Tabs />
-                        <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
-                            {mounted && width > 0 && (
-                                <DashboardTileGrid
-                                    key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                    gridId={activeTab.id}
-                                    tiles={tiles}
-                                    cols={GRID.columns}
-                                    width={width}
-                                    editable={can('placeTiles')}
-                                />
-                            )}
+                <TimeRangeContext.Provider value={controller.dashboard.time ?? DEFAULT_TIME_RANGE}>
+                    <TileMountContext.Provider value={mountScheduler}>
+                        <div
+                            data-quill
+                            className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
+                        >
+                            {header}
+                            <DashboardV2Tabs />
+                            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
+                                {mounted && width > 0 && (
+                                    <DashboardTileGrid
+                                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                        gridId={activeTab.id}
+                                        tiles={tiles}
+                                        cols={GRID.columns}
+                                        width={width}
+                                        editable={can('placeTiles')}
+                                    />
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </TileMountContext.Provider>
+                    </TileMountContext.Provider>
+                </TimeRangeContext.Provider>
             </GridDragContext.Provider>
         </DashboardV2StateContext.Provider>
     )

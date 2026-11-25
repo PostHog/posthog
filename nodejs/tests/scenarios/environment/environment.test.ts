@@ -21,6 +21,7 @@ import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
+import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
     ProcEntry,
@@ -34,11 +35,9 @@ import {
 } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
-    ProbeFailure,
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
-    downServices,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -705,24 +704,20 @@ describe('scenario environment', () => {
         }
     }, 4_000)
 
-    it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
-        const args: Parameters<typeof downServices> = [
-            undefined,
-            'postgres://127.0.0.1:1/none',
-            { host: '127.0.0.1', port: 1 },
-        ]
-        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(...${JSON.stringify(args)})).then((down) => console.log(JSON.stringify(down)))`
-        const { stdout } = await promisify(childProcess.execFile)(
-            path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
-            ['-e', probe],
-            { cwd: NODEJS_DIR }
-        )
-        const failures: ProbeFailure[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
-        const down = failures.map(({ name }) => name)
-        expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
-            postgres: true,
-            kafka: false,
+    it('reports a running Kafka as up from the probe process under tsx', async () => {
+        const probes = startProbeProcess({
+            edgeUrl: undefined,
+            postgresUrl: 'postgres://127.0.0.1:1/none',
+            sesValkey: { host: '127.0.0.1', port: 1 },
+            only: ['postgres', 'kafka'],
         })
+        try {
+            const down = (await probes.check()).map(({ name }) => name)
+
+            expect(down).toEqual(['postgres'])
+        } finally {
+            probes.close()
+        }
     }, 30_000)
 
     describe('run lock', () => {

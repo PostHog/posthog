@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.customer_analytics.backend.constants import WAREHOUSE_PERSON_PROPERTIES_FLAG
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     BINDING_KIND_SAVED_QUERY,
@@ -114,6 +115,7 @@ def person_property_sync_sources(team_id: int, binding: WarehouseBinding) -> lis
             property_descriptions=_property_descriptions(source),
             target=source.definition.target_type,
             group_type_index=source.definition.group_type_index,
+            remove_when_missing=source.missing_row_behavior == WarehousePersonPropertyMissingRowBehavior.REMOVE,
         )
         for source in sources
     ]

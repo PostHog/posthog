@@ -4554,6 +4554,7 @@ export namespace Schemas {
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
+        limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         offset?: (number | null) | undefined;
@@ -6249,6 +6250,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter2 = {
@@ -6340,6 +6342,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter3 = {
@@ -6436,6 +6439,7 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionRateInputType = "manual" | "automatic";
@@ -12071,6 +12075,10 @@ export namespace Schemas {
         live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         */
+        last_checked_at: string | null;
+        /**
          * The latest error that occurred when syncing this schema.
          */
         latest_error: string | null;
@@ -13839,6 +13847,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from an action.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from an action.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13954,6 +13966,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from events.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from events.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -14049,6 +14065,10 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        /**
+         * A conversion goal counted from a data warehouse table.
+         */
+        use_in_recommendations?: (boolean | null) | undefined;
         /**
          * A conversion goal counted from a data warehouse table.
          */
@@ -18009,7 +18029,7 @@ export namespace Schemas {
          */
         available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
-         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**

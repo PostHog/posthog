@@ -34,9 +34,9 @@ const LIQUID_SETUP = new Set(['assign', 'capture', 'liquid'])
 const LIQUID_CHANGES_VALUE = new Set([...LIQUID_SETUP, 'increment', 'decrement'])
 const LIQUID_PRINTS = new Set(['cycle', 'increment', 'decrement', 'echo', 'include', 'render', 'unsubscribe_url'])
 
-/** Filters that make a value safe inside html. In plain text they would print entities, and break a URL. */
-const HTML_ESCAPE_FILTERS =
-    /(?:\s*\|\s*(?:escape|escape_once|raw|replace:\s*"[=`]",\s*"&(?:amp;)?#x(?:3D|60);"))+\s*(?=-?\}\}$)/
+/** A filter that makes a value safe inside html. In plain text it would print entities, and break a URL. */
+const HTML_ESCAPE_FILTER =
+    /^\s*(?:escape|escape_once|raw|replace:\s*(?:"|&quot;)[=`](?:"|&quot;),\s*(?:"|&quot;)&(?:amp;)?#x(?:3D|60);(?:"|&quot;))\s*$/
 
 function execAt(pattern: RegExp, text: string, position: number): RegExpExecArray | null {
     pattern.lastIndex = position
@@ -199,7 +199,20 @@ function piecesOf(source: string, inRaw: boolean): Piece[] {
 }
 
 function liquidPiece(tag: string): Piece {
-    return { kind: 'liquid', value: tag.startsWith('{{') ? tag.replace(HTML_ESCAPE_FILTERS, ' ') : tag }
+    return { kind: 'liquid', value: tag.startsWith('{{') ? withoutEscapeFilters(tag) : tag }
+}
+
+/** Reads filters from the end, so a long chain takes one pass. */
+function withoutEscapeFilters(tag: string): string {
+    const close = tag.endsWith('-}}') ? '-}}' : '}}'
+    let end = tag.length - close.length
+    for (let pipe = tag.lastIndexOf('|', end - 1); pipe > 1; pipe = tag.lastIndexOf('|', end - 1)) {
+        if (!HTML_ESCAPE_FILTER.test(tag.slice(pipe + 1, end))) {
+            break
+        }
+        end = pipe
+    }
+    return end === tag.length - close.length ? tag : `${tag.slice(0, end).trimEnd()} ${close}`
 }
 
 /** The Liquid tags of a string that print nothing, without the text between them. */
