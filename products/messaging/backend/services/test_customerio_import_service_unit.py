@@ -129,6 +129,7 @@ class TestCustomerIOImportServiceUnit(SimpleTestCase):
         [
             ("us_key", {"us": 200}, CustomerIOClient.US_BASE_URL),
             ("eu_key", {"us": 401, "eu": 200}, CustomerIOClient.EU_BASE_URL),
+            ("eu_key_redirected", {"us": 301, "eu": 200}, CustomerIOClient.EU_BASE_URL),
             ("rejected_everywhere", {"us": 401, "eu": 403}, False),
             ("us_down", {"us": 503, "eu": 401}, CustomerIOAPIError),
             ("us_unreachable", {"us": None, "eu": 401}, CustomerIOAPIError),

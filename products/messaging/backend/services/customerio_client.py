@@ -6,6 +6,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
 
 class CustomerIOAPIError(Exception):
     def __init__(self, message: str, status_code: int | None = None):
@@ -51,7 +53,7 @@ class CustomerIOClient:
                 # Customer.io redirects a key to its own region. The key only goes to the hosts above.
                 allow_redirects=False,
             )
-            if response.is_redirect:
+            if response.status_code in REDIRECT_STATUSES:
                 raise CustomerIOAPIError("Customer.io sent a redirect.", status_code=response.status_code)
             response.raise_for_status()
             if response.status_code == 204:
