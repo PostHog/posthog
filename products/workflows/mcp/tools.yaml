@@ -635,8 +635,8 @@ tools:
             allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts
             that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow,
             worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws
-            and reputation are null for a user without project-wide workflow access. infrastructure holds the bounce
-            and complaint rates of all email that every project in this PostHog region sent, so the user can tell a
+            and reputation are null for a user without project-wide workflow access. infrastructure holds the bounce and
+            complaint rates of all email that every project in this PostHog region sent, so the user can tell a
             shared-infrastructure problem from their own; it is null while unavailable for the project.
         feature_flag: workflows-sending-tier-requests
         response:
