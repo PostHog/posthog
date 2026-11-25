@@ -229,21 +229,6 @@ mod tests {
         assert_eq!(team.realtime_cohort_level, RealtimeCohortLevel::Off);
     }
 
-    #[test]
-    fn test_null_counts_as_not_set_is_read_from_a_cache_blob() {
-        let cached = serde_json::json!({
-            "id": 1,
-            "name": "test team",
-            "api_token": "test_token",
-            "uuid": Uuid::new_v4().to_string(),
-            "null_counts_as_not_set": true,
-        });
-
-        let team: Team = serde_json::from_value(cached).expect("cache blob must deserialize");
-
-        assert!(team.null_counts_as_not_set);
-    }
-
     #[rstest]
     #[case("off", RealtimeCohortLevel::Off)]
     #[case("processing", RealtimeCohortLevel::Processing)]

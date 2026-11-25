@@ -529,11 +529,9 @@ async fn test_team_null_counts_as_not_set_selects_live_and_batch_semantics() -> 
         .json::<Value>()
         .await?;
     assert_eq!(batch_off["null_counts_as_not_set"], json!(false));
-    let mut matched_off = matched_uuids(&batch_off);
-    matched_off.sort();
     let mut expected_off = vec![null_person_uuid, set_person_uuid];
     expected_off.sort();
-    assert_eq!(matched_off, expected_off);
+    assert_eq!(matched_uuids(&batch_off), expected_off);
 
     let mut conn = context.get_non_persons_connection().await?;
     sqlx::query(

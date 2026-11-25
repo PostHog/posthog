@@ -5407,6 +5407,7 @@ mod tests {
             None,
             None,
         ));
+        let detailed_analysis = matches!(target, NullIsSetTarget::DetailedAnalysis);
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id,
             None,
@@ -5417,7 +5418,7 @@ mod tests {
             None,
         )
         .with_null_counts_as_not_set(null_counts_as_not_set)
-        .with_detailed_analysis(matches!(target, NullIsSetTarget::DetailedAnalysis));
+        .with_detailed_analysis(detailed_analysis);
 
         let response = matcher
             .evaluate_all_feature_flags(
@@ -5435,7 +5436,7 @@ mod tests {
         let details = &response.flags[&flag.key];
         assert!(!details.failed, "{target:?} must evaluate, not fail");
         assert_eq!(details.enabled, expected_enabled, "{target:?}");
-        if matches!(target, NullIsSetTarget::DetailedAnalysis) {
+        if detailed_analysis {
             let conditions = details.conditions.as_ref().expect("analysis conditions");
             let plan = conditions[0]
                 .properties

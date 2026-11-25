@@ -182,7 +182,7 @@ def batch_evaluate_flag_for_team(
         expected_null_counts_as_not_set: The team's null_counts_as_not_set setting, pinned for every page in the run
 
     Returns:
-        The page as a dict with matched_person_uuids, next_cursor, errors_count, and property_matching_version
+        The page as a dict with matched_person_uuids, next_cursor, errors_count, property_matching_version, and null_counts_as_not_set
 
     Raises:
         ImproperlyConfigured: `INTERNAL_REQUEST_TOKEN` is not set
@@ -228,15 +228,14 @@ def batch_evaluate_flag_for_team(
         )
     response.raise_for_status()
     response_data = response.json()
-    if response_data.get("property_matching_version", 1) != expected_property_matching_version:
-        raise PropertyMatchingVersionConflictError(
-            f"Feature flags service did not use property matching version {expected_property_matching_version} "
-            f"while generating a cohort from feature flag '{flag_key}'."
-        )
-    # A flags service version that predates the setting ignores the pin and omits the field.
-    if response_data.get("null_counts_as_not_set", False) != expected_null_counts_as_not_set:
-        raise PropertyMatchingVersionConflictError(
-            f"Feature flags service did not use null_counts_as_not_set={expected_null_counts_as_not_set} "
-            f"while generating a cohort from feature flag '{flag_key}'."
-        )
+    # A flags service version that predates a setting ignores its pin and omits the field.
+    for field, legacy_value, expected in (
+        ("property_matching_version", 1, expected_property_matching_version),
+        ("null_counts_as_not_set", False, expected_null_counts_as_not_set),
+    ):
+        if response_data.get(field, legacy_value) != expected:
+            raise PropertyMatchingVersionConflictError(
+                f"Feature flags service did not use {field}={expected} "
+                f"while generating a cohort from feature flag '{flag_key}'."
+            )
     return response_data
