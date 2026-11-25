@@ -48,6 +48,7 @@ export interface slackAppSettingsLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
     channelDraft: ChannelDraft | null
+    channelSaveDisabledReason: string | undefined
     channelSaving: boolean
     channels: SlackAppChannelSettingsApi[] | null
     channelsLoading: boolean
@@ -173,6 +174,11 @@ export interface slackAppSettingsLogicMeta {
             selectedIntegrationId: number | null,
             slackIntegrations: IntegrationType[] | undefined
         ) => IntegrationType | null
+        channelSaveDisabledReason: (
+            channelDraft: ChannelDraft | null,
+            isEditingChannel: boolean,
+            channels: SlackAppChannelSettingsApi[] | null
+        ) => string | undefined
         projectNames: (settings: SlackAppSettingsApi | null) => Record<number, string>
     }
 }
@@ -328,6 +334,26 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
                 slackIntegrations: IntegrationType[] | undefined
             ): IntegrationType | null =>
                 slackIntegrations?.find((integration) => integration.id === selectedIntegrationId) ?? null,
+        ],
+        channelSaveDisabledReason: [
+            (s) => [s.channelDraft, s.isEditingChannel, s.channels],
+            (
+                channelDraft: ChannelDraft | null,
+                isEditingChannel: boolean,
+                channels: SlackAppChannelSettingsApi[] | null
+            ): string | undefined => {
+                if (!channelDraft?.slack_channel_id) {
+                    return 'Select a channel'
+                }
+                // Saving an edited channel with every setting cleared removes its settings, so only a new channel needs one.
+                if (isEditingChannel) {
+                    return undefined
+                }
+                if ((channels ?? []).some((channel) => channel.slack_channel_id === channelDraft.slack_channel_id)) {
+                    return 'This channel already has settings. Edit it in the list instead.'
+                }
+                return hasChannelSetting(channelDraft) ? undefined : 'Set at least one setting'
+            },
         ],
         projectNames: [
             (s) => [s.settings],
