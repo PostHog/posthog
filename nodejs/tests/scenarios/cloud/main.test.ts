@@ -288,18 +288,19 @@ describe('cloud controller', () => {
         >
 
     it.each([
-        ['invalid', 'passed', 'unjudged'],
-        ['failed', 'invalid', 'open'],
+        ['invalid', 'passed', 'unjudged', 2],
+        ['failed', 'invalid', 'open', 2],
+        ['failed', 'passed', 'open', 1],
     ])(
         'keeps the exit of the worse run and the attribution of the host when the control is %s and the faulted run %s',
-        async (controlStatus, runnerStatus, attribution) => {
+        async (controlStatus, runnerStatus, attribution, exitCode) => {
             const { controller } = prepare({
                 cards: { [PAIRED_CARD]: pairedCard() },
-                cloud: { card: { exitCode: 2, runnerStatus, controlStatus } },
+                cloud: { card: { exitCode, runnerStatus, controlStatus } },
                 env: api.credentials,
             })
 
-            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(2)
+            await expect(main(['run', profilePath(), PAIRED_CARD], controller)).resolves.toBe(exitCode)
 
             const leased = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
             expect(leased).toMatchObject({ pair: true, controlRunId: expect.stringMatching(/^[0-9a-f-]{36}$/) })
@@ -307,6 +308,7 @@ describe('cloud controller', () => {
                 status: runnerStatus,
                 pair_role: 'faulted',
                 pair_attribution: attribution,
+                pair_reason: `the control ${controlStatus}, the faulted run ${runnerStatus}`,
             })
         }
     )
